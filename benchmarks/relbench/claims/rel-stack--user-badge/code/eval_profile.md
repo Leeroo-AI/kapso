@@ -2,30 +2,40 @@
 
 ## Mechanics
 
-The immutable registered evaluator runs `main.py` in a subprocess, validates full-length aligned NumPy predictions, and calls the official RelBench task evaluator. Fast fidelity changes the candidate build to `--debug` but does not subsample scoring rows. The score of record is validation ROC AUC; all full runs archive validation and test predictions. Validation predictions must come from a chain fitted without validation labels, while the test chain may refit supervised components on train plus validation.
+The immutable registered evaluator runs `main.py` in an isolated subprocess, validates complete aligned validation and test NumPy arrays, and passes validation predictions to the official RelBench evaluator. Both fast and full fidelity score all 247,398 validation rows. The search score is validation ROC AUC; full runs archive both prediction arrays. Model A must produce validation predictions without any validation-label fit, while Model B may refit on train plus validation exclusively for test predictions.
 
 ## Input distribution
 
-The training table contains 3,386,276 rows across 40 quarterly origins from 2010-10-14 through 2020-07-02 and 239,945 distinct users. Snapshot size grows from 1,093 to 239,945. The validation table is one 247,398-user origin at 2020-10-01, and test is one 255,360-user origin at 2021-01-01. Training positive rate declines with platform age: 27.8% at the first origin, 2.39% at the last; validation is 2.95%. There are visible historical shocks, notably 19.55% at 2014-07-10 and 4.38% at 2019-10-03.
+Training has 3,386,276 rows over 40 quarterly origins, validation has 247,398 rows at 2020-10-01, and test has 255,360 rows at 2021-01-01. Positive rates are 4.81% overall training and 2.95% validation. At validation, the authored-activity segments are never-active 160,847 rows and 1,083 positives, dormant over one year 70,120 and 3,645, stale 92–365 days 11,409 and 1,302, and active under 92 days 5,022 and 1,271. Thus 93.3% of rows and 64.8% of positives are never-active or dormant.
 
-The relational database has 255,360 users, 333,893 posts, 623,967 comments, 1,175,368 post-history records, 1,317,876 votes, 77,337 links, and 463,463 badge records. Across tables, a calendar day has median 1,099 and 99th-percentile 2,102 events. Vote timestamps are day-granular and strongly tied; post-history also has substantial timestamp ties. Deterministic replay therefore orders by timestamp, table identifier, and primary key.
-
-Null-key behavior is material: 99.6% of votes have null UserId, so vote features and events attach to the voted post and known owner only. OwnerUserId is null on 5,245 posts; UserId is null on 11,679 comments and 75,337 post-history rows. Post links have 16,166 null source posts and 1,749 null related posts. Null graph endpoints are skipped or represented as a self post event without inventing an identity.
+The relational database has 163,748 tagged questions among 333,893 posts, 1,175,368 post-history records, 1,317,876 votes, 623,967 comments, and 77,337 links. Current post title and tag values are mutable, so earlier origins require state reconstruction from post-history types 1/4 and 3/6. Votes lack usable voter identity but retain post identity, allowing cutoff-valid inbound topic traffic.
 
 ## Coverage axes
 
-- Origin and account age: early/small versus late/large snapshots.
-- History density: no activity, sparse activity, and high-degree users.
-- Recency and trend: 7, 30, 91, and 365-day windows versus lifetime history.
-- Interaction role: authoring, answering, commenting, revising, receiving votes/responses, and linking.
-- Badge state: no prior badge, recent badge, badge class, and family diversity.
-- Graph state: counterpart diversity, thread topology, recent neighbors, and event ordering.
-- Data quality: null endpoints, tied timestamps, unseen or graph-isolated users.
+- Origin and platform regime.
+- No-history, dormant, stale, and active user state.
+- Question age, old-question ownership, and owned-question depth.
+- Topic momentum at 30, 91, and 365 days and corresponding prior-year windows.
+- Inbound votes, comments, answers, and links routed to root questions.
+- Historical title/tag state availability, text script, and missing reconstruction.
+- Content-derived future-traffic predictions versus deterministic tag traffic.
+
+## Metric diagnostics
+
+Feature admission uses three purged forward training folds, paired fold AUC changes, and dormant-slice stability. The official validation metric is reported only after the design is frozen. The candidate records a 100-draw bootstrap standard error and prediction rank correlations, and reports activity-density and dormant-recency slices wherever both labels occur.
+
+The accepted tag block changed the three fold AUCs by -0.000027, +0.000621, and +0.000203. The content-traffic block changed them by +0.000673, +0.001582, and +0.000260. Together they changed them by +0.000424, +0.002328, and +0.000259, with a +0.001004 mean overall improvement and +0.002938 mean dormant-slice improvement.
+
+Registered full run_0006 scored validation ROC AUC 0.9047596371, average precision 0.3616787516, accuracy 0.9711638736, and F1 0.2785194175. Slice results were: never-active 160,847 rows, label rate 0.006733, AUC 0.819983; dormant 70,131 rows, rate 0.051988, AUC 0.830789; stale 11,395 rows, rate 0.114173, AUC 0.827095; active 5,025 rows, rate 0.252935, AUC 0.838489.
+
+The candidate-versus-reproduced-champion paired bootstrap delta was +0.0007535 with SE 0.0002075, 95% interval [0.0004412, 0.0011913], and P(delta > 0)=1.00. Their rowwise Spearman correlation was 0.995601. The decorrelated solo content expert had correlation 0.635512 but ROC AUC 0.801238, outside the two-SE finalist range, so there is no unresolved resolution defect or qualified cross-branch ensemble. Trailing 91-day event volume was 123,048 at validation and 116,304 at test; the 5.5% decline is consistent with adjacent history rather than an isolated validation shock.
 
 ## Coverage check
 
-The structural-signal claim remains unverified and is tested through purged forward-fold OOF predictions. PyTorch Geometric 2.8.0 is installed; the implementation retains a plain PyTorch replay path. A100 bf16 GRU throughput measured 1.65 million node updates per second on synthetic 8,192-node batches; the end-to-end pretraining target is conservatively 40,000 graph events per second after attention, loading, and neighbor-store work.
+The solution's 28.3% dormant-validation share, approximately half of positives in the dormant segment, and full non-null current tag coverage are consistent with the measured campaign profile. The assumed English-language dominance is checked through text script fractions; non-Latin or unreconstructable states route through tag/numeric features and missingness flags instead of unsafe current text.
 
-## Reporting strata
+## Iteration 2 cold-start coverage
 
-The candidate writes count and ROC AUC for activity-density, prior-badge, account-age, and recency strata to `metrics.json`. Bootstrap standard error and prediction-rank correlations are computed after the first full validation run without using them for model selection.
+The requested replay system targets two strict never-authored strata: `N0` has no authored posts, comments, attributable post-history, or prior badge; `N1` has no authored activity but at least one prior badge. Monthly landmarks vary by origin regime, account-age decile, prior-badge depth, creation cohort, ID/account rank, badge family, and system incidence. The final gate reports global, never-authored, N0, and N1 deltas across six purged quarterly origins and uses UserId-clustered paired resampling.
+
+The debug profile built 12 monthly origins into 127,567 sampled rows, 14,178 positives, and 204 causal features in 23.9 seconds. Because those latest 12 replay origins cannot close before the first four of the six diagnostic folds, debug treats missing experts as constants and is only a wiring check; the full 84-origin run is the promotion measurement.

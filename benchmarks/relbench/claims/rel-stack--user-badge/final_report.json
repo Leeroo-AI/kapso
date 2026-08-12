@@ -3,51 +3,39 @@
   "task": "user-badge",
   "family": "entity_binary_classification",
   "primary_metric": "roc_auc",
-  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 052a7dac07cc)",
-  "run": "run_0013",
-  "head_evaluator_id": "052a7dac07cc03448f0632407aef11989be7b9f4150d2debb45a87759cd38d27",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 0c3137a15368)",
+  "run": "run_0025",
+  "head_evaluator_id": "0c3137a1536835eb0e848427ab56c6e714302c2590fbb5d7052b0bc2879598c5",
   "scored": {
-    "run_0012": 0.8863832229378766,
-    "run_0013": 0.9038666848293635,
-    "run_0014": 0.9008329828014878,
-    "run_0016": 0.8873872158128584
+    "run_0006": 0.904759637058459,
+    "run_0016": 0.9040002600829851,
+    "run_0021": 0.9036706798928866,
+    "run_0023": 0.9045383512836347,
+    "run_0025": 0.9051849887609655,
+    "run_0026": 0.904759637058459,
+    "run_0027": 0.904759637058459
   },
   "excluded": {},
   "val_metrics": {
-    "average_precision": 0.345579028893044,
-    "accuracy": 0.9707717928196671,
-    "f1": 0.2635706283735615,
-    "roc_auc": 0.9038666848293635
+    "average_precision": 0.36154938742962806,
+    "accuracy": 0.9710547377100865,
+    "f1": 0.2841147655703289,
+    "roc_auc": 0.9051849887609655
   },
   "test_metrics": {
-    "average_precision": 0.3340154894968106,
-    "accuracy": 0.9755639097744361,
-    "f1": 0.1728525980911983,
-    "roc_auc": 0.8929209786714831
+    "average_precision": 0.3405224818557949,
+    "accuracy": 0.9756618107769424,
+    "f1": 0.20064308681672025,
+    "roc_auc": 0.894904300303488
   },
   "audit": {
-    "clean": false,
-    "findings": [
-      {
-        "file": "main.py",
-        "line": 154,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "labeled_times = np.concatenate([train_times, validation[\"timestamp\"].to_numpy(dtype=\"datetime64[s]\").astype(np.int64)])"
-      },
-      {
-        "file": "temporal_features.py",
-        "line": 49,
-        "pattern": "RELBENCH_CACHE_DIR",
-        "concern": "tampers with the data cache location",
-        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\""
-      }
-    ],
+    "clean": true,
+    "findings": [],
     "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
   },
-  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0013/code",
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0025/code",
   "predictions": {
-    "val": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0013/val_predictions.npy",
-    "test": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0013/test_predictions.npy"
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0025/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-stack--user-badge/runs/run_0025/test_predictions.npy"
   }
 }

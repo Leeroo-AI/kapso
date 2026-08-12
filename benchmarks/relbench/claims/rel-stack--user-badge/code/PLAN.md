@@ -1,22 +1,28 @@
-TIME ALLOCATION 1/3 — Critical path: frozen chronological memory snapshots for 42 origins; measured GRU core at 1.65M node updates/s, budgeted end-to-end target at least 40k graph events/s.
-TIME ALLOCATION 2/3 — Confirmation points: debug contract by 21:35 UTC, frozen-memory/compact forward-fold check by 22:45 UTC, full prediction build by 00:15 UTC.
-TIME ALLOCATION 3/3 — Feature freeze at 00:15 UTC on 2026-08-10; reserve through 01:15 UTC for full evaluator, diagnostics, and one repair attempt.
+TIME ALLOCATION 1/3 — Critical path: 84-origin cold replay panel plus six forward expert gates; target at least 1.0 replay origins/second from vectorized landmark state and no more than 90 seconds per 350-tree expert fit.
+TIME ALLOCATION 2/3 — Confirmation points: fingerprint and 12-origin debug by 01:10 UTC, six-fold gate and candidate freeze by 01:55 UTC, registered cached evaluation by 02:10 UTC.
+TIME ALLOCATION 3/3 — Feature freeze at 01:55 UTC on 2026-08-12, retaining at least 15 minutes for contract checks, registered evaluation, and automatic run_0006 fallback.
 
 # Plan
 
-- [x] Persist measurement profile and graph/data facts.
-- [x] Build deterministic typed events and compact temporal features.
-- [x] Train and replay the TGN-style memory encoder.
-- [x] Fit purged OOF hazard, residual LightGBM, and logistic meta-model.
-- [x] Verify debug/full prediction contracts and run registered evaluation.
-- [x] Bootstrap validation resolution, report slices, and update living records.
+- [x] Reproduce the staged champion in the lane-3 cache.
+- [x] Reconstruct cutoff-valid title and tag states and topic-event windows.
+- [x] Cache MiniLM historical-text embeddings and fit leakage-safe traffic auxiliaries.
+- [x] Gate tag, content, and combined blocks on three purged forward folds with dormant slices.
+- [x] Refit accepted features in Model A and Model B and write contract-valid predictions.
+- [x] Run the immutable registered evaluator and record its full manifest.
 
-Revision at 21:31 UTC: the first full run left substantial reserve and localized losses to cold/young users, so the freeze moved to 22:05 UTC for one predeclared training-fold-tested expansion. Promotion requires improvement on both purged folds; anniversary/cadence plus graph passed at +0.001420 and +0.001340 AUC.
+Revision at 19:05 UTC: the uncached champion reached 303k–309k graph events/s and completed chronological feature/memory construction in 214 seconds, so graph replay is no longer the critical wall-clock path. The fixed 500-tree forward fits measured about four minutes each; feature freeze remains 01:00 UTC, with the three-fold four-way gate allocated approximately 50 minutes and content reconstruction/embedding allocated 45 minutes.
 
-Revision at 21:52 UTC: post-threshold state was the remaining unmodeled badge mechanism and the expanded matrix built in under two minutes. Its legal fold gains were +0.000934 and +0.000545, so it passed the same two-fold rule; final freeze moved to 22:20 UTC with cached consumers preserving evaluation reserve.
+Freeze record: the combined tag/content block was frozen after its three-fold mean gain of +0.001004 and dormant-slice mean gain of +0.002938. Model A and Model B refits, aligned prediction validation, and registered full evaluation run_0006 completed successfully; two later feature probes were rejected without changing the frozen candidate.
 
-Revision at 22:10 UTC: all-history supervision was measured against recent windows after old-regime dilution remained visible. A 16-origin LightGBM window improved both folds by +0.001715/+0.001156 and was steadier than the essentially tied 12-origin mean; the hazard restriction failed the two-fold rule and was rejected. Final freeze is 22:35 UTC.
+## Iteration 2 plan
 
-Revision at 22:29 UTC: OOF/final capacity mismatch was audited without changing final capacity. Matching OOF to 500 trees added +0.000987/+0.000779 AUC, so cached final trees remain fixed and only meta-model OOF inputs are aligned. Freeze remains 22:35 UTC.
+- [x] Verify controller promotion status for archived run_0006.
+- [x] Read living table and feature documents and inventory reusable artifacts.
+- [x] Fingerprint task keys, archived predictions, fold predictions, and feature matrices.
+- [ ] Build 84-origin monthly N0/N1 replay and causal cold features.
+- [ ] Gate density-weighted experts and the global constrained stack on six purged origins.
+- [x] Run the 12-origin, 50-tree debug pipeline and verify full-shape outputs.
+- [ ] Freeze candidate or baseline fallback and execute one registered full evaluation.
 
-Final freeze at 23:25 UTC: all later feature/ensemble candidates failed the both-fold rule. The v5 contract is immutable for final audit; `run_0010` is its registered evaluation.
+Confirmation at 01:17 UTC: debug built 127,567 sampled replay rows with 14,178 positives and 204 features in 23.9 seconds; end-to-end runtime was 77.0 seconds. Its intentionally truncated replay did not cover the first four fold boundaries, the strict gate rejected the candidate, and hash-identical run_0006 fallback vectors were written.

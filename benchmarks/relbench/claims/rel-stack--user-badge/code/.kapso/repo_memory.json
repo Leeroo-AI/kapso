@@ -1,27 +1,35 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-09T20:13:26.789878+00:00",
+  "generated_at": "2026-08-11T21:49:12.514626+00:00",
   "baseline": {
-    "initial_repo": "/tmp/relbench_baseline_ebfd4uo5"
+    "initial_repo": "/tmp/relbench_baseline_8wudhj_z"
   },
   "repo_map": {
     "repo_root": ".",
-    "file_count": 10,
+    "file_count": 17,
     "files": [
       ".gitignore",
+      "PLAN.md",
+      "content_modeling.py",
+      "eval_profile.md",
       "kapso_datasets/CONTRACT.md",
       "kapso_datasets/README.md",
       "kapso_datasets/__init__.py",
       "kapso_datasets/check_predictions.py",
       "kapso_datasets/common.py",
       "kapso_evaluation/README.md",
+      "kapso_evaluation/__pycache__/kapso_eval_archive.cpython-312.pyc",
       "kapso_evaluation/grader.py",
+      "kapso_evaluation/kapso_eval.py",
       "kapso_evaluation/kapso_eval_archive.py",
-      "main.py"
+      "main.py",
+      "topic_data.py",
+      "topic_features.py"
     ],
     "languages_by_extension": {
-      ".py": 6,
-      ".md": 3
+      ".py": 10,
+      ".md": 5,
+      ".pyc": 1
     },
     "key_files": [],
     "entrypoints": [
@@ -29,115 +37,516 @@
     ]
   },
   "repo_model": {
-    "summary": "This repository is a RelBench generic-search candidate workspace whose root entrypoint loads a configured task and writes validation/test prediction arrays. The checked-in implementation is a shape-correct trivial baseline, while the starter helpers and evaluation suite define the data, scoring, and archival contracts.",
+    "summary": "This repository is a frozen RelBench lane-3 chronological graph/hazard candidate. main.py combines cached champion graph memories, temporal/mechanism features, cutoff-valid historical question/tag states, tag traffic, MiniLM-derived content traffic, purged block gating, and OOF neural/GBDT meta-modeling before writing aligned validation and test probability arrays.",
     "entrypoints": [
       {
         "path": "main.py",
-        "how_to_run": "From the repository root with the harness environment set: python main.py --debug for the fast pipeline check, or python main.py for the full run."
+        "how_to_run": "With the evaluator environment configured, run `python main.py --debug` for the reduced debug path or `python main.py` for the full candidate run.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 138,
+            "description": "Enables debug mode when --debug is present."
+          },
+          {
+            "path": "main.py",
+            "line": 143,
+            "description": "Reads the RelBench dataset and task from the environment."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 3,
+            "description": "Documents the two harness invocations."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 5,
+            "description": "Shows the debug command."
+          }
+        ]
       },
       {
         "path": "kapso_evaluation/grader.py",
-        "how_to_run": "For official scoring, run python kapso_evaluation/grader.py --fidelity fast or --fidelity full, with the required RelBench environment variables exported."
+        "how_to_run": "Invoke `python kapso_evaluation/grader.py --fidelity fast|full` with the evaluator environment configured.",
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 14,
+            "description": "Documents the grader CLI."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 15,
+            "description": "Shows the fidelity command syntax."
+          }
+        ]
       }
     ],
     "where_to_edit": [
       {
         "path": "main.py",
-        "role": "Primary candidate implementation: task loading, feature/model logic, and prediction output."
+        "role": "Primary orchestration: load data, build champion and topic features, run the purged gate, fit Model A/Model B, write predictions, and emit diagnostics.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 131,
+            "description": "Defines the candidate entrypoint."
+          },
+          {
+            "path": "main.py",
+            "line": 151,
+            "description": "Starts the feature-building pipeline."
+          },
+          {
+            "path": "main.py",
+            "line": 188,
+            "description": "Runs feature-block admission."
+          },
+          {
+            "path": "main.py",
+            "line": 269,
+            "description": "Creates the output directory and writes prediction artifacts."
+          },
+          {
+            "path": "main.py",
+            "line": 288,
+            "description": "Writes metrics.json."
+          }
+        ]
+      },
+      {
+        "path": "content_modeling.py",
+        "role": "Tune hazard/GBDT fitting, purged block gating, dormant-slice diagnostics, and OOF generation here.",
+        "evidence": [
+          {
+            "path": "content_modeling.py",
+            "line": 29,
+            "description": "Defines hazard fitting and checkpoint reuse."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 151,
+            "description": "Defines the tag/content block gate."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 232,
+            "description": "Defines fold-local OOF training."
+          }
+        ]
+      },
+      {
+        "path": "topic_data.py",
+        "role": "Edit historical title/tag reconstruction, root-question event routing, cache registration, and embedding generation here.",
+        "evidence": [
+          {
+            "path": "topic_data.py",
+            "line": 24,
+            "description": "Defines the lane-3 topic cache root."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 62,
+            "description": "Defines the QuestionData structure passed to feature builders."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 207,
+            "description": "Defines chronological state replay."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 272,
+            "description": "Defines historical embedding generation."
+          }
+        ]
+      },
+      {
+        "path": "topic_features.py",
+        "role": "Edit tag traffic statistics, content traffic auxiliaries, owner aggregation, normalization, and feature-matrix caching here.",
+        "evidence": [
+          {
+            "path": "topic_features.py",
+            "line": 100,
+            "description": "Defines tag feature names."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 199,
+            "description": "Defines content feature construction."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 237,
+            "description": "Aggregates predicted content traffic by owner."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 277,
+            "description": "Defines champion/topic matrix combination."
+          }
+        ]
       },
       {
         "path": "kapso_datasets/common.py",
-        "role": "Reusable task context, prediction-saving, temporal-safety, and MAP@K helpers."
+        "role": "Reusable task loading, prediction saving, temporal-safety, and MAP@K helpers for candidate code.",
+        "evidence": [
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 8,
+            "description": "Lists the intended helper imports for candidate code."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 86,
+            "description": "Provides the standard prediction-saving helper."
+          }
+        ]
       },
       {
-        "path": "kapso_datasets/CONTRACT.md",
-        "role": "Authoritative prediction, data-access, and evaluation contract to preserve."
+        "path": "kapso_datasets/check_predictions.py",
+        "role": "Read-only local validator for prediction shapes, dtypes, finiteness, and binary probability bounds.",
+        "evidence": [
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 1,
+            "description": "Describes the validator's purpose."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Reports successful split checks."
+          }
+        ]
       },
       {
         "path": "kapso_evaluation/grader.py",
-        "role": "Immutable official scorer and archive manager; do not reimplement or modify."
+        "role": "Provided immutable scoring and archive pipeline; candidate changes should not modify it.",
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 3,
+            "description": "Describes grader.py as the complete immutable scoring pipeline."
+          },
+          {
+            "path": "kapso_datasets/README.md",
+            "line": 11,
+            "description": "Instructs users not to modify kapso_evaluation files."
+          }
+        ]
       }
     ],
     "claims": [
       {
         "kind": "architecture",
-        "statement": "The candidate reads dataset/task identity from environment variables, loads the cached RelBench task without downloading, determines validation and test row counts, and writes prediction arrays under KAPSO_RUN_DATA_DIR.",
+        "statement": "main.py loads champion modeling code from the shared cache, loads the RelBench task without downloading, builds compact/extra/mechanism features and graph-memory features, then adds historical topic and content blocks before model fitting.",
         "confidence": 0.99,
         "evidence": [
           {
             "path": "main.py",
-            "line": 20,
-            "description": "Reads RELBENCH_DATASET."
+            "line": 17,
+            "description": "Locates the cached champion code under KAPSO_SHARED_CACHE_DIR."
           },
           {
             "path": "main.py",
-            "line": 22,
-            "description": "Loads the task with download=False."
+            "line": 23,
+            "description": "Imports the content-modeling pipeline."
           },
           {
             "path": "main.py",
-            "line": 25,
-            "description": "Uses the configured cache directory."
+            "line": 143,
+            "description": "Loads the configured RelBench task with download=False."
           },
           {
             "path": "main.py",
-            "line": 29,
-            "description": "Gets the test row count."
+            "line": 151,
+            "description": "Builds compact temporal features and mapped users."
           },
           {
             "path": "main.py",
-            "line": 49,
-            "description": "Gets the run output directory."
+            "line": 158,
+            "description": "Builds relational graph events."
           },
           {
             "path": "main.py",
-            "line": 52,
-            "description": "Saves test predictions."
-          }
-        ]
-      },
-      {
-        "kind": "algorithm",
-        "statement": "The seeded baseline branches by task family: recommendations receive the integer ranking 0..K-1, binary classification receives 0.5 probabilities, multiclass classification receives uniform class scores, and other tasks receive the training-target median.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 31,
-            "description": "Detects recommendation tasks."
+            "line": 161,
+            "description": "Trains the graph memory."
           },
           {
             "path": "main.py",
-            "line": 33,
-            "description": "Builds the baseline recommendation row."
+            "line": 163,
+            "description": "Combines compact, mechanism, and replayed graph-memory features."
           },
           {
             "path": "main.py",
-            "line": 36,
-            "description": "Handles binary classification."
+            "line": 167,
+            "description": "Builds cutoff-indexed historical question states."
           },
           {
             "path": "main.py",
-            "line": 39,
-            "description": "Handles multiclass classification."
-          },
-          {
-            "path": "main.py",
-            "line": 44,
-            "description": "Uses the training target median for the fallback task type."
+            "line": 168,
+            "description": "Builds tag traffic features."
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "kapso_datasets.common provides a TaskContext containing the dataset, task, database, and train/validation/test tables; load_task uses the sanitized cache and save_predictions writes both required NumPy files.",
+        "statement": "topic_data.py is the historical topic-state layer: it maps posts and relational events to root questions, reconstructs title/tag states at each origin, persists question-tag pairs and language flags, and provides cached historical text embeddings.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "topic_data.py",
+            "line": 124,
+            "description": "Defines construction of root-question vote, comment, answer, and link events."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 157,
+            "description": "Loads post-link endpoints for root-question event routing."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 173,
+            "description": "Registers the routed root-question event artifact."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 207,
+            "description": "Replays post-history changes in chronological origin order."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 212,
+            "description": "Applies history types 1 and 4 to titles and other history to tags."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 221,
+            "description": "Normalizes each complete title/tag state and hashes it."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 230,
+            "description": "Restricts states to questions created by the cutoff and valid owners."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 233,
+            "description": "Builds active question-tag pairs for each origin."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 272,
+            "description": "Defines cached historical embedding construction."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 327,
+            "description": "Describes the stored embeddings as 384-dimensional MiniLM vectors keyed by cutoff-valid text hashes."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "topic_features.py converts question event windows and historical states into tag-traffic and owner-level content-traffic matrices; content features predict 91-day inbound activity and aggregate predicted counts, crossing probabilities, age variants, and text-missingness signals by owner.",
         "confidence": 0.98,
         "evidence": [
           {
-            "path": "kapso_datasets/common.py",
-            "line": 44,
-            "description": "Defines TaskContext."
+            "path": "topic_features.py",
+            "line": 38,
+            "description": "Builds event windows and newly-created-question signals for a cutoff."
           },
+          {
+            "path": "topic_features.py",
+            "line": 45,
+            "description": "Defines the four-channel 91-day future traffic target."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 100,
+            "description": "Defines tag heat, growth, activity, and percentile feature families."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 106,
+            "description": "Includes traffic interactions and ownership-related tag features."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 144,
+            "description": "Computes prior-year tag heat features."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 199,
+            "description": "Defines cached content-feature construction."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 210,
+            "description": "Builds embeddings and fits/loads the traffic auxiliary model."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 223,
+            "description": "Processes only historical origins at or before the requested boundary."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 233,
+            "description": "Converts predicted log traffic into nonnegative count predictions and a crossing probability."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 237,
+            "description": "Aggregates content predictions by owner, including old-question variants."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 244,
+            "description": "Tracks missing and non-Latin historical states."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 277,
+            "description": "Defines cached concatenation of champion and topic feature blocks."
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "content_modeling.py reuses the champion hazard, meta, and GBDT primitives, adds checkpointed hazard and LightGBM fitting, evaluates tag/content/both blocks against a baseline on three purged forward folds, and produces OOF neural/tree predictions for meta-fitting.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "content_modeling.py",
+            "line": 22,
+            "description": "Reuses the champion HazardHead."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 23,
+            "description": "Reuses champion hazard prediction."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 25,
+            "description": "Reuses champion meta prediction."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 29,
+            "description": "Defines checkpoint-aware hazard fitting."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 91,
+            "description": "Defines checkpoint-aware LightGBM fitting."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 161,
+            "description": "Selects the three latest training origins for forward gating."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 163,
+            "description": "Defines baseline, tag, content, and combined comparison blocks."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 170,
+            "description": "Applies a 92-day purge before each validation origin."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 178,
+            "description": "Fits the baseline fold model."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 185,
+            "description": "Fits each candidate block on the purged fold training data."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 232,
+            "description": "Defines OOF training over the latest forward folds."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 249,
+            "description": "Fits fold-local hazard and GBDT models."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 260,
+            "description": "Returns concatenated OOF neural, tree, and target vectors."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The final candidate uses Model A for validation and Model B for test: it gates topic blocks, fits an OOF meta-model, generates validation predictions from train-only supervision, then refits on train plus validation for test predictions.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 188,
+            "description": "Runs the purged tag/content block gate."
+          },
+          {
+            "path": "main.py",
+            "line": 205,
+            "description": "Selects the accepted topic blocks for Model A and Model B."
+          },
+          {
+            "path": "main.py",
+            "line": 214,
+            "description": "Fits OOF models on the selected fold features."
+          },
+          {
+            "path": "main.py",
+            "line": 220,
+            "description": "Fits the first meta-model from OOF predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 223,
+            "description": "Defines Model A's supervised training indices."
+          },
+          {
+            "path": "main.py",
+            "line": 231,
+            "description": "Generates Model A validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 241,
+            "description": "Defines Model B supervision over train plus validation rows."
+          },
+          {
+            "path": "main.py",
+            "line": 244,
+            "description": "Fits the Model B hazard head."
+          },
+          {
+            "path": "main.py",
+            "line": 252,
+            "description": "Fits the Model B meta-model using OOF and validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 257,
+            "description": "Generates Model B test predictions."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "kapso_datasets.common.py provides the reusable task context layer: it loads the dataset, task, database, and train/validation/test tables, and exposes helpers for saving predictions, temporal checks, and MAP@K evaluation.",
+        "confidence": 0.98,
+        "evidence": [
           {
             "path": "kapso_datasets/common.py",
             "line": 60,
@@ -145,29 +554,29 @@
           },
           {
             "path": "kapso_datasets/common.py",
-            "line": 71,
-            "description": "Loads the dataset and task without downloading."
+            "line": 73,
+            "description": "Builds the RelBench database with the selected timestamp cutoff."
           },
           {
             "path": "kapso_datasets/common.py",
-            "line": 80,
-            "description": "Populates train, validation, and test tables."
+            "line": 74,
+            "description": "Returns a TaskContext containing dataset, task, database, and split tables."
           },
           {
             "path": "kapso_datasets/common.py",
             "line": 86,
-            "description": "Defines prediction saving."
+            "description": "Defines the prediction-saving helper."
           },
           {
             "path": "kapso_datasets/common.py",
-            "line": 89,
-            "description": "Writes validation and test prediction files."
+            "line": 106,
+            "description": "Defines the local MAP@K evaluator."
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "The evaluation grader runs main.py in an isolated child subprocess with a fidelity-specific timeout, then loads validation predictions, evaluates them through the RelBench task, and archives full-fidelity runs.",
+        "statement": "The provided evaluator launches main.py in an isolated subprocess, loads and validates its prediction artifacts, scores the validation table with the official task evaluator, and archives full-fidelity runs before emitting a machine-readable manifest.",
         "confidence": 0.99,
         "evidence": [
           {
@@ -177,67 +586,67 @@
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "line": 103,
-            "description": "Selects main.py and the optional debug flag."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
             "line": 110,
-            "description": "Starts the isolated subprocess."
+            "description": "Starts the candidate as a separate subprocess."
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "line": 212,
-            "description": "Defines loading and scoring."
+            "line": 220,
+            "description": "Loads the official task and validation table."
           },
           {
             "path": "kapso_evaluation/grader.py",
             "line": 248,
-            "description": "Computes RelBench validation metrics."
+            "description": "Computes official validation metrics."
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "line": 385,
+            "line": 386,
             "description": "Archives full-fidelity runs."
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "Rolling evaluation invokes the candidate separately for each snapshot and assembles each tick's test_predictions.npy into final validation and test vectors using the snapshot indices.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 155,
-            "description": "Defines rolling evaluation."
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "line": 176,
-            "description": "Creates an isolated stage for each snapshot."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 183,
-            "description": "Provides the snapshot cache and tick output directory."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 188,
-            "description": "Loads snapshot row indices."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 207,
-            "description": "Writes the assembled prediction vector."
+            "line": 402,
+            "description": "Constructs the KAPSO_EVAL_MANIFEST output line."
           }
         ]
       },
       {
         "kind": "contract",
-        "statement": "A normal candidate run must produce both val_predictions.npy and test_predictions.npy, with rows positionally aligned to the task tables; validation predictions must be out-of-sample and cannot be trained on validation labels.",
-        "confidence": 1.0,
+        "statement": "Dataset and task access must use the sanitized cache with download=False; test labels are physically absent and must not be probed.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 143,
+            "description": "Loads the task with download=False."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 25,
+            "description": "Requires RelBench API access with download=False."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 26,
+            "description": "States that test labels are absent and must not be probed."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 71,
+            "description": "Loads the dataset with download=False."
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "line": 72,
+            "description": "Loads the task with download=False."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "In normal evaluation runs, val_predictions.npy and test_predictions.npy must exist with rows positionally aligned to their RelBench tables; validation predictions must be out-of-sample with respect to validation labels.",
+        "confidence": 0.99,
         "evidence": [
           {
             "path": "kapso_datasets/CONTRACT.md",
@@ -255,16 +664,21 @@
             "description": "Requires validation predictions to be out-of-sample."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 87,
-            "description": "States that both files must be written in every run mode."
+            "path": "main.py",
+            "line": 270,
+            "description": "Writes validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 271,
+            "description": "Writes test predictions."
           }
         ]
       },
       {
         "kind": "contract",
-        "statement": "Required prediction formats are binary float probabilities of shape (N,) in [0,1], regression float vectors of shape (N,), multiclass float scores of shape (N,C), and recommendation integer rankings of shape (N,K) containing distinct destination IDs in range.",
-        "confidence": 1.0,
+        "statement": "Required prediction formats are binary float probabilities shaped (N,) in [0,1], regression floats shaped (N,), multiclass float scores shaped (N,C), and recommendation integer rankings shaped (N,K) with distinct destination IDs in the valid destination range.",
+        "confidence": 0.99,
         "evidence": [
           {
             "path": "kapso_datasets/CONTRACT.md",
@@ -274,83 +688,162 @@
           {
             "path": "kapso_datasets/CONTRACT.md",
             "line": 21,
-            "description": "Defines multiclass and recommendation shapes and dtypes."
+            "description": "Defines multiclass and recommendation shapes and ID constraints."
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 22,
-            "description": "Requires valid, distinct recommendation destination IDs."
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 37,
+            "description": "Validates recommendation shape and integer dtype."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Validates non-recommendation shapes."
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 58,
+            "description": "Validates binary probability bounds."
           }
         ]
       },
       {
         "kind": "contract",
-        "statement": "The score of record is the official validation primary metric; test predictions are collected as artifacts but cannot be scored inside the loop because test labels are absent.",
-        "confidence": 1.0,
+        "statement": "The candidate verifies that hazard-bin positives exactly match the official train and validation target labels before fitting.",
+        "confidence": 0.99,
         "evidence": [
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 23,
-            "description": "Defines the official validation primary metric as the search score."
+            "path": "main.py",
+            "line": 171,
+            "description": "Builds hazard bins from train and validation tables."
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 24,
-            "description": "States that test metrics are private."
+            "path": "main.py",
+            "line": 172,
+            "description": "Concatenates the official train and validation labels."
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 25,
-            "description": "States that test labels are physically absent."
+            "path": "main.py",
+            "line": 173,
+            "description": "Computes the hazard-label mismatch count."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 248,
-            "description": "Evaluates validation predictions."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 397,
-            "description": "Places the selected primary validation metric in the manifest score."
+            "path": "main.py",
+            "line": 175,
+            "description": "Raises if any hazard-label mismatch exists."
           }
         ]
       },
       {
         "kind": "contract",
-        "statement": "All RelBench data access must use the sanitized read-only cache with download=False; candidates must not probe for test labels.",
-        "confidence": 1.0,
+        "statement": "Model A validation fitting uses train-only supervision and OOF targets, while Model B may use train plus validation supervision only for test predictions.",
+        "confidence": 0.99,
         "evidence": [
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 25,
-            "description": "Requires relbench API access with download=False."
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "Defines the Model A and Model B evaluation split contract."
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 26,
-            "description": "Forbids probing for absent test labels."
+            "path": "main.py",
+            "line": 223,
+            "description": "Restricts Model A supervised training to train indices."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 71,
-            "description": "Loads the dataset with download=False."
+            "path": "main.py",
+            "line": 226,
+            "description": "Fits Model A hazard using the train-only indices."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 72,
-            "description": "Loads the task with download=False."
+            "path": "main.py",
+            "line": 230,
+            "description": "Fits the Model A tree model on recent train origins."
+          },
+          {
+            "path": "main.py",
+            "line": 241,
+            "description": "Defines Model B supervision over train plus validation."
+          },
+          {
+            "path": "main.py",
+            "line": 252,
+            "description": "Builds the Model B meta-training data with validation predictions."
           }
         ]
       },
       {
         "kind": "contract",
-        "statement": "Temporal feature construction can be guarded with assert_temporal_safety, which rejects any feature row whose time column is later than the seed time.",
-        "confidence": 0.95,
+        "statement": "Final validation and test predictions are clipped to finite probability bounds and saved as float32 arrays.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 238,
+            "description": "Clips validation probabilities to [1e-6, 1-1e-6]."
+          },
+          {
+            "path": "main.py",
+            "line": 262,
+            "description": "Clips test probabilities to [1e-6, 1-1e-6]."
+          },
+          {
+            "path": "main.py",
+            "line": 270,
+            "description": "Casts validation predictions to float32 when saving."
+          },
+          {
+            "path": "main.py",
+            "line": 271,
+            "description": "Casts test predictions to float32 when saving."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Historical topic features are cutoff-valid: state replay applies history only through each origin, content construction skips origins after its boundary, and current post title/tag values are not used as historical truth.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 11,
+            "description": "Documents that mutable title/tag values require post-history reconstruction."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 207,
+            "description": "Processes history in chronological origin order."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 208,
+            "description": "Selects history rows through the current cutoff."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 230,
+            "description": "Restricts active questions to creation dates at or before the cutoff."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 223,
+            "description": "Skips content feature construction for origins after the requested boundary."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 228,
+            "description": "Requires a valid historical state and Latin-language route for text-derived features."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Temporal features must not use rows after the seed timestamp; assert_temporal_safety raises a RuntimeError when any feature row violates this condition.",
+        "confidence": 0.96,
         "evidence": [
           {
             "path": "kapso_datasets/common.py",
             "line": 97,
-            "description": "Documents the temporal safety guard."
+            "description": "Documents the temporal-safety guard."
           },
           {
             "path": "kapso_datasets/common.py",
@@ -360,15 +853,42 @@
           {
             "path": "kapso_datasets/common.py",
             "line": 101,
-            "description": "Raises an error when temporal leakage is found."
+            "description": "Raises on temporal leakage."
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The search score of record is the official validation primary metric; test metrics are private and are not available inside this evaluation loop.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 23,
+            "description": "Defines the official validation primary metric as the search score."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 24,
+            "description": "States that test metrics are computed privately."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 41,
+            "description": "Reiterates that the manifest score is the official validation primary metric."
           }
         ]
       },
       {
         "kind": "other",
-        "statement": "The harness executes python main.py --debug as a fast end-to-end pipeline check and python main.py for the full training run.",
-        "confidence": 1.0,
+        "statement": "The quickest end-to-end sanity check is `python main.py --debug`; the harness then runs the normal candidate and validates and scores the resulting files.",
+        "confidence": 0.99,
         "evidence": [
+          {
+            "path": "main.py",
+            "line": 138,
+            "description": "Selects the reduced debug path."
+          },
           {
             "path": "kapso_datasets/CONTRACT.md",
             "line": 3,
@@ -377,403 +897,883 @@
           {
             "path": "kapso_datasets/CONTRACT.md",
             "line": 5,
-            "description": "Specifies the debug command."
+            "description": "Documents the debug invocation."
           },
           {
             "path": "kapso_datasets/CONTRACT.md",
-            "line": 6,
-            "description": "Specifies the full command."
+            "line": 8,
+            "description": "Explains that outputs are loaded, validated, and scored after each run."
           }
         ]
       },
       {
         "kind": "other",
-        "statement": "After writing predictions, run python kapso_datasets/check_predictions.py; success is reported as OK for both splits followed by all checks passed.",
-        "confidence": 1.0,
+        "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py` to catch missing files, shape/dtype errors, non-finite values, and invalid binary probabilities before scoring.",
+        "confidence": 0.99,
         "evidence": [
           {
             "path": "kapso_datasets/CONTRACT.md",
             "line": 27,
-            "description": "Provides the self-check command."
+            "description": "Documents the local prediction checker command."
           },
           {
             "path": "kapso_datasets/check_predictions.py",
-            "line": 30,
-            "description": "Checks validation and test files."
+            "line": 33,
+            "description": "Fails when a prediction file is missing."
           },
           {
             "path": "kapso_datasets/check_predictions.py",
-            "line": 62,
-            "description": "Prints a per-split OK result."
+            "line": 54,
+            "description": "Checks expected prediction shapes."
           },
           {
             "path": "kapso_datasets/check_predictions.py",
-            "line": 64,
-            "description": "Prints the overall success message."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "An official fast dry run uses python kapso_evaluation/grader.py --fidelity fast and, on success, prints official validation metrics and a KAPSO_EVAL_MANIFEST containing the score.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/README.md",
-            "line": 7,
-            "description": "Documents the grader CLI delegation."
-          },
-          {
-            "path": "kapso_evaluation/README.md",
-            "line": 22,
-            "description": "Defines fast fidelity as the debug candidate run."
-          },
-          {
-            "path": "kapso_evaluation/README.md",
-            "line": 37,
-            "description": "Recommends a fast dry run to verify the environment."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 388,
-            "description": "Prints official validation metrics."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 402,
-            "description": "Builds the machine-readable manifest line."
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "Rolling snapshots intentionally have an empty validation table: main.py detects zero validation rows, writes only tick test predictions, and the rolling grader later assembles those predictions into final validation and test vectors.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 23,
-            "description": "Documents the empty validation table in rolling snapshots."
-          },
-          {
-            "path": "main.py",
-            "line": 27,
-            "description": "Sets the validation row count to zero when appropriate."
-          },
-          {
-            "path": "main.py",
-            "line": 28,
-            "description": "Detects rolling mode from the empty validation split."
-          },
-          {
-            "path": "main.py",
-            "line": 50,
-            "description": "Suppresses the validation file in rolling mode."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 191,
-            "description": "Reads each tick's test prediction file."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 207,
-            "description": "Saves the assembled vector for each split."
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "The checked-in baseline does not implement a cheaper debug algorithm; --debug is only reflected in its final diagnostic output, while prediction generation follows the same path.",
-        "confidence": 0.97,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 31,
-            "description": "Prediction branching begins without a debug-specific branch."
-          },
-          {
-            "path": "main.py",
-            "line": 53,
-            "description": "The debug flag is only inspected for the diagnostic message."
-          },
-          {
-            "path": "main.py",
             "line": 56,
-            "description": "Prints debug status rather than changing the computation."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 103,
-            "description": "The grader treats debug as the candidate's cheap-build mode."
+            "description": "Checks finite values."
           }
         ]
       },
       {
-        "kind": "contract",
-        "statement": "For autocomplete tasks, load_task defaults to a database cutoff at the test timestamp; post-test-cutoff entity rows may only be used as inputs when calling load_task(upto_test_timestamp=False).",
+        "kind": "other",
+        "statement": "Feature admission is tested with three purged forward folds, overall fold AUC changes, and dormant-slice stability; a block must improve at least two folds and maintain nonnegative dormant-slice behavior before selection.",
         "confidence": 0.99,
         "evidence": [
           {
-            "path": "kapso_datasets/common.py",
-            "line": 60,
-            "description": "Defaults upto_test_timestamp to True."
+            "path": "content_modeling.py",
+            "line": 161,
+            "description": "Uses the three latest training origins."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 63,
-            "description": "Documents the autocomplete exception."
+            "path": "content_modeling.py",
+            "line": 170,
+            "description": "Purges 92 days before each fold."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 73,
-            "description": "Passes the cutoff choice to dataset.get_db."
+            "path": "content_modeling.py",
+            "line": 181,
+            "description": "Computes baseline dormant-slice AUC."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 193,
+            "description": "Records overall fold improvements."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 214,
+            "description": "Defines the fold and dormant-slice passing criteria."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 220,
+            "description": "Selects the passing block with the highest mean improvement."
           }
         ]
       },
       {
-        "kind": "contract",
-        "statement": "The prediction checker warns rather than fails for recommendation IDs outside the valid range or duplicate IDs, even though the evaluation contract requires in-range distinct rankings.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 21,
-            "description": "Requires ranked recommendation IDs."
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 22,
-            "description": "Requires IDs in range and distinct."
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 42,
-            "description": "Only warns about out-of-range IDs."
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 46,
-            "description": "Only warns about duplicate IDs."
-          }
-        ]
-      },
-      {
-        "kind": "deployment",
-        "statement": "The candidate directly depends on NumPy and RelBench task/base APIs; the evaluation suite requires Python with relbench and numpy installed.",
-        "confidence": 1.0,
+        "kind": "other",
+        "statement": "main.py performs an explicit hazard-label check and writes metrics.json containing validation AUC, bootstrap diagnostics, rank correlations, slice metrics, OOF metrics, gate results, backend information, and elapsed time.",
+        "confidence": 0.98,
         "evidence": [
           {
             "path": "main.py",
-            "line": 13,
+            "line": 175,
+            "description": "Aborts on hazard-label mismatch."
+          },
+          {
+            "path": "main.py",
+            "line": 272,
+            "description": "Starts validation diagnostic construction."
+          },
+          {
+            "path": "main.py",
+            "line": 282,
+            "description": "Adds OOF metrics."
+          },
+          {
+            "path": "main.py",
+            "line": 283,
+            "description": "Adds the gate report."
+          },
+          {
+            "path": "main.py",
+            "line": 288,
+            "description": "Writes metrics.json."
+          },
+          {
+            "path": "main.py",
+            "line": 289,
+            "description": "Prints the diagnostics payload."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The frozen combined tag/content block improved three forward folds by a mean of +0.001004 and dormant slices by +0.002938; registered run_0006 achieved validation ROC AUC 0.9047596371.",
+        "confidence": 0.96,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 16,
+            "description": "Records acceptance of the combined block and successful registered evaluation."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 27,
+            "description": "Reports the fold improvements and dormant-slice mean improvement."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 29,
+            "description": "Reports the registered full-run validation metrics."
+          },
+          {
+            "path": "changes.log",
+            "line": 16,
+            "description": "Records the full run_0006 ROC AUC."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Fast evaluator fidelity runs main.py with --debug but still scores the complete official validation split; fraction and seed do not subsample validation rows.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 22,
+            "description": "Defines fast fidelity as the debug candidate mode."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 24,
+            "description": "Defines full fidelity as the normal candidate run."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 27,
+            "description": "States that both modes score the complete validation split."
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 28,
+            "description": "States that fraction and seed are only echoed in the manifest."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "main.py prepends the champion source directory from KAPSO_SHARED_CACHE_DIR before importing modeling, chronograph, and other champion modules; a missing shared cache can therefore fail before task execution.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 17,
+            "description": "Constructs the cached champion code path."
+          },
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Adds the cached code directory to sys.path."
+          },
+          {
+            "path": "main.py",
+            "line": 21,
+            "description": "Imports cached champion modeling."
+          },
+          {
+            "path": "main.py",
+            "line": 22,
+            "description": "Imports cached graph-memory components."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Debug mode is not just logging: it uses reduced fold/training samples, 80-tree fits, one hazard epoch, and at most the first 5,000 embedding states, so debug metrics are not full-run estimates.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 138,
+            "description": "Enables debug mode from the command line."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 168,
+            "description": "Uses 80 rounds in debug and 500 otherwise."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 176,
+            "description": "Truncates fold training rows in debug."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 249,
+            "description": "Uses one hazard epoch in debug and three otherwise for OOF."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 280,
+            "description": "Limits debug embeddings to 5,000 states."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "If no tag/content block satisfies the forward-fold gate, the candidate explicitly falls back to the champion-only OOF and final fit functions rather than forcing a topic block.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "content_modeling.py",
+            "line": 220,
+            "description": "Uses none when no candidate block passes."
+          },
+          {
+            "path": "main.py",
+            "line": 195,
+            "description": "Branches into the champion-only fallback when selected is none."
+          },
+          {
+            "path": "main.py",
+            "line": 198,
+            "description": "Uses champion OOF training in the fallback."
+          },
+          {
+            "path": "main.py",
+            "line": 203,
+            "description": "Clears the topic feature tag for the fallback."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Rows with no authored activity bypass the meta-model and use the tree prediction directly for both validation and test; this fallback is intentional for never-active users.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 234,
+            "description": "Initializes validation activity degree."
+          },
+          {
+            "path": "main.py",
+            "line": 237,
+            "description": "Replaces validation meta predictions with tree predictions for zero-degree users."
+          },
+          {
+            "path": "main.py",
+            "line": 259,
+            "description": "Initializes test activity degree."
+          },
+          {
+            "path": "main.py",
+            "line": 261,
+            "description": "Replaces test meta predictions with tree predictions for zero-degree users."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Missing or non-Latin historical text is routed through zeroed text-derived features plus explicit missingness/non-Latin counts, while tag and numeric features remain available.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "topic_features.py",
+            "line": 228,
+            "description": "Requires a valid Latin historical state for text-derived question features."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 244,
+            "description": "Identifies missing historical states."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 246,
+            "description": "Identifies non-Latin states."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 247,
+            "description": "Aggregates missing-state counts by owner."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 248,
+            "description": "Aggregates non-Latin-state counts by owner."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 35,
+            "description": "Documents fallback to tag/numeric features and missingness flags."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Several expensive artifacts use mode, boundary, origin, shape, or completion-marker cache keys; an existing compatible path with its .complete marker is returned without rebuilding.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "topic_data.py",
+            "line": 274,
+            "description": "Keys embedding paths by debug/full mode."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 275,
+            "description": "Uses a completion marker for embeddings."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 276,
+            "description": "Reuses a compatible completed embedding matrix."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 202,
+            "description": "Keys content features by boundary and mode."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 205,
+            "description": "Uses a completion marker for content features."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 207,
+            "description": "Reuses a compatible completed content matrix."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 33,
+            "description": "Keys hazard checkpoints by tag, mode, feature width, and topic version."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The full feature pipeline is costly: graph replay is no longer the critical path, but fixed 500-tree forward fits were measured at approximately four minutes each.",
+        "confidence": 0.91,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 14,
+            "description": "Records the measured graph rate and approximate fixed-fit duration."
+          },
+          {
+            "path": "changes.log",
+            "line": 8,
+            "description": "Records graph replay throughput and fixed-fit timing."
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Experiment sessions, arbitrary logs, shared cache state, Python bytecode, and the generic experiment output directory are ignored by Git, while changes.log is explicitly retained.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": ".gitignore",
+            "line": 3,
+            "description": "Ignores experimentation sessions."
+          },
+          {
+            "path": ".gitignore",
+            "line": 4,
+            "description": "Ignores generic log files."
+          },
+          {
+            "path": ".gitignore",
+            "line": 5,
+            "description": "Keeps changes.log tracked."
+          },
+          {
+            "path": ".gitignore",
+            "line": 8,
+            "description": "Ignores shared cache state."
+          },
+          {
+            "path": ".gitignore",
+            "line": 11,
+            "description": "Ignores the default experiment output directory."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The new feature/model path imports NumPy, pandas, PyTorch, SciPy/scikit-learn, LightGBM, DuckDB, joblib, and incremental PCA/Ridge components.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 11,
             "description": "Imports NumPy."
           },
           {
             "path": "main.py",
-            "line": 15,
-            "description": "Imports RelBench task APIs."
+            "line": 13,
+            "description": "Imports PyTorch."
           },
           {
-            "path": "kapso_evaluation/README.md",
-            "line": 31,
-            "description": "Begins the environment requirements."
+            "path": "content_modeling.py",
+            "line": 8,
+            "description": "Imports LightGBM."
           },
           {
-            "path": "kapso_evaluation/README.md",
-            "line": 37,
-            "description": "States that Python with relbench and numpy is sufficient."
+            "path": "content_modeling.py",
+            "line": 12,
+            "description": "Imports roc_auc_score."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 12,
+            "description": "Imports DuckDB."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 10,
+            "description": "Imports joblib."
+          },
+          {
+            "path": "topic_features.py",
+            "line": 16,
+            "description": "Imports IncrementalPCA and Ridge."
           }
         ]
       },
       {
-        "kind": "deployment",
-        "statement": "The harness supplies task identity, cache location, output location, primary metric, timeouts, and archive/work directories through environment variables; main.py directly requires RELBENCH_DATASET, RELBENCH_TASK, RELBENCH_CACHE_DIR, and KAPSO_RUN_DATA_DIR.",
-        "confidence": 1.0,
+        "kind": "dependency",
+        "statement": "Historical text embeddings use sentence-transformers/all-MiniLM-L6-v2, preferring a local shared-cache snapshot and otherwise resolving the public model identifier; the stored representation is normalized, 384-dimensional, and FP16 on disk.",
+        "confidence": 0.99,
         "evidence": [
           {
-            "path": "main.py",
-            "line": 20,
-            "description": "Requires RELBENCH_DATASET."
+            "path": "topic_data.py",
+            "line": 286,
+            "description": "Loads SentenceTransformer lazily."
           },
           {
-            "path": "main.py",
-            "line": 21,
-            "description": "Requires RELBENCH_TASK."
+            "path": "topic_data.py",
+            "line": 291,
+            "description": "Defines the local cached MiniLM model path."
           },
           {
-            "path": "main.py",
-            "line": 25,
-            "description": "Requires RELBENCH_CACHE_DIR."
+            "path": "topic_data.py",
+            "line": 292,
+            "description": "Falls back to the public all-MiniLM-L6-v2 model identifier."
           },
           {
-            "path": "main.py",
-            "line": 49,
-            "description": "Requires KAPSO_RUN_DATA_DIR."
+            "path": "topic_data.py",
+            "line": 300,
+            "description": "Constructs the SentenceTransformer model."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 29,
-            "description": "Lists the grader-provided environment configuration."
+            "path": "topic_data.py",
+            "line": 317,
+            "description": "Requests normalized NumPy embeddings."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 35,
-            "description": "Lists cache-related environment variables."
+            "path": "topic_data.py",
+            "line": 327,
+            "description": "Documents FP16 384-dimensional MiniLM embeddings."
+          },
+          {
+            "path": "changes.log",
+            "line": 4,
+            "description": "Records the external pretrained model and its cutoff-valid use."
           }
         ]
       },
       {
-        "kind": "deployment",
-        "statement": "RelBench data must already exist in the sanitized cache because both the starter loader and baseline task loader explicitly use download=False.",
-        "confidence": 1.0,
+        "kind": "dependency",
+        "statement": "Runtime configuration requires RELBENCH_DATASET and RELBENCH_TASK; KAPSO_SHARED_CACHE_DIR supplies champion and topic caches, KAPSO_RUN_DATA_DIR can override prediction output, and OMP_NUM_THREADS controls DuckDB/LightGBM parallelism.",
+        "confidence": 0.99,
         "evidence": [
           {
-            "path": "kapso_datasets/common.py",
-            "line": 61,
-            "description": "States that the loader uses the sanitized cache."
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 71,
-            "description": "Loads the dataset without downloading."
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 72,
-            "description": "Loads the task without downloading."
+            "path": "main.py",
+            "line": 17,
+            "description": "Requires KAPSO_SHARED_CACHE_DIR for champion code."
           },
           {
             "path": "main.py",
-            "line": 22,
-            "description": "The baseline also disables downloading."
+            "line": 38,
+            "description": "Reads the optional KAPSO_RUN_DATA_DIR output override."
+          },
+          {
+            "path": "main.py",
+            "line": 143,
+            "description": "Reads RELBENCH_DATASET and RELBENCH_TASK."
+          },
+          {
+            "path": "topic_data.py",
+            "line": 19,
+            "description": "Uses OMP_NUM_THREADS for DuckDB."
+          },
+          {
+            "path": "content_modeling.py",
+            "line": 85,
+            "description": "Uses OMP_NUM_THREADS for LightGBM."
           }
         ]
       }
     ]
   },
   "book": {
-    "summary": "This repository is a RelBench generic-search candidate workspace whose root entrypoint loads a configured task and writes validation/test prediction arrays. The checked-in implementation is a shape-correct trivial baseline, while the starter helpers and evaluation suite define the data, scoring, and archival contracts.",
+    "summary": "This repository is a frozen RelBench lane-3 chronological graph/hazard candidate. main.py combines cached champion graph memories, temporal/mechanism features, cutoff-valid historical question/tag states, tag traffic, MiniLM-derived content traffic, purged block gating, and OOF neural/GBDT meta-modeling before writing aligned validation and test probability arrays.",
     "toc": [
       {
         "id": "core.architecture",
         "title": "Architecture",
-        "one_liner": "Environment-driven RelBench task loading flows into task-family-specific NumPy predictions, which the isolated grader validates and scores."
+        "one_liner": "A chronological graph/hazard champion is widened with cutoff-valid topic and content traffic features, gated by forward folds, and refit separately for validation and test."
       },
       {
         "id": "core.entrypoints",
         "title": "Entrypoints",
-        "one_liner": "Run the root candidate directly for debug/full modes or invoke the provided grader for official evaluation."
+        "one_liner": "Run the lane-3 candidate from the repository root or invoke the immutable registered grader."
       },
       {
         "id": "core.where_to_edit",
         "title": "Where to edit",
-        "one_liner": "Replace the baseline logic in main.py while preserving the starter-kit and immutable evaluation contracts."
+        "one_liner": "Modify the candidate orchestration and lane-3 feature/model modules; treat the dataset helpers and evaluator as shared infrastructure."
       },
       {
         "id": "core.invariants",
         "title": "Invariants",
-        "one_liner": "Prediction files, temporal access, and scoring behavior must obey the RelBench evaluation contract."
+        "one_liner": "Chronological features and out-of-sample validation predictions must remain aligned with the RelBench contract."
       },
       {
         "id": "core.testing",
         "title": "Testing",
-        "one_liner": "Use the required debug run, prediction self-checker, and official fast grader dry run before full evaluation."
+        "one_liner": "Use debug execution, prediction validation, the purged feature gate, diagnostics, and the registered evaluator to validate changes."
       },
       {
         "id": "core.gotchas",
         "title": "Gotchas",
-        "one_liner": "Rolling snapshots, debug semantics, autocomplete cutoffs, and recommendation warnings require special handling."
+        "one_liner": "Shared caches, strict chronological gates, debug truncation, missing text routes, and inactive-user fallbacks materially affect candidate behavior."
       },
       {
         "id": "core.dependencies",
         "title": "Dependencies",
-        "one_liner": "Runtime execution depends on Python, NumPy, RelBench, and harness-provided environment variables and sanitized cache data."
+        "one_liner": "The lane-3 path depends on the cached champion stack, RelBench environment variables, scientific Python/LightGBM tooling, DuckDB, and a pretrained MiniLM encoder."
       }
     ],
     "sections": {
       "core.architecture": {
         "title": "Architecture",
-        "one_liner": "Environment-driven RelBench task loading flows into task-family-specific NumPy predictions, which the isolated grader validates and scores.",
+        "one_liner": "A chronological graph/hazard champion is widened with cutoff-valid topic and content traffic features, gated by forward folds, and refit separately for validation and test.",
         "claims": [
           {
             "kind": "architecture",
-            "statement": "The candidate reads dataset/task identity from environment variables, loads the cached RelBench task without downloading, determines validation and test row counts, and writes prediction arrays under KAPSO_RUN_DATA_DIR.",
+            "statement": "main.py loads champion modeling code from the shared cache, loads the RelBench task without downloading, builds compact/extra/mechanism features and graph-memory features, then adds historical topic and content blocks before model fitting.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 20,
-                "description": "Reads RELBENCH_DATASET."
+                "line": 17,
+                "description": "Locates the cached champion code under KAPSO_SHARED_CACHE_DIR."
               },
               {
                 "path": "main.py",
-                "line": 22,
-                "description": "Loads the task with download=False."
+                "line": 23,
+                "description": "Imports the content-modeling pipeline."
               },
               {
                 "path": "main.py",
-                "line": 25,
-                "description": "Uses the configured cache directory."
+                "line": 143,
+                "description": "Loads the configured RelBench task with download=False."
               },
               {
                 "path": "main.py",
-                "line": 29,
-                "description": "Gets the test row count."
+                "line": 151,
+                "description": "Builds compact temporal features and mapped users."
               },
               {
                 "path": "main.py",
-                "line": 49,
-                "description": "Gets the run output directory."
+                "line": 158,
+                "description": "Builds relational graph events."
               },
               {
                 "path": "main.py",
-                "line": 52,
-                "description": "Saves test predictions."
+                "line": 161,
+                "description": "Trains the graph memory."
+              },
+              {
+                "path": "main.py",
+                "line": 163,
+                "description": "Combines compact, mechanism, and replayed graph-memory features."
+              },
+              {
+                "path": "main.py",
+                "line": 167,
+                "description": "Builds cutoff-indexed historical question states."
+              },
+              {
+                "path": "main.py",
+                "line": 168,
+                "description": "Builds tag traffic features."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "topic_data.py is the historical topic-state layer: it maps posts and relational events to root questions, reconstructs title/tag states at each origin, persists question-tag pairs and language flags, and provides cached historical text embeddings.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "topic_data.py",
+                "line": 124,
+                "description": "Defines construction of root-question vote, comment, answer, and link events."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 157,
+                "description": "Loads post-link endpoints for root-question event routing."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 173,
+                "description": "Registers the routed root-question event artifact."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 207,
+                "description": "Replays post-history changes in chronological origin order."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 212,
+                "description": "Applies history types 1 and 4 to titles and other history to tags."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 221,
+                "description": "Normalizes each complete title/tag state and hashes it."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 230,
+                "description": "Restricts states to questions created by the cutoff and valid owners."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 233,
+                "description": "Builds active question-tag pairs for each origin."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 272,
+                "description": "Defines cached historical embedding construction."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 327,
+                "description": "Describes the stored embeddings as 384-dimensional MiniLM vectors keyed by cutoff-valid text hashes."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "topic_features.py converts question event windows and historical states into tag-traffic and owner-level content-traffic matrices; content features predict 91-day inbound activity and aggregate predicted counts, crossing probabilities, age variants, and text-missingness signals by owner.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "topic_features.py",
+                "line": 38,
+                "description": "Builds event windows and newly-created-question signals for a cutoff."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 45,
+                "description": "Defines the four-channel 91-day future traffic target."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 100,
+                "description": "Defines tag heat, growth, activity, and percentile feature families."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 106,
+                "description": "Includes traffic interactions and ownership-related tag features."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 144,
+                "description": "Computes prior-year tag heat features."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 199,
+                "description": "Defines cached content-feature construction."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 210,
+                "description": "Builds embeddings and fits/loads the traffic auxiliary model."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 223,
+                "description": "Processes only historical origins at or before the requested boundary."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 233,
+                "description": "Converts predicted log traffic into nonnegative count predictions and a crossing probability."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 237,
+                "description": "Aggregates content predictions by owner, including old-question variants."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 244,
+                "description": "Tracks missing and non-Latin historical states."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 277,
+                "description": "Defines cached concatenation of champion and topic feature blocks."
               }
             ]
           },
           {
             "kind": "algorithm",
-            "statement": "The seeded baseline branches by task family: recommendations receive the integer ranking 0..K-1, binary classification receives 0.5 probabilities, multiclass classification receives uniform class scores, and other tasks receive the training-target median.",
+            "statement": "content_modeling.py reuses the champion hazard, meta, and GBDT primitives, adds checkpointed hazard and LightGBM fitting, evaluates tag/content/both blocks against a baseline on three purged forward folds, and produces OOF neural/tree predictions for meta-fitting.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 31,
-                "description": "Detects recommendation tasks."
+                "path": "content_modeling.py",
+                "line": 22,
+                "description": "Reuses the champion HazardHead."
               },
               {
-                "path": "main.py",
-                "line": 33,
-                "description": "Builds the baseline recommendation row."
+                "path": "content_modeling.py",
+                "line": 23,
+                "description": "Reuses champion hazard prediction."
               },
               {
-                "path": "main.py",
-                "line": 36,
-                "description": "Handles binary classification."
+                "path": "content_modeling.py",
+                "line": 25,
+                "description": "Reuses champion meta prediction."
               },
               {
-                "path": "main.py",
-                "line": 39,
-                "description": "Handles multiclass classification."
+                "path": "content_modeling.py",
+                "line": 29,
+                "description": "Defines checkpoint-aware hazard fitting."
               },
               {
-                "path": "main.py",
-                "line": 44,
-                "description": "Uses the training target median for the fallback task type."
+                "path": "content_modeling.py",
+                "line": 91,
+                "description": "Defines checkpoint-aware LightGBM fitting."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 161,
+                "description": "Selects the three latest training origins for forward gating."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 163,
+                "description": "Defines baseline, tag, content, and combined comparison blocks."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 170,
+                "description": "Applies a 92-day purge before each validation origin."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 178,
+                "description": "Fits the baseline fold model."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 185,
+                "description": "Fits each candidate block on the purged fold training data."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 232,
+                "description": "Defines OOF training over the latest forward folds."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 249,
+                "description": "Fits fold-local hazard and GBDT models."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 260,
+                "description": "Returns concatenated OOF neural, tree, and target vectors."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "kapso_datasets.common provides a TaskContext containing the dataset, task, database, and train/validation/test tables; load_task uses the sanitized cache and save_predictions writes both required NumPy files.",
-            "confidence": 0.98,
+            "statement": "The final candidate uses Model A for validation and Model B for test: it gates topic blocks, fits an OOF meta-model, generates validation predictions from train-only supervision, then refits on train plus validation for test predictions.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/common.py",
-                "line": 44,
-                "description": "Defines TaskContext."
+                "path": "main.py",
+                "line": 188,
+                "description": "Runs the purged tag/content block gate."
               },
+              {
+                "path": "main.py",
+                "line": 205,
+                "description": "Selects the accepted topic blocks for Model A and Model B."
+              },
+              {
+                "path": "main.py",
+                "line": 214,
+                "description": "Fits OOF models on the selected fold features."
+              },
+              {
+                "path": "main.py",
+                "line": 220,
+                "description": "Fits the first meta-model from OOF predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 223,
+                "description": "Defines Model A's supervised training indices."
+              },
+              {
+                "path": "main.py",
+                "line": 231,
+                "description": "Generates Model A validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 241,
+                "description": "Defines Model B supervision over train plus validation rows."
+              },
+              {
+                "path": "main.py",
+                "line": 244,
+                "description": "Fits the Model B hazard head."
+              },
+              {
+                "path": "main.py",
+                "line": 252,
+                "description": "Fits the Model B meta-model using OOF and validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 257,
+                "description": "Generates Model B test predictions."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "kapso_datasets.common.py provides the reusable task context layer: it loads the dataset, task, database, and train/validation/test tables, and exposes helpers for saving predictions, temporal checks, and MAP@K evaluation.",
+            "confidence": 0.98,
+            "evidence": [
               {
                 "path": "kapso_datasets/common.py",
                 "line": 60,
@@ -781,29 +1781,29 @@
               },
               {
                 "path": "kapso_datasets/common.py",
-                "line": 71,
-                "description": "Loads the dataset and task without downloading."
+                "line": 73,
+                "description": "Builds the RelBench database with the selected timestamp cutoff."
               },
               {
                 "path": "kapso_datasets/common.py",
-                "line": 80,
-                "description": "Populates train, validation, and test tables."
+                "line": 74,
+                "description": "Returns a TaskContext containing dataset, task, database, and split tables."
               },
               {
                 "path": "kapso_datasets/common.py",
                 "line": 86,
-                "description": "Defines prediction saving."
+                "description": "Defines the prediction-saving helper."
               },
               {
                 "path": "kapso_datasets/common.py",
-                "line": 89,
-                "description": "Writes validation and test prediction files."
+                "line": 106,
+                "description": "Defines the local MAP@K evaluator."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The evaluation grader runs main.py in an isolated child subprocess with a fidelity-specific timeout, then loads validation predictions, evaluates them through the RelBench task, and archives full-fidelity runs.",
+            "statement": "The provided evaluator launches main.py in an isolated subprocess, loads and validates its prediction artifacts, scores the validation table with the official task evaluator, and archives full-fidelity runs before emitting a machine-readable manifest.",
             "confidence": 0.99,
             "evidence": [
               {
@@ -813,60 +1813,28 @@
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 103,
-                "description": "Selects main.py and the optional debug flag."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
                 "line": 110,
-                "description": "Starts the isolated subprocess."
+                "description": "Starts the candidate as a separate subprocess."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 212,
-                "description": "Defines loading and scoring."
+                "line": 220,
+                "description": "Loads the official task and validation table."
               },
               {
                 "path": "kapso_evaluation/grader.py",
                 "line": 248,
-                "description": "Computes RelBench validation metrics."
+                "description": "Computes official validation metrics."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 385,
+                "line": 386,
                 "description": "Archives full-fidelity runs."
-              }
-            ]
-          },
-          {
-            "kind": "architecture",
-            "statement": "Rolling evaluation invokes the candidate separately for each snapshot and assembles each tick's test_predictions.npy into final validation and test vectors using the snapshot indices.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 155,
-                "description": "Defines rolling evaluation."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 176,
-                "description": "Creates an isolated stage for each snapshot."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 183,
-                "description": "Provides the snapshot cache and tick output directory."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 188,
-                "description": "Loads snapshot row indices."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 207,
-                "description": "Writes the assembled prediction vector."
+                "line": 402,
+                "description": "Constructs the KAPSO_EVAL_MANIFEST output line."
               }
             ]
           }
@@ -874,48 +1842,250 @@
       },
       "core.entrypoints": {
         "title": "Entrypoints",
-        "one_liner": "Run the root candidate directly for debug/full modes or invoke the provided grader for official evaluation.",
+        "one_liner": "Run the lane-3 candidate from the repository root or invoke the immutable registered grader.",
         "content": [
           {
             "path": "main.py",
-            "how_to_run": "From the repository root with the harness environment set: python main.py --debug for the fast pipeline check, or python main.py for the full run."
+            "how_to_run": "With the evaluator environment configured, run `python main.py --debug` for the reduced debug path or `python main.py` for the full candidate run.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 138,
+                "description": "Enables debug mode when --debug is present."
+              },
+              {
+                "path": "main.py",
+                "line": 143,
+                "description": "Reads the RelBench dataset and task from the environment."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 3,
+                "description": "Documents the two harness invocations."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 5,
+                "description": "Shows the debug command."
+              }
+            ]
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "how_to_run": "For official scoring, run python kapso_evaluation/grader.py --fidelity fast or --fidelity full, with the required RelBench environment variables exported."
+            "how_to_run": "Invoke `python kapso_evaluation/grader.py --fidelity fast|full` with the evaluator environment configured.",
+            "evidence": [
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 14,
+                "description": "Documents the grader CLI."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 15,
+                "description": "Shows the fidelity command syntax."
+              }
+            ]
           }
         ]
       },
       "core.where_to_edit": {
         "title": "Where to edit",
-        "one_liner": "Replace the baseline logic in main.py while preserving the starter-kit and immutable evaluation contracts.",
+        "one_liner": "Modify the candidate orchestration and lane-3 feature/model modules; treat the dataset helpers and evaluator as shared infrastructure.",
         "content": [
           {
             "path": "main.py",
-            "role": "Primary candidate implementation: task loading, feature/model logic, and prediction output."
+            "role": "Primary orchestration: load data, build champion and topic features, run the purged gate, fit Model A/Model B, write predictions, and emit diagnostics.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 131,
+                "description": "Defines the candidate entrypoint."
+              },
+              {
+                "path": "main.py",
+                "line": 151,
+                "description": "Starts the feature-building pipeline."
+              },
+              {
+                "path": "main.py",
+                "line": 188,
+                "description": "Runs feature-block admission."
+              },
+              {
+                "path": "main.py",
+                "line": 269,
+                "description": "Creates the output directory and writes prediction artifacts."
+              },
+              {
+                "path": "main.py",
+                "line": 288,
+                "description": "Writes metrics.json."
+              }
+            ]
+          },
+          {
+            "path": "content_modeling.py",
+            "role": "Tune hazard/GBDT fitting, purged block gating, dormant-slice diagnostics, and OOF generation here.",
+            "evidence": [
+              {
+                "path": "content_modeling.py",
+                "line": 29,
+                "description": "Defines hazard fitting and checkpoint reuse."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 151,
+                "description": "Defines the tag/content block gate."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 232,
+                "description": "Defines fold-local OOF training."
+              }
+            ]
+          },
+          {
+            "path": "topic_data.py",
+            "role": "Edit historical title/tag reconstruction, root-question event routing, cache registration, and embedding generation here.",
+            "evidence": [
+              {
+                "path": "topic_data.py",
+                "line": 24,
+                "description": "Defines the lane-3 topic cache root."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 62,
+                "description": "Defines the QuestionData structure passed to feature builders."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 207,
+                "description": "Defines chronological state replay."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 272,
+                "description": "Defines historical embedding generation."
+              }
+            ]
+          },
+          {
+            "path": "topic_features.py",
+            "role": "Edit tag traffic statistics, content traffic auxiliaries, owner aggregation, normalization, and feature-matrix caching here.",
+            "evidence": [
+              {
+                "path": "topic_features.py",
+                "line": 100,
+                "description": "Defines tag feature names."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 199,
+                "description": "Defines content feature construction."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 237,
+                "description": "Aggregates predicted content traffic by owner."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 277,
+                "description": "Defines champion/topic matrix combination."
+              }
+            ]
           },
           {
             "path": "kapso_datasets/common.py",
-            "role": "Reusable task context, prediction-saving, temporal-safety, and MAP@K helpers."
+            "role": "Reusable task loading, prediction saving, temporal-safety, and MAP@K helpers for candidate code.",
+            "evidence": [
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 8,
+                "description": "Lists the intended helper imports for candidate code."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 86,
+                "description": "Provides the standard prediction-saving helper."
+              }
+            ]
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "role": "Authoritative prediction, data-access, and evaluation contract to preserve."
+            "path": "kapso_datasets/check_predictions.py",
+            "role": "Read-only local validator for prediction shapes, dtypes, finiteness, and binary probability bounds.",
+            "evidence": [
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 1,
+                "description": "Describes the validator's purpose."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Reports successful split checks."
+              }
+            ]
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "role": "Immutable official scorer and archive manager; do not reimplement or modify."
+            "role": "Provided immutable scoring and archive pipeline; candidate changes should not modify it.",
+            "evidence": [
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 3,
+                "description": "Describes grader.py as the complete immutable scoring pipeline."
+              },
+              {
+                "path": "kapso_datasets/README.md",
+                "line": 11,
+                "description": "Instructs users not to modify kapso_evaluation files."
+              }
+            ]
           }
         ]
       },
       "core.invariants": {
         "title": "Invariants",
-        "one_liner": "Prediction files, temporal access, and scoring behavior must obey the RelBench evaluation contract.",
+        "one_liner": "Chronological features and out-of-sample validation predictions must remain aligned with the RelBench contract.",
         "claims": [
           {
             "kind": "contract",
-            "statement": "A normal candidate run must produce both val_predictions.npy and test_predictions.npy, with rows positionally aligned to the task tables; validation predictions must be out-of-sample and cannot be trained on validation labels.",
-            "confidence": 1.0,
+            "statement": "Dataset and task access must use the sanitized cache with download=False; test labels are physically absent and must not be probed.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 143,
+                "description": "Loads the task with download=False."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 25,
+                "description": "Requires RelBench API access with download=False."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 26,
+                "description": "States that test labels are absent and must not be probed."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 71,
+                "description": "Loads the dataset with download=False."
+              },
+              {
+                "path": "kapso_datasets/common.py",
+                "line": 72,
+                "description": "Loads the task with download=False."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "In normal evaluation runs, val_predictions.npy and test_predictions.npy must exist with rows positionally aligned to their RelBench tables; validation predictions must be out-of-sample with respect to validation labels.",
+            "confidence": 0.99,
             "evidence": [
               {
                 "path": "kapso_datasets/CONTRACT.md",
@@ -933,16 +2103,21 @@
                 "description": "Requires validation predictions to be out-of-sample."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 87,
-                "description": "States that both files must be written in every run mode."
+                "path": "main.py",
+                "line": 270,
+                "description": "Writes validation predictions."
+              },
+              {
+                "path": "main.py",
+                "line": 271,
+                "description": "Writes test predictions."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "Required prediction formats are binary float probabilities of shape (N,) in [0,1], regression float vectors of shape (N,), multiclass float scores of shape (N,C), and recommendation integer rankings of shape (N,K) containing distinct destination IDs in range.",
-            "confidence": 1.0,
+            "statement": "Required prediction formats are binary float probabilities shaped (N,) in [0,1], regression floats shaped (N,), multiclass float scores shaped (N,C), and recommendation integer rankings shaped (N,K) with distinct destination IDs in the valid destination range.",
+            "confidence": 0.99,
             "evidence": [
               {
                 "path": "kapso_datasets/CONTRACT.md",
@@ -952,83 +2127,162 @@
               {
                 "path": "kapso_datasets/CONTRACT.md",
                 "line": 21,
-                "description": "Defines multiclass and recommendation shapes and dtypes."
+                "description": "Defines multiclass and recommendation shapes and ID constraints."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 22,
-                "description": "Requires valid, distinct recommendation destination IDs."
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 37,
+                "description": "Validates recommendation shape and integer dtype."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Validates non-recommendation shapes."
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 58,
+                "description": "Validates binary probability bounds."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "The score of record is the official validation primary metric; test predictions are collected as artifacts but cannot be scored inside the loop because test labels are absent.",
-            "confidence": 1.0,
+            "statement": "The candidate verifies that hazard-bin positives exactly match the official train and validation target labels before fitting.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 23,
-                "description": "Defines the official validation primary metric as the search score."
+                "path": "main.py",
+                "line": 171,
+                "description": "Builds hazard bins from train and validation tables."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 24,
-                "description": "States that test metrics are private."
+                "path": "main.py",
+                "line": 172,
+                "description": "Concatenates the official train and validation labels."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 25,
-                "description": "States that test labels are physically absent."
+                "path": "main.py",
+                "line": 173,
+                "description": "Computes the hazard-label mismatch count."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 248,
-                "description": "Evaluates validation predictions."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 397,
-                "description": "Places the selected primary validation metric in the manifest score."
+                "path": "main.py",
+                "line": 175,
+                "description": "Raises if any hazard-label mismatch exists."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "All RelBench data access must use the sanitized read-only cache with download=False; candidates must not probe for test labels.",
-            "confidence": 1.0,
+            "statement": "Model A validation fitting uses train-only supervision and OOF targets, while Model B may use train plus validation supervision only for test predictions.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 25,
-                "description": "Requires relbench API access with download=False."
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "Defines the Model A and Model B evaluation split contract."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 26,
-                "description": "Forbids probing for absent test labels."
+                "path": "main.py",
+                "line": 223,
+                "description": "Restricts Model A supervised training to train indices."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 71,
-                "description": "Loads the dataset with download=False."
+                "path": "main.py",
+                "line": 226,
+                "description": "Fits Model A hazard using the train-only indices."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 72,
-                "description": "Loads the task with download=False."
+                "path": "main.py",
+                "line": 230,
+                "description": "Fits the Model A tree model on recent train origins."
+              },
+              {
+                "path": "main.py",
+                "line": 241,
+                "description": "Defines Model B supervision over train plus validation."
+              },
+              {
+                "path": "main.py",
+                "line": 252,
+                "description": "Builds the Model B meta-training data with validation predictions."
               }
             ]
           },
           {
             "kind": "contract",
-            "statement": "Temporal feature construction can be guarded with assert_temporal_safety, which rejects any feature row whose time column is later than the seed time.",
-            "confidence": 0.95,
+            "statement": "Final validation and test predictions are clipped to finite probability bounds and saved as float32 arrays.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 238,
+                "description": "Clips validation probabilities to [1e-6, 1-1e-6]."
+              },
+              {
+                "path": "main.py",
+                "line": 262,
+                "description": "Clips test probabilities to [1e-6, 1-1e-6]."
+              },
+              {
+                "path": "main.py",
+                "line": 270,
+                "description": "Casts validation predictions to float32 when saving."
+              },
+              {
+                "path": "main.py",
+                "line": 271,
+                "description": "Casts test predictions to float32 when saving."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Historical topic features are cutoff-valid: state replay applies history only through each origin, content construction skips origins after its boundary, and current post title/tag values are not used as historical truth.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 11,
+                "description": "Documents that mutable title/tag values require post-history reconstruction."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 207,
+                "description": "Processes history in chronological origin order."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 208,
+                "description": "Selects history rows through the current cutoff."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 230,
+                "description": "Restricts active questions to creation dates at or before the cutoff."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 223,
+                "description": "Skips content feature construction for origins after the requested boundary."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 228,
+                "description": "Requires a valid historical state and Latin-language route for text-derived features."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Temporal features must not use rows after the seed timestamp; assert_temporal_safety raises a RuntimeError when any feature row violates this condition.",
+            "confidence": 0.96,
             "evidence": [
               {
                 "path": "kapso_datasets/common.py",
                 "line": 97,
-                "description": "Documents the temporal safety guard."
+                "description": "Documents the temporal-safety guard."
               },
               {
                 "path": "kapso_datasets/common.py",
@@ -1038,7 +2292,29 @@
               {
                 "path": "kapso_datasets/common.py",
                 "line": 101,
-                "description": "Raises an error when temporal leakage is found."
+                "description": "Raises on temporal leakage."
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The search score of record is the official validation primary metric; test metrics are private and are not available inside this evaluation loop.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 23,
+                "description": "Defines the official validation primary metric as the search score."
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 24,
+                "description": "States that test metrics are computed privately."
+              },
+              {
+                "path": "kapso_evaluation/README.md",
+                "line": 41,
+                "description": "Reiterates that the manifest score is the official validation primary metric."
               }
             ]
           }
@@ -1046,13 +2322,18 @@
       },
       "core.testing": {
         "title": "Testing",
-        "one_liner": "Use the required debug run, prediction self-checker, and official fast grader dry run before full evaluation.",
+        "one_liner": "Use debug execution, prediction validation, the purged feature gate, diagnostics, and the registered evaluator to validate changes.",
         "claims": [
           {
             "kind": "other",
-            "statement": "The harness executes python main.py --debug as a fast end-to-end pipeline check and python main.py for the full training run.",
-            "confidence": 1.0,
+            "statement": "The quickest end-to-end sanity check is `python main.py --debug`; the harness then runs the normal candidate and validates and scores the resulting files.",
+            "confidence": 0.99,
             "evidence": [
+              {
+                "path": "main.py",
+                "line": 138,
+                "description": "Selects the reduced debug path."
+              },
               {
                 "path": "kapso_datasets/CONTRACT.md",
                 "line": 3,
@@ -1061,71 +2342,167 @@
               {
                 "path": "kapso_datasets/CONTRACT.md",
                 "line": 5,
-                "description": "Specifies the debug command."
+                "description": "Documents the debug invocation."
               },
               {
                 "path": "kapso_datasets/CONTRACT.md",
-                "line": 6,
-                "description": "Specifies the full command."
+                "line": 8,
+                "description": "Explains that outputs are loaded, validated, and scored after each run."
               }
             ]
           },
           {
             "kind": "other",
-            "statement": "After writing predictions, run python kapso_datasets/check_predictions.py; success is reported as OK for both splits followed by all checks passed.",
-            "confidence": 1.0,
+            "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py` to catch missing files, shape/dtype errors, non-finite values, and invalid binary probabilities before scoring.",
+            "confidence": 0.99,
             "evidence": [
               {
                 "path": "kapso_datasets/CONTRACT.md",
                 "line": 27,
-                "description": "Provides the self-check command."
+                "description": "Documents the local prediction checker command."
               },
               {
                 "path": "kapso_datasets/check_predictions.py",
-                "line": 30,
-                "description": "Checks validation and test files."
+                "line": 33,
+                "description": "Fails when a prediction file is missing."
               },
               {
                 "path": "kapso_datasets/check_predictions.py",
-                "line": 62,
-                "description": "Prints a per-split OK result."
+                "line": 54,
+                "description": "Checks expected prediction shapes."
               },
               {
                 "path": "kapso_datasets/check_predictions.py",
-                "line": 64,
-                "description": "Prints the overall success message."
+                "line": 56,
+                "description": "Checks finite values."
               }
             ]
           },
           {
             "kind": "other",
-            "statement": "An official fast dry run uses python kapso_evaluation/grader.py --fidelity fast and, on success, prints official validation metrics and a KAPSO_EVAL_MANIFEST containing the score.",
+            "statement": "Feature admission is tested with three purged forward folds, overall fold AUC changes, and dormant-slice stability; a block must improve at least two folds and maintain nonnegative dormant-slice behavior before selection.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "content_modeling.py",
+                "line": 161,
+                "description": "Uses the three latest training origins."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 170,
+                "description": "Purges 92 days before each fold."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 181,
+                "description": "Computes baseline dormant-slice AUC."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 193,
+                "description": "Records overall fold improvements."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 214,
+                "description": "Defines the fold and dormant-slice passing criteria."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 220,
+                "description": "Selects the passing block with the highest mean improvement."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "main.py performs an explicit hazard-label check and writes metrics.json containing validation AUC, bootstrap diagnostics, rank correlations, slice metrics, OOF metrics, gate results, backend information, and elapsed time.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 175,
+                "description": "Aborts on hazard-label mismatch."
+              },
+              {
+                "path": "main.py",
+                "line": 272,
+                "description": "Starts validation diagnostic construction."
+              },
+              {
+                "path": "main.py",
+                "line": 282,
+                "description": "Adds OOF metrics."
+              },
+              {
+                "path": "main.py",
+                "line": 283,
+                "description": "Adds the gate report."
+              },
+              {
+                "path": "main.py",
+                "line": 288,
+                "description": "Writes metrics.json."
+              },
+              {
+                "path": "main.py",
+                "line": 289,
+                "description": "Prints the diagnostics payload."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The frozen combined tag/content block improved three forward folds by a mean of +0.001004 and dormant slices by +0.002938; registered run_0006 achieved validation ROC AUC 0.9047596371.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "PLAN.md",
+                "line": 16,
+                "description": "Records acceptance of the combined block and successful registered evaluation."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 27,
+                "description": "Reports the fold improvements and dormant-slice mean improvement."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 29,
+                "description": "Reports the registered full-run validation metrics."
+              },
+              {
+                "path": "changes.log",
+                "line": 16,
+                "description": "Records the full run_0006 ROC AUC."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Fast evaluator fidelity runs main.py with --debug but still scores the complete official validation split; fraction and seed do not subsample validation rows.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "kapso_evaluation/README.md",
-                "line": 7,
-                "description": "Documents the grader CLI delegation."
-              },
-              {
-                "path": "kapso_evaluation/README.md",
                 "line": 22,
-                "description": "Defines fast fidelity as the debug candidate run."
+                "description": "Defines fast fidelity as the debug candidate mode."
               },
               {
                 "path": "kapso_evaluation/README.md",
-                "line": 37,
-                "description": "Recommends a fast dry run to verify the environment."
+                "line": 24,
+                "description": "Defines full fidelity as the normal candidate run."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 388,
-                "description": "Prints official validation metrics."
+                "path": "kapso_evaluation/README.md",
+                "line": 27,
+                "description": "States that both modes score the complete validation split."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 402,
-                "description": "Builds the machine-readable manifest line."
+                "path": "kapso_evaluation/README.md",
+                "line": 28,
+                "description": "States that fraction and seed are only echoed in the manifest."
               }
             ]
           }
@@ -1133,118 +2510,246 @@
       },
       "core.gotchas": {
         "title": "Gotchas",
-        "one_liner": "Rolling snapshots, debug semantics, autocomplete cutoffs, and recommendation warnings require special handling.",
+        "one_liner": "Shared caches, strict chronological gates, debug truncation, missing text routes, and inactive-user fallbacks materially affect candidate behavior.",
         "claims": [
           {
-            "kind": "contract",
-            "statement": "Rolling snapshots intentionally have an empty validation table: main.py detects zero validation rows, writes only tick test predictions, and the rolling grader later assembles those predictions into final validation and test vectors.",
-            "confidence": 0.99,
+            "kind": "other",
+            "statement": "main.py prepends the champion source directory from KAPSO_SHARED_CACHE_DIR before importing modeling, chronograph, and other champion modules; a missing shared cache can therefore fail before task execution.",
+            "confidence": 0.98,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 23,
-                "description": "Documents the empty validation table in rolling snapshots."
+                "line": 17,
+                "description": "Constructs the cached champion code path."
               },
               {
                 "path": "main.py",
-                "line": 27,
-                "description": "Sets the validation row count to zero when appropriate."
+                "line": 18,
+                "description": "Adds the cached code directory to sys.path."
               },
               {
                 "path": "main.py",
-                "line": 28,
-                "description": "Detects rolling mode from the empty validation split."
+                "line": 21,
+                "description": "Imports cached champion modeling."
               },
               {
                 "path": "main.py",
-                "line": 50,
-                "description": "Suppresses the validation file in rolling mode."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 191,
-                "description": "Reads each tick's test prediction file."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 207,
-                "description": "Saves the assembled vector for each split."
+                "line": 22,
+                "description": "Imports cached graph-memory components."
               }
             ]
           },
           {
             "kind": "other",
-            "statement": "The checked-in baseline does not implement a cheaper debug algorithm; --debug is only reflected in its final diagnostic output, while prediction generation follows the same path.",
-            "confidence": 0.97,
+            "statement": "Debug mode is not just logging: it uses reduced fold/training samples, 80-tree fits, one hazard epoch, and at most the first 5,000 embedding states, so debug metrics are not full-run estimates.",
+            "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 31,
-                "description": "Prediction branching begins without a debug-specific branch."
+                "line": 138,
+                "description": "Enables debug mode from the command line."
               },
               {
-                "path": "main.py",
-                "line": 53,
-                "description": "The debug flag is only inspected for the diagnostic message."
+                "path": "content_modeling.py",
+                "line": 168,
+                "description": "Uses 80 rounds in debug and 500 otherwise."
               },
               {
-                "path": "main.py",
-                "line": 56,
-                "description": "Prints debug status rather than changing the computation."
+                "path": "content_modeling.py",
+                "line": 176,
+                "description": "Truncates fold training rows in debug."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 103,
-                "description": "The grader treats debug as the candidate's cheap-build mode."
+                "path": "content_modeling.py",
+                "line": 249,
+                "description": "Uses one hazard epoch in debug and three otherwise for OOF."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 280,
+                "description": "Limits debug embeddings to 5,000 states."
               }
             ]
           },
           {
-            "kind": "contract",
-            "statement": "For autocomplete tasks, load_task defaults to a database cutoff at the test timestamp; post-test-cutoff entity rows may only be used as inputs when calling load_task(upto_test_timestamp=False).",
+            "kind": "other",
+            "statement": "If no tag/content block satisfies the forward-fold gate, the candidate explicitly falls back to the champion-only OOF and final fit functions rather than forcing a topic block.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/common.py",
-                "line": 60,
-                "description": "Defaults upto_test_timestamp to True."
+                "path": "content_modeling.py",
+                "line": 220,
+                "description": "Uses none when no candidate block passes."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 63,
-                "description": "Documents the autocomplete exception."
+                "path": "main.py",
+                "line": 195,
+                "description": "Branches into the champion-only fallback when selected is none."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 73,
-                "description": "Passes the cutoff choice to dataset.get_db."
+                "path": "main.py",
+                "line": 198,
+                "description": "Uses champion OOF training in the fallback."
+              },
+              {
+                "path": "main.py",
+                "line": 203,
+                "description": "Clears the topic feature tag for the fallback."
               }
             ]
           },
           {
-            "kind": "contract",
-            "statement": "The prediction checker warns rather than fails for recommendation IDs outside the valid range or duplicate IDs, even though the evaluation contract requires in-range distinct rankings.",
+            "kind": "other",
+            "statement": "Rows with no authored activity bypass the meta-model and use the tree prediction directly for both validation and test; this fallback is intentional for never-active users.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 21,
-                "description": "Requires ranked recommendation IDs."
+                "path": "main.py",
+                "line": 234,
+                "description": "Initializes validation activity degree."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 22,
-                "description": "Requires IDs in range and distinct."
+                "path": "main.py",
+                "line": 237,
+                "description": "Replaces validation meta predictions with tree predictions for zero-degree users."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 42,
-                "description": "Only warns about out-of-range IDs."
+                "path": "main.py",
+                "line": 259,
+                "description": "Initializes test activity degree."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 46,
-                "description": "Only warns about duplicate IDs."
+                "path": "main.py",
+                "line": 261,
+                "description": "Replaces test meta predictions with tree predictions for zero-degree users."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Missing or non-Latin historical text is routed through zeroed text-derived features plus explicit missingness/non-Latin counts, while tag and numeric features remain available.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "topic_features.py",
+                "line": 228,
+                "description": "Requires a valid Latin historical state for text-derived question features."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 244,
+                "description": "Identifies missing historical states."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 246,
+                "description": "Identifies non-Latin states."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 247,
+                "description": "Aggregates missing-state counts by owner."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 248,
+                "description": "Aggregates non-Latin-state counts by owner."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 35,
+                "description": "Documents fallback to tag/numeric features and missingness flags."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Several expensive artifacts use mode, boundary, origin, shape, or completion-marker cache keys; an existing compatible path with its .complete marker is returned without rebuilding.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "topic_data.py",
+                "line": 274,
+                "description": "Keys embedding paths by debug/full mode."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 275,
+                "description": "Uses a completion marker for embeddings."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 276,
+                "description": "Reuses a compatible completed embedding matrix."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 202,
+                "description": "Keys content features by boundary and mode."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 205,
+                "description": "Uses a completion marker for content features."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 207,
+                "description": "Reuses a compatible completed content matrix."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 33,
+                "description": "Keys hazard checkpoints by tag, mode, feature width, and topic version."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The full feature pipeline is costly: graph replay is no longer the critical path, but fixed 500-tree forward fits were measured at approximately four minutes each.",
+            "confidence": 0.91,
+            "evidence": [
+              {
+                "path": "PLAN.md",
+                "line": 14,
+                "description": "Records the measured graph rate and approximate fixed-fit duration."
+              },
+              {
+                "path": "changes.log",
+                "line": 8,
+                "description": "Records graph replay throughput and fixed-fit timing."
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Experiment sessions, arbitrary logs, shared cache state, Python bytecode, and the generic experiment output directory are ignored by Git, while changes.log is explicitly retained.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": ".gitignore",
+                "line": 3,
+                "description": "Ignores experimentation sessions."
+              },
+              {
+                "path": ".gitignore",
+                "line": 4,
+                "description": "Ignores generic log files."
+              },
+              {
+                "path": ".gitignore",
+                "line": 5,
+                "description": "Keeps changes.log tracked."
+              },
+              {
+                "path": ".gitignore",
+                "line": 8,
+                "description": "Ignores shared cache state."
+              },
+              {
+                "path": ".gitignore",
+                "line": 11,
+                "description": "Ignores the default experiment output directory."
               }
             ]
           }
@@ -1252,96 +2757,121 @@
       },
       "core.dependencies": {
         "title": "Dependencies",
-        "one_liner": "Runtime execution depends on Python, NumPy, RelBench, and harness-provided environment variables and sanitized cache data.",
+        "one_liner": "The lane-3 path depends on the cached champion stack, RelBench environment variables, scientific Python/LightGBM tooling, DuckDB, and a pretrained MiniLM encoder.",
         "claims": [
           {
-            "kind": "deployment",
-            "statement": "The candidate directly depends on NumPy and RelBench task/base APIs; the evaluation suite requires Python with relbench and numpy installed.",
-            "confidence": 1.0,
+            "kind": "dependency",
+            "statement": "The new feature/model path imports NumPy, pandas, PyTorch, SciPy/scikit-learn, LightGBM, DuckDB, joblib, and incremental PCA/Ridge components.",
+            "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 13,
+                "line": 11,
                 "description": "Imports NumPy."
               },
               {
                 "path": "main.py",
-                "line": 15,
-                "description": "Imports RelBench task APIs."
+                "line": 13,
+                "description": "Imports PyTorch."
               },
               {
-                "path": "kapso_evaluation/README.md",
-                "line": 31,
-                "description": "Begins the environment requirements."
+                "path": "content_modeling.py",
+                "line": 8,
+                "description": "Imports LightGBM."
               },
               {
-                "path": "kapso_evaluation/README.md",
-                "line": 37,
-                "description": "States that Python with relbench and numpy is sufficient."
+                "path": "content_modeling.py",
+                "line": 12,
+                "description": "Imports roc_auc_score."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 12,
+                "description": "Imports DuckDB."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 10,
+                "description": "Imports joblib."
+              },
+              {
+                "path": "topic_features.py",
+                "line": 16,
+                "description": "Imports IncrementalPCA and Ridge."
               }
             ]
           },
           {
-            "kind": "deployment",
-            "statement": "The harness supplies task identity, cache location, output location, primary metric, timeouts, and archive/work directories through environment variables; main.py directly requires RELBENCH_DATASET, RELBENCH_TASK, RELBENCH_CACHE_DIR, and KAPSO_RUN_DATA_DIR.",
-            "confidence": 1.0,
+            "kind": "dependency",
+            "statement": "Historical text embeddings use sentence-transformers/all-MiniLM-L6-v2, preferring a local shared-cache snapshot and otherwise resolving the public model identifier; the stored representation is normalized, 384-dimensional, and FP16 on disk.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 20,
-                "description": "Requires RELBENCH_DATASET."
+                "path": "topic_data.py",
+                "line": 286,
+                "description": "Loads SentenceTransformer lazily."
               },
               {
-                "path": "main.py",
-                "line": 21,
-                "description": "Requires RELBENCH_TASK."
+                "path": "topic_data.py",
+                "line": 291,
+                "description": "Defines the local cached MiniLM model path."
               },
               {
-                "path": "main.py",
-                "line": 25,
-                "description": "Requires RELBENCH_CACHE_DIR."
+                "path": "topic_data.py",
+                "line": 292,
+                "description": "Falls back to the public all-MiniLM-L6-v2 model identifier."
               },
               {
-                "path": "main.py",
-                "line": 49,
-                "description": "Requires KAPSO_RUN_DATA_DIR."
+                "path": "topic_data.py",
+                "line": 300,
+                "description": "Constructs the SentenceTransformer model."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 29,
-                "description": "Lists the grader-provided environment configuration."
+                "path": "topic_data.py",
+                "line": 317,
+                "description": "Requests normalized NumPy embeddings."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 35,
-                "description": "Lists cache-related environment variables."
+                "path": "topic_data.py",
+                "line": 327,
+                "description": "Documents FP16 384-dimensional MiniLM embeddings."
+              },
+              {
+                "path": "changes.log",
+                "line": 4,
+                "description": "Records the external pretrained model and its cutoff-valid use."
               }
             ]
           },
           {
-            "kind": "deployment",
-            "statement": "RelBench data must already exist in the sanitized cache because both the starter loader and baseline task loader explicitly use download=False.",
-            "confidence": 1.0,
+            "kind": "dependency",
+            "statement": "Runtime configuration requires RELBENCH_DATASET and RELBENCH_TASK; KAPSO_SHARED_CACHE_DIR supplies champion and topic caches, KAPSO_RUN_DATA_DIR can override prediction output, and OMP_NUM_THREADS controls DuckDB/LightGBM parallelism.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/common.py",
-                "line": 61,
-                "description": "States that the loader uses the sanitized cache."
-              },
-              {
-                "path": "kapso_datasets/common.py",
-                "line": 71,
-                "description": "Loads the dataset without downloading."
-              },
-              {
-                "path": "kapso_datasets/common.py",
-                "line": 72,
-                "description": "Loads the task without downloading."
+                "path": "main.py",
+                "line": 17,
+                "description": "Requires KAPSO_SHARED_CACHE_DIR for champion code."
               },
               {
                 "path": "main.py",
-                "line": 22,
-                "description": "The baseline also disables downloading."
+                "line": 38,
+                "description": "Reads the optional KAPSO_RUN_DATA_DIR output override."
+              },
+              {
+                "path": "main.py",
+                "line": 143,
+                "description": "Reads RELBENCH_DATASET and RELBENCH_TASK."
+              },
+              {
+                "path": "topic_data.py",
+                "line": 19,
+                "description": "Uses OMP_NUM_THREADS for DuckDB."
+              },
+              {
+                "path": "content_modeling.py",
+                "line": 85,
+                "description": "Uses OMP_NUM_THREADS for LightGBM."
               }
             ]
           }
@@ -1349,11 +2879,90 @@
       }
     }
   },
-  "experiments": [],
+  "experiments": [
+    {
+      "recorded_at": "2026-08-11T21:49:12.524428+00:00",
+      "branch": "generic_exp_3",
+      "parent_branch": "main",
+      "base_commit": "96a5d8cd3b59b77582dd79774853c5d37dbbe81d",
+      "head_commit": "7419c635b606ee671ea3dbb52de2c10dbfbdb06d",
+      "code_head_commit": "7419c635b606ee671ea3dbb52de2c10dbfbdb06d",
+      "solution_spec": "# Core Idea\n\nCreate a dormant-user content/topic-traffic expert: model the current momentum of a question’s tags and use cutoff-valid local text embeddings to estimate future inbound traffic. Aggregate these signals over each user’s old questions and add them to the champion.\n\nThis is deliberately orthogonal to activity counts. It targets old artifacts whose owners may be dormant even while those artifacts continue receiving views, votes, links, comments, and answers.\n\n# Implementation\n\n1. Reproduce the champion in a lane-specific cache namespace. Read and append to the two living documents before and after experimentation.\n\n2. Reconstruct question title and tags as of every origin from `postHistory` initial/edit events. Do not use a current dump value for an earlier origin when a later edit may have changed it. Emit missingness flags where a reliable historical state cannot be reconstructed.\n\n3. Parse the cutoff-valid tag state into `(question, tag)` pairs. Incrementally compute per tag:\n\n   - New questions and votes in 30/91/365 days.\n   - Comments, answers, and links in 91/365 days.\n   - Current heat versus the corresponding prior-year window.\n   - Heat acceleration, active-question count, and system-wide percentile.\n\n4. Aggregate tag traffic over each user’s questions:\n\n   - Maximum, mean, sum, and top-three tag heat.\n   - Counts in top-decile heat tags.\n   - Heat-weighted question age.\n   - Separate aggregates for questions older than 365 days.\n   - Interaction with the question’s lifetime/recent votes and comments.\n\n5. Encode cutoff-valid title+tags using `sentence-transformers/all-MiniLM-L6-v2`, a public 384-dimensional Sentence Transformers model. [MiniLM model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) Cache embeddings by normalized historical text hash.\n\n6. Train a content-to-traffic model on historical questions whose complete 91-day target windows close before each fold boundary. Targets are future votes, comments, answers, and links. Aggregate predicted traffic over each owner’s artifacts with sum/max/top-three and old-question-only variants.\n\n7. Reduce embeddings with IncrementalPCA to 32 dimensions, fitted only on fold-training historical text. Do not embed mutable `AboutMe` because no reliable history table establishes its value at earlier cutoffs.\n\n8. Gate three fixed blocks on three purged forward folds:\n\n   - Tag traffic only.\n   - Content-predicted traffic only.\n   - Both together.\n\n   Measure overall and never-active/dormant/stale/active AUC. Accept based on paired fold improvements and dormant-slice stability, never the official validation score.\n\n9. Add accepted features to the champion LightGBM and hazard head. Fit Model A on train for validation and Model B on train+validation for test. Refit the auxiliary traffic target for Model B only with windows closing by the test cutoff.\n\n10. Fall back to the exact champion if every block fails. Cache solo content-expert predictions and OOF vectors for later decorrelated ensembling.\n\n# Hyperparameters\n\n- Encoder: all-MiniLM-L6-v2, 384 dimensions, fp16, batch 512, max 128 tokens.\n- IncrementalPCA: 32 dimensions; randomized training sample capped at 500,000 artifact snapshots.\n- Traffic model: Ridge `alpha=10` for log-count targets plus a compact LightGBM crossing classifier.\n- Tag windows: 30/91/365 days; growth ratio clipped to `[0.1,10]`.\n- Final LightGBM: champion settings, 500 trees on the latest 16 eligible origins.\n- Debug: 5,000 embedded questions, sampled traffic training, 80 trees; all official output rows still predicted.\n\n# Runtime Plan\n\nBudget 2.5–4 hours for the uncached champion, 30–45 minutes for event-sourced tag reconstruction, 15–30 minutes for local embeddings, under one hour for traffic models and gates, and one hour for final refits and checks. Skip PCA components before dropping the scalar content-to-traffic predictions if time becomes tight.\n\n# Coverage\n\n- MEASURED input distribution: dormant users constitute 28.3% of validation rows and about half its positives; the new features reach them through old owned questions.\n- MEASURED domain coverage: all 163,748 questions have tags in the supplied EDA, while view-driven badges are materially more common than tag badges. This lane models topic traffic, not tag-badge thresholds.\n- MEASURED text safety issue: post text and tags can be revised; cutoff-valid reconstruction from postHistory is required. Unverifiable historical text is not used.\n- MEASURED relational coverage: tag state combines posts, postHistory, votes, comments, answers, and links; the champion supplies users and badge history.\n- MEASURED output contract: exact aligned validation/test probability shapes and valid floating-point range.\n- MEASURED metric mechanics: feature acceptance uses purged internal folds with slice reporting.\n- MEASURED permitted geometry: every tag, text, and traffic feature is censored at the row’s origin; auxiliary targets must close before their training boundary.\n- ASSUMED proxy quality: tag momentum and content-predicted interactions correlate with unobserved views; the forward-fold gates test this.\n- ASSUMED language coverage: the site is predominantly English; script/language profiling should route non-Latin text to tag/numeric-only features.",
+      "changed_files": [
+        ".gitignore",
+        "PLAN.md",
+        "changes.log",
+        "content_modeling.py",
+        "eval_profile.md",
+        "main.py",
+        "topic_data.py",
+        "topic_features.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "1",
+          "deleted": "0",
+          "path": ".gitignore"
+        },
+        {
+          "added": "16",
+          "deleted": "0",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "18",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "260",
+          "deleted": "0",
+          "path": "content_modeling.py"
+        },
+        {
+          "added": "35",
+          "deleted": "0",
+          "path": "eval_profile.md"
+        },
+        {
+          "added": "278",
+          "deleted": "45",
+          "path": "main.py"
+        },
+        {
+          "added": "388",
+          "deleted": "0",
+          "path": "topic_data.py"
+        },
+        {
+          "added": "473",
+          "deleted": "0",
+          "path": "topic_features.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.dependencies",
+          "core.entrypoints",
+          "core.gotchas",
+          "core.invariants",
+          "core.testing",
+          "core.where_to_edit"
+        ]
+      }
+    }
+  ],
   "quality": {
     "evidence_ok": true,
     "missing_evidence": [],
     "section_count": 7,
-    "claim_count": 20
+    "claim_count": 33
   }
 }
