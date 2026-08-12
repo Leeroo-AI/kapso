@@ -307,13 +307,14 @@ Experimentation notes for this search:
 - Every iteration, before anything else: read features_history.md and apply the
   FEATURE ENGINEERING rules above — new features first, all tables covered.
 - When the schema has text columns, your FIRST full evaluation must EXECUTE the
-  LLM text measurement of modelling practice 8: the run itself makes a
-  non-empty batch of hosted-LLM calls — feature extraction over the text, or
-  direct classification, whichever you designed — and your logs report how
-  many calls were made and the measured score of the resulting features.
-  Code that is wired up but makes zero calls at run time is not the
-  measurement; a campaign must not reach final selection without this
-  comparison having actually run.
+  LLM text measurement of modelling practice 8: the run itself executes a
+  non-empty LLM extraction batch — hosted-LLM calls, or a locally served open
+  instruct model validated against a hosted-scored panel — for feature
+  extraction over the text or direct classification, whichever you designed —
+  and your logs report how many rows were scored and the measured score of the
+  resulting features. Code that is wired up but scores zero rows at run time
+  is not the measurement; a campaign must not reach final selection without
+  this comparison having actually run.
 """
 
 
@@ -494,6 +495,14 @@ MODELLING_PRACTICE_NOTE = (
     "campaign: parallel lanes, later candidates, and re-runs consume it "
     "for free, and final candidates that reuse the cache re-evaluate in "
     "seconds.\n"
+    "- When the text corpus is large relative to your hosted throughput, "
+    "serve a fast open instruct model locally (e.g. vLLM with a small or "
+    "small-active-MoE model from practice 9's list) and use it as the "
+    "extraction engine for FULL direct coverage — then validate it "
+    "against a few-thousand-row hosted-scored panel: keep the local "
+    "scorer where the two agree; the panel is your quality gate, not a "
+    "teacher to distill from. Prefer this over teacher-distillation "
+    "whenever direct coverage is affordable on your GPUs.\n"
     "- Wire the attributes in at every level your architecture offers: as "
     "ordinary columns in feature-matrix models; as per-event marks where "
     "a model consumes event sequences (score each event's text rather "
