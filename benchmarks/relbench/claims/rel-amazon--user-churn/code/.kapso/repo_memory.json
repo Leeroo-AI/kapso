@@ -1,26 +1,39 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-07-31T15:27:30.300972+00:00",
+  "generated_at": "2026-08-12T05:21:54.915816+00:00",
   "baseline": {
-    "initial_repo": "/tmp/relbench_baseline_o4ui4gjg"
+    "initial_repo": "/tmp/relbench_baseline_wjycx0h_"
   },
   "repo_map": {
     "repo_root": ".",
-    "file_count": 9,
+    "file_count": 20,
     "files": [
       ".gitignore",
+      "PLAN.md",
+      "champion_runner.py",
+      "eval_profile.md",
       "kapso_datasets/CONTRACT.md",
       "kapso_datasets/README.md",
       "kapso_datasets/__init__.py",
       "kapso_datasets/check_predictions.py",
       "kapso_datasets/common.py",
       "kapso_evaluation/README.md",
+      "kapso_evaluation/__pycache__/kapso_eval_archive.cpython-312.pyc",
       "kapso_evaluation/grader.py",
-      "main.py"
+      "kapso_evaluation/kapso_eval.py",
+      "kapso_evaluation/kapso_eval_archive.py",
+      "main.py",
+      "output_data_generic_exp_2/debug_metrics.json",
+      "output_data_generic_exp_2/metrics.json",
+      "residual_knn.py",
+      "semantic_champion.py",
+      "temporal_transformer.py"
     ],
     "languages_by_extension": {
-      ".py": 5,
-      ".md": 3
+      ".py": 11,
+      ".md": 5,
+      ".json": 2,
+      ".pyc": 1
     },
     "key_files": [],
     "entrypoints": [
@@ -28,794 +41,1417 @@
     ]
   },
   "repo_model": {
-    "summary": "This repository is a RelBench generic-search workspace with a root-level candidate program that generates task-family-specific predictions and a provided evaluation suite that validates, scores, and archives those predictions. The current candidate is intentionally a trivial baseline intended to be replaced with a real solution.",
+    "summary": "The active candidate is now a lane3 causal residual-graph and external-customer retrieval pipeline. main.py loads versioned lane1/lane2 feature caches, evaluates graph and kNN experts on forward origins, selects a frozen rank stack, preserves legal Model A/Model B lineage, and falls back to banked run_0014 predictions when the stack is not admitted before writing finite prediction arrays and diagnostics.",
     "entrypoints": [
       {
-        "path": "main.py",
-        "how_to_run": "python main.py --debug for the fast contract check; python main.py for the full candidate run"
+        "statement": "The candidate is launched as `python main.py`; `--debug` selects the smoke path, while the no-flag invocation runs the full residual pipeline.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Recognizes the --debug command-line flag."
+          },
+          {
+            "path": "main.py",
+            "line": 43,
+            "description": "Provides the script entrypoint."
+          },
+          {
+            "path": "main.py",
+            "line": 45,
+            "description": "Calls main when executed as a script."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 364,
+            "description": "Dispatches debug versus full execution."
+          }
+        ]
       },
       {
-        "path": "kapso_evaluation/grader.py",
-        "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]"
+        "statement": "The evaluator supplies KAPSO_RUN_DATA_DIR for run-local metrics; outside the evaluator, metrics default to output_data_generic_exp_7.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 34,
+            "description": "Defines the local output directory."
+          },
+          {
+            "path": "main.py",
+            "line": 36,
+            "description": "Reads the evaluator run directory override."
+          },
+          {
+            "path": "main.py",
+            "line": 38,
+            "description": "Writes run-local metrics."
+          }
+        ]
       }
     ],
     "where_to_edit": [
       {
-        "path": "main.py",
-        "role": "Primary candidate implementation: load the task, build features/models, and write validation and test predictions"
+        "statement": "Edit main.py for command-line behavior, deterministic setup, prediction sanitization, output paths, and diagnostics.",
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 16,
+            "description": "Defines the orchestration function."
+          },
+          {
+            "path": "main.py",
+            "line": 20,
+            "description": "Controls debug selection."
+          },
+          {
+            "path": "main.py",
+            "line": 27,
+            "description": "Controls output probability coercion."
+          },
+          {
+            "path": "main.py",
+            "line": 37,
+            "description": "Controls diagnostic serialization."
+          }
+        ]
       },
       {
-        "path": "kapso_datasets/common.py",
-        "role": "Optional helpers for sanitized task loading, output saving, temporal-safety checks, and MAP@K evaluation"
+        "statement": "Edit residual_knn.py for feature-cache loading, causal graph construction, kNN retrieval, forward-fold gates, stack selection, and final Model A/Model B prediction generation.",
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 194,
+            "description": "Loads lane1 seed data and upstream semantic/text arrays."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 320,
+            "description": "Defines the full pipeline."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 329,
+            "description": "Controls graph OOF evaluation."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 330,
+            "description": "Controls kNN prediction generation."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 331,
+            "description": "Controls stack selection."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 335,
+            "description": "Controls final graph model materialization."
+          }
+        ]
       },
       {
-        "path": "kapso_datasets/CONTRACT.md",
-        "role": "Prediction-file, leakage, data-access, and execution-mode contract to preserve while editing the candidate"
-      },
-      {
-        "path": "kapso_evaluation/grader.py",
-        "role": "Provided immutable scoring pipeline; candidate changes should not be made here"
+        "statement": "Change upstream lane1/lane2 feature producers or their versioned cache paths only when the required product text, semantic, and tabular seed arrays change.",
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 107,
+            "description": "Defines the lane1 feature root."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 218,
+            "description": "Uses shared cached product-text arrays."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 226,
+            "description": "Uses ordered lane2 semantic seed arrays."
+          }
+        ]
       }
     ],
     "claims": [
       {
         "kind": "architecture",
-        "statement": "The candidate is task-driven rather than dataset-specific: it reads the dataset and task names from the environment, loads the RelBench task with downloads disabled, detects rolling mode from the cached validation file, and sizes predictions from the validation and test tables.",
-        "confidence": 0.99,
+        "statement": "main.py is the current candidate orchestrator: it seeds NumPy, selects debug mode, runs the residual pipeline, sanitizes both prediction vectors to finite float32 probabilities, saves predictions, and writes diagnostics to the evaluator run directory and output_data_generic_exp_7.",
+        "confidence": 1.0,
         "evidence": [
           {
             "path": "main.py",
+            "line": 16,
+            "description": "Defines the active main entrypoint."
+          },
+          {
+            "path": "main.py",
+            "line": 18,
+            "description": "Seeds NumPy deterministically."
+          },
+          {
+            "path": "main.py",
             "line": 20,
-            "description": "Reads RELBENCH_DATASET and RELBENCH_TASK"
+            "description": "Selects debug mode from --debug."
           },
           {
             "path": "main.py",
-            "line": 22,
-            "description": "Loads the task with download=False"
+            "line": 26,
+            "description": "Runs the residual kNN pipeline."
           },
           {
             "path": "main.py",
-            "line": 23,
-            "description": "Documents empty validation tables in rolling snapshots"
+            "line": 27,
+            "description": "Replaces non-finite validation values and clips them to [0,1] float32."
           },
           {
             "path": "main.py",
             "line": 29,
-            "description": "Gets the test row count from the task table"
-          }
-        ]
-      },
-      {
-        "kind": "algorithm",
-        "statement": "The seeded prediction algorithm branches by task family: recommendation returns tiled integer rankings, binary classification returns 0.5 probabilities, multiclass classification returns uniform class scores, and other task types return the training target median.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 31,
-            "description": "Starts RecommendationTask handling"
-          },
-          {
-            "path": "main.py",
-            "line": 33,
-            "description": "Builds the recommendation ranking row"
+            "description": "Saves validation and test predictions."
           },
           {
             "path": "main.py",
             "line": 36,
-            "description": "Handles binary classification"
+            "description": "Uses KAPSO_RUN_DATA_DIR for evaluator diagnostics when supplied."
           },
           {
             "path": "main.py",
-            "line": 39,
-            "description": "Handles multiclass classification"
-          },
-          {
-            "path": "main.py",
-            "line": 44,
-            "description": "Uses the training target median for other tasks"
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "The starter-kit loader creates a TaskContext containing the dataset, task, database view, and train/validation/test RelBench tables; the context explicitly documents that train and validation include labels while test contains only seed inputs and timestamps.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 44,
-            "description": "Defines TaskContext"
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 51,
-            "description": "Documents labeled train and validation tables"
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 53,
-            "description": "Documents test inputs without labels"
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 71,
-            "description": "Loads the dataset without downloading"
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 73,
-            "description": "Builds the database view with the test timestamp cutoff"
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "The provided grader runs main.py as an isolated child subprocess, loads the resulting prediction files, computes official RelBench validation metrics, archives full-fidelity runs, and emits a machine-readable manifest containing the primary validation score.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 3,
-            "description": "Describes isolated candidate execution and official scoring"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 94,
-            "description": "Starts the candidate subprocess"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 232,
-            "description": "Computes validation metrics with the task evaluator"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 335,
-            "description": "Archives full-fidelity runs"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 351,
-            "description": "Constructs the KAPSO_EVAL_MANIFEST line"
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "In rolling mode, the grader invokes the candidate once per snapshot, reads each tick's test_predictions.npy, and assembles the per-tick vectors into the official validation and test row order using snapshot indices.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 139,
-            "description": "Defines rolling per-tick execution"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 153,
-            "description": "Iterates over validation and test snapshot groups"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 173,
-            "description": "Loads the snapshot row indices"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 185,
-            "description": "Collects predictions and indices"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 189,
-            "description": "Reconstructs the full official-order vector"
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "Every evaluated run must produce val_predictions.npy and test_predictions.npy with rows positionally aligned to the corresponding RelBench tables; validation predictions must be out-of-sample with respect to validation labels.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 15,
-            "description": "Requires both prediction files after every run"
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 16,
-            "description": "Requires positional row alignment"
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 17,
-            "description": "Requires validation predictions to be out-of-sample"
-          },
-          {
-            "path": "main.py",
-            "line": 51,
-            "description": "Writes validation predictions in non-rolling runs"
-          },
-          {
-            "path": "main.py",
-            "line": 52,
-            "description": "Writes test predictions"
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "Prediction formats are task-specific: binary and regression use finite float vectors, multiclass uses an (N, C) float array, and recommendation uses an integer (N, K) ranking of destination IDs.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 20,
-            "description": "Specifies binary and regression prediction formats"
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 21,
-            "description": "Specifies multiclass and recommendation formats"
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
             "line": 38,
-            "description": "Validates recommendation shape and integer dtype"
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 54,
-            "description": "Validates non-recommendation shapes"
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 56,
-            "description": "Rejects non-finite non-recommendation values"
+            "description": "Writes metrics to the evaluator run directory."
           }
         ]
       },
       {
-        "kind": "contract",
-        "statement": "All RelBench data access must use the sanitized read-only cache with download=False; test labels are physically absent, so the candidate cannot use them for feature construction or tuning.",
-        "confidence": 0.99,
+        "kind": "architecture",
+        "statement": "residual_knn.py full_run loads chronological origins and train/validation/test seed data, materializes graph and widened matrices, obtains banked-champion OOF predictions, evaluates graph and kNN experts, selects a stack, and either trains final graph predictions or returns the banked baseline.",
+        "confidence": 1.0,
         "evidence": [
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 25,
-            "description": "Requires RelBench API access with download=False"
+            "path": "residual_knn.py",
+            "line": 320,
+            "description": "Defines the full residual pipeline."
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 26,
-            "description": "States that test labels are absent"
+            "path": "residual_knn.py",
+            "line": 321,
+            "description": "Loads chronological origin days."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 60,
-            "description": "Documents loading from the sanitized cache"
+            "path": "residual_knn.py",
+            "line": 322,
+            "description": "Loads full training seed data."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 71,
-            "description": "Loads the dataset with download=False"
+            "path": "residual_knn.py",
+            "line": 323,
+            "description": "Loads validation and test seed data."
           },
           {
-            "path": "kapso_datasets/common.py",
-            "line": 72,
-            "description": "Loads the task with download=False"
+            "path": "residual_knn.py",
+            "line": 326,
+            "description": "Ensures causal graph features."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 327,
+            "description": "Ensures widened feature matrices."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 328,
+            "description": "Loads banked run_0014 OOF predictions."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 329,
+            "description": "Builds graph OOF predictions and a graph gate."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 330,
+            "description": "Builds kNN OOF, validation, and test predictions."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 331,
+            "description": "Selects the final stack."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 334,
+            "description": "Only trains final graph predictions when the stack is accepted."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 342,
+            "description": "Falls back to banked baseline predictions when the stack is rejected."
           }
         ]
       },
       {
-        "kind": "contract",
-        "statement": "The search score is the official primary metric computed on the complete validation split; test metrics are private and the candidate must not transform the metric direction.",
+        "kind": "architecture",
+        "statement": "The graph channel implements query-customer-excluded, state-residualized propagation across eight buckets and product/category/brand fanouts, with raw, empirical-Bayes, residual, decay, coverage, rate, and disagreement features.",
         "confidence": 0.98,
         "evidence": [
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 23,
-            "description": "Defines the official validation primary metric as the search score"
-          },
-          {
-            "path": "kapso_evaluation/README.md",
-            "line": 41,
-            "description": "Defines the manifest score of record"
-          },
-          {
-            "path": "kapso_evaluation/README.md",
-            "line": 42,
-            "description": "States that metric direction is handled by search"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 347,
-            "description": "Places the primary validation metric in the manifest score"
-          }
-        ]
-      },
-      {
-        "kind": "contract",
-        "statement": "Features built from temporal tables must not include rows after the prediction seed time; the starter kit provides an assertion that raises on any such row.",
-        "confidence": 0.94,
-        "evidence": [
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 97,
-            "description": "Defines the temporal-safety guard"
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 99,
-            "description": "Checks for rows after the seed time"
-          },
-          {
-            "path": "kapso_datasets/common.py",
-            "line": 101,
-            "description": "Raises a temporal leakage error"
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "The required quick sanity check is `python main.py --debug`; the full candidate is run with `python main.py`, and both modes must complete while producing the contract files.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 3,
-            "description": "States that the harness runs the program twice"
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 5,
-            "description": "Defines the debug command"
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 6,
-            "description": "Defines the full command"
-          },
-          {
-            "path": "kapso_datasets/CONTRACT.md",
+            "path": "PLAN.md",
             "line": 8,
-            "description": "Explains that outputs are loaded and scored after each run"
+            "description": "Requires bucket-excluded, state-residualized propagation with decay and maturity checks."
+          },
+          {
+            "path": "changes.log",
+            "line": 12,
+            "description": "Records eight-bucket raw and state-residual propagation and 33 emitted graph features."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 29,
+            "description": "Defines the eight graph buckets."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 63,
+            "description": "Defines graph feature names for the configured fanouts."
           }
         ]
       },
       {
-        "kind": "other",
-        "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py`; success is reported with per-split OK lines followed by `all checks passed`.",
-        "confidence": 0.99,
+        "kind": "architecture",
+        "statement": "The external-customer retrieval expert uses a 64D source-only representation, latest matured customer rows, CPU FAISS IVFPQ retrieval, exact query-customer removal, and rate/age/distance/entropy diagnostics; the full run computes its OOF and final channels before stack selection.",
+        "confidence": 0.98,
         "evidence": [
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 27,
-            "description": "Provides the self-check command"
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 62,
-            "description": "Prints per-split successful checks"
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 69,
-            "description": "Prints the final all-checks-passed message"
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "For official validation, invoke the grader with fast or full fidelity and inspect the `KAPSO_EVAL_MANIFEST` output; fast and full both score the complete validation split.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/grader.py",
+            "path": "changes.log",
             "line": 13,
-            "description": "Documents the grader CLI"
+            "description": "Records the 64D source-only causal kNN design, FAISS IVFPQ index, customer exclusion, and diagnostics."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 16,
-            "description": "Defines fast/full fidelity semantics"
+            "path": "residual_knn.py",
+            "line": 80,
+            "description": "Defines the kNN diagnostic feature names."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 18,
-            "description": "States that both fidelities score the complete validation split"
+            "path": "residual_knn.py",
+            "line": 298,
+            "description": "Builds the debug semantic source block."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 351,
-            "description": "Emits the machine-readable manifest line"
+            "path": "residual_knn.py",
+            "line": 302,
+            "description": "Uses a 64-dimensional FAISS search space in the debug smoke path."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 330,
+            "description": "Runs the kNN prediction stage in the full pipeline."
           }
         ]
       },
       {
-        "kind": "other",
-        "statement": "In rolling snapshots, the validation table is empty and the baseline intentionally skips writing per-tick validation predictions; the rolling grader instead consumes each tick's test_predictions.npy and assembles both official vectors.",
-        "confidence": 0.99,
+        "kind": "architecture",
+        "statement": "Stack development uses forward origins 20, 24, and 30; the accepted nonnegative rank stack has C=0.05 and retains a 0.10 graph contribution while excluding the unstable kNN channel.",
+        "confidence": 0.98,
         "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 27,
+            "description": "Defines forward folds 20, 24, and 30."
+          },
           {
             "path": "main.py",
             "line": 23,
-            "description": "Documents empty validation tables in rolling snapshots"
+            "description": "Reports the configured stack C=0.05 and graph/retrieval settings."
           },
           {
-            "path": "main.py",
-            "line": 27,
-            "description": "Sets the validation count to zero when the validation cache is absent"
+            "path": "PLAN.md",
+            "line": 10,
+            "description": "Freezes stack development on origins 20 and 24 and confirms on origin 30."
           },
           {
-            "path": "main.py",
-            "line": 50,
-            "description": "Skips validation output in rolling mode"
+            "path": "changes.log",
+            "line": 14,
+            "description": "Records kNN rejection, C=0.05 stack selection, and the retained graph contribution."
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 175,
-            "description": "Requires per-tick test predictions"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 191,
-            "description": "Writes assembled validation and test outputs"
+            "path": "residual_knn.py",
+            "line": 331,
+            "description": "Selects the stack from baseline, graph, and kNN OOF channels."
           }
         ]
       },
       {
-        "kind": "other",
-        "statement": "The current repository is only a trivial baseline: it uses fixed probabilities, uniform scores, a fixed recommendation sequence, or a training median rather than fitting a predictive model.",
-        "confidence": 0.99,
+        "kind": "architecture",
+        "statement": "Final graph materialization preserves the two-model contract: Model A predicts validation from training labels, while Model B appends validation labels only for test prediction.",
+        "confidence": 1.0,
         "evidence": [
           {
-            "path": "main.py",
-            "line": 1,
-            "description": "Identifies the file as a baseline candidate"
+            "path": "residual_knn.py",
+            "line": 248,
+            "description": "Trains the final validation-side graph model."
           },
           {
-            "path": "main.py",
-            "line": 5,
-            "description": "Describes the outputs as trivial predictions"
+            "path": "residual_knn.py",
+            "line": 252,
+            "description": "Combines training and validation feature matrices for Model B."
           },
           {
-            "path": "main.py",
-            "line": 37,
-            "description": "Uses constant binary probabilities"
+            "path": "residual_knn.py",
+            "line": 253,
+            "description": "Combines training and validation labels for Model B."
           },
           {
-            "path": "main.py",
-            "line": 41,
-            "description": "Uses uniform multiclass scores"
+            "path": "residual_knn.py",
+            "line": 255,
+            "description": "Trains Model B before producing test predictions."
           },
           {
-            "path": "main.py",
-            "line": 45,
-            "description": "Uses the training median for other task types"
+            "path": "residual_knn.py",
+            "line": 256,
+            "description": "Generates Model B test predictions."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 356,
+            "description": "Records the Model A training-label-only source."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 357,
+            "description": "Records the Model B validation-label admission policy."
           }
         ]
       },
       {
-        "kind": "other",
-        "statement": "The prediction checker only warns when recommendation IDs are out of range or duplicated; the contract still requires valid destination IDs and distinct rankings, so warnings should be treated as failures by the candidate author.",
-        "confidence": 0.99,
+        "kind": "architecture",
+        "statement": "The supplied champion and lane2 transformer components remain available as separate cached or auxiliary experiments, but they are no longer invoked directly by the active main.py path.",
+        "confidence": 0.96,
         "evidence": [
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "line": 21,
-            "description": "Requires ranked distinct destination IDs in range"
+            "path": "main.py",
+            "line": 12,
+            "description": "The active entrypoint imports the prediction saver."
           },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 42,
-            "description": "Prints a warning for out-of-range IDs"
-          },
-          {
-            "path": "kapso_datasets/check_predictions.py",
-            "line": 46,
-            "description": "Prints a warning for duplicate IDs"
-          }
-        ]
-      },
-      {
-        "kind": "other",
-        "statement": "Fast fidelity is a cheap-build mode, not a smaller scoring sample: the validation item set never shrinks and fraction/seed are only echoed into the manifest.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 16,
-            "description": "Defines fast as the candidate debug mode"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 18,
-            "description": "States that the complete validation split is scored"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 19,
-            "description": "States that fraction and seed are echoed in the manifest"
-          },
-          {
-            "path": "kapso_evaluation/README.md",
-            "line": 27,
-            "description": "States that fraction and seed do not subsample validation rows"
-          }
-        ]
-      },
-      {
-        "kind": "deployment",
-        "statement": "The candidate directly depends on NumPy for prediction arrays and RelBench for task types and task loading; the evaluation suite likewise requires Python with relbench and numpy installed.",
-        "confidence": 0.99,
-        "evidence": [
           {
             "path": "main.py",
             "line": 13,
-            "description": "Imports NumPy"
+            "description": "The active entrypoint imports residual_knn rather than the former transformer orchestrator."
           },
           {
-            "path": "main.py",
-            "line": 15,
-            "description": "Imports RelBench task APIs"
+            "path": "champion_runner.py",
+            "line": 13,
+            "description": "The supplied champion modules remain loadable from shared cache."
           },
           {
-            "path": "kapso_evaluation/README.md",
-            "line": 35,
-            "description": "Lists Python, relbench, and numpy as the required runtime"
+            "path": "champion_runner.py",
+            "line": 132,
+            "description": "The champion runner still writes its cached prediction artifacts."
+          },
+          {
+            "path": "temporal_transformer.py",
+            "line": 271,
+            "description": "The lane2 transformer pipeline remains defined separately."
+          },
+          {
+            "path": "temporal_transformer.py",
+            "line": 320,
+            "description": "The transformer still has a final validation/test prediction stage."
           }
         ]
       },
       {
-        "kind": "deployment",
-        "statement": "The root candidate requires RELBENCH_DATASET, RELBENCH_TASK, RELBENCH_CACHE_DIR, and KAPSO_RUN_DATA_DIR from the runtime environment to identify the task, inspect the cache, and write outputs.",
+        "kind": "architecture",
+        "statement": "The immutable evaluator still runs main.py in an isolated subprocess, loads the resulting arrays, computes official validation metrics, and uses the configured primary metric as the score.",
         "confidence": 0.99,
         "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 93,
+            "description": "Defines the normal candidate runner."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 103,
+            "description": "Builds the main.py child command."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 110,
+            "description": "Starts the candidate in a subprocess."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 212,
+            "description": "Defines candidate output loading and scoring."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 248,
+            "description": "Computes official validation metrics."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 249,
+            "description": "Requires the configured primary metric."
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "Full-fidelity evaluator runs archive prediction artifacts, metrics, selection labels, evaluator snapshots, and filtered candidate code, while fast runs are pipeline checks only; rolling evaluation still invokes the candidate for each cache snapshot.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 255,
+            "description": "Defines full-run archiving."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 257,
+            "description": "States that fast runs are not archived."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 268,
+            "description": "Stores validation and test artifacts."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 276,
+            "description": "Writes selection eligibility labels."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 279,
+            "description": "Snapshots the evaluator tree."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 169,
+            "description": "Iterates over validation and test snapshot groups."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 187,
+            "description": "Runs the candidate for each snapshot."
+          }
+        ]
+      },
+      {
+        "kind": "invariant",
+        "statement": "Validation and test outputs are coerced to finite float32 probabilities in the inclusive [0,1] range before saving.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 27,
+            "description": "Sanitizes and clips validation predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 28,
+            "description": "Sanitizes and clips test predictions."
+          },
+          {
+            "path": "main.py",
+            "line": 29,
+            "description": "Saves the sanitized arrays."
+          }
+        ]
+      },
+      {
+        "kind": "invariant",
+        "statement": "The registered evaluator requires probabilities aligned to the complete 409,792-row validation table and 351,885-row test table; the candidate records both resulting shapes in diagnostics.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "Defines required finite aligned validation and test vectors and their row counts."
+          },
+          {
+            "path": "main.py",
+            "line": 31,
+            "description": "Records the validation prediction shape."
+          },
+          {
+            "path": "main.py",
+            "line": 32,
+            "description": "Records the test prediction shape."
+          }
+        ]
+      },
+      {
+        "kind": "invariant",
+        "statement": "Non-debug seed data must preserve original task row order: feature rows are sorted by row_id and checked against a contiguous original ordering, while labels are read with file_row_number ordering.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 163,
+            "description": "Defines ordered split-label loading."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 165,
+            "description": "Orders parquet labels by file_row_number."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 198,
+            "description": "Sorts feature rows by row_id."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 200,
+            "description": "Rejects non-debug seed data that is not in original task order."
+          }
+        ]
+      },
+      {
+        "kind": "invariant",
+        "statement": "Model A must exclude validation labels from its complete chain; Model B may use validation labels for test predictions only after the validation-side prediction is captured.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 5,
+            "description": "Defines the Model A and Model B label-use contract."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 248,
+            "description": "Produces validation predictions before Model B training."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 252,
+            "description": "Starts the combined Model B feature matrix."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 261,
+            "description": "Records validation preservation before Model B."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 358,
+            "description": "Records the validation-preserved lineage invariant."
+          }
+        ]
+      },
+      {
+        "kind": "invariant",
+        "statement": "Graph propagation and retrieval are causal: query customers are excluded, source labels must be mature by query time, and the frozen stack is developed only on the permitted forward-origin design.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 8,
+            "description": "Requires causal maturity checks for residual propagation."
+          },
+          {
+            "path": "PLAN.md",
+            "line": 10,
+            "description": "Limits stack development to origins 20 and 24 with one origin-30 confirmation."
+          },
+          {
+            "path": "changes.log",
+            "line": 12,
+            "description": "Records query-customer-excluded causal graph construction."
+          },
+          {
+            "path": "changes.log",
+            "line": 13,
+            "description": "Records latest matured source rows and exact customer removal for retrieval."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 356,
+            "description": "Records that graph sources are matured by query time and stack selection is frozen."
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "The debug path loads debug seeds, builds graph features, fits a small holdout graph model, exercises a 64D FAISS search, and returns legal fallback-shaped outputs.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 285,
+            "description": "Defines the debug smoke test."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 288,
+            "description": "Builds debug graph features."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 293,
+            "description": "Creates the small debug LightGBM model."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 302,
+            "description": "Creates a 64D FAISS index."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 305,
+            "description": "Loads legal baseline validation and test outputs."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 316,
+            "description": "Announces debug completion."
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "Internal acceptance uses forward-origin movement and customer-clustered bootstrap support rather than official validation feedback; official validation is a post-freeze diagnostic.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "eval_profile.md",
+            "line": 19,
+            "description": "Defines internal forward-origin and clustered-support acceptance."
+          },
+          {
+            "path": "changes.log",
+            "line": 14,
+            "description": "Records the origin-30 clustered confirmation and stack decision."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 266,
+            "description": "Defines validation resolution diagnostics."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 281,
+            "description": "Labels validation resolution as post-freeze only."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 344,
+            "description": "Computes final validation resolution after prediction selection."
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "The residual campaign has explicit throughput gates of above 500,000 graph seed rows per minute and above 500 retrieval queries per second, with a 90-minute retrieval projection cap; the recorded measurements passed those thresholds.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "PLAN.md",
+            "line": 1,
+            "description": "Sets graph and retrieval throughput targets."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 35,
+            "description": "Defines the residual graph/retrieval performance gates."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 37,
+            "description": "Records measured graph rate, retrieval rate, and projection."
+          }
+        ]
+      },
+      {
+        "kind": "testing",
+        "statement": "The registered full-fidelity run_0017 completed from versioned caches, scored all validation rows, and archived both contract arrays.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 18,
+            "description": "Records run_0017 completion, score, runtime, and archived arrays."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 39,
+            "description": "Records the complete official validation result and post-freeze comparison."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "If the selected stack is not accepted, the full run deliberately emits the banked run_0014 validation and test predictions instead of graph/kNN predictions; the debug path also reports the banked legal fallback as its output source.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 11,
+            "description": "Records byte-matched banked run_0014 validation and test copies."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 333,
+            "description": "Initializes final diagnostics as using fallback."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 341,
+            "description": "Enters the fallback branch when the stack is not accepted."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 342,
+            "description": "Copies baseline validation predictions."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 314,
+            "description": "Identifies the debug output source as the banked legal run_0014 fallback."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "The kNN channel is computed for diagnostics and stack selection but was excluded from the accepted final stack because its development-origin movement inverted between origins.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "changes.log",
+            "line": 14,
+            "description": "Records the inverted kNN development result and its exclusion."
+          },
+          {
+            "path": "eval_profile.md",
+            "line": 37,
+            "description": "Records that the kNN channel was excluded and graph contribution retained."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 330,
+            "description": "Shows that kNN predictions are still generated before selection."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 331,
+            "description": "Passes the kNN OOF channel into stack selection."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Debug mode uses debug feature files and bypasses the non-debug original-row-order assertion, so it is a smoke test rather than a representative full-data evaluation.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 169,
+            "description": "Defines debug-specific feature-file selection."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 173,
+            "description": "Selects debug train files when requested."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 200,
+            "description": "Applies the row-order failure check only when not debug."
+          },
           {
             "path": "main.py",
             "line": 20,
-            "description": "Requires RELBENCH_DATASET"
-          },
-          {
-            "path": "main.py",
-            "line": 21,
-            "description": "Requires RELBENCH_TASK"
-          },
-          {
-            "path": "main.py",
-            "line": 25,
-            "description": "Requires RELBENCH_CACHE_DIR"
-          },
-          {
-            "path": "main.py",
-            "line": 49,
-            "description": "Requires KAPSO_RUN_DATA_DIR"
+            "description": "Activates debug mode through the command line."
           }
         ]
       },
       {
-        "kind": "deployment",
-        "statement": "The grader is configured through handler-provided environment variables including the primary metric, work/archive directory, debug/full timeouts, sanitized cache, and shared candidate cache.",
+        "kind": "gotcha",
+        "statement": "The residual pipeline requires pre-existing shared and RelBench cache environment variables; missing variables fail during cache-root or task-root construction rather than triggering a download.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 97,
+            "description": "Builds the versioned shared cache root from KAPSO_SHARED_CACHE_DIR."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 103,
+            "description": "Defines the task-root helper."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 104,
+            "description": "Reads the required RelBench cache, dataset, and task variables."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 108,
+            "description": "Uses a separate versioned lane1 feature cache."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "Artifacts are versioned and registered in a shared manifest under an exclusive file lock; temporary JSON files are atomically renamed, so changing feature semantics requires changing the version or artifact path.",
         "confidence": 0.98,
         "evidence": [
           {
-            "path": "kapso_evaluation/grader.py",
-            "line": 21,
-            "description": "Introduces the grader environment configuration"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 24,
-            "description": "Lists the work directory and timeout variables"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
+            "path": "residual_knn.py",
             "line": 26,
-            "description": "Lists the sanitized cache and shared cache variables"
+            "description": "Defines the residual pipeline version."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 126,
+            "description": "Defines atomic JSON writing."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 132,
+            "description": "Defines shared artifact registration."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 137,
+            "description": "Takes an exclusive registry lock."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 153,
+            "description": "Releases the registry lock."
+          }
+        ]
+      },
+      {
+        "kind": "gotcha",
+        "statement": "The new experiment output directory output_data_generic_exp_7 is intentionally ignored by git, while changes.log remains tracked.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": ".gitignore",
+            "line": 5,
+            "description": "Keeps changes.log tracked despite the log ignore rule."
+          },
+          {
+            "path": ".gitignore",
+            "line": 11,
+            "description": "Ignores output_data_generic_exp_7."
+          },
+          {
+            "path": "main.py",
+            "line": 34,
+            "description": "Uses output_data_generic_exp_7 for local outputs."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "residual_knn.py directly imports DuckDB, FAISS, LightGBM, NumPy, Pandas, Numba, SciPy, and scikit-learn components for data access, modeling, retrieval, numerical transforms, and diagnostics.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 13,
+            "description": "Imports DuckDB."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 14,
+            "description": "Imports FAISS."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 15,
+            "description": "Imports LightGBM."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 16,
+            "description": "Imports NumPy."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 17,
+            "description": "Imports Pandas."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 18,
+            "description": "Imports Numba."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 19,
+            "description": "Imports SciPy optimization and transforms."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 22,
+            "description": "Imports scikit-learn PCA."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 23,
+            "description": "Imports scikit-learn ROC-AUC scoring."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The active pipeline depends on KAPSO_SHARED_CACHE_DIR for versioned shared artifacts, RELBENCH_CACHE_DIR/RELBENCH_DATASET/RELBENCH_TASK for task parquet files, and KAPSO_RUN_DATA_DIR for evaluator-local diagnostics.",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 98,
+            "description": "Reads KAPSO_SHARED_CACHE_DIR."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 104,
+            "description": "Reads the RelBench task environment variables."
+          },
+          {
+            "path": "main.py",
+            "line": 36,
+            "description": "Reads KAPSO_RUN_DATA_DIR."
+          }
+        ]
+      },
+      {
+        "kind": "dependency",
+        "statement": "The residual model consumes upstream lane1 feature parquet files and lane1 product-text and lane2 ordered-semantic NumPy arrays from shared caches.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "residual_knn.py",
+            "line": 169,
+            "description": "Locates lane1 feature parquet files."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 196,
+            "description": "Reads feature parquet columns."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 218,
+            "description": "Locates cached product-text arrays."
+          },
+          {
+            "path": "residual_knn.py",
+            "line": 226,
+            "description": "Locates cached ordered semantic arrays."
           }
         ]
       }
     ]
   },
   "book": {
-    "summary": "This repository is a RelBench generic-search workspace with a root-level candidate program that generates task-family-specific predictions and a provided evaluation suite that validates, scores, and archives those predictions. The current candidate is intentionally a trivial baseline intended to be replaced with a real solution.",
+    "summary": "The active candidate is now a lane3 causal residual-graph and external-customer retrieval pipeline. main.py loads versioned lane1/lane2 feature caches, evaluates graph and kNN experts on forward origins, selects a frozen rank stack, preserves legal Model A/Model B lineage, and falls back to banked run_0014 predictions when the stack is not admitted before writing finite prediction arrays and diagnostics.",
     "toc": [
       {
         "id": "core.architecture",
         "title": "Architecture",
-        "one_liner": "Task-driven candidate plus an isolated RelBench scoring harness"
+        "one_liner": "main.py orchestrates causal residual graph features, a 64D external-customer kNN expert, forward-fold stack selection, and a legal final prediction lineage with a banked champion fallback."
       },
       {
         "id": "core.entrypoints",
         "title": "Entrypoints",
-        "one_liner": "Run the root candidate directly or invoke the provided grader"
+        "one_liner": "Run main.py directly for a full candidate or add --debug for the graph/FAISS smoke path."
       },
       {
         "id": "core.where_to_edit",
-        "title": "Where to edit",
-        "one_liner": "Replace the seeded baseline in main.py while reusing contract helpers"
+        "title": "Where to Edit",
+        "one_liner": "Change orchestration and output behavior in main.py; change graph, retrieval, stack, cache, and lineage behavior in residual_knn.py."
       },
       {
         "id": "core.invariants",
         "title": "Invariants",
-        "one_liner": "Prediction files, leakage rules, and official scoring contracts"
+        "one_liner": "Predictions must remain aligned finite probabilities, and all model lineage and causal exclusion rules must be preserved."
       },
       {
         "id": "core.testing",
         "title": "Testing",
-        "one_liner": "Use debug execution, the prediction checker, and official fast/full grading"
+        "one_liner": "Use the debug smoke path for pipeline checks, then validate forward-fold gates, performance thresholds, and the registered full evaluator."
       },
       {
         "id": "core.gotchas",
         "title": "Gotchas",
-        "one_liner": "Rolling snapshots, weak recommendation warnings, and intentionally trivial defaults"
+        "one_liner": "The full path is cache- and ordering-sensitive, and rejected experimental channels intentionally fall back to the banked champion."
       },
       {
         "id": "core.dependencies",
         "title": "Dependencies",
-        "one_liner": "Python with RelBench and NumPy plus handler-provided environment configuration"
+        "one_liner": "The active residual implementation depends on DuckDB/parquet caches, LightGBM, FAISS, NumPy/Pandas, Numba, SciPy, and scikit-learn plus shared RelBench/Kapso environment variables."
       }
     ],
     "sections": {
       "core.architecture": {
         "title": "Architecture",
-        "one_liner": "Task-driven candidate plus an isolated RelBench scoring harness",
+        "one_liner": "main.py orchestrates causal residual graph features, a 64D external-customer kNN expert, forward-fold stack selection, and a legal final prediction lineage with a banked champion fallback.",
         "claims": [
           {
             "kind": "architecture",
-            "statement": "The candidate is task-driven rather than dataset-specific: it reads the dataset and task names from the environment, loads the RelBench task with downloads disabled, detects rolling mode from the cached validation file, and sizes predictions from the validation and test tables.",
-            "confidence": 0.99,
+            "statement": "main.py is the current candidate orchestrator: it seeds NumPy, selects debug mode, runs the residual pipeline, sanitizes both prediction vectors to finite float32 probabilities, saves predictions, and writes diagnostics to the evaluator run directory and output_data_generic_exp_7.",
+            "confidence": 1.0,
             "evidence": [
               {
                 "path": "main.py",
+                "line": 16,
+                "description": "Defines the active main entrypoint."
+              },
+              {
+                "path": "main.py",
+                "line": 18,
+                "description": "Seeds NumPy deterministically."
+              },
+              {
+                "path": "main.py",
                 "line": 20,
-                "description": "Reads RELBENCH_DATASET and RELBENCH_TASK"
+                "description": "Selects debug mode from --debug."
               },
               {
                 "path": "main.py",
-                "line": 22,
-                "description": "Loads the task with download=False"
+                "line": 26,
+                "description": "Runs the residual kNN pipeline."
               },
               {
                 "path": "main.py",
-                "line": 23,
-                "description": "Documents empty validation tables in rolling snapshots"
+                "line": 27,
+                "description": "Replaces non-finite validation values and clips them to [0,1] float32."
               },
               {
                 "path": "main.py",
                 "line": 29,
-                "description": "Gets the test row count from the task table"
-              }
-            ]
-          },
-          {
-            "kind": "algorithm",
-            "statement": "The seeded prediction algorithm branches by task family: recommendation returns tiled integer rankings, binary classification returns 0.5 probabilities, multiclass classification returns uniform class scores, and other task types return the training target median.",
-            "confidence": 0.99,
-            "evidence": [
-              {
-                "path": "main.py",
-                "line": 31,
-                "description": "Starts RecommendationTask handling"
-              },
-              {
-                "path": "main.py",
-                "line": 33,
-                "description": "Builds the recommendation ranking row"
+                "description": "Saves validation and test predictions."
               },
               {
                 "path": "main.py",
                 "line": 36,
-                "description": "Handles binary classification"
+                "description": "Uses KAPSO_RUN_DATA_DIR for evaluator diagnostics when supplied."
               },
               {
                 "path": "main.py",
-                "line": 39,
-                "description": "Handles multiclass classification"
-              },
-              {
-                "path": "main.py",
-                "line": 44,
-                "description": "Uses the training target median for other tasks"
+                "line": 38,
+                "description": "Writes metrics to the evaluator run directory."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The starter-kit loader creates a TaskContext containing the dataset, task, database view, and train/validation/test RelBench tables; the context explicitly documents that train and validation include labels while test contains only seed inputs and timestamps.",
+            "statement": "residual_knn.py full_run loads chronological origins and train/validation/test seed data, materializes graph and widened matrices, obtains banked-champion OOF predictions, evaluates graph and kNN experts, selects a stack, and either trains final graph predictions or returns the banked baseline.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 320,
+                "description": "Defines the full residual pipeline."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 321,
+                "description": "Loads chronological origin days."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 322,
+                "description": "Loads full training seed data."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 323,
+                "description": "Loads validation and test seed data."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 326,
+                "description": "Ensures causal graph features."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 327,
+                "description": "Ensures widened feature matrices."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 328,
+                "description": "Loads banked run_0014 OOF predictions."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 329,
+                "description": "Builds graph OOF predictions and a graph gate."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 330,
+                "description": "Builds kNN OOF, validation, and test predictions."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 331,
+                "description": "Selects the final stack."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 334,
+                "description": "Only trains final graph predictions when the stack is accepted."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 342,
+                "description": "Falls back to banked baseline predictions when the stack is rejected."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The graph channel implements query-customer-excluded, state-residualized propagation across eight buckets and product/category/brand fanouts, with raw, empirical-Bayes, residual, decay, coverage, rate, and disagreement features.",
             "confidence": 0.98,
             "evidence": [
               {
-                "path": "kapso_datasets/common.py",
-                "line": 44,
-                "description": "Defines TaskContext"
+                "path": "PLAN.md",
+                "line": 8,
+                "description": "Requires bucket-excluded, state-residualized propagation with decay and maturity checks."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 51,
-                "description": "Documents labeled train and validation tables"
+                "path": "changes.log",
+                "line": 12,
+                "description": "Records eight-bucket raw and state-residual propagation and 33 emitted graph features."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 53,
-                "description": "Documents test inputs without labels"
+                "path": "residual_knn.py",
+                "line": 29,
+                "description": "Defines the eight graph buckets."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 71,
-                "description": "Loads the dataset without downloading"
-              },
-              {
-                "path": "kapso_datasets/common.py",
-                "line": 73,
-                "description": "Builds the database view with the test timestamp cutoff"
+                "path": "residual_knn.py",
+                "line": 63,
+                "description": "Defines graph feature names for the configured fanouts."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The provided grader runs main.py as an isolated child subprocess, loads the resulting prediction files, computes official RelBench validation metrics, archives full-fidelity runs, and emits a machine-readable manifest containing the primary validation score.",
+            "statement": "The external-customer retrieval expert uses a 64D source-only representation, latest matured customer rows, CPU FAISS IVFPQ retrieval, exact query-customer removal, and rate/age/distance/entropy diagnostics; the full run computes its OOF and final channels before stack selection.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "changes.log",
+                "line": 13,
+                "description": "Records the 64D source-only causal kNN design, FAISS IVFPQ index, customer exclusion, and diagnostics."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 80,
+                "description": "Defines the kNN diagnostic feature names."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 298,
+                "description": "Builds the debug semantic source block."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 302,
+                "description": "Uses a 64-dimensional FAISS search space in the debug smoke path."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 330,
+                "description": "Runs the kNN prediction stage in the full pipeline."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Stack development uses forward origins 20, 24, and 30; the accepted nonnegative rank stack has C=0.05 and retains a 0.10 graph contribution while excluding the unstable kNN channel.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 27,
+                "description": "Defines forward folds 20, 24, and 30."
+              },
+              {
+                "path": "main.py",
+                "line": 23,
+                "description": "Reports the configured stack C=0.05 and graph/retrieval settings."
+              },
+              {
+                "path": "PLAN.md",
+                "line": 10,
+                "description": "Freezes stack development on origins 20 and 24 and confirms on origin 30."
+              },
+              {
+                "path": "changes.log",
+                "line": 14,
+                "description": "Records kNN rejection, C=0.05 stack selection, and the retained graph contribution."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 331,
+                "description": "Selects the stack from baseline, graph, and kNN OOF channels."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "Final graph materialization preserves the two-model contract: Model A predicts validation from training labels, while Model B appends validation labels only for test prediction.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 248,
+                "description": "Trains the final validation-side graph model."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 252,
+                "description": "Combines training and validation feature matrices for Model B."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 253,
+                "description": "Combines training and validation labels for Model B."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 255,
+                "description": "Trains Model B before producing test predictions."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 256,
+                "description": "Generates Model B test predictions."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 356,
+                "description": "Records the Model A training-label-only source."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 357,
+                "description": "Records the Model B validation-label admission policy."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The supplied champion and lane2 transformer components remain available as separate cached or auxiliary experiments, but they are no longer invoked directly by the active main.py path.",
+            "confidence": 0.96,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 12,
+                "description": "The active entrypoint imports the prediction saver."
+              },
+              {
+                "path": "main.py",
+                "line": 13,
+                "description": "The active entrypoint imports residual_knn rather than the former transformer orchestrator."
+              },
+              {
+                "path": "champion_runner.py",
+                "line": 13,
+                "description": "The supplied champion modules remain loadable from shared cache."
+              },
+              {
+                "path": "champion_runner.py",
+                "line": 132,
+                "description": "The champion runner still writes its cached prediction artifacts."
+              },
+              {
+                "path": "temporal_transformer.py",
+                "line": 271,
+                "description": "The lane2 transformer pipeline remains defined separately."
+              },
+              {
+                "path": "temporal_transformer.py",
+                "line": 320,
+                "description": "The transformer still has a final validation/test prediction stage."
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The immutable evaluator still runs main.py in an isolated subprocess, loads the resulting arrays, computes official validation metrics, and uses the configured primary metric as the score.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 3,
-                "description": "Describes isolated candidate execution and official scoring"
+                "line": 93,
+                "description": "Defines the normal candidate runner."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 94,
-                "description": "Starts the candidate subprocess"
+                "line": 103,
+                "description": "Builds the main.py child command."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 232,
-                "description": "Computes validation metrics with the task evaluator"
+                "line": 110,
+                "description": "Starts the candidate in a subprocess."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 335,
-                "description": "Archives full-fidelity runs"
+                "line": 212,
+                "description": "Defines candidate output loading and scoring."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 351,
-                "description": "Constructs the KAPSO_EVAL_MANIFEST line"
+                "line": 248,
+                "description": "Computes official validation metrics."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 249,
+                "description": "Requires the configured primary metric."
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "In rolling mode, the grader invokes the candidate once per snapshot, reads each tick's test_predictions.npy, and assembles the per-tick vectors into the official validation and test row order using snapshot indices.",
+            "statement": "Full-fidelity evaluator runs archive prediction artifacts, metrics, selection labels, evaluator snapshots, and filtered candidate code, while fast runs are pipeline checks only; rolling evaluation still invokes the candidate for each cache snapshot.",
             "confidence": 0.98,
             "evidence": [
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 139,
-                "description": "Defines rolling per-tick execution"
+                "line": 255,
+                "description": "Defines full-run archiving."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 153,
-                "description": "Iterates over validation and test snapshot groups"
+                "line": 257,
+                "description": "States that fast runs are not archived."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 173,
-                "description": "Loads the snapshot row indices"
+                "line": 268,
+                "description": "Stores validation and test artifacts."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 185,
-                "description": "Collects predictions and indices"
+                "line": 276,
+                "description": "Writes selection eligibility labels."
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 189,
-                "description": "Reconstructs the full official-order vector"
+                "line": 279,
+                "description": "Snapshots the evaluator tree."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 169,
+                "description": "Iterates over validation and test snapshot groups."
+              },
+              {
+                "path": "kapso_evaluation/grader.py",
+                "line": 187,
+                "description": "Runs the candidate for each snapshot."
               }
             ]
           }
@@ -823,186 +1459,277 @@
       },
       "core.entrypoints": {
         "title": "Entrypoints",
-        "one_liner": "Run the root candidate directly or invoke the provided grader",
+        "one_liner": "Run main.py directly for a full candidate or add --debug for the graph/FAISS smoke path.",
         "content": [
           {
-            "path": "main.py",
-            "how_to_run": "python main.py --debug for the fast contract check; python main.py for the full candidate run"
+            "statement": "The candidate is launched as `python main.py`; `--debug` selects the smoke path, while the no-flag invocation runs the full residual pipeline.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Recognizes the --debug command-line flag."
+              },
+              {
+                "path": "main.py",
+                "line": 43,
+                "description": "Provides the script entrypoint."
+              },
+              {
+                "path": "main.py",
+                "line": 45,
+                "description": "Calls main when executed as a script."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 364,
+                "description": "Dispatches debug versus full execution."
+              }
+            ]
           },
           {
-            "path": "kapso_evaluation/grader.py",
-            "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]"
+            "statement": "The evaluator supplies KAPSO_RUN_DATA_DIR for run-local metrics; outside the evaluator, metrics default to output_data_generic_exp_7.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 34,
+                "description": "Defines the local output directory."
+              },
+              {
+                "path": "main.py",
+                "line": 36,
+                "description": "Reads the evaluator run directory override."
+              },
+              {
+                "path": "main.py",
+                "line": 38,
+                "description": "Writes run-local metrics."
+              }
+            ]
           }
         ]
       },
       "core.where_to_edit": {
-        "title": "Where to edit",
-        "one_liner": "Replace the seeded baseline in main.py while reusing contract helpers",
+        "title": "Where to Edit",
+        "one_liner": "Change orchestration and output behavior in main.py; change graph, retrieval, stack, cache, and lineage behavior in residual_knn.py.",
         "content": [
           {
-            "path": "main.py",
-            "role": "Primary candidate implementation: load the task, build features/models, and write validation and test predictions"
+            "statement": "Edit main.py for command-line behavior, deterministic setup, prediction sanitization, output paths, and diagnostics.",
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 16,
+                "description": "Defines the orchestration function."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Controls debug selection."
+              },
+              {
+                "path": "main.py",
+                "line": 27,
+                "description": "Controls output probability coercion."
+              },
+              {
+                "path": "main.py",
+                "line": 37,
+                "description": "Controls diagnostic serialization."
+              }
+            ]
           },
           {
-            "path": "kapso_datasets/common.py",
-            "role": "Optional helpers for sanitized task loading, output saving, temporal-safety checks, and MAP@K evaluation"
+            "statement": "Edit residual_knn.py for feature-cache loading, causal graph construction, kNN retrieval, forward-fold gates, stack selection, and final Model A/Model B prediction generation.",
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 194,
+                "description": "Loads lane1 seed data and upstream semantic/text arrays."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 320,
+                "description": "Defines the full pipeline."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 329,
+                "description": "Controls graph OOF evaluation."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 330,
+                "description": "Controls kNN prediction generation."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 331,
+                "description": "Controls stack selection."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 335,
+                "description": "Controls final graph model materialization."
+              }
+            ]
           },
           {
-            "path": "kapso_datasets/CONTRACT.md",
-            "role": "Prediction-file, leakage, data-access, and execution-mode contract to preserve while editing the candidate"
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "role": "Provided immutable scoring pipeline; candidate changes should not be made here"
+            "statement": "Change upstream lane1/lane2 feature producers or their versioned cache paths only when the required product text, semantic, and tabular seed arrays change.",
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 107,
+                "description": "Defines the lane1 feature root."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 218,
+                "description": "Uses shared cached product-text arrays."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 226,
+                "description": "Uses ordered lane2 semantic seed arrays."
+              }
+            ]
           }
         ]
       },
       "core.invariants": {
         "title": "Invariants",
-        "one_liner": "Prediction files, leakage rules, and official scoring contracts",
+        "one_liner": "Predictions must remain aligned finite probabilities, and all model lineage and causal exclusion rules must be preserved.",
         "claims": [
           {
-            "kind": "contract",
-            "statement": "Every evaluated run must produce val_predictions.npy and test_predictions.npy with rows positionally aligned to the corresponding RelBench tables; validation predictions must be out-of-sample with respect to validation labels.",
-            "confidence": 0.99,
+            "kind": "invariant",
+            "statement": "Validation and test outputs are coerced to finite float32 probabilities in the inclusive [0,1] range before saving.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 15,
-                "description": "Requires both prediction files after every run"
-              },
-              {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 16,
-                "description": "Requires positional row alignment"
-              },
-              {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 17,
-                "description": "Requires validation predictions to be out-of-sample"
+                "path": "main.py",
+                "line": 27,
+                "description": "Sanitizes and clips validation predictions."
               },
               {
                 "path": "main.py",
-                "line": 51,
-                "description": "Writes validation predictions in non-rolling runs"
+                "line": 28,
+                "description": "Sanitizes and clips test predictions."
               },
               {
                 "path": "main.py",
-                "line": 52,
-                "description": "Writes test predictions"
+                "line": 29,
+                "description": "Saves the sanitized arrays."
               }
             ]
           },
           {
-            "kind": "contract",
-            "statement": "Prediction formats are task-specific: binary and regression use finite float vectors, multiclass uses an (N, C) float array, and recommendation uses an integer (N, K) ranking of destination IDs.",
-            "confidence": 0.99,
+            "kind": "invariant",
+            "statement": "The registered evaluator requires probabilities aligned to the complete 409,792-row validation table and 351,885-row test table; the candidate records both resulting shapes in diagnostics.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 20,
-                "description": "Specifies binary and regression prediction formats"
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "Defines required finite aligned validation and test vectors and their row counts."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 21,
-                "description": "Specifies multiclass and recommendation formats"
+                "path": "main.py",
+                "line": 31,
+                "description": "Records the validation prediction shape."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 38,
-                "description": "Validates recommendation shape and integer dtype"
-              },
-              {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 54,
-                "description": "Validates non-recommendation shapes"
-              },
-              {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 56,
-                "description": "Rejects non-finite non-recommendation values"
+                "path": "main.py",
+                "line": 32,
+                "description": "Records the test prediction shape."
               }
             ]
           },
           {
-            "kind": "contract",
-            "statement": "All RelBench data access must use the sanitized read-only cache with download=False; test labels are physically absent, so the candidate cannot use them for feature construction or tuning.",
-            "confidence": 0.99,
+            "kind": "invariant",
+            "statement": "Non-debug seed data must preserve original task row order: feature rows are sorted by row_id and checked against a contiguous original ordering, while labels are read with file_row_number ordering.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 25,
-                "description": "Requires RelBench API access with download=False"
+                "path": "residual_knn.py",
+                "line": 163,
+                "description": "Defines ordered split-label loading."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 26,
-                "description": "States that test labels are absent"
+                "path": "residual_knn.py",
+                "line": 165,
+                "description": "Orders parquet labels by file_row_number."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 60,
-                "description": "Documents loading from the sanitized cache"
+                "path": "residual_knn.py",
+                "line": 198,
+                "description": "Sorts feature rows by row_id."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 71,
-                "description": "Loads the dataset with download=False"
-              },
-              {
-                "path": "kapso_datasets/common.py",
-                "line": 72,
-                "description": "Loads the task with download=False"
+                "path": "residual_knn.py",
+                "line": 200,
+                "description": "Rejects non-debug seed data that is not in original task order."
               }
             ]
           },
           {
-            "kind": "contract",
-            "statement": "The search score is the official primary metric computed on the complete validation split; test metrics are private and the candidate must not transform the metric direction.",
+            "kind": "invariant",
+            "statement": "Model A must exclude validation labels from its complete chain; Model B may use validation labels for test predictions only after the validation-side prediction is captured.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "eval_profile.md",
+                "line": 5,
+                "description": "Defines the Model A and Model B label-use contract."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 248,
+                "description": "Produces validation predictions before Model B training."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 252,
+                "description": "Starts the combined Model B feature matrix."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 261,
+                "description": "Records validation preservation before Model B."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 358,
+                "description": "Records the validation-preserved lineage invariant."
+              }
+            ]
+          },
+          {
+            "kind": "invariant",
+            "statement": "Graph propagation and retrieval are causal: query customers are excluded, source labels must be mature by query time, and the frozen stack is developed only on the permitted forward-origin design.",
             "confidence": 0.98,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 23,
-                "description": "Defines the official validation primary metric as the search score"
+                "path": "PLAN.md",
+                "line": 8,
+                "description": "Requires causal maturity checks for residual propagation."
               },
               {
-                "path": "kapso_evaluation/README.md",
-                "line": 41,
-                "description": "Defines the manifest score of record"
+                "path": "PLAN.md",
+                "line": 10,
+                "description": "Limits stack development to origins 20 and 24 with one origin-30 confirmation."
               },
               {
-                "path": "kapso_evaluation/README.md",
-                "line": 42,
-                "description": "States that metric direction is handled by search"
+                "path": "changes.log",
+                "line": 12,
+                "description": "Records query-customer-excluded causal graph construction."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 347,
-                "description": "Places the primary validation metric in the manifest score"
-              }
-            ]
-          },
-          {
-            "kind": "contract",
-            "statement": "Features built from temporal tables must not include rows after the prediction seed time; the starter kit provides an assertion that raises on any such row.",
-            "confidence": 0.94,
-            "evidence": [
-              {
-                "path": "kapso_datasets/common.py",
-                "line": 97,
-                "description": "Defines the temporal-safety guard"
+                "path": "changes.log",
+                "line": 13,
+                "description": "Records latest matured source rows and exact customer removal for retrieval."
               },
               {
-                "path": "kapso_datasets/common.py",
-                "line": 99,
-                "description": "Checks for rows after the seed time"
-              },
-              {
-                "path": "kapso_datasets/common.py",
-                "line": 101,
-                "description": "Raises a temporal leakage error"
+                "path": "residual_knn.py",
+                "line": 356,
+                "description": "Records that graph sources are matured by query time and stack selection is frozen."
               }
             ]
           }
@@ -1010,81 +1737,113 @@
       },
       "core.testing": {
         "title": "Testing",
-        "one_liner": "Use debug execution, the prediction checker, and official fast/full grading",
+        "one_liner": "Use the debug smoke path for pipeline checks, then validate forward-fold gates, performance thresholds, and the registered full evaluator.",
         "claims": [
           {
-            "kind": "other",
-            "statement": "The required quick sanity check is `python main.py --debug`; the full candidate is run with `python main.py`, and both modes must complete while producing the contract files.",
-            "confidence": 0.99,
+            "kind": "testing",
+            "statement": "The debug path loads debug seeds, builds graph features, fits a small holdout graph model, exercises a 64D FAISS search, and returns legal fallback-shaped outputs.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 3,
-                "description": "States that the harness runs the program twice"
+                "path": "residual_knn.py",
+                "line": 285,
+                "description": "Defines the debug smoke test."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 5,
-                "description": "Defines the debug command"
+                "path": "residual_knn.py",
+                "line": 288,
+                "description": "Builds debug graph features."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 6,
-                "description": "Defines the full command"
+                "path": "residual_knn.py",
+                "line": 293,
+                "description": "Creates the small debug LightGBM model."
               },
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 8,
-                "description": "Explains that outputs are loaded and scored after each run"
+                "path": "residual_knn.py",
+                "line": 302,
+                "description": "Creates a 64D FAISS index."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 305,
+                "description": "Loads legal baseline validation and test outputs."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 316,
+                "description": "Announces debug completion."
               }
             ]
           },
           {
-            "kind": "other",
-            "statement": "After writing predictions, run `python kapso_datasets/check_predictions.py`; success is reported with per-split OK lines followed by `all checks passed`.",
+            "kind": "testing",
+            "statement": "Internal acceptance uses forward-origin movement and customer-clustered bootstrap support rather than official validation feedback; official validation is a post-freeze diagnostic.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 27,
-                "description": "Provides the self-check command"
+                "path": "eval_profile.md",
+                "line": 19,
+                "description": "Defines internal forward-origin and clustered-support acceptance."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 62,
-                "description": "Prints per-split successful checks"
+                "path": "changes.log",
+                "line": 14,
+                "description": "Records the origin-30 clustered confirmation and stack decision."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 69,
-                "description": "Prints the final all-checks-passed message"
+                "path": "residual_knn.py",
+                "line": 266,
+                "description": "Defines validation resolution diagnostics."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 281,
+                "description": "Labels validation resolution as post-freeze only."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 344,
+                "description": "Computes final validation resolution after prediction selection."
               }
             ]
           },
           {
-            "kind": "other",
-            "statement": "For official validation, invoke the grader with fast or full fidelity and inspect the `KAPSO_EVAL_MANIFEST` output; fast and full both score the complete validation split.",
+            "kind": "testing",
+            "statement": "The residual campaign has explicit throughput gates of above 500,000 graph seed rows per minute and above 500 retrieval queries per second, with a 90-minute retrieval projection cap; the recorded measurements passed those thresholds.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "PLAN.md",
+                "line": 1,
+                "description": "Sets graph and retrieval throughput targets."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 35,
+                "description": "Defines the residual graph/retrieval performance gates."
+              },
+              {
+                "path": "eval_profile.md",
+                "line": 37,
+                "description": "Records measured graph rate, retrieval rate, and projection."
+              }
+            ]
+          },
+          {
+            "kind": "testing",
+            "statement": "The registered full-fidelity run_0017 completed from versioned caches, scored all validation rows, and archived both contract arrays.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 13,
-                "description": "Documents the grader CLI"
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 16,
-                "description": "Defines fast/full fidelity semantics"
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
+                "path": "changes.log",
                 "line": 18,
-                "description": "States that both fidelities score the complete validation split"
+                "description": "Records run_0017 completion, score, runtime, and archived arrays."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 351,
-                "description": "Emits the machine-readable manifest line"
+                "path": "eval_profile.md",
+                "line": 39,
+                "description": "Records the complete official validation result and post-freeze comparison."
               }
             ]
           }
@@ -1092,118 +1851,172 @@
       },
       "core.gotchas": {
         "title": "Gotchas",
-        "one_liner": "Rolling snapshots, weak recommendation warnings, and intentionally trivial defaults",
+        "one_liner": "The full path is cache- and ordering-sensitive, and rejected experimental channels intentionally fall back to the banked champion.",
         "claims": [
           {
-            "kind": "other",
-            "statement": "In rolling snapshots, the validation table is empty and the baseline intentionally skips writing per-tick validation predictions; the rolling grader instead consumes each tick's test_predictions.npy and assembles both official vectors.",
-            "confidence": 0.99,
+            "kind": "gotcha",
+            "statement": "If the selected stack is not accepted, the full run deliberately emits the banked run_0014 validation and test predictions instead of graph/kNN predictions; the debug path also reports the banked legal fallback as its output source.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 23,
-                "description": "Documents empty validation tables in rolling snapshots"
+                "path": "changes.log",
+                "line": 11,
+                "description": "Records byte-matched banked run_0014 validation and test copies."
               },
               {
-                "path": "main.py",
-                "line": 27,
-                "description": "Sets the validation count to zero when the validation cache is absent"
+                "path": "residual_knn.py",
+                "line": 333,
+                "description": "Initializes final diagnostics as using fallback."
               },
               {
-                "path": "main.py",
-                "line": 50,
-                "description": "Skips validation output in rolling mode"
+                "path": "residual_knn.py",
+                "line": 341,
+                "description": "Enters the fallback branch when the stack is not accepted."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 175,
-                "description": "Requires per-tick test predictions"
+                "path": "residual_knn.py",
+                "line": 342,
+                "description": "Copies baseline validation predictions."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 191,
-                "description": "Writes assembled validation and test outputs"
+                "path": "residual_knn.py",
+                "line": 314,
+                "description": "Identifies the debug output source as the banked legal run_0014 fallback."
               }
             ]
           },
           {
-            "kind": "other",
-            "statement": "The current repository is only a trivial baseline: it uses fixed probabilities, uniform scores, a fixed recommendation sequence, or a training median rather than fitting a predictive model.",
-            "confidence": 0.99,
+            "kind": "gotcha",
+            "statement": "The kNN channel is computed for diagnostics and stack selection but was excluded from the accepted final stack because its development-origin movement inverted between origins.",
+            "confidence": 0.98,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 1,
-                "description": "Identifies the file as a baseline candidate"
+                "path": "changes.log",
+                "line": 14,
+                "description": "Records the inverted kNN development result and its exclusion."
               },
               {
-                "path": "main.py",
-                "line": 5,
-                "description": "Describes the outputs as trivial predictions"
-              },
-              {
-                "path": "main.py",
+                "path": "eval_profile.md",
                 "line": 37,
-                "description": "Uses constant binary probabilities"
+                "description": "Records that the kNN channel was excluded and graph contribution retained."
               },
               {
-                "path": "main.py",
-                "line": 41,
-                "description": "Uses uniform multiclass scores"
+                "path": "residual_knn.py",
+                "line": 330,
+                "description": "Shows that kNN predictions are still generated before selection."
               },
               {
-                "path": "main.py",
-                "line": 45,
-                "description": "Uses the training median for other task types"
+                "path": "residual_knn.py",
+                "line": 331,
+                "description": "Passes the kNN OOF channel into stack selection."
               }
             ]
           },
           {
-            "kind": "other",
-            "statement": "The prediction checker only warns when recommendation IDs are out of range or duplicated; the contract still requires valid destination IDs and distinct rankings, so warnings should be treated as failures by the candidate author.",
-            "confidence": 0.99,
+            "kind": "gotcha",
+            "statement": "Debug mode uses debug feature files and bypasses the non-debug original-row-order assertion, so it is a smoke test rather than a representative full-data evaluation.",
+            "confidence": 0.98,
             "evidence": [
               {
-                "path": "kapso_datasets/CONTRACT.md",
-                "line": 21,
-                "description": "Requires ranked distinct destination IDs in range"
+                "path": "residual_knn.py",
+                "line": 169,
+                "description": "Defines debug-specific feature-file selection."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 42,
-                "description": "Prints a warning for out-of-range IDs"
+                "path": "residual_knn.py",
+                "line": 173,
+                "description": "Selects debug train files when requested."
               },
               {
-                "path": "kapso_datasets/check_predictions.py",
-                "line": 46,
-                "description": "Prints a warning for duplicate IDs"
+                "path": "residual_knn.py",
+                "line": 200,
+                "description": "Applies the row-order failure check only when not debug."
+              },
+              {
+                "path": "main.py",
+                "line": 20,
+                "description": "Activates debug mode through the command line."
               }
             ]
           },
           {
-            "kind": "other",
-            "statement": "Fast fidelity is a cheap-build mode, not a smaller scoring sample: the validation item set never shrinks and fraction/seed are only echoed into the manifest.",
+            "kind": "gotcha",
+            "statement": "The residual pipeline requires pre-existing shared and RelBench cache environment variables; missing variables fail during cache-root or task-root construction rather than triggering a download.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 16,
-                "description": "Defines fast as the candidate debug mode"
+                "path": "residual_knn.py",
+                "line": 97,
+                "description": "Builds the versioned shared cache root from KAPSO_SHARED_CACHE_DIR."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 18,
-                "description": "States that the complete validation split is scored"
+                "path": "residual_knn.py",
+                "line": 103,
+                "description": "Defines the task-root helper."
               },
               {
-                "path": "kapso_evaluation/grader.py",
-                "line": 19,
-                "description": "States that fraction and seed are echoed in the manifest"
+                "path": "residual_knn.py",
+                "line": 104,
+                "description": "Reads the required RelBench cache, dataset, and task variables."
               },
               {
-                "path": "kapso_evaluation/README.md",
-                "line": 27,
-                "description": "States that fraction and seed do not subsample validation rows"
+                "path": "residual_knn.py",
+                "line": 108,
+                "description": "Uses a separate versioned lane1 feature cache."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "Artifacts are versioned and registered in a shared manifest under an exclusive file lock; temporary JSON files are atomically renamed, so changing feature semantics requires changing the version or artifact path.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 26,
+                "description": "Defines the residual pipeline version."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 126,
+                "description": "Defines atomic JSON writing."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 132,
+                "description": "Defines shared artifact registration."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 137,
+                "description": "Takes an exclusive registry lock."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 153,
+                "description": "Releases the registry lock."
+              }
+            ]
+          },
+          {
+            "kind": "gotcha",
+            "statement": "The new experiment output directory output_data_generic_exp_7 is intentionally ignored by git, while changes.log remains tracked.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": ".gitignore",
+                "line": 5,
+                "description": "Keeps changes.log tracked despite the log ignore rule."
+              },
+              {
+                "path": ".gitignore",
+                "line": 11,
+                "description": "Ignores output_data_generic_exp_7."
+              },
+              {
+                "path": "main.py",
+                "line": 34,
+                "description": "Uses output_data_generic_exp_7 for local outputs."
               }
             ]
           }
@@ -1211,76 +2024,106 @@
       },
       "core.dependencies": {
         "title": "Dependencies",
-        "one_liner": "Python with RelBench and NumPy plus handler-provided environment configuration",
+        "one_liner": "The active residual implementation depends on DuckDB/parquet caches, LightGBM, FAISS, NumPy/Pandas, Numba, SciPy, and scikit-learn plus shared RelBench/Kapso environment variables.",
         "claims": [
           {
-            "kind": "deployment",
-            "statement": "The candidate directly depends on NumPy for prediction arrays and RelBench for task types and task loading; the evaluation suite likewise requires Python with relbench and numpy installed.",
-            "confidence": 0.99,
+            "kind": "dependency",
+            "statement": "residual_knn.py directly imports DuckDB, FAISS, LightGBM, NumPy, Pandas, Numba, SciPy, and scikit-learn components for data access, modeling, retrieval, numerical transforms, and diagnostics.",
+            "confidence": 1.0,
             "evidence": [
               {
-                "path": "main.py",
+                "path": "residual_knn.py",
                 "line": 13,
-                "description": "Imports NumPy"
+                "description": "Imports DuckDB."
               },
               {
-                "path": "main.py",
+                "path": "residual_knn.py",
+                "line": 14,
+                "description": "Imports FAISS."
+              },
+              {
+                "path": "residual_knn.py",
                 "line": 15,
-                "description": "Imports RelBench task APIs"
+                "description": "Imports LightGBM."
               },
               {
-                "path": "kapso_evaluation/README.md",
-                "line": 35,
-                "description": "Lists Python, relbench, and numpy as the required runtime"
+                "path": "residual_knn.py",
+                "line": 16,
+                "description": "Imports NumPy."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 17,
+                "description": "Imports Pandas."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 18,
+                "description": "Imports Numba."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 19,
+                "description": "Imports SciPy optimization and transforms."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 22,
+                "description": "Imports scikit-learn PCA."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 23,
+                "description": "Imports scikit-learn ROC-AUC scoring."
               }
             ]
           },
           {
-            "kind": "deployment",
-            "statement": "The root candidate requires RELBENCH_DATASET, RELBENCH_TASK, RELBENCH_CACHE_DIR, and KAPSO_RUN_DATA_DIR from the runtime environment to identify the task, inspect the cache, and write outputs.",
+            "kind": "dependency",
+            "statement": "The active pipeline depends on KAPSO_SHARED_CACHE_DIR for versioned shared artifacts, RELBENCH_CACHE_DIR/RELBENCH_DATASET/RELBENCH_TASK for task parquet files, and KAPSO_RUN_DATA_DIR for evaluator-local diagnostics.",
+            "confidence": 1.0,
+            "evidence": [
+              {
+                "path": "residual_knn.py",
+                "line": 98,
+                "description": "Reads KAPSO_SHARED_CACHE_DIR."
+              },
+              {
+                "path": "residual_knn.py",
+                "line": 104,
+                "description": "Reads the RelBench task environment variables."
+              },
+              {
+                "path": "main.py",
+                "line": 36,
+                "description": "Reads KAPSO_RUN_DATA_DIR."
+              }
+            ]
+          },
+          {
+            "kind": "dependency",
+            "statement": "The residual model consumes upstream lane1 feature parquet files and lane1 product-text and lane2 ordered-semantic NumPy arrays from shared caches.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 20,
-                "description": "Requires RELBENCH_DATASET"
+                "path": "residual_knn.py",
+                "line": 169,
+                "description": "Locates lane1 feature parquet files."
               },
               {
-                "path": "main.py",
-                "line": 21,
-                "description": "Requires RELBENCH_TASK"
+                "path": "residual_knn.py",
+                "line": 196,
+                "description": "Reads feature parquet columns."
               },
               {
-                "path": "main.py",
-                "line": 25,
-                "description": "Requires RELBENCH_CACHE_DIR"
+                "path": "residual_knn.py",
+                "line": 218,
+                "description": "Locates cached product-text arrays."
               },
               {
-                "path": "main.py",
-                "line": 49,
-                "description": "Requires KAPSO_RUN_DATA_DIR"
-              }
-            ]
-          },
-          {
-            "kind": "deployment",
-            "statement": "The grader is configured through handler-provided environment variables including the primary metric, work/archive directory, debug/full timeouts, sanitized cache, and shared candidate cache.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 21,
-                "description": "Introduces the grader environment configuration"
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 24,
-                "description": "Lists the work directory and timeout variables"
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 26,
-                "description": "Lists the sanitized cache and shared cache variables"
+                "path": "residual_knn.py",
+                "line": 226,
+                "description": "Locates cached ordered semantic arrays."
               }
             ]
           }
@@ -1288,11 +2131,162 @@
       }
     }
   },
-  "experiments": [],
+  "experiments": [
+    {
+      "recorded_at": "2026-08-12T01:11:30.648627+00:00",
+      "branch": "generic_exp_2",
+      "parent_branch": "main",
+      "base_commit": "fd105d748d7d02c8bf4843d6a6fe029194022e0c",
+      "head_commit": "a356a85c2d00002d9ae90f0e3a7b4a3ce6fc7f0d",
+      "code_head_commit": "a356a85c2d00002d9ae90f0e3a7b4a3ce6fc7f0d",
+      "solution_spec": "# Cutoff-specific self-supervised temporal transformer\n\n## Core idea\n\nPretrain a compact causal transformer on review sequences using next-gap and next-mark objectives, fine-tune it for churn, and blend it with the champion. Unlike the original Candidate 6, every internal fold receives a trunk checkpoint trained only on events available by that fold, eliminating temporal optimism in model selection.\n\nThis is the highest-ceiling structural alternative if tabular feature widening saturates.\n\n## Implementation\n\n1. Read the living documents, reproduce the champion, and cache its fold, validation, and test predictions. It remains the fallback and ensemble partner.\n\n2. In the first full evaluation, make a non-empty hosted `gpt-5.6-luna` call over at least 4,096 review texts dated no later than the earliest forward-fold cutoff. Request structured reader-intent and review-state attributes, cache them, and train a fixed hashed-text distiller. Report the semantic block’s forward-fold effect. The teacher cutoff ensures one fixed distiller is legal for every fold.\n\n3. Build customer CSR sequences ordered by review time. Collapse same-day reviews into one event-day token retaining multiplicity, pooled rating/verified/text attributes, and the most recent product marks.\n\n4. Event inputs:\n\n   - log time gap and Fourier calendar features;\n   - rating, verification, multiplicity, text/summary length, price;\n   - LLM-distilled semantic scores;\n   - hashed product, category, and brand embeddings;\n   - as-of-event product popularity bucket.\n\n   Add a lifetime summary token containing tenure, counts, gap quantiles, and category diversity beyond the last 64 event-days.\n\n5. Pretrain chronologically with three objectives:\n\n   - next-gap bucket over 32 log-spaced bins;\n   - next-category hash;\n   - next-rating and verification.\n\n   Save trunks at the exact event cutoffs corresponding to official origins 20, 24, and 30. An internal fold uses its own checkpoint, never the later validation-era trunk.\n\n6. For a seed whose last review was \\(a\\) days earlier, derive a zero-shot churn score as \\(S(a+91\\mid H)/S(a\\mid H)\\). Validate this calculation against empirical gap distributions before fine-tuning.\n\n7. Attach a query token containing current recency, recent activity, season, and system activity, then fine-tune a binary churn head. For each fold, use the cutoff-specific trunk and only official labels from earlier origins. Gate full-trunk fine-tuning against a frozen-trunk head; keep the simpler version if tied.\n\n8. Final Model A continues self-supervised training only through `V`, then fine-tunes on official train labels. Final Model B continues the same lineage from `V` through `T` and fine-tunes on train+validation labels. Events after the relevant prediction cutoff never enter that chain.\n\n9. Compare zero-shot transformer, fine-tuned transformer, champion, and rank blends on origins 20/24/30. Require positive median paired improvement and approximately 80% customer-clustered bootstrap support. Report results by recent activity 1/2–3/4+, sequence truncation, recency, and product rarity.\n\n10. Preserve Model A validation predictions before training Model B. Debug uses 30,000 customers, sequence length 16, 300 pretraining steps, one fold, and full-shape fallback output.\n\n## Hyperparameters and budget\n\n- Transformer: 3 layers, hidden size 160, 4 heads, FFN 448, dropout 0.10\n- Sequence length: 64 event-days\n- Product hash vocabulary: 131,072; category and brand: 8,192 each\n- Gap buckets: 32, logarithmic from one day to eight years\n- Pretraining: AdamW, learning rate `5e-4`, batch 1,024, two chronological epochs, BF16\n- Fine-tuning: learning rate `1.5e-4`, two epochs, temporal weights\n- Loss weights: gap 1.0, category 0.35, rating/verified 0.20\n- Blend grid: transformer rank weight 0.1–0.5 in steps of 0.1\n- Expected cold runtime on one A100: 0.5 hour sequence build, 2–2.5 hours pretraining/checkpoints, 1.5 hours fine-tuning and fold heads, 2 hours champion/final fits, at least 0.5 hour safety\n- Expected range: approximately 0.718–0.732, with greater variance than Ranks 1–2\n\n# Coverage\n\n- **Input distribution — MEASURED:** All 12.64M review events become self-supervised timing data rather than only the 4.71M task labels.\n- **History depth — MEASURED:** Every seed has a recent event; last-64 sequences cover local order while the lifetime token preserves deeper history.\n- **Regime — MEASURED:** Extreme origin drift makes cutoff-specific pretraining essential. Checkpoints at each forward fold and separate V/T final states enforce that discipline.\n- **All tables — MEASURED:** Review sequences join product category, brand, title-derived state, and price; customer-level lifetime state is represented in the query token.\n- **Transformer benefit — ASSUMED:** Ordered gap/mark interactions may improve over aggregate renewal features. Zero-shot, frozen-trunk, and fine-tuned gates distinguish useful sequence learning from capacity overfit.\n- **Semantic benefit — ASSUMED:** Hosted-LLM attributes may improve event marks; the mandatory fold comparison decides whether they remain.\n- **Metric mechanics — MEASURED:** All architecture and blend choices use expanding training folds with customer-clustered paired AUC inference.\n- **Output contract — MEASURED:** Model A excludes validation labels; Model B may use them. Both outputs preserve exact task order and required probability bounds.\n- **Harness — MEASURED:** The resource declaration provides one A100, not four. The compact architecture and two epochs are sized for the eight-hour limit.\n- **Permitted-data geometry — MEASURED:** Each trunk checkpoint contains only events at or before its cutoff, each seed representation contains only events at or before its timestamp, and no test-window labels are constructed.",
+      "changed_files": [
+        "PLAN.md",
+        "champion_runner.py",
+        "changes.log",
+        "eval_profile.md",
+        "main.py",
+        "output_data_generic_exp_2/debug_metrics.json",
+        "output_data_generic_exp_2/metrics.json",
+        "semantic_champion.py",
+        "temporal_transformer.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "11",
+          "deleted": "0",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "142",
+          "deleted": "0",
+          "path": "champion_runner.py"
+        },
+        {
+          "added": "10",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "27",
+          "deleted": "0",
+          "path": "eval_profile.md"
+        },
+        {
+          "added": "43",
+          "deleted": "45",
+          "path": "main.py"
+        },
+        {
+          "added": "91",
+          "deleted": "0",
+          "path": "output_data_generic_exp_2/debug_metrics.json"
+        },
+        {
+          "added": "397",
+          "deleted": "0",
+          "path": "output_data_generic_exp_2/metrics.json"
+        },
+        {
+          "added": "230",
+          "deleted": "0",
+          "path": "semantic_champion.py"
+        },
+        {
+          "added": "1436",
+          "deleted": "0",
+          "path": "temporal_transformer.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.dependencies",
+          "core.entrypoints",
+          "core.gotchas",
+          "core.invariants",
+          "core.testing",
+          "core.where_to_edit"
+        ]
+      }
+    },
+    {
+      "recorded_at": "2026-08-12T05:21:54.924508+00:00",
+      "branch": "generic_exp_7",
+      "parent_branch": "generic_exp_2",
+      "base_commit": "a18ec0b67fe15e0b310a36253c3168ac3e866d1f",
+      "head_commit": "104e523173f1d1d70f76e6d03226bb7ba12417db",
+      "code_head_commit": "104e523173f1d1d70f76e6d03226bb7ba12417db",
+      "solution_spec": "# Core Idea\n\nBuild a sparse-history expert from strictly cross-customer, state-matched residual label propagation and causal approximate-nearest-neighbor retrieval. Combine it with run_0014 only if nested forward evaluation confirms complementary value.\n\n# Why This Approach\n\nCandidate 5’s original novelty claim was incorrect: the champion already contains product/category/brand label priors and eight-product neighbor-target features. Prior live co-reviewer state also hurt the main model.\n\nThe genuinely new signal is narrower:\n\n- remove every contribution from the query customer;\n- propagate residual churn after conditioning on source recency/activity;\n- retrieve outcomes from other customers with similar behavior and semantic state.\n\n# Solution Steps\n\n1. Rescore and preserve run_0014 as fallback. Verify the cached 12,644,508 review-edge arrays, lane-1 parquets, product-text seed arrays, and ordered semantic arrays.\n\n2. Record the overlap with existing champion features in `features_history.md`. Append only cross-customer residual propagation and causal kNN as new proposals.\n\n3. Process official labels sequentially by origin. A source label from origin `s` becomes available only after `s+91d`.\n\n4. At the source’s own timestamp, capture its distinct last 1/4/8 products and state:\n\n   - recency: `0–14`, `15–30`, `31–60`, `61–91`;\n   - activity: `1`, `2–3`, `4+`.\n\n5. Use eight deterministic customer hash buckets. For a query in bucket `b`, derive every state prior and product/category/brand accumulator after subtracting bucket `b`. This guarantees that the query customer cannot contribute any of its own historical labels, at the cost of excluding one-eighth of unrelated peers.\n\n6. Propagate:\n\n   - raw churn;\n   - residual churn relative to the source-origin state prior excluding bucket `b`;\n   - an undecayed version;\n   - a 730-day half-life version.\n\n   Shrink raw rates to the contemporaneous state prior and product residuals to category/brand residuals.\n\n7. Emit roughly 30 features over the query’s last 1/4/8 products:\n\n   - raw and state-matched empirical-Bayes rates;\n   - residual and decayed-residual means;\n   - counts and coverage;\n   - mean/min/max/std across products;\n   - last-product values;\n   - disagreement with the query’s own historical rate.\n\n8. Stage the graph block on fold 20 before materializing every final cutoff. Continue if either the fused LightGBM or a fixed 0.05/0.10 rank blend has positive pooled movement, or positive sparse-slice movement without pooled regression.\n\n9. Construct an independent kNN score from existing aligned caches. Use a 64-dimensional vector:\n\n   - 24 fixed renewal/state/product-context scalars;\n   - 24 last-product MiniLM PCA coordinates;\n   - 16 training-only PCA coordinates from the ordered semantic block.\n\n   Fit robust scaling from source rows only.\n\n10. For each target fold or final origin, index the latest matured labeled row per external customer. This prevents prolific repeat customers from dominating retrieval.\n\n11. Use CPU FAISS `IndexIVFPQ`:\n\n   - retrieve 512 candidates;\n   - remove every candidate matching the query customer;\n   - retain the nearest 100 external customers;\n   - compute inverse-distance, age-decayed, top-20, and top-100 churn rates plus distance, entropy, age, and coverage diagnostics.\n\n   Fall back to the state empirical-Bayes rate if fewer than 20 neighbors survive.\n\n12. Benchmark one fold for one minute. If projected retrieval time exceeds 90 minutes, reduce `nprobe` and retrieved candidates once; if still excessive, drop kNN while retaining the residual graph gate.\n\n13. Develop all feature choices and blend weights on origins 20 and 24. Freeze them, then confirm once on origin 30 using 1,000 customer-clustered draws.\n\n14. Final chains:\n\n   - Model A training-row graph features use sources matured by each row’s timestamp; validation queries may use training labels matured by `V`.\n   - Model B keeps historical train features unchanged. Validation training rows use features computed at `V` without their own labels. Test-query aggregates and the retrieval index may add validation labels matured by `T`.\n   - Validation predictions are never regenerated from Model B.\n\n15. Fit a strongly regularized nonnegative rank stack over run_0014, the graph-fused model, and the raw kNN expert. Permit only one precommitted interaction for `n_91 == 1`. If origin 30 does not confirm, emit run_0014 unchanged.\n\n# Hyperparameters\n\n- Product fanouts: 1, 4, 8\n- Customer-exclusion buckets: 8\n- State cells: 4 recency × 3 activity\n- Raw-rate EB strength: 50\n- Product residual EB strength: 25\n- Decay half-life: 730 days\n- Graph LightGBM: 500 trees, learning rate 0.035, 63 leaves, minimum child 1,000, feature fraction 0.8, L2 8\n- FAISS: CPU `IndexIVFPQ`, `nlist=8192`, `m=8`, 8 bits, `nprobe=16`, retrieve 512, retain 100\n- Stack: nonnegative rank logistic, `C=0.05`\n- Bootstrap: 1,000 customer-clustered draws\n- Expected runtime: 2.5–4 hours, with a hard 90-minute kNN projection cap\n\n# Coverage\n\n- **Input graph — MEASURED:** The cache contains all 12,644,508 customer-review-product edges.\n- **Existing overlap — MEASURED:** Raw product label propagation and category/brand/product priors already exist; state-residualized, hash-excluded propagation is new.\n- **Sparse-history need — MEASURED:** No-prior-label and one-review slices score roughly 0.649 and 0.620.\n- **Repeated-customer risk — MEASURED:** Earlier-origin customer coverage rises from about 49% to 85% across folds; exact same-customer exclusion is mandatory.\n- **Prior graph evidence — MEASURED:** Live co-reviewer features hurt the main model, while a weak relational expert contributed only at a small blend weight.\n- **Runtime geometry — MEASURED:** Edge arrays and behavioral, product-text, and semantic seed vectors are cached; installed FAISS is CPU-only.\n- **Temporal safety — MEASURED:** Every source label enters only after its complete 91-day window, and every source/query product history stops at its own timestamp.\n- **Output register — MEASURED:** Both new chains and the fallback preserve original order and Model A/Model B separation.\n- **Metric mechanics — MEASURED:** All choices use forward origins and customer-clustered uncertainty rather than official validation.\n- **Sparse-slice transfer — ASSUMED:** Residual peer labels and semantic retrieval may improve weak slices enough to earn a small decorrelated ensemble weight.",
+      "changed_files": [
+        ".gitignore",
+        "PLAN.md",
+        "changes.log",
+        "eval_profile.md",
+        "main.py",
+        "residual_knn.py"
+      ],
+      "diff_numstat": [
+        {
+          "added": "1",
+          "deleted": "0",
+          "path": ".gitignore"
+        },
+        {
+          "added": "8",
+          "deleted": "8",
+          "path": "PLAN.md"
+        },
+        {
+          "added": "8",
+          "deleted": "0",
+          "path": "changes.log"
+        },
+        {
+          "added": "12",
+          "deleted": "0",
+          "path": "eval_profile.md"
+        },
+        {
+          "added": "5",
+          "deleted": "20",
+          "path": "main.py"
+        },
+        {
+          "added": "1565",
+          "deleted": "0",
+          "path": "residual_knn.py"
+        }
+      ],
+      "run_result": {
+        "score": 0,
+        "run_had_error": false,
+        "error_message": "",
+        "error_details": "",
+        "feedbacks": "",
+        "ideation_repo_memory_sections_consulted": [],
+        "repo_memory_sections_consulted": [
+          "core.architecture",
+          "core.dependencies",
+          "core.entrypoints",
+          "core.gotchas",
+          "core.invariants",
+          "core.testing",
+          "core.where_to_edit"
+        ]
+      }
+    }
+  ],
   "quality": {
     "evidence_ok": true,
     "missing_evidence": [],
     "section_count": 7,
-    "claim_count": 20
+    "claim_count": 27
   }
 }

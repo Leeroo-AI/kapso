@@ -2,26 +2,44 @@
 
 ## Mechanics
 
-The immutable registered evaluator runs `main.py` in an isolated child, requires full-order finite NumPy vectors of 409,792 validation rows and 351,885 test rows, and computes all official RelBench metrics on the complete validation table. Full fidelity changes candidate build mode only; `fraction` does not subsample scoring rows. The score of record is validation ROC-AUC. Model A validation predictions must exclude validation labels from every fitted component; only Model B for test may use validation labels.
+The immutable registered evaluator invokes `main.py` and scores the complete 409,792-row validation vector; `fraction` does not subsample rows. It requires finite float probabilities aligned to the original validation and 351,885-row test tables. Validation ROC-AUC is the score of record. Model A must exclude validation labels from its complete chain; Model B may use validation labels for test predictions.
 
 ## Input distribution
 
-- Train has 4,708,383 rows, 1,486,748 distinct customers, 31 quarterly origins from 2008-01-10 through 2015-07-02, and churn prevalence 0.623957. Origin sizes range from 5,372 to 416,981 and origin churn rates range from 0.571010 to 0.743591.
+- Train has 4,708,383 rows, 1,486,748 distinct customers, 31 quarterly origins from 2008-01-10 through 2015-07-02, and churn prevalence 0.623957. Origin sizes span 5,372 to 416,981 and prevalence spans 0.571010 to 0.743591.
 - Validation is one origin at 2015-10-01 with 409,792 distinct customers and prevalence 0.642028. Test is one origin at 2016-01-01 with 351,885 distinct customers.
-- Customer train-origin repetition is strongly long-tailed: 372,374 customers occur once, 365,867 twice, 285,006 three times, and only 198 occur in all 31 origins.
-- Reviews contain 12,644,508 events from 1,584,084 customers and 416,125 products. Rating mean is 4.3440, verified share is 0.7043, mean review-text length is 572.57, and mean summary length is 25.46. Review text and summary null rates are 0.0072% and 0.0112%.
-- Product price has median 12.99 and 1/10/25/50/75/90/99 percentiles 1.99/5.99/8.99/12.99/17.59/25.50/59.99. Category and description null rates are 3.73% and 7.19%; brand and title have no nulls.
+- The database has 12,644,508 reviews from 1,584,084 customers and 416,125 observed products. Rating mean is 4.3440, verified share is 0.7043, mean review-text length is 572.57, and text and summary are almost complete.
+- Product price median is 12.99. Category and description null rates are 3.73% and 7.19%; brand and title are complete.
+- Every seed is selected by a review in the immediately preceding 91-day window, so seed-history depth is at least one event while earlier history remains long-tailed.
 
 ## Reliability
 
-Across the 31 training origins, the unweighted variance of origin churn means is 0.00313735 versus mean binomial sampling variance 0.000004324, a ratio of 725.6. The largest adjacent level break is 0.12930 between the first two origins; later persistent breaks remain visible around 2012-2014. Label drift is therefore extreme.
+Across training origins, variance of origin churn means is 0.00313735 versus mean binomial variance 0.000004324, a ratio of 725.6. The 91-day review volume falls 15.56% from the pre-validation window to the pre-test window. Origin drift, rather than iid sample noise, is the dominant model-selection risk; the expanding origin 20/24/30 design and cutoff-specific pretraining states are therefore required.
 
-The causal 91-day review volume is 954,870 before validation and 806,263 before test, a drop of 148,607 or 15.56%. This is 13.54 times the median absolute training-origin change, although 2.06 ordinary standard deviations because early growth breaks inflate the non-robust scale. The boundary regime gap is extreme on the robust normal-change scale. Both diagnostics support per-entity, level-invariant features and median expanding-origin selection.
+The evaluator supplies only a single validation origin. Candidate acceptance uses internal forward-origin predictions, customer-clustered paired bootstrap support, and median improvement rather than official validation feedback. The reproduced champion's official validation bootstrap SE is 0.000805. The admitted 0.2 transformer blend improved forward origins by +0.000303/+0.000194/+0.000813 with paired supports 0.98/0.97/1.00 and then measured 0.712039 officially. Representativeness is evaluated from training-era origin prevalence and event volume only.
 
 ## Coverage axes
 
-Coverage must span origin/regime, customer-history depth, recency, fast-to-slow activity, review behavior and text-length proxies, last-product and product-popularity context, customer repetition, sparse/missing product metadata, seasonal January phases, the 2012-2013 anomaly, and the latest origin. Scores are reported by expanding origin, customer-history depth, and activity strata when local OOF output permits.
+Coverage axes are origin/regime, event-day history depth and truncation, recency, recent activity 1/2-3/4+, completed gap behavior, rating and verification, review semantic state, product/category/brand rarity, product popularity at event time, price and missing metadata, calendar season, and system activity at each origin.
 
 ## Critical path
 
-The score-bounding artifact is the cutoff-specific causal feature matrix used by both the renewal model and the graph head. A metadata scan measured about 7.4 million review rows per second; the build target is at least 200,000 seed rows per minute including grouping and persistence. Graph training is admitted only after the renewal predictions are banked and only if its median expanding-origin AUC improves by at least 0.002.
+The score-bounding artifact is the family of cutoff-specific self-supervised trunk checkpoints. The first measured training checkpoint determines achievable sequences per second and whether two chronological epochs fit before freeze. Champion predictions and tabular features are consumers and ensemble partners, not the bounded artifact.
+
+## Iteration 2 extension
+
+The immutable evaluator and row distribution are unchanged. The rescore of archived run_0014 used all 409,792 validation rows and returned ROC-AUC 0.7123846047, average precision 0.7914661750, accuracy 0.6330284632, and F1 0.6786668205. Its validation and test files were banked with SHA-256 values `4b89f996a5f2960b1bc1c5119f42352778116b8f20a80393155fa527aa6abde3` and `4906c7d82c690d8ae936f033352a8f861a9f304dbfb155d038ac4dba7f8de8fb`.
+
+The measured sparse axes are prior-label depth 0 / 1-2 / 3+, recent activity 1 / 2-3 / 4+, and recency 0-14 / 15-30 / 31-60 / 61-91 days. Existing forward OOF slices have AUC 0.6493 for no prior label, 0.6199 for one recent review, and 0.6493 for recency 30-91, so the new measurement reports pooled and sparse-slice movement separately. Shared dependency verification found 12,644,508 ordered review edges, 4,708,383 lane-1 tabular and semantic seed rows, MiniLM arrays shaped 4,708,383/409,792/351,885 by 96, and ordered semantic arrays shaped 4,708,383/409,792/351,885 by 36.
+
+For this iteration the score-bounding artifact changes to causal residual-graph and external-customer retrieval predictions at origins 20, 24, and 30 plus validation/test. The precommitted rates are above 500,000 graph seed rows per minute and above 500 retrieval queries per second, with a hard 90-minute retrieval projection cap.
+
+The measured graph rate was 7,374,732 seed rows/minute. CPU IVFPQ retrieval measured 37,553 queries/second on the fold-20 benchmark and projected 43.9 seconds for all 1,648,963 forward/final queries, so no retrieval reduction was required. The kNN channel inverted between development origins and was excluded; the 0.10 residual-graph rank contribution moved origin 30 by +0.0000125 with 1,000-draw customer-clustered SE 0.0000135 and P(improvement)=0.806. Activity-1 moved +0.0000070 while activity 2-3 moved -0.0000147; recency 0-14 / 31-60 / 61-91 moved +0.0000219 / +0.0000248 / +0.0000133.
+
+Registered full-fidelity run_0017 scored all 409,792 validation rows at ROC-AUC 0.7124067197, average precision 0.7914916751, accuracy 0.6332139232, and F1 0.6789198565. Relative to banked run_0014, the official validation diagnostic was +0.0000221, far below the 0.0007645 row-bootstrap SE; prediction rank correlation was 0.999886. The official check is post-freeze evidence only and did not participate in feature or weight selection.
+
+## Iteration 3 extension
+
+The evaluator mechanics and complete-row scoring contract are unchanged. Shared-lock run_0019 banked the exact pre-widening `full_candidate2` lineage with validation/test SHA-256 values `945ded645fa8659fa118e2dd545da908119903d8032a3cb7f2969d50ae8a261f` and `020f4d7a58757b06aff8083c439c5a21a2c0f77722bb7af46fd40956166acc9f`; its all-row validation ROC-AUC is 0.7124372823.
+
+This iteration adds transition coverage axes: previous-distinct-product availability, prior product age inside/outside 91 days, product/category/brand switch state, transition support below/above eight distinct customers, product-pair hash backoff, and activity-one routing. Development origins are fixed at 25, 27, and 28; origin 29 is untouched until a single frozen confirmation. The bounding artifact is the chronological transition feature matrix, with an initial target of at least 1,000,000 seed rows/minute after compilation.

@@ -1,11 +1,12 @@
-CRITICAL PATH: cutoff-safe renewal/graph feature matrix; target at least 200,000 seed rows/minute after a measured 7.4M review-row/s scan.
-CONFIRMATION POINTS: graph API smoke batch, first full origin partition, expanding-fold median/worst AUC, then prediction contract check.
-FREEZE TIME: minute 330 of 360; stop neural work by minute 300 and reserve the final 30 minutes for full scoring and handoff.
+CRITICAL PATH: chronological transition-state and mature-residual feature matrices; target at least 1,000,000 seed rows/minute after the first compiled cutoff.
+CONFIRMATION POINTS: exact run_0019 bank/hash check, transition-state coverage audit, origins 25/27/28 development gate, one untouched origin-29 clustered confirmation, prediction contract check.
+FREEZE TIME: minute 135 of the 160-minute implementation window; reserve 25 minutes for Model A/B finalization, registered evaluation, and handoff.
 
 # Plan
 
-1. Persist the metric/input profile and reliability diagnostics without modifying the protected evaluator.
-2. Materialize deterministic cutoff-safe review, product, customer, and causal label-history features with incremental shared caching.
-3. Bank expanding-origin renewal OOF predictions, smoke-test temporal PyG, and run the heterogeneous graph referee.
-4. Select the fixed OOF rank blend under the +0.002 admission gate, fit Model A and Model B, and preserve Model A validation predictions.
-5. Run debug checks, the registered full evaluation, and record all strata and artifacts.
+1. Preserve the exact `full_candidate2` floor from shared-lock run_0019 and record the immutable hashes.
+2. Materialize causal last/previous-distinct product, category-level-2, brand, gap, review-count, active-day, raw-frequency, fanout, popularity, and surprise features.
+3. Sweep origins chronologically, admitting labels only after 91-day maturity; residualize against recency by tenure by activity state and build six empirical-Bayes transition channels plus 16-dimensional forward/reverse CountSketch channels.
+4. Fit the fixed regularized activity-one LightGBM specialist on the compact champion lineage plus transition features; require positive overall and activity-one movement on origins 25, 27, and 28.
+5. Freeze and confirm once on origin 29 with customer-clustered uncertainty and slice-reversal gates, then construct legal Model A/Model B routed predictions or return the exact banked floor.
+6. Validate full-shape finite probabilities, run the immutable registered evaluator once after freeze, and persist measured slice, runtime, and cache diagnostics.
