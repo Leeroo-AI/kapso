@@ -45,7 +45,7 @@ overgeneralizes"). Two things changed:
    in the thousands, and — unlike posttrain — the sign is mechanical (immutable grader,
    keep-best banking), so no human verdict bottleneck. The kill still binds where it was
    true: **cross-task transfer visits per card stay rare**, and the design treats that
-   honestly (two-clock reliability, §3.3; cold states, not fake scores).
+   honestly (coverage as its own reliability dimension, §3.3; cold states, not fake scores).
 2. **The guardrails now exist.** The 2026 literature supplies what 2024-era consolidation
    lacked: delta-based curation with deterministic application (ACE's answer to context
    collapse), attribution-gated scoring (RoMeRL's answer to the memory-reward trap), and
@@ -246,9 +246,14 @@ evidence:                        # ≥1 required; each ref must RESOLVE mechanic
     ref: features_history.md#within-origin-ranks
     sign: KEPT
     delta: "+0.0032 AUC ≈ 3.6 clustered SE"
-reliability:
-  evidence_weight: {measurements: 3, task_families: 2}   # at admission, from citations
-  transfer: {confirms: 0, contradicts: 0, exercised: 0, by_family: {}}
+reliability:                     # assessed by the reliability-assessor session over the
+                                 # code-owned event ledger; frame-bounded (§3.3)
+  score: 0.75                    # validity-in-scope estimate [0,1]
+  rationale: >-                  # the assessor's cited reasoning — WHY this score
+    Two independent in-scope confirmations in two families at 3.6 and >2 SE;
+    no in-scope disagreement; coverage limited to classification families.
+  transfer: {confirms: 0, contradicts: 0, exercised: 0, by_family: {}}   # coverage
+  scope_revisions: 0             # count, each tagged mechanism-backed | ad-hoc
   state: candidate               # candidate | active | cold | retired | superseded
   last_exercised: null
 provenance:
@@ -282,24 +287,62 @@ stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (re
 scope) express the same thing at two precisions; the stage-V verifier checks their
 consistency.
 
-### 3.3 Two-clock reliability
+### 3.3 Reliability — three dimensions, an event algebra, one assessor
 
-A single scalar conflates "true where measured" with "generalizes". Cards carry two
-records:
+A card = (fact, scope), and evidence does two different things to it: it *scores* the
+fact and it *carves* the scope (Mitchell's version spaces: positive examples
+generalize the boundary, negative examples specialize it). A single reliability
+scalar conflates three quantities a contradiction can move in **opposite
+directions**:
 
-- **Evidence weight** — how much grader-backed measurement supports the claim *where it
-  was mined*: number of independent measurements, families covered, delta magnitudes.
-  Set at admission from resolved citations; grows when later learner runs attach new
-  supporting evidence. This clock starts non-zero — unlike the cheap-rollout literature,
-  kapso cards are born from measured deltas, not hunches.
-- **Transfer record** — what happened when the card was *exercised elsewhere*:
-  `confirms / contradicts / exercised`, per task family, from attribution events
-  (§5.2). This clock moves slowly (the sparse-signal regime) and the design never
-  pretends otherwise: a card with high evidence weight and an empty transfer record is
-  `active` but renders as "unverified beyond its home family" — a distinct state, not a
-  hidden default (RoMeRL's cold-Q lesson).
+- **Validity-in-scope** — do experiments agree with the fact *inside the currently
+  stated scope*?
+- **Boundary confidence** — how well-mapped is the scope's edge? A contradiction that
+  gets *explained* into a scope refinement adds a known boundary point — it improves
+  the card while shrinking it.
+- **Coverage** — how much of the claimed scope has actually been visited (the
+  transfer record; the sparse clock, honest cold states per RoMeRL).
 
-Derived rank for retrieval = scope match × similarity × f(evidence weight, transfer,
+**The event algebra.** Every attribution event receives a disposition:
+
+| Disposition | When | Effect |
+|---|---|---|
+| `confirm` | agrees, in scope | validity ↑, coverage ↑ |
+| `weaken` | disagrees in scope, no boundary explanation | validity ↓ |
+| `refine` | disagrees in scope, and a **mechanism-backed** boundary explanation exists | scope revision: version bump; the event ledger **repartitions** under the new scope — old confirms that still fall inside keep counting, the contradicting event becomes a *boundary observation* (evidence FOR the refined card); validity recomputes over in-scope events; generality ↓, boundary confidence ↑ |
+| `refute` | disagreement that breaks the mechanism itself | retirement path |
+| `spawn` | a refine whose complement region carries its own regularity | sibling card minted for the complement, linked, with the contradicting event as its founding evidence (the hypothesis-bank move: unexplained residuals become new hypotheses) |
+
+This dissolves the paradox: after a legitimate refine, "the evidence was a
+contradiction" and "the card became more reliable" are both true — the contradiction
+lowered *generality*, raised *boundary confidence*, and validity-in-scope recomputes
+over the repartitioned ledger, typically upward.
+
+**The Lakatos guard** (progressive vs degenerating refinement). A `refine` is
+admissible only if the revised scope is stated in **mechanism vocabulary** — the
+bound-identifier lint applies to `scope_conditions`, so "except on dataset X" is
+unrepresentable — and the revision mints a `probe` that could test the new boundary.
+A revision that merely excuses the anomaly is tagged `ad-hoc`, capped (one per card),
+and a card surviving only by carving exceptions is *degenerating* → retire. (This is
+the anti-RDR stance: Ripple-Down Rules prove exception-accretion works operationally,
+but identifier-keyed exceptions are exactly the memory junk this design exists to
+avoid.)
+
+**Who decides — the assessor, on a mechanical substrate.** Dispositions, the numeric
+`score`, and its `rationale` are produced by a **reliability-assessor session** (a
+coding-agent CLI call reading the card, its event ledger, and the new events) —
+reliability is a judgment with reasons, not a formula. But the substrate stays
+code-owned, because LLM belief-updating is measurably miscalibrated under
+contradiction: the **event ledger is append-only and frame-written** (grader-signed
+events with resolving citations — all §5.2/§6 defenses unchanged); the frame
+**bounds the score** against the ledger (a score no set of cited events supports is
+rejected); `refine` proposals pass the Lakatos guard and citation resolution
+mechanically; and the decoy audit applies to the assessor (a decoy card whose score
+moves fails the learner run). Sequential-testing discipline for probe programs
+(POPPER-style e-value control instead of per-event z-tests) is the designated upgrade
+path once probes run routinely.
+
+Derived rank for retrieval = scope match × similarity × f(score, coverage,
 staleness). Counters are the on-disk truth; `f` is one pure function that can evolve
 without touching stored state (Rule 10; avoids formula lock-in).
 
@@ -342,7 +385,7 @@ Plus the current bank at `bank_head`.
 | **A — Abstract** (the core stage) | one abstraction session per observation cluster: align new observations with each other AND with the bank's existing cards/evidence, then induce or refine generalizations — variable abstraction (bound entities → typed roles), cross-instance schema induction, or single-instance explanation-based generalization (state the mechanism; derive applicability from it; propose the falsifying probe) | Two admission routes, mechanically distinguished: **(i) induction** — ≥2 aligned instances from ≥2 independent measurements; **(ii) EBG** — 1 instance + a mechanism the stage-V verifier must independently endorse, admitted at reduced evidence weight. Every candidate card passes the bound-identifier lint and the MDL test (a card ≈ as long as its cited instances has not abstracted); observations that support no admissible card stay in the episodic ledger |
 | **C — Curate** | one session with the bank slice (embedding neighbors of each candidate) in context; emits typed ops: `create / attach_evidence(card) / revise_scope(card) / split_scope(card) / supersede(card) / link` | Frame applies ops deterministically (ACE): stable ids, in-place counter updates, embedding dedup assist; ops on nonexistent cards raise; no op may edit another card's evidence list except `attach_evidence` with resolving refs |
 | **V — Verify** | text: an adversarial checker per card — does the cited artifact actually support the claim at the stated strength? (the maintainer's change-request triage stance, pointed inward); code: a session adapts the procedure + writes its replay test | Text: checker verdict recorded; a failed check demotes to candidate with the objection attached. Code: frame executes replay against the archived run (correctness + actually-invoked + effect, ASI's three conditions) inside the existing sandbox/timeout machinery; failures stay candidates with the trace attached (SkillRevise's revision loop gets one retry, then parks) |
-| **S — Score** | none (pure code) | Attribution events from this trajectory update *prior* cards' transfer records (§5.2); lifecycle transitions applied; decoy audit checked (§6) |
+| **S — Score** | the reliability-assessor session: per event a disposition (confirm/weaken/refine/refute/spawn), per touched card a score + rationale (§3.3) | Frame writes the append-only event ledger from §5.2 attributions, bounds every score against it, runs the Lakatos guard on refine proposals, applies lifecycle transitions, checks the decoy audit (§6) |
 | **R — Reflect (loop-until-dry)** | one critic session: "what did this trajectory teach that the bank now does not carry?" | Frame loops M–S on the critic's named gaps until a round adds nothing (two dry rounds), bounded by the learner's budget block |
 
 Output: one bank commit (all stages' changes, one reviewed transaction), a
@@ -456,7 +499,8 @@ campaigns (post-fetch, next to harvest), never inside them.
 v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`): `bank.py`
 (store, schema, lifecycle, index), `trajectory_bundle.py` (artifact normalization —
 relbench adapter supplies paths), `learner.py` (the frame), `miners/` prompts,
-`verification.py` (replay + citation resolution), `briefing.py`, `scorekeeper.py`,
+`verification.py` (replay + citation resolution), `briefing.py`, `reliability.py`
+(event ledger + assessor frame),
 `config.yaml` `learning:` block (models per role, thresholds, budgets — Rule 1; codex
 xhigh for miners/curator, fable for the adversarial verifier and critic, mirroring the
 evolve role split). Phasing, each an atomic commit (Rule 8):
@@ -470,7 +514,7 @@ evolve role split). Phasing, each an atomic commit (Rule 8):
    content, now scoped/cited); this validates the plumbing before any mining.
 3. Learner stages T/M/C (mining into candidate cards, curated deltas) on archived
    trajectories; human review of the first bank commits.
-4. Verification (replay gate, adversarial checker) + scorekeeper + lifecycle + decoy
+4. Verification (replay gate, adversarial checker) + reliability assessor + lifecycle + decoy
    audit; loop-until-dry; unattended learner runs post-fetch.
 5. Probe rendering into the lens planner; transfer measurement begins in earnest.
 
@@ -482,8 +526,9 @@ evolve role split). Phasing, each an atomic commit (Rule 8):
   deferred until the A/B harness gives a cheap proxy signal. The pipeline keeps the
   frame-around-CLI-sessions architecture so the upgrade is a strategy swap, not a
   rewrite.
-- **A single scalar reliability score** — conflates evidence with transfer; two clocks
-  (§3.3).
+- **A single scalar reliability score without a rationale or scope semantics** —
+  conflates validity, boundary confidence, and coverage; a contradiction that should
+  refine scope would instead just bleed score (§3.3).
 - **Q-learning / EMA utilities over cards** (MemRL-style) — needs feedback volume the
   transfer clock will not have for a long time; counters + rank function first, learned
   utilities revisited if event volume ever supports them.
