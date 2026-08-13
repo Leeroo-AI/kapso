@@ -96,6 +96,21 @@ count, and LLM opinion are never score inputs — popularity ≠ correctness.
   verbatim episodic storage wins for recall (96.6% R@5 raw) — cards cite into verbatim
   artifacts, never replace them; scoped-not-flat retrieval; temporal validity windows
   on facts — adopted for env-tagged insights (§3.3).
+- **Abstraction mechanisms** (the core problem — cards must transfer, not memorize).
+  The memory survey's three inductive operations for cross-trajectory abstraction:
+  contrastive induction over success/failure sets, distillation of fine-grained
+  actions into high-order patterns, encapsulation of recurring behavior into
+  functions — and its admission bar: Experience is *scenario-detached* and
+  MDL-compressive (|K| ≪ Σ|τ|), anything context-bound is still Reflection and stays
+  in the episodic layer. Classic **explanation-based generalization** (Mitchell/DeJong):
+  a single instance licenses a general claim only through an explicit explanation of
+  WHY it worked — the generalization keeps exactly the features the explanation needs,
+  so **scope derives from the mechanism, not from the instance**. Schema induction
+  (Gick & Holyoak): comparing ≥2 aligned instances yields the shared relational
+  schema; one instance alone rarely does. *Notes to Self* (arXiv 2607.20372):
+  abstractions must be free of problem-specific numbers/names/story details (an
+  enforceable lint), separate strategy vs caution buckets, and help most where the
+  consumer is weak — supporting gap-targeted injection over blanket briefs.
 
 ## 2. The three knowledge layers
 
@@ -178,6 +193,23 @@ reference concept: retrievable, linkable, never scored. If two types ever prove
 genuinely insufficient, the escape hatch is gbrain-style schema packs (types as
 configurable data), not a richer built-in ontology.
 
+**Cards are abstractions; bound observations are evidence, never cards.** The unit
+the miners produce — "run_0019's blend of run_0010 gained +0.0032 on rel-amazon" — is
+an *observation*: episodic, bound, useful only as evidence. A card is the
+generalization that observation supports, stated at the level of the domain
+(predictive ML modelling), carrying the **mechanism** (why it works) from which its
+applicability conditions derive. Two mechanical guards enforce this:
+
+- **`generality: family | domain`** is a required extension field, and the claimed
+  level is what the transfer clock measures against — a domain card contradicted
+  outside its home family demotes to `family` scope, not to retirement.
+- **The bound-identifier lint** (Notes-to-Self operationalized): dataset names, task
+  ids, run ids, column names, and campaign-specific numbers are *banned* from
+  `title`/`description`/`scope_conditions` — mechanically checked against the
+  benchmark's vocabulary — and permitted only inside `evidence` entries and body
+  citations. A card whose claim cannot be stated without its bindings is an
+  observation, and the frame refuses to admit it as a card.
+
 Frontmatter = **OKF reserved fields + kapso extensions**. Bindings are mandatory and
 mechanically validated — admission raises (Rule 2) on a card whose `scope` is empty or
 whose `evidence` refs do not resolve against the episodic layer with the stated signs.
@@ -195,6 +227,7 @@ tags: [family:entity_binary_classification, family:entity_regression,
        data:grouped_rows, benchmark:relbench]        # scope vocabulary (machine-checkable)
 timestamp: 2026-08-14T09:00:00Z
 # --- kapso extensions ---
+generality: domain               # family | domain — the level transfer is measured at
 scope_conditions: "rows share seed timestamp / session / parent entity"  # prose, judged
 evidence:                        # ≥1 required; each ref must RESOLVE mechanically
   - campaign: rel-amazon--user-churn/20260813T015420_lane-c10
@@ -283,7 +316,8 @@ Plus the current bank at `bank_head`.
 | Stage | Intelligence (CLI session, read-only tools + views) | Mechanical post-condition (frame) |
 |---|---|---|
 | **T — Triage** | none (pure code) | Build per-miner views; classify nodes success/recovered/failed; drop imperfect-agent failures (deadline kills, infra deaths — end-facts are already recorded) from *knowledge* mining while keeping them for pitfall mining; compute campaign SEs from stored bootstrap numbers |
-| **M — Mine** (parallel, lens-per-miner) | contrast miner (ledger KEPT/REJECTED pairs + lane groups), pitfall miner (technical_difficulties + failed lineages), strategy miner (lens history + judge verdicts + postmortem), procedure scout (winning code across runs archive, looking for procedures recurring ≥2 times) | Candidate cards must be schema-complete; every evidence ref must **resolve** (file+line/run exists, sign matches, delta matches within tolerance) — unresolvable candidates are rejected with a named finding, not repaired silently |
+| **M — Mine** (parallel, lens-per-miner) | contrast miner (ledger KEPT/REJECTED pairs + lane groups), pitfall miner (technical_difficulties + failed lineages), strategy miner (lens history + judge verdicts + postmortem), procedure scout (winning code across runs archive, looking for procedures recurring ≥2 times) | Output is **observations** (bound, episodic — never cards); every ref must **resolve** (file+line/run exists, sign matches, delta matches within tolerance) — unresolvable observations are rejected with a named finding, not repaired silently |
+| **A — Abstract** (the core stage) | one abstraction session per observation cluster: align new observations with each other AND with the bank's existing cards/evidence, then induce or refine generalizations — variable abstraction (bound entities → typed roles), cross-instance schema induction, or single-instance explanation-based generalization (state the mechanism; derive applicability from it; propose the falsifying probe) | Two admission routes, mechanically distinguished: **(i) induction** — ≥2 aligned instances from ≥2 independent measurements; **(ii) EBG** — 1 instance + a mechanism the stage-V verifier must independently endorse, admitted at reduced evidence weight. Every candidate card passes the bound-identifier lint and the MDL test (a card ≈ as long as its cited instances has not abstracted); observations that support no admissible card stay in the episodic ledger |
 | **C — Curate** | one session with the bank slice (embedding neighbors of each candidate) in context; emits typed ops: `create / attach_evidence(card) / revise_scope(card) / split_scope(card) / supersede(card) / link` | Frame applies ops deterministically (ACE): stable ids, in-place counter updates, embedding dedup assist; ops on nonexistent cards raise; no op may edit another card's evidence list except `attach_evidence` with resolving refs |
 | **V — Verify** | text: an adversarial checker per card — does the cited artifact actually support the claim at the stated strength? (the maintainer's change-request triage stance, pointed inward); code: a session adapts the procedure + writes its replay test | Text: checker verdict recorded; a failed check demotes to candidate with the objection attached. Code: frame executes replay against the archived run (correctness + actually-invoked + effect, ASI's three conditions) inside the existing sandbox/timeout machinery; failures stay candidates with the trace attached (SkillRevise's revision loop gets one retry, then parks) |
 | **S — Score** | none (pure code) | Attribution events from this trajectory update *prior* cards' transfer records (§5.2); lifecycle transitions applied; decoy audit checked (§6) |
@@ -380,6 +414,7 @@ campaigns (post-fetch, next to harvest), never inside them.
 | Reward-hacking the bank (ACE's stated gap) | **Decoy audit**: each learner epoch maintains one known-noise decoy card (plausible, evidence-free-by-construction, quarantined id range); any score movement on a decoy fails the learner run loudly (RoMeRL's MRT protocol operationalized) |
 | Eval leakage via cards (cross-run doc) | The shingle gate runs over every card body and procedure file at admission, same spec as harvest |
 | Stale cards misleading (cross-run doc staleness) | Reliability line + `last_exercised` render in the card text; staleness discounts rank; env-tagged insights carry validity windows (§3.3) |
+| Memory overfitting — bound exemplars posing as knowledge (Notes-to-Self; the survey's Reflection/Experience bar) | Cards-are-abstractions rule: observations are evidence, never cards; bound-identifier lint on claim fields; `generality` field measured by the transfer clock; MDL admission test; EBG route requires an endorsed mechanism |
 
 ## 7. Measuring the learner itself
 
