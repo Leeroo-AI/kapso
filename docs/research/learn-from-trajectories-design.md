@@ -1,9 +1,12 @@
 # Learn from Trajectories — the knowledge bank and the trajectory learner
 
 High-level design for kapso's learning loop: a mechanism that consumes evolve-campaign
-trajectories plus the current knowledge bank and updates the bank — mixed **text cards**
-(evidence) and **code cards** (deterministic procedure), each carrying a **reliability
-record** that later campaign outcomes move up or down, with retirement when it stays down.
+trajectories plus the current knowledge bank and updates the bank — **insight cards**
+(evidenced claims, text) and **procedure cards** (how-tos that mature from text playbooks
+into replay-verified code), each carrying a **reliability record** that later campaign
+outcomes move up or down, with retirement when it stays down. The bank is an
+**Open Knowledge Format (OKF) bundle** — a directory of markdown-with-frontmatter
+concepts — so any OKF consumer can read it and third-party OKF bundles can join it.
 All intelligence is delivered by coding-agent CLI sessions; every trust boundary is a
 mechanical post-condition in a deterministic Python frame (the EvaluationMaintainer
 pattern). Evidence base: `learn-from-trajectories-litreview.md` (22-paper review, same
@@ -20,7 +23,8 @@ directory) and the wave-4 `rel-amazon/user-churn` trace forensics.
   `MODELLING_PRACTICE_NOTE` practices in `benchmarks/relbench/context.py`. That loop is
   the proof of value (the 9 practices demonstrably steer campaigns — wave-4's champion
   was practice 6 executed verbatim by an agent) and the thing being mechanized. The
-  practices become the bank's founding text cards, with their evidence back-filled.
+  practices become the bank's founding cards (mostly procedures with attached
+  evidence; a few insights), back-filled from the postmortems.
 
 **Keeps (from `cross-run-knowledge-design.md`):** the episodic layer and its mechanical
 trust inventions — merged experiment store with origin/sign stamping, mandatory-bindings
@@ -64,8 +68,8 @@ count, and LLM opinion are never score inputs — popularity ≠ correctness.
   structured views, never the 2.35M-line log (also Rule 6: window, don't clip).
 - **Verify code before storing** (Voyager's most-valuable-component ablation; ASI's
   ~15.6% admission rate; SkillRevise: one-shot authored skills score *below no-skill*
-  until trace-conditioned revision, 39.5 → 61.6). Code cards pass a replay gate or stay
-  candidates.
+  until trace-conditioned revision, 39.5 → 61.6). Code-representation procedures pass
+  a replay gate or stay candidates.
 - **Score only on attributable outcomes** (RoMeRL: episode-reward sharing provably
   inflates useless items; ~45% cold-Q in growing banks). No blanket updates to
   everything injected into a winning campaign.
@@ -82,6 +86,16 @@ count, and LLM opinion are never score inputs — popularity ≠ correctness.
   (ledger, difficulties, lens history, manifests, verdicts); the lens replanner already
   *consumes* exactly the evidence cards would carry — the bank's render is its natural
   upstream.
+- **Format and operations references.** *OKF* (Google Cloud, 2026): concepts as
+  markdown+frontmatter files, path = identity, links = graph, `index.md` progressive
+  disclosure, `log.md`, minimally-opinionated `type` — adopted wholesale (§3.1).
+  *gbrain*: git-markdown as system-of-record with a derived retrieval index (proven at
+  155k pages), zero-LLM typed-edge extraction, synthesis-with-explicit-gap-analysis,
+  offline consolidation ("dream cycle") including a suspected-contradictions sweep,
+  per-stage explainable retrieval — all adopted as operational patterns. *mempalace*:
+  verbatim episodic storage wins for recall (96.6% R@5 raw) — cards cite into verbatim
+  artifacts, never replace them; scoped-not-flat retrieval; temporal validity windows
+  on facts — adopted for env-tagged insights (§3.3).
 
 ## 2. The three knowledge layers
 
@@ -89,51 +103,100 @@ count, and LLM opinion are never score inputs — popularity ≠ correctness.
 |---|---|---|---|---|
 | Episodic | Signed exemplars: runs, solutions, difficulties, feedback | per task, cross-run | sliding window + archive | cross-run store, runs archive, claims |
 | Task-local | Living documents: `features_history.md`, `table_information.md` | one task | append-only | shipped |
-| **Semantic (new)** | **Cards** — text (finding/pitfall/playbook/env-fact) and code (recipe) | task family → global | reliability lifecycle | the hand-written practice notes |
+| **Semantic (new)** | **Cards** — `insight` (evidenced claim) + `procedure` (text→code ladder), OKF concepts | task family → global | reliability lifecycle | the hand-written practice notes |
 
 The learner writes the semantic layer; it reads all three. Nothing about the lower
 layers changes except stamping (§5.1).
 
 ## 3. The knowledge bank
 
-### 3.1 Storage
+### 3.1 Storage — an OKF bundle in a git repo
 
-A dedicated git repository (`knowledge_bank/`), one card per file. Git is the audit
-trail, version store, and rollback: every learner run commits as one reviewed
-transaction; `bank_head` (commit sha) stamps everything downstream, exactly as
-`evaluator_id` stamps evaluations today. No graph database, no vector store service; a
-derived embedding index (`index/embeddings.parquet`, rebuilt by the frame at merge) is
-the only retrieval infrastructure. Directory layout:
+The bank is an **Open Knowledge Format bundle**: a directory of markdown files with
+YAML frontmatter, one concept per file, **file path = identity**, ordinary markdown
+links between concepts forming the graph, `index.md` per directory for progressive
+disclosure (this is how navigating agent sessions orient — miners, the curator, and
+any future OKF consumer read the same indexes), and a root `log.md` as the
+chronological journal (one entry per learner run). OKF is minimally opinionated —
+only `type` is required — so kapso's scoring state rides as producer extension fields
+without breaking conformance. What conformance buys: any OKF tool can render/inspect
+the bank, and third-party OKF bundles (e.g. dataset documentation) can be mounted
+beside the cards as unscored reference concepts.
+
+The repo is the system of record; everything queryable is derived — the gbrain
+discipline (git markdown as truth, synced into a retrieval index; proven at 155k
+pages) at our scale means one derived `index/` (embeddings + a link/edge table),
+rebuilt by the frame at merge. **Link extraction is zero-LLM**: the frame parses body
+markdown links and the typed extension fields (`supersedes`, `contradicts`) into the
+edge table; no model sits in the graph-construction path.
 
 ```
 knowledge_bank/
-  cards/<kind>/<slug>.md            # text card: frontmatter + body
-  cards/recipe/<slug>/card.md       # code card: frontmatter + docs
-  cards/recipe/<slug>/*.py          #   the procedure + its replay test
+  index.md                          # root orientation for agents (OKF)
+  log.md                            # learner-run journal (OKF)
+  insights/<slug>.md                # insight cards
+  insights/index.md
+  procedures/<slug>/card.md         # procedure cards (dir: docs + code + replay test)
+  procedures/<slug>/*.py            #   present once representation reaches `code`
+  procedures/index.md
+  reference/...                     # optional mounted OKF concepts — never scored
   retired/...                       # moved, never deleted; history intact
-  index/embeddings.parquet          # derived, rebuilt at merge
-  BANK.md                           # derived index: one line per active card
+  index/{embeddings.parquet,edges.parquet}   # derived, rebuilt at merge
 ```
 
-### 3.2 The card
+Git is the audit trail, version store, and rollback: every learner run commits as one
+reviewed transaction; `bank_head` (commit sha) stamps everything downstream, exactly
+as `evaluator_id` stamps evaluations today. Retrieval is **scope-first, never flat**
+(the mempalace lesson): queries filter on scope tags before similarity ranks within.
 
-Frontmatter (YAML) + markdown body. **Bindings are mandatory and mechanically
-validated** — the cross-run doc's discipline promoted to schema: admission raises
-(Rule 2) on a card whose `scope` is empty or whose `evidence` refs do not resolve
-against the episodic layer with the stated signs.
+### 3.2 The card — two types, OKF-conformant
+
+**The minimal type set is two.** The load-bearing distinction in the whole design is
+*what the lifecycle can do with a card*: a **claim** can only be confirmed,
+contradicted, or invalidated by later evidence; a **how-to** can additionally be
+*executed and verified*. Every learning the trajectories actually produce reduces to
+one of these:
+
+- **`insight`** — an evidenced claim. Covers positive findings, negative results and
+  anti-patterns (the technical_difficulties / TESTED-REJECTED export), dataset facts
+  ("all 12.6M reviews sit on midnight timestamps"), and environment facts (lightgbm
+  4.x callbacks). Sign lives in the evidence, not the type; flavor lives in `tags`
+  (`pitfall`, `env`, `dataset` — rendering hints, not ontology).
+- **`procedure`** — a how-to, with a **representation ladder**: born as text (a
+  playbook: practice-8's probe-first protocol), it matures to `representation: code`
+  under the *same identity* once the replay gate passes — gaining an `entrypoint`,
+  machine-checkable `preconditions` (Mobile-Agent-E's lesson that LLM-judged
+  preconditions fail), and a `replay` record. The old playbook-vs-recipe promotion
+  question dissolves: it is one card whose representation upgrades, keeping its
+  evidence history. Expected v1 code-representation procedures, straight from
+  recurring trace patterns: the forward-origin gate harness, the two-model-contract
+  prediction writer, the clustered-bootstrap acceptance test, the equal-rank blend
+  gate, the shared-cache registry protocol.
+
+Anything else in the bundle (mounted dataset docs, third-party OKF bundles) is a
+reference concept: retrievable, linkable, never scored. If two types ever prove
+genuinely insufficient, the escape hatch is gbrain-style schema packs (types as
+configurable data), not a richer built-in ontology.
+
+Frontmatter = **OKF reserved fields + kapso extensions**. Bindings are mandatory and
+mechanically validated — admission raises (Rule 2) on a card whose `scope` is empty or
+whose `evidence` refs do not resolve against the episodic layer with the stated signs.
 
 ```yaml
-id: finding/group-relative-normalization
-kind: finding | pitfall | playbook | env-fact | recipe
-representation: text | code
-claim: >-                       # one sentence, scope-first (AutoManual)
-  On tasks where prediction rows share a grouping key, within-group
-  rank/z-score companions of informative raw features improve the held-out
-  metric across model families.
-scope:
-  task_families: [entity_binary_classification, entity_regression]   # machine-checkable
-  conditions: "rows share seed timestamp / session / parent entity"    # prose, judged
-evidence:                       # ≥1 required; each ref must RESOLVE mechanically
+# --- OKF reserved fields ---
+type: insight                    # insight | procedure (the only scored types)
+title: Group-relative normalization
+description: >-                  # the claim, one sentence, scope-first (AutoManual)
+  On tasks where prediction rows share a grouping key, within-group rank/z-score
+  companions of informative raw features improve the held-out metric across
+  model families.
+resource: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/…  # source trajectory
+tags: [family:entity_binary_classification, family:entity_regression,
+       data:grouped_rows, benchmark:relbench]        # scope vocabulary (machine-checkable)
+timestamp: 2026-08-14T09:00:00Z
+# --- kapso extensions ---
+scope_conditions: "rows share seed timestamp / session / parent entity"  # prose, judged
+evidence:                        # ≥1 required; each ref must RESOLVE mechanically
   - campaign: rel-amazon--user-churn/20260813T015420_lane-c10
     ref: features_history.md#within-origin-ranks
     sign: KEPT
@@ -141,37 +204,28 @@ evidence:                       # ≥1 required; each ref must RESOLVE mechanica
 reliability:
   evidence_weight: {measurements: 3, task_families: 2}   # at admission, from citations
   transfer: {confirms: 0, contradicts: 0, exercised: 0, by_family: {}}
-  state: candidate            # candidate | active | cold | retired | superseded
+  state: candidate               # candidate | active | cold | retired | superseded
   last_exercised: null
 provenance:
   learner_run: lr_2026-08-14T…
-  mined_from: [trajectory archives …]
-  authoring_model: …          # cross-model validity tag (SkillRevise 8–15pp loss)
+  authoring_model: …             # cross-model validity tag (SkillRevise 8–15pp loss)
   version: 1
-  supersedes: null
-links: {refines: [], contradicts: [], see_also: []}
-probe: >-                      # optional: how a future campaign can test this cheaply
+supersedes: null                 # typed edges; all other links are body markdown links
+contradicts: []
+probe: >-                        # optional: how a future campaign can test this cheaply
   Ablate within-group companions of the top-5 features on one forward fold.
+# --- procedure cards additionally (representation: code only) ---
+# representation: text | code
+# entrypoint: run_forward_gate.py
+# preconditions: {task_families: […], requires: [features parquet, ≥2 origins]}
+# replay: {archived_run: runs/run_0019, expected_metric: …, last_replayed: …}
 ```
 
-Body: the full statement — mechanism, when it holds, when it does not, with the
-citations inline (Generative-Agents-style "because of …" pointing at ledger lines). The
-reliability state is *printed into the rendered card text* so the reading LLM weighs it
-(CLIN's hedging result).
-
-**Code cards (recipes)** add: `entrypoint`, machine-checkable `preconditions`
-(task family, schema requirements — Mobile-Agent-E's lesson that LLM-judged
-preconditions fail), and `replay: {archived_run, expected_metric, last_replayed}`. A
-recipe is admitted only by the replay gate (§4, stage V). Expected v1 recipes, straight
-from recurring trace patterns: the forward-origin gate harness, the two-model-contract
-prediction writer, the clustered-bootstrap acceptance test, the equal-rank blend gate,
-the shared-cache artifact registry protocol.
-
-**Card kinds** (each must earn its place, Rule 10): `finding` (measured empirical
-claim), `pitfall` (anti-pattern with root cause — the technical_difficulties export),
-`playbook` (scoped procedure not yet deterministic — practice-8-shaped), `env-fact`
-(infra/API gotchas), `recipe` (code). No Workflow/Principle split, no ontology beyond
-this enum.
+Body: the full statement — mechanism, when it holds, when it does not, citations
+inline (Generative-Agents-style "because of …" pointing at ledger lines), and ordinary
+markdown links to related cards (OKF: links are the graph; the frame extracts them
+mechanically). The reliability state is *printed into the rendered card text* so the
+reading LLM weighs it (CLIN's hedging result).
 
 ### 3.3 Two-clock reliability
 
@@ -197,12 +251,19 @@ without touching stored state (Rule 10; avoids formula lock-in).
 **Lifecycle (all transitions mechanical, frame-owned):**
 `candidate` (mined, gates pending) → `active` (admitted) → `cold` (no exercise in N
 campaigns; down-ranked, never hidden — cold ≠ wrong) → `retired` (contradicts dominate
-with ≥m visits, or replay breaks for recipes, or superseded). Retirement moves the file
+with ≥m visits, or replay breaks for code procedures, or superseded). Retirement moves the file
 to `retired/` with history; a superseding card links back and inherits a *discounted*
 prior (RoMeRL warm-start, with its rides-old-credibility caveat noted in provenance).
 Contradiction's first response is never deletion: it is **scope split** — the frame
 requires a contradicting event to carry its own citation, and the curator proposes a
 narrowed scope citing both sides.
+
+One distinction rides on tags (the mempalace validity-window idea): **env-tagged
+insights expire, they are not refuted**. "lightgbm 4.x wants callbacks" going stale is
+not evidence the card was wrong — a version-bump event *invalidates* (supersedes with
+a validity end), leaving the transfer record intact, where a measured contradiction
+*refutes*. Conflating the two would poison env cards' reliability for no informational
+gain.
 
 ## 4. The trajectory learner
 
@@ -222,9 +283,9 @@ Plus the current bank at `bank_head`.
 | Stage | Intelligence (CLI session, read-only tools + views) | Mechanical post-condition (frame) |
 |---|---|---|
 | **T — Triage** | none (pure code) | Build per-miner views; classify nodes success/recovered/failed; drop imperfect-agent failures (deadline kills, infra deaths — end-facts are already recorded) from *knowledge* mining while keeping them for pitfall mining; compute campaign SEs from stored bootstrap numbers |
-| **M — Mine** (parallel, lens-per-miner) | contrast miner (ledger KEPT/REJECTED pairs + lane groups), pitfall miner (technical_difficulties + failed lineages), strategy miner (lens history + judge verdicts + postmortem), recipe scout (winning code across runs archive, looking for procedures recurring ≥2 times) | Candidate cards must be schema-complete; every evidence ref must **resolve** (file+line/run exists, sign matches, delta matches within tolerance) — unresolvable candidates are rejected with a named finding, not repaired silently |
+| **M — Mine** (parallel, lens-per-miner) | contrast miner (ledger KEPT/REJECTED pairs + lane groups), pitfall miner (technical_difficulties + failed lineages), strategy miner (lens history + judge verdicts + postmortem), procedure scout (winning code across runs archive, looking for procedures recurring ≥2 times) | Candidate cards must be schema-complete; every evidence ref must **resolve** (file+line/run exists, sign matches, delta matches within tolerance) — unresolvable candidates are rejected with a named finding, not repaired silently |
 | **C — Curate** | one session with the bank slice (embedding neighbors of each candidate) in context; emits typed ops: `create / attach_evidence(card) / revise_scope(card) / split_scope(card) / supersede(card) / link` | Frame applies ops deterministically (ACE): stable ids, in-place counter updates, embedding dedup assist; ops on nonexistent cards raise; no op may edit another card's evidence list except `attach_evidence` with resolving refs |
-| **V — Verify** | text: an adversarial checker per card — does the cited artifact actually support the claim at the stated strength? (the maintainer's change-request triage stance, pointed inward); code: a session adapts the recipe + writes its replay test | Text: checker verdict recorded; a failed check demotes to candidate with the objection attached. Code: frame executes replay against the archived run (correctness + actually-invoked + effect, ASI's three conditions) inside the existing sandbox/timeout machinery; failures stay candidates with the trace attached (SkillRevise's revision loop gets one retry, then parks) |
+| **V — Verify** | text: an adversarial checker per card — does the cited artifact actually support the claim at the stated strength? (the maintainer's change-request triage stance, pointed inward); code: a session adapts the procedure + writes its replay test | Text: checker verdict recorded; a failed check demotes to candidate with the objection attached. Code: frame executes replay against the archived run (correctness + actually-invoked + effect, ASI's three conditions) inside the existing sandbox/timeout machinery; failures stay candidates with the trace attached (SkillRevise's revision loop gets one retry, then parks) |
 | **S — Score** | none (pure code) | Attribution events from this trajectory update *prior* cards' transfer records (§5.2); lifecycle transitions applied; decoy audit checked (§6) |
 | **R — Reflect (loop-until-dry)** | one critic session: "what did this trajectory teach that the bank now does not carry?" | Frame loops M–S on the critic's named gaps until a round adds nothing (two dry rounds), bounded by the learner's budget block |
 
@@ -236,19 +297,35 @@ bank history reads as a ledger of learnings per campaign.
 Concurrency: learner runs are serialized per bank (single-writer; the curator is the
 only merge path — the same single-writer discipline evolve's repo_lock uses).
 
+Besides the per-trajectory run, the learner has one standing **consolidation mode**
+(gbrain's dream cycle, scheduled off-hours): a mechanical shortlist of suspected
+contradictions and near-duplicates (edge table + embedding neighbors + opposing-sign
+evidence on overlapping scopes) reviewed by one curator session emitting the same
+typed ops, plus the staleness sweep (validity expiries, cold transitions) and index
+rebuild — all under the same single-writer commit discipline. No new machinery: it is
+stages C/S with an empty mining phase.
+
 ## 5. Closing the loop
 
 ### 5.1 Injection — the briefing compiler
 
 At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
 
-- **Text cards** render into the problem context, replacing the hand-maintained
+- **Insights and text-representation procedures** render into the problem context,
+  replacing the hand-maintained
   `MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` blocks: top-k by scope match ×
   similarity × reliability rank, k small (AutoGuide/DS-Agent: 2–4 per section, budgeted
   per kind), full text never clipped (Rule 6 — k caps selection, not content). Each
-  renders with id, reliability line, and citations. Pitfall cards for the task family
-  ride along as anti-pattern exemplars (AutoManual's fallback routing).
-- **Code cards** stage into the shared artifact workspace (`shared_cache/recipes/…`)
+  renders with id, reliability line, and citations. Negative-signed insights
+  (pitfall-tagged) for the task family ride along as guardrails (AutoManual's fallback
+  routing). The brief closes with an explicit **gap analysis**, gbrain-style: which
+  scope tags of this task have no active cards, which nearest-scope cards were included
+  at reduced confidence, and which active cards are stale — the honest "what the bank
+  does not know" that both primes probes and stops false authority. Compilation writes
+  a **serving record** (per card: scope-match, similarity, reliability components —
+  gbrain's `--explain` applied to injection) so every brief is auditable and
+  attribution later binds to exactly what was served.
+- **Code-representation procedures** stage into the shared artifact workspace (`shared_cache/procedures/…`)
   with the registry entry and a provenance README — "verified exemplars: adapt or
   invoke; replay-tested against <run>". (Callable-tool wiring, ASI's +3.7 injection-site
   result, is a v2 upgrade; staged-and-registered is v1.)
@@ -274,7 +351,7 @@ first:
    significant negative → `contradict`; within noise → `exercised` only.
 2. **Cited use in a scored lineage** — spec cited the card and the judge named it
    load-bearing; sign from the node's grader outcome vs parent.
-3. **Recipe invocation** — staged recipe demonstrably ran (registry/use markers) in a
+3. **Procedure invocation** — a staged procedure demonstrably ran (registry/use markers) in a
    registered run; sign from that run's outcome.
 
 Significance reuses the campaign's own clustered-SE machinery (practice 5 — already
@@ -301,8 +378,8 @@ campaigns (post-fetch, next to harvest), never inside them.
 | Consolidation overgeneralizes (cross-run doc; faulty-consolidation) | Mechanical citation resolution at admission; scope capped to cited families; adversarial text verifier |
 | Self-authored code unreliability (SkillRevise, Mobile-Agent-E) | Replay gate + one trace-conditioned revision; machine-checkable preconditions; low prior at birth |
 | Reward-hacking the bank (ACE's stated gap) | **Decoy audit**: each learner epoch maintains one known-noise decoy card (plausible, evidence-free-by-construction, quarantined id range); any score movement on a decoy fails the learner run loudly (RoMeRL's MRT protocol operationalized) |
-| Eval leakage via cards (cross-run doc) | The shingle gate runs over every card body and recipe file at admission, same spec as harvest |
-| Stale cards misleading (cross-run doc staleness) | Reliability line + `last_exercised` render in the card text; staleness discounts rank; env-facts carry version pins |
+| Eval leakage via cards (cross-run doc) | The shingle gate runs over every card body and procedure file at admission, same spec as harvest |
+| Stale cards misleading (cross-run doc staleness) | Reliability line + `last_exercised` render in the card text; staleness discounts rank; env-tagged insights carry validity windows (§3.3) |
 
 ## 7. Measuring the learner itself
 
@@ -315,7 +392,7 @@ campaigns (post-fetch, next to harvest), never inside them.
   diagnostic re-derived per lane). Should fall as the bank grows.
 - **Decoy audit** green on every learner run (§6).
 - **Bank health panel** in the learner report: cards by state, transfer-coverage per
-  family, contradiction backlog, replay freshness for recipes.
+  family, contradiction backlog, replay freshness for code procedures.
 
 ## 8. v1 scope and phasing
 
@@ -328,7 +405,9 @@ xhigh for miners/curator, fable for the adversarial verifier and critic, mirrori
 evolve role split). Phasing, each an atomic commit (Rule 8):
 
 1. Bank + card schema + citation resolution + founding cards (the 9 practices,
-   back-filled evidence; ~5 pitfalls and ~3 recipes from the wave-4 trace as seed).
+   back-filled evidence; ~5 pitfall-tagged insights and ~3 procedures from the
+   wave-4 trace as seed). Phase-1 tests include an OKF conformance check (reserved
+   fields present, indexes complete, links resolve).
 2. Briefing compiler replacing the static context notes; stamping; citation contract.
    **A/B-able immediately** — founding cards vs static notes should be ≈neutral (same
    content, now scoped/cited); this validates the plumbing before any mining.
@@ -351,11 +430,14 @@ evolve role split). Phasing, each an atomic commit (Rule 8):
 - **Q-learning / EMA utilities over cards** (MemRL-style) — needs feedback volume the
   transfer clock will not have for a long time; counters + rank function first, learned
   utilities revisited if event volume ever supports them.
-- **Callable-tool injection of recipes** — v2; staged-and-registered first (the ASI
+- **Callable-tool injection of code procedures** — v2; staged-and-registered first (the ASI
   delta is real but the wiring touches every session's tool config).
+- **A rich card ontology** (the wiki's five page types; an earlier five-kind draft of
+  this design) — two scored types cover the observed learnings; flavor is tags,
+  extensibility is schema-pack-style config (gbrain), never new built-in types.
 - **LLM-judged novelty/worth anywhere in scoring** — ideation-v2's scoping law stands:
   embeddings answer "seen before?", the grader answers "worth it?", nobody else votes.
-- **Cross-benchmark bank sharing (posttrain ∪ relbench)** — env-facts would collide and
+- **Cross-benchmark bank sharing (posttrain ∪ relbench)** — env insights would collide and
   transfer evidence would be unscoped; one bank per domain until a card ever earns
   cross-domain evidence.
 - **Automatic retirement without visits** — a low-evidence card that was never
@@ -376,6 +458,8 @@ evolve role split). Phasing, each an atomic commit (Rule 8):
    size? label sparsity?). v1 uses the benchmark's own family enum + dataset tags;
    expect this to be wrong in interesting ways and let contradiction-driven scope
    splits discover the real axes.
-5. **When does a playbook become a recipe** — promotion trigger (recurrence ≥2 with
-   compatible implementations is the DreamCoder-flavored default) and whether demotion
-   ever flows back.
+5. **When does a procedure climb the representation ladder** — the mechanism is
+   settled (same card, representation upgraded through the replay gate), the *trigger*
+   is not: recurrence ≥2 with compatible implementations is the DreamCoder-flavored
+   default; whether a broken code representation demotes back to text or parks as
+   candidate is open.
