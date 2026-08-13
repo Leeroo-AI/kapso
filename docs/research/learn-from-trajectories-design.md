@@ -131,8 +131,9 @@ The bank is an **Open Knowledge Format bundle**: a directory of markdown files w
 YAML frontmatter, one concept per file, **file path = identity**, ordinary markdown
 links between concepts forming the graph, `index.md` per directory for progressive
 disclosure (this is how navigating agent sessions orient — miners, the curator, and
-any future OKF consumer read the same indexes), and a root `log.md` as the
-chronological journal (one entry per learner run). OKF is minimally opinionated —
+any future OKF consumer read the same indexes; each index line is
+`- [title](path) — hero`, so a whole section scans in one screen), and a root
+`log.md` as the chronological journal (one entry per learner run). OKF is minimally opinionated —
 only `type` is required — so kapso's scoring state rides as producer extension fields
 without breaking conformance. What conformance buys: any OKF tool can render/inspect
 the bank, and third-party OKF bundles (e.g. dataset documentation) can be mounted
@@ -141,7 +142,9 @@ beside the cards as unscored reference concepts.
 The repo is the system of record; everything queryable is derived — the gbrain
 discipline (git markdown as truth, synced into a retrieval index; proven at 155k
 pages) at our scale means one derived `index/` (embeddings + a link/edge table),
-rebuilt by the frame at merge. **Link extraction is zero-LLM**: the frame parses body
+rebuilt by the frame at merge. The **hero line is the primary retrieval text** —
+embedded per card and shown in every shortlist; claim + body embed as secondary text,
+so fast retrieval scans heroes and only the selected k cards render in full. **Link extraction is zero-LLM**: the frame parses body
 markdown links and the typed extension fields (`supersedes`, `contradicts`) into the
 edge table; no model sits in the graph-construction path.
 
@@ -218,16 +221,25 @@ whose `evidence` refs do not resolve against the episodic layer with the stated 
 # --- OKF reserved fields ---
 type: insight                    # insight | procedure (the only scored types)
 title: Group-relative normalization
-description: >-                  # the claim, one sentence, scope-first (AutoManual)
-  On tasks where prediction rows share a grouping key, within-group rank/z-score
-  companions of informative raw features improve the held-out metric across
-  model families.
+description: >-                  # HERO one-liner (OKF-native slot): the retrieval hook.
+                                 # One compact sentence, ≤~140 chars, no bound
+                                 # identifiers, no numbers — what index lists, retrieval
+                                 # shortlists, and OKF viewers show for this card
+  Rank and z-score features within their competing group — absolute values
+  cannot see relative standing.
 resource: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/…  # source trajectory
 tags: [family:entity_binary_classification, family:entity_regression,
        data:grouped_rows, benchmark:relbench]        # scope vocabulary (machine-checkable)
 timestamp: 2026-08-14T09:00:00Z
 # --- kapso extensions ---
 generality: domain               # family | domain — the level transfer is measured at
+claim: >-                        # insights only: the full falsifiable statement the
+                                 # transfer clock measures against (scope-first;
+                                 # AutoManual). Procedures carry no claim — their
+                                 # verification is execution, not textual agreement
+  On tasks where prediction rows share a grouping key, within-group rank/z-score
+  companions of informative raw features improve the held-out metric across
+  model families.
 scope_conditions: "rows share seed timestamp / session / parent entity"  # prose, judged
 evidence:                        # ≥1 required; each ref must RESOLVE mechanically
   - campaign: rel-amazon--user-churn/20260813T015420_lane-c10
@@ -254,11 +266,21 @@ probe: >-                        # optional: how a future campaign can test this
 # replay: {archived_run: runs/run_0019, expected_metric: …, last_replayed: …}
 ```
 
-Body: the full statement — mechanism, when it holds, when it does not, citations
-inline (Generative-Agents-style "because of …" pointing at ledger lines), and ordinary
-markdown links to related cards (OKF: links are the graph; the frame extracts them
-mechanically). The reliability state is *printed into the rendered card text* so the
-reading LLM weighs it (CLIN's hedging result).
+**The single-source card rule.** Every fact lives in exactly one field; everything a
+consumer sees assembled is a projection. `description` is the hero's only home,
+`claim` the claim's, `scope_conditions` applicability's, `evidence` the instances'.
+The **body carries only what has no frontmatter home** — the mechanism, the measured
+limits, adaptation notes, and ordinary markdown links to related cards (OKF: links
+are the graph; the frame extracts them mechanically) — and references evidence by
+inline `[E1]`/`[E2]` markers instead of re-citing it. No body heading (the renderer
+adds the title), no restating of any frontmatter field: a curator `REFINE` therefore
+targets exactly one home, and a version bump means one thing. The **served card is a
+renderer projection** assembled at brief-compile time — title + hero + derived
+reliability line (so the reading LLM weighs a battle-tested claim differently, CLIN's
+hedging result) + claim + scope + body + evidence digest + probe — and is never
+stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (reader
+scope) express the same thing at two precisions; the stage-V verifier checks their
+consistency.
 
 ### 3.3 Two-clock reliability
 
