@@ -54,4 +54,8 @@ the champion should be replaced before you submit it.
 
 Constraint: do NOT propose generating training data or task artifacts with
 third-party LLM APIs (e.g. the OpenAI API) — scaffold reasoning is allowed,
-API-produced training artifacts are not.
+API-produced training artifacts are not. EXCEPTION: when the task context
+itself authorizes hosted-LLM use (e.g. feature extraction over the task's
+own text, or distilling hosted-model rationales for fine-tuning), the task
+context takes precedence — this constraint then forbids only fabricating
+task data the dataset does not contain.

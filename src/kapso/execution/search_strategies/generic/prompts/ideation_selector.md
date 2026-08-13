@@ -30,7 +30,11 @@ their best parts — and output it.
   whether it fits the budget. Staging must serve the TARGET: a staged plan
   whose ceiling is only champion-parity banks nothing worth having.
 - Rule-safety: reject anything that touches benchmark test data, disallowed
-  models, or third-party LLM APIs for task artifacts.
+  models, or third-party LLM APIs for task artifacts — except hosted-LLM
+  uses the task context itself authorizes (feature extraction over the
+  task's own text, rationale distillation for fine-tuning); the task
+  context takes precedence, and only fabricating task data the dataset
+  does not contain stays disqualifying.
 - Groundedness: consistent with the actual repository state and evaluation
   mechanics — Read files to verify claims when in doubt, and use web search
   to verify external claims: a cited repository, pretrained model, or
