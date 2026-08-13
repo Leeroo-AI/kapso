@@ -12,6 +12,15 @@ mechanical post-condition in a deterministic Python frame (the EvaluationMaintai
 pattern). Evidence base: `learn-from-trajectories-litreview.md` (22-paper review, same
 directory) and the wave-4 `rel-amazon/user-churn` trace forensics.
 
+**The minimality rule (governs this document and the framework).** Always the
+minimal set of sections that covers what we need — and the minimal set of modules
+that does the job. Because every card is written and read by intelligent coding
+agents, the default representation is a well-written prose section, never a spread
+of structured micro-fields: **structure exists only where deterministic code must
+parse it** (identity, scope filtering, lifecycle state, resolvable source pointers);
+everything else is prose an agent writes and an agent reads. When a proposed field
+could instead be a sentence inside an existing section, it is one.
+
 ## 0. Position — what this replaces, keeps, and re-opens
 
 **Replaces (Rule 7, delete not deprecate):**
@@ -236,31 +245,34 @@ generality: domain               # dataset | family | domain — the level trans
                                  # measured at (dataset-scoped facts are legitimate
                                  # reuse: a database's quirk serves its ~6 tasks)
 scope_conditions: "rows share seed timestamp / session / parent entity"  # prose, judged
-evidence:                        # ≥1 required; each ref must RESOLVE mechanically
-  - campaign: rel-amazon--user-churn/20260813T015420_lane-c10
-    ref: features_history.md#within-origin-ranks
-    sign: KEPT
-    delta: "+0.0032 AUC ≈ 3.6 clustered SE"
-    usage:                       # HOW the card participated — verified, never assumed
-      mode: independent          # probe | cited | served-uncited | independent
-      served: null               # bank_head whose brief carried the card, or null
-      trace: null                # where the usage is visible (spec line, probe output)
-reliability:                     # assessed by the reliability-assessor session over the
-                                 # code-owned event ledger; frame-bounded (§3.3)
-  score: 0.75                    # validity-in-scope estimate [0,1]
-  rationale: >-                  # the assessor's cited reasoning — WHY this score
+evidence:                        # ≥1 required; written by the learning process,
+                                 # admitted only after the frame's three checks (§5.2)
+  - source:                      # metadata: which learning process, which trajectory
+      learner_run: lr_20260814T0900
+      trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
+      ref: features_history.md#within-origin-ranks
+    usage: >-                    # prose: how the card figured in this campaign — was it
+                                 # served, cited by the spec, probed, or absent
+                                 # (independent)? what did the process do with it?
+      Not yet in the bank when this campaign ran — independent evidence: the
+      lens replanner derived the within-origin normalization move on its own
+      and lane 1 implemented it as a feature-widening block.
+    effect: >-                   # prose: what happened, numbers included
+      The block was gate-tested against the pre-widening matrix and KEPT:
+      +0.0032 AUC ≈ 3.6 clustered SE on the official validation split.
+reliability:                     # written ONLY by the reliability assessor (§3.3),
+                                 # frame-bounded against the derived event ledger
+  score: 0.75                    # validity-in-scope [0,1]
+  rationale: >-                  # the assessor's cited reasoning — coverage, evidence
+                                 # modes, boundary history all live HERE as prose;
+                                 # tallies are derived, ledger-side, never card fields
     Two independent in-scope confirmations in two families at 3.6 and >2 SE;
-    no in-scope disagreement; coverage limited to classification families.
-  transfer: {confirms: 0, contradicts: 0, exercised: 0, by_family: {}}   # coverage
-  scope_revisions: 0             # count, each tagged mechanism-backed | ad-hoc
+    no in-scope disagreement; coverage limited to classification families;
+    no scope revisions yet.
   state: candidate               # candidate | active | cold | retired | superseded
-  last_exercised: null
-provenance:
-  learner_run: lr_2026-08-14T…
-  authoring_model: …             # cross-model validity tag (SkillRevise 8–15pp loss)
-  version: 1
-supersedes: null                 # typed edges; all other links are body markdown links
-contradicts: []
+provenance: {version: 1}         # the rest is derivable — git history + evidence sources
+supersedes: null                 # the one typed edge code needs; all other relations
+                                 # are ordinary body markdown links
 probe: >-                        # optional: how a future campaign can test this cheaply
   Ablate within-group companions of the top-5 features on one forward fold.
 # --- procedure cards additionally (representation: code only) ---
@@ -448,7 +460,7 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   a **serving record** (per card: scope-match, similarity, reliability components —
   gbrain's `--explain` applied to injection) so every brief is auditable and
   attribution later binds to exactly what was served — the serving record is the
-  ground truth `usage.mode` verification checks against (§5.2).
+  ground truth the usage-consistency check runs against (§5.2).
 - **Code-representation procedures** stage into the shared artifact workspace (`shared_cache/procedures/…`)
   with the registry entry and a provenance README — "verified exemplars: adapt or
   invoke; replay-tested against <run>". (Callable-tool wiring, ASI's +3.7 injection-site
@@ -465,35 +477,39 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   novel piece: the bank does not wait to be exercised, it *asks questions*, and the
   replanner's evidence-driven re-aiming (proven in wave-4) is the natural carrier.
 
-### 5.2 Attribution events — usage-verified, all Measured
+### 5.2 Evidence — three prose parts, three mechanical checks
 
-An event is `(card_id, campaign, node/run, sign, delta, SE, usage)`. The `usage`
-block answers the question a bare measurement cannot: **was the card actually there,
-and was it actually engaged?** Its `mode` is mechanically verified before the event
-enters the ledger — never taken from the assessor's or the miner's word:
+An evidence entry has exactly three parts, per the minimality rule: **`source`**
+(metadata: which learner run created it, from which trajectory, pointing at which
+artifact), **`usage`** (prose: how the card figured in that campaign's process — was
+it served in the brief, cited by a spec, tested by its own probe, or absent so the
+campaign rediscovered it independently; what the process actually did with it), and
+**`effect`** (prose: what happened, numbers included). The writing is an intelligent
+agent's; the trust is the frame's. Admission runs three checks:
 
-| `usage.mode` | Meaning | Mechanical verification | Evidential weight |
-|---|---|---|---|
-| `probe` | the card's own probe was executed | probe output artifact matches the card's `probe` spec | strongest — a prospective, pre-registered test |
-| `cited` | spec carried `[card:<id>]` and the experiment tested the fact | serving record contains the card at the campaign's `bank_head` AND the citation greps in the spec/changes.log | direct test; the assessor discounts for expectation effects (the campaign knew the predicted sign) |
-| `served-uncited` | card was in the brief; an experiment happened to test the fact | serving record contains the card; no citation found | valid outcome for the fact; weak attribution of influence |
-| `independent` | the card was NOT served — the campaign predates it or its brief excluded it | card absent from the serving record, or card timestamp postdates the campaign | **gold for the fact** (uncontaminated replication); says nothing about the card's usefulness-as-served |
+1. **Source resolves** — the trajectory exists, the ref exists inside it, and the
+   effect's quoted numbers re-grep in the referenced artifact.
+2. **Usage is consistent with the record** — every assertion the usage prose makes
+   is checked against ground truth: the serving record at the stamped `bank_head`
+   (was the card in the brief?), citation greps in specs/changes.log (was it invoked
+   by name?), probe output artifacts (was this the card's own probe?), invocation
+   markers for procedures (did the staged code actually run?). A usage narrative the
+   record cannot support is rejected with a named finding.
+3. **Effect is grader-backed** — outcomes trace to registered evaluations, judged
+   significant by the campaign's own clustered-SE machinery; sub-threshold effects
+   are recorded as exercise, not agreement.
 
-Two consequences of the mode split. First, admission evidence and transfer evidence
-unify: founding instances mined from trajectories that predate the card are
-definitionally `independent` — one evidence schema everywhere. Second, the split
-separates the two questions a single counter conflates: *is the fact true* (all
-modes count, `independent` counts most) and *does serving the card help* (only
-`probe`/`cited`/`served-uncited` count — and the A/B arm remains the only unbiased
-estimator of that).
-
-Signs: KEPT with significant delta → candidate `confirm`; REJECTED / significant
-negative → candidate `weaken`/`refine` (assessor disposition, §3.3); within noise →
-`exercised` only. Significance reuses the campaign's own clustered-SE machinery
-(practice 5 — already computed and logged in-trace). Procedure events additionally
-carry invocation verification (registry/use markers in a registered run). There is
-deliberately **no** "injected into a winning campaign" event — that is the
-memory-reward trap, and it stays excluded even though it would move scores faster.
+From each admitted entry the frame derives a ledger event (append-only, code-owned —
+the substrate §3.3's assessor works on). How usage should weigh on the assessor is
+guidance, not schema: the card's own probe is the strongest test (prospective); a
+cited use carries expectation effects (the campaign knew the predicted sign); an
+uncited-but-served test speaks to the fact more than to the serving; and evidence
+from a process that never saw the card — all founding evidence included — is an
+uncontaminated replication, the strongest support a fact can get, while saying
+nothing about whether *serving* the card helps (the A/B arm remains the only
+unbiased estimator of that). There is deliberately **no** "injected into a winning
+campaign" event — that is the memory-reward trap, and it stays excluded even though
+it would move scores faster.
 
 ### 5.3 What changes in evolve
 
@@ -515,7 +531,7 @@ campaigns (post-fetch, next to harvest), never inside them.
 | Self-authored code unreliability (SkillRevise, Mobile-Agent-E) | Replay gate + one trace-conditioned revision; machine-checkable preconditions; low prior at birth |
 | Reward-hacking the bank (ACE's stated gap) | **Decoy audit**: each learner epoch maintains one known-noise decoy card (plausible, evidence-free-by-construction, quarantined id range); any score movement on a decoy fails the learner run loudly (RoMeRL's MRT protocol operationalized) |
 | Eval leakage via cards (cross-run doc) | The shingle gate runs over every card body and procedure file at admission, same spec as harvest |
-| Stale cards misleading (cross-run doc staleness) | Reliability line + `last_exercised` render in the card text; staleness discounts rank; env-tagged insights carry validity windows (§3.3) |
+| Stale cards misleading (cross-run doc staleness) | Reliability line + ledger-derived last-exercised render in the served card; staleness discounts rank; env-tagged insights carry validity windows (§3.3) |
 | Memory overfitting — bound exemplars posing as knowledge (Notes-to-Self; the survey's Reflection/Experience bar) | Cards-are-abstractions rule: observations are evidence, never cards; bound-identifier lint on claim fields; `generality` field measured by the transfer clock; MDL admission test; EBG route requires an endorsed mechanism |
 
 ## 7. Measuring the learner itself
