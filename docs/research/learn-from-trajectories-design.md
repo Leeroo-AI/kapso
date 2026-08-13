@@ -203,7 +203,7 @@ generalization that observation supports, stated at the level of the domain
 (predictive ML modelling), carrying the **mechanism** (why it works) from which its
 applicability conditions derive. Two mechanical guards enforce this:
 
-- **`generality: family | domain`** is a required extension field, and the claimed
+- **`generality: dataset | family | domain`** is a required extension field, and the claimed
   level is what the transfer clock measures against — a domain card contradicted
   outside its home family demotes to `family` scope, not to retirement.
 - **The bound-identifier lint** (Notes-to-Self operationalized): dataset names, task
@@ -232,20 +232,19 @@ tags: [family:entity_binary_classification, family:entity_regression,
        data:grouped_rows, benchmark:relbench]        # scope vocabulary (machine-checkable)
 timestamp: 2026-08-14T09:00:00Z
 # --- kapso extensions ---
-generality: domain               # family | domain — the level transfer is measured at
-claim: >-                        # insights only: the full falsifiable statement the
-                                 # transfer clock measures against (scope-first;
-                                 # AutoManual). Procedures carry no claim — their
-                                 # verification is execution, not textual agreement
-  On tasks where prediction rows share a grouping key, within-group rank/z-score
-  companions of informative raw features improve the held-out metric across
-  model families.
+generality: domain               # dataset | family | domain — the level transfer is
+                                 # measured at (dataset-scoped facts are legitimate
+                                 # reuse: a database's quirk serves its ~6 tasks)
 scope_conditions: "rows share seed timestamp / session / parent entity"  # prose, judged
 evidence:                        # ≥1 required; each ref must RESOLVE mechanically
   - campaign: rel-amazon--user-churn/20260813T015420_lane-c10
     ref: features_history.md#within-origin-ranks
     sign: KEPT
     delta: "+0.0032 AUC ≈ 3.6 clustered SE"
+    usage:                       # HOW the card participated — verified, never assumed
+      mode: independent          # probe | cited | served-uncited | independent
+      served: null               # bank_head whose brief carried the card, or null
+      trace: null                # where the usage is visible (spec line, probe output)
 reliability:                     # assessed by the reliability-assessor session over the
                                  # code-owned event ledger; frame-bounded (§3.3)
   score: 0.75                    # validity-in-scope estimate [0,1]
@@ -271,21 +270,46 @@ probe: >-                        # optional: how a future campaign can test this
 # replay: {archived_run: runs/run_0019, expected_metric: …, last_replayed: …}
 ```
 
-**The single-source card rule.** Every fact lives in exactly one field; everything a
-consumer sees assembled is a projection. `description` is the hero's only home,
-`claim` the claim's, `scope_conditions` applicability's, `evidence` the instances'.
-The **body carries only what has no frontmatter home** — the mechanism, the measured
-limits, adaptation notes, and ordinary markdown links to related cards (OKF: links
-are the graph; the frame extracts them mechanically) — and references evidence by
-inline `[E1]`/`[E2]` markers instead of re-citing it. No body heading (the renderer
-adds the title), no restating of any frontmatter field: a curator `REFINE` therefore
-targets exactly one home, and a version bump means one thing. The **served card is a
-renderer projection** assembled at brief-compile time — title + hero + derived
-reliability line (so the reading LLM weighs a battle-tested claim differently, CLIN's
-hedging result) + claim + scope + body + evidence digest + probe — and is never
+**The single-source card rule, and the body as THE FACT.** A card stores a learning
+the way a person holds one: a fact, where it is true, the evidence seen, and how much
+to trust it. Each lives in exactly one place. `description` is the hero (the fact in
+one scannable line); the **body is the fact in full** — three to six sentences of
+unified prose stating what is true, *why* (the mechanism woven into the statement,
+not sectioned off — a fact must contain its because, or its scope is capped to its
+instances, the EBG rule), and where it stops (limits folded into the wording), with
+inline `[E1]`/`[E2]` markers into the evidence and ordinary markdown links to related
+cards (the frame extracts links mechanically). `scope_conditions` holds
+applicability; `evidence` holds the instances; `reliability` holds the trust record.
+No body heading (the renderer adds the title), no separate claim/mechanism/limits
+sections (Toulmin-itis — the working systems and the practice notes all use unified
+prose), no restating of any frontmatter field: a curator `REFINE` targets exactly one
+home and a version bump means one thing. The fact is what the assessor matches
+events against — semantically, hero as the compact key and body as elaboration. The
+**served card is a renderer projection** assembled at brief-compile time — title +
+hero + derived reliability line (so the reading LLM weighs a battle-tested fact
+differently, CLIN's hedging result) + scope + fact + evidence digest + probe — never
 stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (reader
 scope) express the same thing at two precisions; the stage-V verifier checks their
 consistency.
+
+#### 3.2.1 The two sections, defined
+
+**`insights/` — declarative memory.** Every card is a generalized, mechanism-backed
+fact about how predictive modelling works in this domain. Later evidence can only
+agree or disagree with it. Covers positive and negative regularities, segment
+findings, dataset facts (`generality: dataset` — reuse across the database's tasks),
+and env facts (validity windows). Admission: abstraction gates (lint + MDL + an
+induction or EBG route), resolvable evidence, falsifiability (a card that cannot
+lose cannot be scored).
+
+**`procedures/` — procedural memory.** Every card is a generalized how-to that a
+campaign can *execute*, over typed roles rather than bound entities, with the
+representation ladder (text playbook → replay-verified code under one identity;
+double-gated by recurrence ≥2 and the replay gate, one trace-conditioned revision on
+failure). Procedures carry no textual claim to agree with — their verification is
+execution: replay freshness, invocation outcomes. Code representation adds
+`entrypoint`, machine-checkable `preconditions`, and `replay`; code injects at the
+implementation site as staged artifacts, text renders like insights.
 
 ### 3.3 Reliability — three dimensions, an event algebra, one assessor
 
@@ -423,7 +447,8 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   does not know" that both primes probes and stops false authority. Compilation writes
   a **serving record** (per card: scope-match, similarity, reliability components —
   gbrain's `--explain` applied to injection) so every brief is auditable and
-  attribution later binds to exactly what was served.
+  attribution later binds to exactly what was served — the serving record is the
+  ground truth `usage.mode` verification checks against (§5.2).
 - **Code-representation procedures** stage into the shared artifact workspace (`shared_cache/procedures/…`)
   with the registry entry and a provenance README — "verified exemplars: adapt or
   invoke; replay-tested against <run>". (Callable-tool wiring, ASI's +3.7 injection-site
@@ -440,22 +465,34 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   novel piece: the bank does not wait to be exercised, it *asks questions*, and the
   replanner's evidence-driven re-aiming (proven in wave-4) is the natural carrier.
 
-### 5.2 Attribution events (the score inputs, all Measured)
+### 5.2 Attribution events — usage-verified, all Measured
 
-An event is `(card_id, campaign, node/run, kind, sign, delta, SE)`; kinds, strictest
-first:
+An event is `(card_id, campaign, node/run, sign, delta, SE, usage)`. The `usage`
+block answers the question a bare measurement cannot: **was the card actually there,
+and was it actually engaged?** Its `mode` is mechanically verified before the event
+enters the ledger — never taken from the assessor's or the miner's word:
 
-1. **Direct test** — a ledger entry or lane experiment whose claim matches the card
-   (probe results included): KEPT with significant delta → `confirm`; REJECTED /
-   significant negative → `contradict`; within noise → `exercised` only.
-2. **Cited use in a scored lineage** — spec cited the card and the judge named it
-   load-bearing; sign from the node's grader outcome vs parent.
-3. **Procedure invocation** — a staged procedure demonstrably ran (registry/use markers) in a
-   registered run; sign from that run's outcome.
+| `usage.mode` | Meaning | Mechanical verification | Evidential weight |
+|---|---|---|---|
+| `probe` | the card's own probe was executed | probe output artifact matches the card's `probe` spec | strongest — a prospective, pre-registered test |
+| `cited` | spec carried `[card:<id>]` and the experiment tested the fact | serving record contains the card at the campaign's `bank_head` AND the citation greps in the spec/changes.log | direct test; the assessor discounts for expectation effects (the campaign knew the predicted sign) |
+| `served-uncited` | card was in the brief; an experiment happened to test the fact | serving record contains the card; no citation found | valid outcome for the fact; weak attribution of influence |
+| `independent` | the card was NOT served — the campaign predates it or its brief excluded it | card absent from the serving record, or card timestamp postdates the campaign | **gold for the fact** (uncontaminated replication); says nothing about the card's usefulness-as-served |
 
-Significance reuses the campaign's own clustered-SE machinery (practice 5 — already
-computed and logged in-trace). Sub-threshold deltas update nothing but `exercised`.
-There is deliberately **no** "injected into a winning campaign" event — that is the
+Two consequences of the mode split. First, admission evidence and transfer evidence
+unify: founding instances mined from trajectories that predate the card are
+definitionally `independent` — one evidence schema everywhere. Second, the split
+separates the two questions a single counter conflates: *is the fact true* (all
+modes count, `independent` counts most) and *does serving the card help* (only
+`probe`/`cited`/`served-uncited` count — and the A/B arm remains the only unbiased
+estimator of that).
+
+Signs: KEPT with significant delta → candidate `confirm`; REJECTED / significant
+negative → candidate `weaken`/`refine` (assessor disposition, §3.3); within noise →
+`exercised` only. Significance reuses the campaign's own clustered-SE machinery
+(practice 5 — already computed and logged in-trace). Procedure events additionally
+carry invocation verification (registry/use markers in a registered run). There is
+deliberately **no** "injected into a winning campaign" event — that is the
 memory-reward trap, and it stays excluded even though it would move scores faster.
 
 ### 5.3 What changes in evolve
