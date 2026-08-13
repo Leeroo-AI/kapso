@@ -8,4 +8,6 @@ sessions/*
 .kapso/shared_cache/
 __pycache__/
 *.pyc
-output_data_generic_exp_7/
+output_data_generic_exp_2/
+kapso_output/
+output_data_generic_exp_6/

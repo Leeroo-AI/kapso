@@ -1,17 +1,16 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-12T05:21:54.915816+00:00",
+  "generated_at": "2026-08-12T18:03:01.599359+00:00",
   "baseline": {
-    "initial_repo": "/tmp/relbench_baseline_wjycx0h_"
+    "initial_repo": "/tmp/relbench_baseline_4m4ezydn"
   },
   "repo_map": {
     "repo_root": ".",
-    "file_count": 20,
+    "file_count": 17,
     "files": [
       ".gitignore",
+      "MEASUREMENT_PROFILE.md",
       "PLAN.md",
-      "champion_runner.py",
-      "eval_profile.md",
       "kapso_datasets/CONTRACT.md",
       "kapso_datasets/README.md",
       "kapso_datasets/__init__.py",
@@ -23,16 +22,13 @@
       "kapso_evaluation/kapso_eval.py",
       "kapso_evaluation/kapso_eval_archive.py",
       "main.py",
-      "output_data_generic_exp_2/debug_metrics.json",
-      "output_data_generic_exp_2/metrics.json",
-      "residual_knn.py",
-      "semantic_champion.py",
-      "temporal_transformer.py"
+      "sequence_data.py",
+      "sequence_model.py",
+      "text_features.py"
     ],
     "languages_by_extension": {
-      ".py": 11,
+      ".py": 10,
       ".md": 5,
-      ".json": 2,
       ".pyc": 1
     },
     "key_files": [],
@@ -41,1417 +37,1424 @@
     ]
   },
   "repo_model": {
-    "summary": "The active candidate is now a lane3 causal residual-graph and external-customer retrieval pipeline. main.py loads versioned lane1/lane2 feature caches, evaluates graph and kNN experts on forward origins, selects a frozen rank stack, preserves legal Model A/Model B lineage, and falls back to banked run_0014 predictions when the stack is not admitted before writing finite prediction arrays and diagnostics.",
+    "summary": "This repository now implements a task-specific binary churn pipeline over the sanitized RelBench cache: it builds a temporal review index, prepares ModernBERT and optional Qwen text features, trains and selects sequence models with forward folds, fits separate validation/test models, writes contract-safe probability vectors, and records diagnostics. The registered profile is fixed to 409,792 validation and 351,885 test rows, with validation ROC AUC as the selection metric.",
     "entrypoints": [
       {
-        "statement": "The candidate is launched as `python main.py`; `--debug` selects the smoke path, while the no-flag invocation runs the full residual pipeline.",
+        "path": "main.py",
+        "how_to_run": "python main.py --prepare-cache to build the index and full text caches without fitting; python main.py --debug for the reduced contract run; python main.py for the full run",
         "evidence": [
           {
             "path": "main.py",
-            "line": 20,
-            "description": "Recognizes the --debug command-line flag."
+            "line": 202,
+            "description": "Recognizes --prepare-cache"
           },
           {
             "path": "main.py",
-            "line": 43,
-            "description": "Provides the script entrypoint."
+            "line": 206,
+            "description": "Recognizes --debug"
           },
           {
             "path": "main.py",
-            "line": 45,
-            "description": "Calls main when executed as a script."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 364,
-            "description": "Dispatches debug versus full execution."
+            "line": 209,
+            "description": "Runs the full pipeline otherwise"
           }
         ]
       },
       {
-        "statement": "The evaluator supplies KAPSO_RUN_DATA_DIR for run-local metrics; outside the evaluator, metrics default to output_data_generic_exp_7.",
+        "path": "kapso_evaluation/grader.py",
+        "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]",
         "evidence": [
           {
-            "path": "main.py",
-            "line": 34,
-            "description": "Defines the local output directory."
+            "path": "kapso_evaluation/README.md",
+            "line": 22,
+            "description": "Documents fast fidelity"
           },
           {
-            "path": "main.py",
-            "line": 36,
-            "description": "Reads the evaluator run directory override."
-          },
-          {
-            "path": "main.py",
-            "line": 38,
-            "description": "Writes run-local metrics."
+            "path": "kapso_evaluation/README.md",
+            "line": 29,
+            "description": "Documents the evaluator command"
           }
         ]
       }
     ],
     "where_to_edit": [
       {
-        "statement": "Edit main.py for command-line behavior, deterministic setup, prediction sanitization, output paths, and diagnostics.",
+        "path": "main.py",
+        "role": "Primary experiment orchestration: debug/full modes, model A/B fitting, blend application, diagnostics, cache reuse, and output writing.",
         "evidence": [
           {
             "path": "main.py",
-            "line": 16,
-            "description": "Defines the orchestration function."
+            "line": 134,
+            "description": "Full-run orchestration begins"
           },
           {
             "path": "main.py",
-            "line": 20,
-            "description": "Controls debug selection."
-          },
-          {
-            "path": "main.py",
-            "line": 27,
-            "description": "Controls output probability coercion."
-          },
-          {
-            "path": "main.py",
-            "line": 37,
-            "description": "Controls diagnostic serialization."
+            "line": 183,
+            "description": "Builds validation diagnostics"
           }
         ]
       },
       {
-        "statement": "Edit residual_knn.py for feature-cache loading, causal graph construction, kNN retrieval, forward-fold gates, stack selection, and final Model A/Model B prediction generation.",
+        "path": "sequence_data.py",
+        "role": "Build the sorted review/product index, temporal seed sets, context features, origin ranks, and safety checks.",
         "evidence": [
           {
-            "path": "residual_knn.py",
-            "line": 194,
-            "description": "Loads lane1 seed data and upstream semantic/text arrays."
+            "path": "sequence_data.py",
+            "line": 67,
+            "description": "Index construction entrypoint"
           },
           {
-            "path": "residual_knn.py",
-            "line": 320,
-            "description": "Defines the full pipeline."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 329,
-            "description": "Controls graph OOF evaluation."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 330,
-            "description": "Controls kNN prediction generation."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 331,
-            "description": "Controls stack selection."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 335,
-            "description": "Controls final graph model materialization."
+            "path": "sequence_data.py",
+            "line": 338,
+            "description": "Seed-set construction entrypoint"
           }
         ]
       },
       {
-        "statement": "Change upstream lane1/lane2 feature producers or their versioned cache paths only when the required product text, semantic, and tabular seed arrays change.",
+        "path": "sequence_model.py",
+        "role": "Own FeatureStore batching, neural candidate selection, hazard fitting, rank blending, and final sequence-model training.",
         "evidence": [
           {
-            "path": "residual_knn.py",
-            "line": 107,
-            "description": "Defines the lane1 feature root."
+            "path": "sequence_model.py",
+            "line": 51,
+            "description": "FeatureStore definition"
           },
           {
-            "path": "residual_knn.py",
-            "line": 218,
-            "description": "Uses shared cached product-text arrays."
+            "path": "sequence_model.py",
+            "line": 224,
+            "description": "Forward-selection definition"
           },
           {
-            "path": "residual_knn.py",
-            "line": 226,
-            "description": "Uses ordered lane2 semantic seed arrays."
+            "path": "sequence_model.py",
+            "line": 310,
+            "description": "Final model training wrapper"
           }
         ]
+      },
+      {
+        "path": "text_features.py",
+        "role": "Own ModernBERT review embeddings, product/text cache preparation, Qwen attribute generation, and the attribute forward gate.",
+        "evidence": [
+          {
+            "path": "text_features.py",
+            "line": 115,
+            "description": "Review embedding cache preparation"
+          },
+          {
+            "path": "text_features.py",
+            "line": 271,
+            "description": "Qwen measurement entrypoint"
+          }
+        ]
+      },
+      {
+        "path": "kapso_datasets/common.py",
+        "role": "Reusable run-directory and prediction-writing helpers; preserve their output contract."
+      },
+      {
+        "path": "kapso_datasets/CONTRACT.md",
+        "role": "Authoritative input, output, shape, dtype, validation-isolation, and scoring contract."
+      },
+      {
+        "path": "kapso_evaluation/grader.py",
+        "role": "Immutable scoring/orchestration implementation; inspect behavior but do not modify it."
       }
     ],
     "claims": [
       {
         "kind": "architecture",
-        "statement": "main.py is the current candidate orchestrator: it seeds NumPy, selects debug mode, runs the residual pipeline, sanitizes both prediction vectors to finite float32 probabilities, saves predictions, and writes diagnostics to the evaluator run directory and output_data_generic_exp_7.",
-        "confidence": 1.0,
+        "statement": "The candidate ingests task parquet files and the review/product database directly from the configured sanitized cache, building task arrays for timestamp, customer, and churn plus a sorted review index rather than dispatching over generic task-family prediction branches.",
+        "confidence": 0.99,
         "evidence": [
           {
-            "path": "main.py",
-            "line": 16,
-            "description": "Defines the active main entrypoint."
+            "path": "sequence_data.py",
+            "line": 42,
+            "description": "Reads task split parquet files and selects timestamp/customer columns"
           },
           {
-            "path": "main.py",
-            "line": 18,
-            "description": "Seeds NumPy deterministically."
+            "path": "sequence_data.py",
+            "line": 53,
+            "description": "Loads churn for non-test splits and uses a sentinel target for test"
           },
           {
-            "path": "main.py",
-            "line": 20,
-            "description": "Selects debug mode from --debug."
+            "path": "sequence_data.py",
+            "line": 94,
+            "description": "Reads and orders the review parquet data"
           },
           {
-            "path": "main.py",
-            "line": 26,
-            "description": "Runs the residual kNN pipeline."
-          },
-          {
-            "path": "main.py",
-            "line": 27,
-            "description": "Replaces non-finite validation values and clips them to [0,1] float32."
-          },
-          {
-            "path": "main.py",
-            "line": 29,
-            "description": "Saves validation and test predictions."
-          },
-          {
-            "path": "main.py",
-            "line": 36,
-            "description": "Uses KAPSO_RUN_DATA_DIR for evaluator diagnostics when supplied."
-          },
-          {
-            "path": "main.py",
-            "line": 38,
-            "description": "Writes metrics to the evaluator run directory."
+            "path": "sequence_data.py",
+            "line": 144,
+            "description": "Reads product metadata from product parquet"
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "residual_knn.py full_run loads chronological origins and train/validation/test seed data, materializes graph and widened matrices, obtains banked-champion OOF predictions, evaluates graph and kNN experts, selects a stack, and either trains final graph predictions or returns the banked baseline.",
-        "confidence": 1.0,
+        "statement": "main.py orchestrates index preparation, debug/cache-preparation modes, text preparation, Qwen measurement, seed-set construction, forward-fold model selection, two-model fitting, diagnostics, and prediction/artifact writing.",
+        "confidence": 0.99,
         "evidence": [
           {
-            "path": "residual_knn.py",
-            "line": 320,
-            "description": "Defines the full residual pipeline."
+            "path": "main.py",
+            "line": 196,
+            "description": "Configures runtime threads and starts the pipeline"
           },
           {
-            "path": "residual_knn.py",
-            "line": 321,
-            "description": "Loads chronological origin days."
+            "path": "main.py",
+            "line": 199,
+            "description": "Prepares and loads the temporal index"
           },
           {
-            "path": "residual_knn.py",
-            "line": 322,
-            "description": "Loads full training seed data."
+            "path": "main.py",
+            "line": 143,
+            "description": "Prepares all text features for a full run"
           },
           {
-            "path": "residual_knn.py",
-            "line": 323,
-            "description": "Loads validation and test seed data."
+            "path": "main.py",
+            "line": 151,
+            "description": "Constructs the multimodal FeatureStore"
           },
           {
-            "path": "residual_knn.py",
-            "line": 326,
-            "description": "Ensures causal graph features."
+            "path": "main.py",
+            "line": 154,
+            "description": "Trains Model A after forward selection"
           },
           {
-            "path": "residual_knn.py",
-            "line": 327,
-            "description": "Ensures widened feature matrices."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 328,
-            "description": "Loads banked run_0014 OOF predictions."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 329,
-            "description": "Builds graph OOF predictions and a graph gate."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 330,
-            "description": "Builds kNN OOF, validation, and test predictions."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 331,
-            "description": "Selects the final stack."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 334,
-            "description": "Only trains final graph predictions when the stack is accepted."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 342,
-            "description": "Falls back to banked baseline predictions when the stack is rejected."
+            "path": "main.py",
+            "line": 167,
+            "description": "Trains Model B on train plus validation"
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "The graph channel implements query-customer-excluded, state-residualized propagation across eight buckets and product/category/brand fanouts, with raw, empirical-Bayes, residual, decay, coverage, rate, and disagreement features.",
+        "statement": "sequence_data.py creates customer-sorted temporal offsets, event gaps and multiplicities, product attributes and popularity-at-cutoff features, registered origin cutoffs, 16 base context features, and four within-origin percentile ranks.",
         "confidence": 0.98,
         "evidence": [
           {
-            "path": "PLAN.md",
-            "line": 8,
-            "description": "Requires bucket-excluded, state-residualized propagation with decay and maturity checks."
+            "path": "sequence_data.py",
+            "line": 61,
+            "description": "Defines cutoffs from recent train origins plus validation and test origins"
           },
           {
-            "path": "changes.log",
-            "line": 12,
-            "description": "Records eight-bucket raw and state-residual propagation and 33 emitted graph features."
+            "path": "sequence_data.py",
+            "line": 105,
+            "description": "Orders reviews by customer, time, product, and document hash"
           },
           {
-            "path": "residual_knn.py",
-            "line": 29,
-            "description": "Defines the eight graph buckets."
+            "path": "sequence_data.py",
+            "line": 128,
+            "description": "Builds customer offsets"
           },
           {
-            "path": "residual_knn.py",
-            "line": 63,
-            "description": "Defines graph feature names for the configured fanouts."
+            "path": "sequence_data.py",
+            "line": 158,
+            "description": "Computes product popularity at each cutoff"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 371,
+            "description": "Appends four rank features to the base context"
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "The external-customer retrieval expert uses a 64D source-only representation, latest matured customer rows, CPU FAISS IVFPQ retrieval, exact query-customer removal, and rate/age/distance/entropy diagnostics; the full run computes its OOF and final channels before stack selection.",
+        "statement": "text_features.py caches distinct review-document embeddings using a pinned ModernBERT checkpoint, a deterministic 64-dimensional random projection, and a 96-token encoding budget; it also measures bounded Qwen review attributes and keeps them only when a forward-fold gate shows improvement.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "text_features.py",
+            "line": 24,
+            "description": "Defines the ModernBERT model"
+          },
+          {
+            "path": "text_features.py",
+            "line": 25,
+            "description": "Pins the ModernBERT revision"
+          },
+          {
+            "path": "text_features.py",
+            "line": 136,
+            "description": "Keys review documents by the hash of summary and body"
+          },
+          {
+            "path": "text_features.py",
+            "line": 145,
+            "description": "Allocates 64-dimensional float16 embeddings"
+          },
+          {
+            "path": "text_features.py",
+            "line": 161,
+            "description": "Encodes review text with max_length=96"
+          },
+          {
+            "path": "text_features.py",
+            "line": 265,
+            "description": "Sets the Qwen gate's kept flag from plus-versus-base AUC"
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "FeatureStore batches recent event sequences from review/product embeddings, numeric event features, optional Qwen attributes, and five recency-window summary tokens for neural sequence training.",
         "confidence": 0.98,
         "evidence": [
           {
-            "path": "changes.log",
-            "line": 13,
-            "description": "Records the 64D source-only causal kNN design, FAISS IVFPQ index, customer exclusion, and diagnostics."
+            "path": "sequence_model.py",
+            "line": 68,
+            "description": "Loads review, product, and event-document embeddings"
           },
           {
-            "path": "residual_knn.py",
-            "line": 80,
-            "description": "Defines the kNN diagnostic feature names."
+            "path": "sequence_model.py",
+            "line": 94,
+            "description": "Builds a sequence batch for selected seeds"
           },
           {
-            "path": "residual_knn.py",
-            "line": 298,
-            "description": "Builds the debug semantic source block."
+            "path": "sequence_model.py",
+            "line": 120,
+            "description": "Adds document attributes to events"
           },
           {
-            "path": "residual_knn.py",
+            "path": "sequence_model.py",
+            "line": 128,
+            "description": "Allocates five summary review tokens"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 130,
+            "description": "Defines the five summary windows"
+          }
+        ]
+      },
+      {
+        "kind": "algorithm",
+        "statement": "Forward selection evaluates GRU length 16, GRU length 32, and TCN length 32 candidates on the two latest training days, then gates training epochs and a rank-based hazard blend before persisting selection.json.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "sequence_model.py",
+            "line": 224,
+            "description": "Starts cached forward selection"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 231,
+            "description": "Uses the two latest training days as folds"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 232,
+            "description": "Defines the three architecture/length candidates"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 238,
+            "description": "Samples preceding and fold rows for selection"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 273,
+            "description": "Chooses the epoch count by mean fold AUC"
+          },
+          {
+            "path": "sequence_model.py",
             "line": 302,
-            "description": "Uses a 64-dimensional FAISS search space in the debug smoke path."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 330,
-            "description": "Runs the kNN prediction stage in the full pipeline."
+            "description": "Enables blending only when every fold improves"
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "Stack development uses forward origins 20, 24, and 30; the accepted nonnegative rank stack has C=0.05 and retains a 0.10 graph contribution while excluding the unstable kNN channel.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 27,
-            "description": "Defines forward folds 20, 24, and 30."
-          },
-          {
-            "path": "main.py",
-            "line": 23,
-            "description": "Reports the configured stack C=0.05 and graph/retrieval settings."
-          },
-          {
-            "path": "PLAN.md",
-            "line": 10,
-            "description": "Freezes stack development on origins 20 and 24 and confirms on origin 30."
-          },
-          {
-            "path": "changes.log",
-            "line": 14,
-            "description": "Records kNN rejection, C=0.05 stack selection, and the retained graph contribution."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 331,
-            "description": "Selects the stack from baseline, graph, and kNN OOF channels."
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "Final graph materialization preserves the two-model contract: Model A predicts validation from training labels, while Model B appends validation labels only for test prediction.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 248,
-            "description": "Trains the final validation-side graph model."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 252,
-            "description": "Combines training and validation feature matrices for Model B."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 253,
-            "description": "Combines training and validation labels for Model B."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 255,
-            "description": "Trains Model B before producing test predictions."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 256,
-            "description": "Generates Model B test predictions."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 356,
-            "description": "Records the Model A training-label-only source."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 357,
-            "description": "Records the Model B validation-label admission policy."
-          }
-        ]
-      },
-      {
-        "kind": "architecture",
-        "statement": "The supplied champion and lane2 transformer components remain available as separate cached or auxiliary experiments, but they are no longer invoked directly by the active main.py path.",
-        "confidence": 0.96,
+        "statement": "Full inference fits Model A on the selected training data for validation predictions, then fits Model B on concatenated train-plus-validation data for test predictions; validation predictions are preserved and checked before output.",
+        "confidence": 0.99,
         "evidence": [
           {
             "path": "main.py",
-            "line": 12,
-            "description": "The active entrypoint imports the prediction saver."
+            "line": 154,
+            "description": "Fits Model A"
           },
           {
             "path": "main.py",
-            "line": 13,
-            "description": "The active entrypoint imports residual_knn rather than the former transformer orchestrator."
+            "line": 155,
+            "description": "Generates sequence validation predictions"
           },
           {
-            "path": "champion_runner.py",
-            "line": 13,
-            "description": "The supplied champion modules remain loadable from shared cache."
+            "path": "main.py",
+            "line": 166,
+            "description": "Concatenates train and validation seed sets"
           },
           {
-            "path": "champion_runner.py",
-            "line": 132,
-            "description": "The champion runner still writes its cached prediction artifacts."
+            "path": "main.py",
+            "line": 167,
+            "description": "Fits Model B on the combined data"
           },
           {
-            "path": "temporal_transformer.py",
-            "line": 271,
-            "description": "The lane2 transformer pipeline remains defined separately."
-          },
-          {
-            "path": "temporal_transformer.py",
-            "line": 320,
-            "description": "The transformer still has a final validation/test prediction stage."
+            "path": "main.py",
+            "line": 175,
+            "description": "Checks that Model B fitting did not alter Model A validation predictions"
           }
         ]
       },
       {
         "kind": "architecture",
-        "statement": "The immutable evaluator still runs main.py in an isolated subprocess, loads the resulting arrays, computes official validation metrics, and uses the configured primary metric as the score.",
+        "statement": "Completed full runs are cached under the shared sequence-model cache as final_predictions.npz and final_metrics.json; cache hits immediately restore the validation/test vectors and metrics into the run output.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 135,
+            "description": "Defines the shared final prediction cache path"
+          },
+          {
+            "path": "main.py",
+            "line": 137,
+            "description": "Checks for cached predictions and diagnostics"
+          },
+          {
+            "path": "main.py",
+            "line": 139,
+            "description": "Restores cached validation and test predictions"
+          },
+          {
+            "path": "main.py",
+            "line": 141,
+            "description": "Reports reuse of completed models"
+          }
+        ]
+      },
+      {
+        "kind": "architecture",
+        "statement": "The immutable evaluator still runs the candidate in an isolated subprocess, loads its prediction artifacts, evaluates the official RelBench task, and archives full-fidelity outputs and source snapshots.",
         "confidence": 0.99,
         "evidence": [
           {
             "path": "kapso_evaluation/grader.py",
-            "line": 93,
-            "description": "Defines the normal candidate runner."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
             "line": 103,
-            "description": "Builds the main.py child command."
+            "description": "Builds the candidate command for each fidelity"
           },
           {
             "path": "kapso_evaluation/grader.py",
             "line": 110,
-            "description": "Starts the candidate in a subprocess."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 212,
-            "description": "Defines candidate output loading and scoring."
+            "description": "Starts the candidate subprocess"
           },
           {
             "path": "kapso_evaluation/grader.py",
             "line": 248,
-            "description": "Computes official validation metrics."
+            "description": "Evaluates validation predictions with task.evaluate"
           },
           {
             "path": "kapso_evaluation/grader.py",
-            "line": 249,
-            "description": "Requires the configured primary metric."
+            "line": 265,
+            "description": "Creates a persistent full-run archive"
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "line": 286,
+            "description": "Copies candidate source into the archive"
           }
         ]
       },
       {
-        "kind": "architecture",
-        "statement": "Full-fidelity evaluator runs archive prediction artifacts, metrics, selection labels, evaluator snapshots, and filtered candidate code, while fast runs are pipeline checks only; rolling evaluation still invokes the candidate for each cache snapshot.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 255,
-            "description": "Defines full-run archiving."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 257,
-            "description": "States that fast runs are not archived."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 268,
-            "description": "Stores validation and test artifacts."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 276,
-            "description": "Writes selection eligibility labels."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 279,
-            "description": "Snapshots the evaluator tree."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 169,
-            "description": "Iterates over validation and test snapshot groups."
-          },
-          {
-            "path": "kapso_evaluation/grader.py",
-            "line": 187,
-            "description": "Runs the candidate for each snapshot."
-          }
-        ]
-      },
-      {
-        "kind": "invariant",
-        "statement": "Validation and test outputs are coerced to finite float32 probabilities in the inclusive [0,1] range before saving.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "main.py",
-            "line": 27,
-            "description": "Sanitizes and clips validation predictions."
-          },
-          {
-            "path": "main.py",
-            "line": 28,
-            "description": "Sanitizes and clips test predictions."
-          },
-          {
-            "path": "main.py",
-            "line": 29,
-            "description": "Saves the sanitized arrays."
-          }
-        ]
-      },
-      {
-        "kind": "invariant",
-        "statement": "The registered evaluator requires probabilities aligned to the complete 409,792-row validation table and 351,885-row test table; the candidate records both resulting shapes in diagnostics.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "eval_profile.md",
-            "line": 5,
-            "description": "Defines required finite aligned validation and test vectors and their row counts."
-          },
-          {
-            "path": "main.py",
-            "line": 31,
-            "description": "Records the validation prediction shape."
-          },
-          {
-            "path": "main.py",
-            "line": 32,
-            "description": "Records the test prediction shape."
-          }
-        ]
-      },
-      {
-        "kind": "invariant",
-        "statement": "Non-debug seed data must preserve original task row order: feature rows are sorted by row_id and checked against a contiguous original ordering, while labels are read with file_row_number ordering.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 163,
-            "description": "Defines ordered split-label loading."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 165,
-            "description": "Orders parquet labels by file_row_number."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 198,
-            "description": "Sorts feature rows by row_id."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 200,
-            "description": "Rejects non-debug seed data that is not in original task order."
-          }
-        ]
-      },
-      {
-        "kind": "invariant",
-        "statement": "Model A must exclude validation labels from its complete chain; Model B may use validation labels for test predictions only after the validation-side prediction is captured.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "eval_profile.md",
-            "line": 5,
-            "description": "Defines the Model A and Model B label-use contract."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 248,
-            "description": "Produces validation predictions before Model B training."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 252,
-            "description": "Starts the combined Model B feature matrix."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 261,
-            "description": "Records validation preservation before Model B."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 358,
-            "description": "Records the validation-preserved lineage invariant."
-          }
-        ]
-      },
-      {
-        "kind": "invariant",
-        "statement": "Graph propagation and retrieval are causal: query customers are excluded, source labels must be mature by query time, and the frozen stack is developed only on the permitted forward-origin design.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "PLAN.md",
-            "line": 8,
-            "description": "Requires causal maturity checks for residual propagation."
-          },
-          {
-            "path": "PLAN.md",
-            "line": 10,
-            "description": "Limits stack development to origins 20 and 24 with one origin-30 confirmation."
-          },
-          {
-            "path": "changes.log",
-            "line": 12,
-            "description": "Records query-customer-excluded causal graph construction."
-          },
-          {
-            "path": "changes.log",
-            "line": 13,
-            "description": "Records latest matured source rows and exact customer removal for retrieval."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 356,
-            "description": "Records that graph sources are matured by query time and stack selection is frozen."
-          }
-        ]
-      },
-      {
-        "kind": "testing",
-        "statement": "The debug path loads debug seeds, builds graph features, fits a small holdout graph model, exercises a 64D FAISS search, and returns legal fallback-shaped outputs.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 285,
-            "description": "Defines the debug smoke test."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 288,
-            "description": "Builds debug graph features."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 293,
-            "description": "Creates the small debug LightGBM model."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 302,
-            "description": "Creates a 64D FAISS index."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 305,
-            "description": "Loads legal baseline validation and test outputs."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 316,
-            "description": "Announces debug completion."
-          }
-        ]
-      },
-      {
-        "kind": "testing",
-        "statement": "Internal acceptance uses forward-origin movement and customer-clustered bootstrap support rather than official validation feedback; official validation is a post-freeze diagnostic.",
+        "kind": "contract",
+        "statement": "The implementation expects the configured shared cache, RelBench cache/dataset/task identifiers, and run-output helper; sequence and text caches are rooted under KAPSO_SHARED_CACHE_DIR while task data is rooted under RELBENCH_CACHE_DIR/RELBENCH_DATASET.",
         "confidence": 0.99,
         "evidence": [
           {
-            "path": "eval_profile.md",
-            "line": 19,
-            "description": "Defines internal forward-origin and clustered-support acceptance."
-          },
-          {
-            "path": "changes.log",
-            "line": 14,
-            "description": "Records the origin-30 clustered confirmation and stack decision."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 266,
-            "description": "Defines validation resolution diagnostics."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 281,
-            "description": "Labels validation resolution as post-freeze only."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 344,
-            "description": "Computes final validation resolution after prediction selection."
-          }
-        ]
-      },
-      {
-        "kind": "testing",
-        "statement": "The residual campaign has explicit throughput gates of above 500,000 graph seed rows per minute and above 500 retrieval queries per second, with a 90-minute retrieval projection cap; the recorded measurements passed those thresholds.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "PLAN.md",
-            "line": 1,
-            "description": "Sets graph and retrieval throughput targets."
-          },
-          {
-            "path": "eval_profile.md",
-            "line": 35,
-            "description": "Defines the residual graph/retrieval performance gates."
-          },
-          {
-            "path": "eval_profile.md",
-            "line": 37,
-            "description": "Records measured graph rate, retrieval rate, and projection."
-          }
-        ]
-      },
-      {
-        "kind": "testing",
-        "statement": "The registered full-fidelity run_0017 completed from versioned caches, scored all validation rows, and archived both contract arrays.",
-        "confidence": 0.99,
-        "evidence": [
-          {
-            "path": "changes.log",
-            "line": 18,
-            "description": "Records run_0017 completion, score, runtime, and archived arrays."
-          },
-          {
-            "path": "eval_profile.md",
-            "line": 39,
-            "description": "Records the complete official validation result and post-freeze comparison."
-          }
-        ]
-      },
-      {
-        "kind": "gotcha",
-        "statement": "If the selected stack is not accepted, the full run deliberately emits the banked run_0014 validation and test predictions instead of graph/kNN predictions; the debug path also reports the banked legal fallback as its output source.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "changes.log",
-            "line": 11,
-            "description": "Records byte-matched banked run_0014 validation and test copies."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 333,
-            "description": "Initializes final diagnostics as using fallback."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 341,
-            "description": "Enters the fallback branch when the stack is not accepted."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 342,
-            "description": "Copies baseline validation predictions."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 314,
-            "description": "Identifies the debug output source as the banked legal run_0014 fallback."
-          }
-        ]
-      },
-      {
-        "kind": "gotcha",
-        "statement": "The kNN channel is computed for diagnostics and stack selection but was excluded from the accepted final stack because its development-origin movement inverted between origins.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "changes.log",
-            "line": 14,
-            "description": "Records the inverted kNN development result and its exclusion."
-          },
-          {
-            "path": "eval_profile.md",
-            "line": 37,
-            "description": "Records that the kNN channel was excluded and graph contribution retained."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 330,
-            "description": "Shows that kNN predictions are still generated before selection."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 331,
-            "description": "Passes the kNN OOF channel into stack selection."
-          }
-        ]
-      },
-      {
-        "kind": "gotcha",
-        "statement": "Debug mode uses debug feature files and bypasses the non-debug original-row-order assertion, so it is a smoke test rather than a representative full-data evaluation.",
-        "confidence": 0.98,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 169,
-            "description": "Defines debug-specific feature-file selection."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 173,
-            "description": "Selects debug train files when requested."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 200,
-            "description": "Applies the row-order failure check only when not debug."
-          },
-          {
-            "path": "main.py",
+            "path": "sequence_data.py",
             "line": 20,
-            "description": "Activates debug mode through the command line."
+            "description": "Uses KAPSO_SHARED_CACHE_DIR for the versioned cache root"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 26,
+            "description": "Builds the data root from RELBENCH_CACHE_DIR and RELBENCH_DATASET"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 43,
+            "description": "Uses RELBENCH_TASK to locate task parquet files"
+          },
+          {
+            "path": "main.py",
+            "line": 35,
+            "description": "Uses the run-data helper for metrics output"
           }
         ]
       },
       {
-        "kind": "gotcha",
-        "statement": "The residual pipeline requires pre-existing shared and RelBench cache environment variables; missing variables fail during cache-root or task-root construction rather than triggering a download.",
+        "kind": "contract",
+        "statement": "This candidate emits one-dimensional float probability vectors: predict_network allocates one value per seed and takes the fifth softmax interval probability, while full runs clip both vectors to [0,1].",
         "confidence": 0.99,
         "evidence": [
           {
-            "path": "residual_knn.py",
-            "line": 97,
-            "description": "Builds the versioned shared cache root from KAPSO_SHARED_CACHE_DIR."
+            "path": "sequence_model.py",
+            "line": 179,
+            "description": "Allocates one prediction per seed"
           },
           {
-            "path": "residual_knn.py",
-            "line": 103,
-            "description": "Defines the task-root helper."
+            "path": "sequence_model.py",
+            "line": 186,
+            "description": "Uses softmax interval index 4 as the prediction"
           },
           {
-            "path": "residual_knn.py",
-            "line": 104,
-            "description": "Reads the required RelBench cache, dataset, and task variables."
+            "path": "main.py",
+            "line": 181,
+            "description": "Clips validation predictions to [0,1]"
           },
           {
-            "path": "residual_knn.py",
-            "line": 108,
-            "description": "Uses a separate versioned lane1 feature cache."
+            "path": "main.py",
+            "line": 182,
+            "description": "Clips test predictions to [0,1]"
           }
         ]
       },
       {
-        "kind": "gotcha",
-        "statement": "Artifacts are versioned and registered in a shared manifest under an exclusive file lock; temporary JSON files are atomically renamed, so changing feature semantics requires changing the version or artifact path.",
+        "kind": "contract",
+        "statement": "For the registered profile, full runs require validation shape (409792,) and test shape (351885,), and reject non-finite predictions before writing artifacts.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 177,
+            "description": "Enforces the registered validation and test shapes"
+          },
+          {
+            "path": "main.py",
+            "line": 179,
+            "description": "Rejects non-finite predictions"
+          },
+          {
+            "path": "MEASUREMENT_PROFILE.md",
+            "line": 5,
+            "description": "Defines the evaluator's validation row count"
+          },
+          {
+            "path": "MEASUREMENT_PROFILE.md",
+            "line": 9,
+            "description": "Defines validation and test population sizes"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Validation predictions are generated before any train-plus-validation fitting: Model A predicts validation, its predictions are copied, Model B is then trained on concatenated train and validation data, and the copy is compared afterward.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 155,
+            "description": "Predicts validation with Model A"
+          },
+          {
+            "path": "main.py",
+            "line": 163,
+            "description": "Preserves the validation predictions"
+          },
+          {
+            "path": "main.py",
+            "line": 166,
+            "description": "Creates train-plus-validation data"
+          },
+          {
+            "path": "main.py",
+            "line": 175,
+            "description": "Verifies validation predictions remain unchanged"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Seed construction enforces temporal safety: each task origin must be registered, each customer must have a preceding event, and no selected review may occur after the task cutoff.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "sequence_data.py",
+            "line": 345,
+            "description": "Maps task days to registered cutoffs"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 347,
+            "description": "Rejects unregistered origins"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 357,
+            "description": "Rejects missing seed histories"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 359,
+            "description": "Rejects future review events"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The test split does not load churn labels: task_arrays omits the churn column for test and fills its target field with -1, while test metrics are not computed as supervised scores.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "sequence_data.py",
+            "line": 45,
+            "description": "Only requests churn for non-test splits"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 56,
+            "description": "Uses -1 targets for test rows"
+          },
+          {
+            "path": "main.py",
+            "line": 91,
+            "description": "Records a null positive rate for the test origin"
+          },
+          {
+            "path": "MEASUREMENT_PROFILE.md",
+            "line": 9,
+            "description": "States that test outcomes were not accessed"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "The official contract still requires both validation and test prediction files with positional row alignment, and validation labels must not train the validation predictor.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 15,
+            "description": "Requires both prediction files"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 16,
+            "description": "Requires positional alignment"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 17,
+            "description": "Defines validation predictions as out-of-sample"
+          }
+        ]
+      },
+      {
+        "kind": "contract",
+        "statement": "Validation ROC AUC is the registered selection metric; the candidate additionally records average precision, accuracy, F1, bootstrap variation, sequence AUC, and hazard AUC.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "MEASUREMENT_PROFILE.md",
+            "line": 5,
+            "description": "Defines ROC AUC as the selection metric and lists secondary metrics"
+          },
+          {
+            "path": "main.py",
+            "line": 94,
+            "description": "Computes average precision"
+          },
+          {
+            "path": "main.py",
+            "line": 97,
+            "description": "Computes validation ROC AUC"
+          },
+          {
+            "path": "main.py",
+            "line": 100,
+            "description": "Records sequence AUC"
+          },
+          {
+            "path": "main.py",
+            "line": 101,
+            "description": "Records hazard AUC"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "python main.py --debug is a real reduced pipeline: it uses a 50,000-row training sample, one epoch, Qwen debug measurement, and only the first 5,000 validation/test rows for model inference while still writing full-shape vectors.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 112,
+            "description": "Runs debug Qwen measurement"
+          },
+          {
+            "path": "main.py",
+            "line": 117,
+            "description": "Samples 50,000 training rows"
+          },
+          {
+            "path": "main.py",
+            "line": 119,
+            "description": "Limits validation and test debug rows to 5,000"
+          },
+          {
+            "path": "main.py",
+            "line": 123,
+            "description": "Uses a one-epoch debug selection"
+          },
+          {
+            "path": "main.py",
+            "line": 129,
+            "description": "Writes the full validation and test prediction vectors"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "python main.py --prepare-cache builds the temporal index and all text caches, then exits before fitting or writing predictions.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 202,
+            "description": "Checks for cache-preparation mode"
+          },
+          {
+            "path": "main.py",
+            "line": 203,
+            "description": "Runs text preparation"
+          },
+          {
+            "path": "main.py",
+            "line": 205,
+            "description": "Returns after cache preparation"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "After writing predictions, run python kapso_datasets/check_predictions.py to validate required files, row shapes, finite values, binary bounds, and recommendation-format checks.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 27,
+            "description": "Provides the self-check command"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 30,
+            "description": "Checks both validation and test splits"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 54,
+            "description": "Checks non-recommendation shapes"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 62,
+            "description": "Reports successful split checks"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The official fast evaluator remains the quickest end-to-end check: it runs main.py in debug mode but scores the complete validation split.",
         "confidence": 0.98,
         "evidence": [
           {
-            "path": "residual_knn.py",
-            "line": 26,
-            "description": "Defines the residual pipeline version."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 126,
-            "description": "Defines atomic JSON writing."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 132,
-            "description": "Defines shared artifact registration."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 137,
-            "description": "Takes an exclusive registry lock."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 153,
-            "description": "Releases the registry lock."
-          }
-        ]
-      },
-      {
-        "kind": "gotcha",
-        "statement": "The new experiment output directory output_data_generic_exp_7 is intentionally ignored by git, while changes.log remains tracked.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": ".gitignore",
-            "line": 5,
-            "description": "Keeps changes.log tracked despite the log ignore rule."
-          },
-          {
-            "path": ".gitignore",
-            "line": 11,
-            "description": "Ignores output_data_generic_exp_7."
-          },
-          {
-            "path": "main.py",
-            "line": 34,
-            "description": "Uses output_data_generic_exp_7 for local outputs."
-          }
-        ]
-      },
-      {
-        "kind": "dependency",
-        "statement": "residual_knn.py directly imports DuckDB, FAISS, LightGBM, NumPy, Pandas, Numba, SciPy, and scikit-learn components for data access, modeling, retrieval, numerical transforms, and diagnostics.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 13,
-            "description": "Imports DuckDB."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 14,
-            "description": "Imports FAISS."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 15,
-            "description": "Imports LightGBM."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 16,
-            "description": "Imports NumPy."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 17,
-            "description": "Imports Pandas."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 18,
-            "description": "Imports Numba."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 19,
-            "description": "Imports SciPy optimization and transforms."
-          },
-          {
-            "path": "residual_knn.py",
+            "path": "kapso_evaluation/README.md",
             "line": 22,
-            "description": "Imports scikit-learn PCA."
+            "description": "Defines fast fidelity as main.py --debug"
           },
           {
-            "path": "residual_knn.py",
-            "line": 23,
-            "description": "Imports scikit-learn ROC-AUC scoring."
+            "path": "kapso_evaluation/README.md",
+            "line": 24,
+            "description": "States that fast scores the complete validation split"
+          },
+          {
+            "path": "kapso_evaluation/README.md",
+            "line": 37,
+            "description": "Recommends a fast dry run"
           }
         ]
       },
       {
-        "kind": "dependency",
-        "statement": "The active pipeline depends on KAPSO_SHARED_CACHE_DIR for versioned shared artifacts, RELBENCH_CACHE_DIR/RELBENCH_DATASET/RELBENCH_TASK for task parquet files, and KAPSO_RUN_DATA_DIR for evaluator-local diagnostics.",
-        "confidence": 1.0,
-        "evidence": [
-          {
-            "path": "residual_knn.py",
-            "line": 98,
-            "description": "Reads KAPSO_SHARED_CACHE_DIR."
-          },
-          {
-            "path": "residual_knn.py",
-            "line": 104,
-            "description": "Reads the RelBench task environment variables."
-          },
-          {
-            "path": "main.py",
-            "line": 36,
-            "description": "Reads KAPSO_RUN_DATA_DIR."
-          }
-        ]
-      },
-      {
-        "kind": "dependency",
-        "statement": "The residual model consumes upstream lane1 feature parquet files and lane1 product-text and lane2 ordered-semantic NumPy arrays from shared caches.",
+        "kind": "other",
+        "statement": "The implementation is fixed to the registered churn profile rather than being generic: full_run hardcodes 409,792 validation rows and 351,885 test rows, so another dataset or split size will fail the shape assertion.",
         "confidence": 0.99,
         "evidence": [
           {
-            "path": "residual_knn.py",
-            "line": 169,
-            "description": "Locates lane1 feature parquet files."
+            "path": "main.py",
+            "line": 177,
+            "description": "Hardcodes the registered prediction shapes"
           },
           {
-            "path": "residual_knn.py",
-            "line": 196,
-            "description": "Reads feature parquet columns."
+            "path": "MEASUREMENT_PROFILE.md",
+            "line": 9,
+            "description": "Documents the matching validation and test sizes"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Debug mode fills the complete output vectors with the sampled training positive rate and replaces only the first 5,000 rows with neural predictions; it is therefore an execution/contract check, not a full-quality approximation.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 125,
+            "description": "Initializes full vectors to the sampled training mean"
           },
           {
-            "path": "residual_knn.py",
-            "line": 218,
-            "description": "Locates cached product-text arrays."
+            "path": "main.py",
+            "line": 127,
+            "description": "Overwrites only selected validation debug rows"
           },
           {
-            "path": "residual_knn.py",
-            "line": 226,
-            "description": "Locates cached ordered semantic arrays."
+            "path": "main.py",
+            "line": 128,
+            "description": "Overwrites only selected test debug rows"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "A full run silently reuses final_predictions.npz and final_metrics.json whenever both exist; remove or invalidate those shared-cache files to force model selection and retraining.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 137,
+            "description": "Tests for both completed-cache files"
+          },
+          {
+            "path": "main.py",
+            "line": 141,
+            "description": "Returns after reusing cached predictions"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Default training keeps only the latest eight train origins, even though the profile contains 31 train origins; forward selection then uses the last two days within that reduced training set.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "sequence_data.py",
+            "line": 338,
+            "description": "Enables latest_train_only by default"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 341,
+            "description": "Selects the latest eight unique train days"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 231,
+            "description": "Uses the latest two available training days for selection folds"
+          },
+          {
+            "path": "MEASUREMENT_PROFILE.md",
+            "line": 9,
+            "description": "Documents the full 31-origin train history"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The sequence and text paths assume CUDA: text projection/model loading uses .cuda(), and prediction uses CUDA autocast, so CPU-only execution is not a supported fallback.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "text_features.py",
+            "line": 42,
+            "description": "Moves the projection matrix to CUDA"
+          },
+          {
+            "path": "text_features.py",
+            "line": 87,
+            "description": "Moves ModernBERT to CUDA"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 184,
+            "description": "Uses CUDA autocast during prediction"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "ModernBERT cache creation is guarded by a one-million-document throughput probe and aborts below 1,200 documents per second; the cache is intended to be prepared once and reused.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "text_features.py",
+            "line": 167,
+            "description": "Triggers the one-million-document probe"
+          },
+          {
+            "path": "text_features.py",
+            "line": 174,
+            "description": "Defines the minimum safe throughput"
+          },
+          {
+            "path": "text_features.py",
+            "line": 175,
+            "description": "Raises when throughput is too low"
+          },
+          {
+            "path": "text_features.py",
+            "line": 121,
+            "description": "Reuses an existing complete embedding cache"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "Malformed Qwen responses are coerced through bounded parsing, digit extraction, or an all-2 default attribute vector; FeatureStore ignores attributes entirely unless the Qwen plus-model gate is kept.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "text_features.py",
+            "line": 208,
+            "description": "Attempts strict then permissive attribute parsing"
+          },
+          {
+            "path": "text_features.py",
+            "line": 212,
+            "description": "Uses extracted digits or defaults to four 2 values"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 80,
+            "description": "Stores whether the Qwen gate keeps attributes"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 85,
+            "description": "Returns fallback missing indicators when attributes are not kept"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The hazard rank blend is optional and is enabled only if every forward fold improves over the sequence-only score; otherwise the neural sequence probability is used unchanged.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "sequence_model.py",
+            "line": 281,
+            "description": "Builds the 75/25 sequence-hazard rank blend for evaluation"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 285,
+            "description": "Measures fold blend improvement"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 302,
+            "description": "Requires all fold improvements to enable blending"
+          },
+          {
+            "path": "main.py",
+            "line": 158,
+            "description": "Applies the blend only when selected"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The debug text path uses the full ModernBERT cache when its metadata exists and otherwise falls back to debug text preparation, so a debug invocation can still perform substantial cache work on a fresh environment.",
+        "confidence": 0.97,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 111,
+            "description": "Chooses full versus debug text preparation based on cache metadata"
+          },
+          {
+            "path": "main.py",
+            "line": 113,
+            "description": "Times the debug text/Qwen phase"
+          }
+        ]
+      },
+      {
+        "kind": "other",
+        "statement": "The standalone checker warns rather than fails for recommendation IDs outside the valid range or duplicate IDs, so those warnings remain contract-quality problems even though this churn implementation emits binary vectors.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 42,
+            "description": "Out-of-range recommendation IDs produce a warning"
+          },
+          {
+            "path": "kapso_datasets/check_predictions.py",
+            "line": 44,
+            "description": "Duplicate recommendation IDs produce a warning"
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "line": 21,
+            "description": "Requires valid distinct recommendation IDs for recommendation tasks"
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "The pipeline depends on NumPy, PyTorch, DuckDB, Numba, PyArrow, scikit-learn, and Transformers for array processing, parquet/index construction, JIT seed localization, neural training, statistical gates, and text encoding.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "main.py",
+            "line": 9,
+            "description": "Imports NumPy and PyTorch"
+          },
+          {
+            "path": "main.py",
+            "line": 11,
+            "description": "Imports scikit-learn metrics"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 9,
+            "description": "Imports DuckDB"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 10,
+            "description": "Imports Numba"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 12,
+            "description": "Imports PyArrow parquet"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 13,
+            "description": "Imports the scikit-learn SGD classifier"
+          },
+          {
+            "path": "text_features.py",
+            "line": 19,
+            "description": "Imports Hugging Face Transformers models and tokenizer"
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "Hugging Face model files must already be available locally: ModernBERT is pinned to answerdotai/ModernBERT-base revision 8949b909ec900327062f0ebf497f51aef5e6f0c8, and Qwen uses Qwen/Qwen3.5-0.8B; both loaders request local_files_only=True.",
+        "confidence": 0.99,
+        "evidence": [
+          {
+            "path": "text_features.py",
+            "line": 24,
+            "description": "Defines the ModernBERT model identifier"
+          },
+          {
+            "path": "text_features.py",
+            "line": 25,
+            "description": "Defines the pinned ModernBERT revision"
+          },
+          {
+            "path": "text_features.py",
+            "line": 26,
+            "description": "Defines the Qwen model identifier"
+          },
+          {
+            "path": "text_features.py",
+            "line": 81,
+            "description": "Loads ModernBERT with local_files_only"
+          },
+          {
+            "path": "text_features.py",
+            "line": 290,
+            "description": "Loads Qwen tokenizer from local files"
+          },
+          {
+            "path": "text_features.py",
+            "line": 291,
+            "description": "Loads Qwen model from local files"
+          }
+        ]
+      },
+      {
+        "kind": "deployment",
+        "statement": "Runtime configuration is supplied through KAPSO_SHARED_CACHE_DIR, RELBENCH_CACHE_DIR, RELBENCH_DATASET, RELBENCH_TASK, KAPSO_RUN_DATA_DIR, and OMP_NUM_THREADS; the implementation uses OMP_NUM_THREADS for DuckDB, PyTorch, and SGD parallelism.",
+        "confidence": 0.98,
+        "evidence": [
+          {
+            "path": "sequence_data.py",
+            "line": 20,
+            "description": "Reads KAPSO_SHARED_CACHE_DIR"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 26,
+            "description": "Reads RELBENCH_CACHE_DIR and RELBENCH_DATASET"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 43,
+            "description": "Reads RELBENCH_TASK"
+          },
+          {
+            "path": "sequence_data.py",
+            "line": 92,
+            "description": "Uses OMP_NUM_THREADS for DuckDB"
+          },
+          {
+            "path": "main.py",
+            "line": 197,
+            "description": "Configures PyTorch thread count from OMP_NUM_THREADS"
+          },
+          {
+            "path": "sequence_model.py",
+            "line": 212,
+            "description": "Uses OMP_NUM_THREADS for the SGD hazard model"
+          },
+          {
+            "path": "main.py",
+            "line": 35,
+            "description": "Writes run metrics through the run-data directory helper"
           }
         ]
       }
     ]
   },
   "book": {
-    "summary": "The active candidate is now a lane3 causal residual-graph and external-customer retrieval pipeline. main.py loads versioned lane1/lane2 feature caches, evaluates graph and kNN experts on forward origins, selects a frozen rank stack, preserves legal Model A/Model B lineage, and falls back to banked run_0014 predictions when the stack is not admitted before writing finite prediction arrays and diagnostics.",
+    "summary": "This repository now implements a task-specific binary churn pipeline over the sanitized RelBench cache: it builds a temporal review index, prepares ModernBERT and optional Qwen text features, trains and selects sequence models with forward folds, fits separate validation/test models, writes contract-safe probability vectors, and records diagnostics. The registered profile is fixed to 409,792 validation and 351,885 test rows, with validation ROC AUC as the selection metric.",
     "toc": [
       {
         "id": "core.architecture",
         "title": "Architecture",
-        "one_liner": "main.py orchestrates causal residual graph features, a 64D external-customer kNN expert, forward-fold stack selection, and a legal final prediction lineage with a banked champion fallback."
+        "one_liner": "Temporal cache construction, multimodal sequence modeling, isolated validation fitting, and cached artifact production"
       },
       {
         "id": "core.entrypoints",
         "title": "Entrypoints",
-        "one_liner": "Run main.py directly for a full candidate or add --debug for the graph/FAISS smoke path."
+        "one_liner": "Prepare caches, run the reduced debug pipeline, run the full model, or invoke the registered evaluator"
       },
       {
         "id": "core.where_to_edit",
-        "title": "Where to Edit",
-        "one_liner": "Change orchestration and output behavior in main.py; change graph, retrieval, stack, cache, and lineage behavior in residual_knn.py."
+        "title": "Where to edit",
+        "one_liner": "Modify the orchestration, temporal feature construction, sequence model, or text cache modules while preserving the evaluator contract"
       },
       {
         "id": "core.invariants",
         "title": "Invariants",
-        "one_liner": "Predictions must remain aligned finite probabilities, and all model lineage and causal exclusion rules must be preserved."
+        "one_liner": "Binary probability outputs, temporal and validation isolation, fixed registered shapes, and official ROC AUC scoring"
       },
       {
         "id": "core.testing",
         "title": "Testing",
-        "one_liner": "Use the debug smoke path for pipeline checks, then validate forward-fold gates, performance thresholds, and the registered full evaluator."
+        "one_liner": "Use the reduced debug run, cache-preparation mode, prediction checker, and official fast evaluator"
       },
       {
         "id": "core.gotchas",
         "title": "Gotchas",
-        "one_liner": "The full path is cache- and ordering-sensitive, and rejected experimental channels intentionally fall back to the banked champion."
+        "one_liner": "Fixed-profile assumptions, cache reuse, reduced debug coverage, GPU-local model requirements, and gated optional features"
       },
       {
         "id": "core.dependencies",
         "title": "Dependencies",
-        "one_liner": "The active residual implementation depends on DuckDB/parquet caches, LightGBM, FAISS, NumPy/Pandas, Numba, SciPy, and scikit-learn plus shared RelBench/Kapso environment variables."
+        "one_liner": "CUDA Python stack with DuckDB/Parquet preprocessing, PyTorch sequence models, scikit-learn gates, and locally cached Hugging Face checkpoints"
       }
     ],
     "sections": {
       "core.architecture": {
         "title": "Architecture",
-        "one_liner": "main.py orchestrates causal residual graph features, a 64D external-customer kNN expert, forward-fold stack selection, and a legal final prediction lineage with a banked champion fallback.",
+        "one_liner": "Temporal cache construction, multimodal sequence modeling, isolated validation fitting, and cached artifact production",
         "claims": [
           {
             "kind": "architecture",
-            "statement": "main.py is the current candidate orchestrator: it seeds NumPy, selects debug mode, runs the residual pipeline, sanitizes both prediction vectors to finite float32 probabilities, saves predictions, and writes diagnostics to the evaluator run directory and output_data_generic_exp_7.",
-            "confidence": 1.0,
+            "statement": "The candidate ingests task parquet files and the review/product database directly from the configured sanitized cache, building task arrays for timestamp, customer, and churn plus a sorted review index rather than dispatching over generic task-family prediction branches.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 16,
-                "description": "Defines the active main entrypoint."
+                "path": "sequence_data.py",
+                "line": 42,
+                "description": "Reads task split parquet files and selects timestamp/customer columns"
               },
               {
-                "path": "main.py",
-                "line": 18,
-                "description": "Seeds NumPy deterministically."
+                "path": "sequence_data.py",
+                "line": 53,
+                "description": "Loads churn for non-test splits and uses a sentinel target for test"
               },
               {
-                "path": "main.py",
-                "line": 20,
-                "description": "Selects debug mode from --debug."
+                "path": "sequence_data.py",
+                "line": 94,
+                "description": "Reads and orders the review parquet data"
               },
               {
-                "path": "main.py",
-                "line": 26,
-                "description": "Runs the residual kNN pipeline."
-              },
-              {
-                "path": "main.py",
-                "line": 27,
-                "description": "Replaces non-finite validation values and clips them to [0,1] float32."
-              },
-              {
-                "path": "main.py",
-                "line": 29,
-                "description": "Saves validation and test predictions."
-              },
-              {
-                "path": "main.py",
-                "line": 36,
-                "description": "Uses KAPSO_RUN_DATA_DIR for evaluator diagnostics when supplied."
-              },
-              {
-                "path": "main.py",
-                "line": 38,
-                "description": "Writes metrics to the evaluator run directory."
+                "path": "sequence_data.py",
+                "line": 144,
+                "description": "Reads product metadata from product parquet"
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "residual_knn.py full_run loads chronological origins and train/validation/test seed data, materializes graph and widened matrices, obtains banked-champion OOF predictions, evaluates graph and kNN experts, selects a stack, and either trains final graph predictions or returns the banked baseline.",
-            "confidence": 1.0,
+            "statement": "main.py orchestrates index preparation, debug/cache-preparation modes, text preparation, Qwen measurement, seed-set construction, forward-fold model selection, two-model fitting, diagnostics, and prediction/artifact writing.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "residual_knn.py",
-                "line": 320,
-                "description": "Defines the full residual pipeline."
+                "path": "main.py",
+                "line": 196,
+                "description": "Configures runtime threads and starts the pipeline"
               },
               {
-                "path": "residual_knn.py",
-                "line": 321,
-                "description": "Loads chronological origin days."
+                "path": "main.py",
+                "line": 199,
+                "description": "Prepares and loads the temporal index"
               },
               {
-                "path": "residual_knn.py",
-                "line": 322,
-                "description": "Loads full training seed data."
+                "path": "main.py",
+                "line": 143,
+                "description": "Prepares all text features for a full run"
               },
               {
-                "path": "residual_knn.py",
-                "line": 323,
-                "description": "Loads validation and test seed data."
+                "path": "main.py",
+                "line": 151,
+                "description": "Constructs the multimodal FeatureStore"
               },
               {
-                "path": "residual_knn.py",
-                "line": 326,
-                "description": "Ensures causal graph features."
+                "path": "main.py",
+                "line": 154,
+                "description": "Trains Model A after forward selection"
               },
               {
-                "path": "residual_knn.py",
-                "line": 327,
-                "description": "Ensures widened feature matrices."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 328,
-                "description": "Loads banked run_0014 OOF predictions."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 329,
-                "description": "Builds graph OOF predictions and a graph gate."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 330,
-                "description": "Builds kNN OOF, validation, and test predictions."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 331,
-                "description": "Selects the final stack."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 334,
-                "description": "Only trains final graph predictions when the stack is accepted."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 342,
-                "description": "Falls back to banked baseline predictions when the stack is rejected."
+                "path": "main.py",
+                "line": 167,
+                "description": "Trains Model B on train plus validation"
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The graph channel implements query-customer-excluded, state-residualized propagation across eight buckets and product/category/brand fanouts, with raw, empirical-Bayes, residual, decay, coverage, rate, and disagreement features.",
+            "statement": "sequence_data.py creates customer-sorted temporal offsets, event gaps and multiplicities, product attributes and popularity-at-cutoff features, registered origin cutoffs, 16 base context features, and four within-origin percentile ranks.",
             "confidence": 0.98,
             "evidence": [
               {
-                "path": "PLAN.md",
-                "line": 8,
-                "description": "Requires bucket-excluded, state-residualized propagation with decay and maturity checks."
+                "path": "sequence_data.py",
+                "line": 61,
+                "description": "Defines cutoffs from recent train origins plus validation and test origins"
               },
               {
-                "path": "changes.log",
-                "line": 12,
-                "description": "Records eight-bucket raw and state-residual propagation and 33 emitted graph features."
+                "path": "sequence_data.py",
+                "line": 105,
+                "description": "Orders reviews by customer, time, product, and document hash"
               },
               {
-                "path": "residual_knn.py",
-                "line": 29,
-                "description": "Defines the eight graph buckets."
+                "path": "sequence_data.py",
+                "line": 128,
+                "description": "Builds customer offsets"
               },
               {
-                "path": "residual_knn.py",
-                "line": 63,
-                "description": "Defines graph feature names for the configured fanouts."
+                "path": "sequence_data.py",
+                "line": 158,
+                "description": "Computes product popularity at each cutoff"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 371,
+                "description": "Appends four rank features to the base context"
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The external-customer retrieval expert uses a 64D source-only representation, latest matured customer rows, CPU FAISS IVFPQ retrieval, exact query-customer removal, and rate/age/distance/entropy diagnostics; the full run computes its OOF and final channels before stack selection.",
+            "statement": "text_features.py caches distinct review-document embeddings using a pinned ModernBERT checkpoint, a deterministic 64-dimensional random projection, and a 96-token encoding budget; it also measures bounded Qwen review attributes and keeps them only when a forward-fold gate shows improvement.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "text_features.py",
+                "line": 24,
+                "description": "Defines the ModernBERT model"
+              },
+              {
+                "path": "text_features.py",
+                "line": 25,
+                "description": "Pins the ModernBERT revision"
+              },
+              {
+                "path": "text_features.py",
+                "line": 136,
+                "description": "Keys review documents by the hash of summary and body"
+              },
+              {
+                "path": "text_features.py",
+                "line": 145,
+                "description": "Allocates 64-dimensional float16 embeddings"
+              },
+              {
+                "path": "text_features.py",
+                "line": 161,
+                "description": "Encodes review text with max_length=96"
+              },
+              {
+                "path": "text_features.py",
+                "line": 265,
+                "description": "Sets the Qwen gate's kept flag from plus-versus-base AUC"
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "FeatureStore batches recent event sequences from review/product embeddings, numeric event features, optional Qwen attributes, and five recency-window summary tokens for neural sequence training.",
             "confidence": 0.98,
             "evidence": [
               {
-                "path": "changes.log",
-                "line": 13,
-                "description": "Records the 64D source-only causal kNN design, FAISS IVFPQ index, customer exclusion, and diagnostics."
+                "path": "sequence_model.py",
+                "line": 68,
+                "description": "Loads review, product, and event-document embeddings"
               },
               {
-                "path": "residual_knn.py",
-                "line": 80,
-                "description": "Defines the kNN diagnostic feature names."
+                "path": "sequence_model.py",
+                "line": 94,
+                "description": "Builds a sequence batch for selected seeds"
               },
               {
-                "path": "residual_knn.py",
-                "line": 298,
-                "description": "Builds the debug semantic source block."
+                "path": "sequence_model.py",
+                "line": 120,
+                "description": "Adds document attributes to events"
               },
               {
-                "path": "residual_knn.py",
+                "path": "sequence_model.py",
+                "line": 128,
+                "description": "Allocates five summary review tokens"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 130,
+                "description": "Defines the five summary windows"
+              }
+            ]
+          },
+          {
+            "kind": "algorithm",
+            "statement": "Forward selection evaluates GRU length 16, GRU length 32, and TCN length 32 candidates on the two latest training days, then gates training epochs and a rank-based hazard blend before persisting selection.json.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "sequence_model.py",
+                "line": 224,
+                "description": "Starts cached forward selection"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 231,
+                "description": "Uses the two latest training days as folds"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 232,
+                "description": "Defines the three architecture/length candidates"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 238,
+                "description": "Samples preceding and fold rows for selection"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 273,
+                "description": "Chooses the epoch count by mean fold AUC"
+              },
+              {
+                "path": "sequence_model.py",
                 "line": 302,
-                "description": "Uses a 64-dimensional FAISS search space in the debug smoke path."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 330,
-                "description": "Runs the kNN prediction stage in the full pipeline."
+                "description": "Enables blending only when every fold improves"
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "Stack development uses forward origins 20, 24, and 30; the accepted nonnegative rank stack has C=0.05 and retains a 0.10 graph contribution while excluding the unstable kNN channel.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "residual_knn.py",
-                "line": 27,
-                "description": "Defines forward folds 20, 24, and 30."
-              },
-              {
-                "path": "main.py",
-                "line": 23,
-                "description": "Reports the configured stack C=0.05 and graph/retrieval settings."
-              },
-              {
-                "path": "PLAN.md",
-                "line": 10,
-                "description": "Freezes stack development on origins 20 and 24 and confirms on origin 30."
-              },
-              {
-                "path": "changes.log",
-                "line": 14,
-                "description": "Records kNN rejection, C=0.05 stack selection, and the retained graph contribution."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 331,
-                "description": "Selects the stack from baseline, graph, and kNN OOF channels."
-              }
-            ]
-          },
-          {
-            "kind": "architecture",
-            "statement": "Final graph materialization preserves the two-model contract: Model A predicts validation from training labels, while Model B appends validation labels only for test prediction.",
-            "confidence": 1.0,
-            "evidence": [
-              {
-                "path": "residual_knn.py",
-                "line": 248,
-                "description": "Trains the final validation-side graph model."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 252,
-                "description": "Combines training and validation feature matrices for Model B."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 253,
-                "description": "Combines training and validation labels for Model B."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 255,
-                "description": "Trains Model B before producing test predictions."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 256,
-                "description": "Generates Model B test predictions."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 356,
-                "description": "Records the Model A training-label-only source."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 357,
-                "description": "Records the Model B validation-label admission policy."
-              }
-            ]
-          },
-          {
-            "kind": "architecture",
-            "statement": "The supplied champion and lane2 transformer components remain available as separate cached or auxiliary experiments, but they are no longer invoked directly by the active main.py path.",
-            "confidence": 0.96,
+            "statement": "Full inference fits Model A on the selected training data for validation predictions, then fits Model B on concatenated train-plus-validation data for test predictions; validation predictions are preserved and checked before output.",
+            "confidence": 0.99,
             "evidence": [
               {
                 "path": "main.py",
-                "line": 12,
-                "description": "The active entrypoint imports the prediction saver."
+                "line": 154,
+                "description": "Fits Model A"
               },
               {
                 "path": "main.py",
-                "line": 13,
-                "description": "The active entrypoint imports residual_knn rather than the former transformer orchestrator."
+                "line": 155,
+                "description": "Generates sequence validation predictions"
               },
               {
-                "path": "champion_runner.py",
-                "line": 13,
-                "description": "The supplied champion modules remain loadable from shared cache."
+                "path": "main.py",
+                "line": 166,
+                "description": "Concatenates train and validation seed sets"
               },
               {
-                "path": "champion_runner.py",
-                "line": 132,
-                "description": "The champion runner still writes its cached prediction artifacts."
+                "path": "main.py",
+                "line": 167,
+                "description": "Fits Model B on the combined data"
               },
               {
-                "path": "temporal_transformer.py",
-                "line": 271,
-                "description": "The lane2 transformer pipeline remains defined separately."
-              },
-              {
-                "path": "temporal_transformer.py",
-                "line": 320,
-                "description": "The transformer still has a final validation/test prediction stage."
+                "path": "main.py",
+                "line": 175,
+                "description": "Checks that Model B fitting did not alter Model A validation predictions"
               }
             ]
           },
           {
             "kind": "architecture",
-            "statement": "The immutable evaluator still runs main.py in an isolated subprocess, loads the resulting arrays, computes official validation metrics, and uses the configured primary metric as the score.",
+            "statement": "Completed full runs are cached under the shared sequence-model cache as final_predictions.npz and final_metrics.json; cache hits immediately restore the validation/test vectors and metrics into the run output.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 135,
+                "description": "Defines the shared final prediction cache path"
+              },
+              {
+                "path": "main.py",
+                "line": 137,
+                "description": "Checks for cached predictions and diagnostics"
+              },
+              {
+                "path": "main.py",
+                "line": 139,
+                "description": "Restores cached validation and test predictions"
+              },
+              {
+                "path": "main.py",
+                "line": 141,
+                "description": "Reports reuse of completed models"
+              }
+            ]
+          },
+          {
+            "kind": "architecture",
+            "statement": "The immutable evaluator still runs the candidate in an isolated subprocess, loads its prediction artifacts, evaluates the official RelBench task, and archives full-fidelity outputs and source snapshots.",
             "confidence": 0.99,
             "evidence": [
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 93,
-                "description": "Defines the normal candidate runner."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
                 "line": 103,
-                "description": "Builds the main.py child command."
+                "description": "Builds the candidate command for each fidelity"
               },
               {
                 "path": "kapso_evaluation/grader.py",
                 "line": 110,
-                "description": "Starts the candidate in a subprocess."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 212,
-                "description": "Defines candidate output loading and scoring."
+                "description": "Starts the candidate subprocess"
               },
               {
                 "path": "kapso_evaluation/grader.py",
                 "line": 248,
-                "description": "Computes official validation metrics."
+                "description": "Evaluates validation predictions with task.evaluate"
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 249,
-                "description": "Requires the configured primary metric."
-              }
-            ]
-          },
-          {
-            "kind": "architecture",
-            "statement": "Full-fidelity evaluator runs archive prediction artifacts, metrics, selection labels, evaluator snapshots, and filtered candidate code, while fast runs are pipeline checks only; rolling evaluation still invokes the candidate for each cache snapshot.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 255,
-                "description": "Defines full-run archiving."
+                "line": 265,
+                "description": "Creates a persistent full-run archive"
               },
               {
                 "path": "kapso_evaluation/grader.py",
-                "line": 257,
-                "description": "States that fast runs are not archived."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 268,
-                "description": "Stores validation and test artifacts."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 276,
-                "description": "Writes selection eligibility labels."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 279,
-                "description": "Snapshots the evaluator tree."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 169,
-                "description": "Iterates over validation and test snapshot groups."
-              },
-              {
-                "path": "kapso_evaluation/grader.py",
-                "line": 187,
-                "description": "Runs the candidate for each snapshot."
+                "line": 286,
+                "description": "Copies candidate source into the archive"
               }
             ]
           }
@@ -1459,277 +1462,351 @@
       },
       "core.entrypoints": {
         "title": "Entrypoints",
-        "one_liner": "Run main.py directly for a full candidate or add --debug for the graph/FAISS smoke path.",
+        "one_liner": "Prepare caches, run the reduced debug pipeline, run the full model, or invoke the registered evaluator",
         "content": [
           {
-            "statement": "The candidate is launched as `python main.py`; `--debug` selects the smoke path, while the no-flag invocation runs the full residual pipeline.",
+            "path": "main.py",
+            "how_to_run": "python main.py --prepare-cache to build the index and full text caches without fitting; python main.py --debug for the reduced contract run; python main.py for the full run",
             "evidence": [
               {
                 "path": "main.py",
-                "line": 20,
-                "description": "Recognizes the --debug command-line flag."
+                "line": 202,
+                "description": "Recognizes --prepare-cache"
               },
               {
                 "path": "main.py",
-                "line": 43,
-                "description": "Provides the script entrypoint."
+                "line": 206,
+                "description": "Recognizes --debug"
               },
               {
                 "path": "main.py",
-                "line": 45,
-                "description": "Calls main when executed as a script."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 364,
-                "description": "Dispatches debug versus full execution."
+                "line": 209,
+                "description": "Runs the full pipeline otherwise"
               }
             ]
           },
           {
-            "statement": "The evaluator supplies KAPSO_RUN_DATA_DIR for run-local metrics; outside the evaluator, metrics default to output_data_generic_exp_7.",
+            "path": "kapso_evaluation/grader.py",
+            "how_to_run": "python kapso_evaluation/grader.py --fidelity fast|full [--fraction F] [--seed S]",
             "evidence": [
               {
-                "path": "main.py",
-                "line": 34,
-                "description": "Defines the local output directory."
+                "path": "kapso_evaluation/README.md",
+                "line": 22,
+                "description": "Documents fast fidelity"
               },
               {
-                "path": "main.py",
-                "line": 36,
-                "description": "Reads the evaluator run directory override."
-              },
-              {
-                "path": "main.py",
-                "line": 38,
-                "description": "Writes run-local metrics."
+                "path": "kapso_evaluation/README.md",
+                "line": 29,
+                "description": "Documents the evaluator command"
               }
             ]
           }
         ]
       },
       "core.where_to_edit": {
-        "title": "Where to Edit",
-        "one_liner": "Change orchestration and output behavior in main.py; change graph, retrieval, stack, cache, and lineage behavior in residual_knn.py.",
+        "title": "Where to edit",
+        "one_liner": "Modify the orchestration, temporal feature construction, sequence model, or text cache modules while preserving the evaluator contract",
         "content": [
           {
-            "statement": "Edit main.py for command-line behavior, deterministic setup, prediction sanitization, output paths, and diagnostics.",
+            "path": "main.py",
+            "role": "Primary experiment orchestration: debug/full modes, model A/B fitting, blend application, diagnostics, cache reuse, and output writing.",
             "evidence": [
               {
                 "path": "main.py",
-                "line": 16,
-                "description": "Defines the orchestration function."
+                "line": 134,
+                "description": "Full-run orchestration begins"
               },
               {
                 "path": "main.py",
-                "line": 20,
-                "description": "Controls debug selection."
-              },
-              {
-                "path": "main.py",
-                "line": 27,
-                "description": "Controls output probability coercion."
-              },
-              {
-                "path": "main.py",
-                "line": 37,
-                "description": "Controls diagnostic serialization."
+                "line": 183,
+                "description": "Builds validation diagnostics"
               }
             ]
           },
           {
-            "statement": "Edit residual_knn.py for feature-cache loading, causal graph construction, kNN retrieval, forward-fold gates, stack selection, and final Model A/Model B prediction generation.",
+            "path": "sequence_data.py",
+            "role": "Build the sorted review/product index, temporal seed sets, context features, origin ranks, and safety checks.",
             "evidence": [
               {
-                "path": "residual_knn.py",
-                "line": 194,
-                "description": "Loads lane1 seed data and upstream semantic/text arrays."
+                "path": "sequence_data.py",
+                "line": 67,
+                "description": "Index construction entrypoint"
               },
               {
-                "path": "residual_knn.py",
-                "line": 320,
-                "description": "Defines the full pipeline."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 329,
-                "description": "Controls graph OOF evaluation."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 330,
-                "description": "Controls kNN prediction generation."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 331,
-                "description": "Controls stack selection."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 335,
-                "description": "Controls final graph model materialization."
+                "path": "sequence_data.py",
+                "line": 338,
+                "description": "Seed-set construction entrypoint"
               }
             ]
           },
           {
-            "statement": "Change upstream lane1/lane2 feature producers or their versioned cache paths only when the required product text, semantic, and tabular seed arrays change.",
+            "path": "sequence_model.py",
+            "role": "Own FeatureStore batching, neural candidate selection, hazard fitting, rank blending, and final sequence-model training.",
             "evidence": [
               {
-                "path": "residual_knn.py",
-                "line": 107,
-                "description": "Defines the lane1 feature root."
+                "path": "sequence_model.py",
+                "line": 51,
+                "description": "FeatureStore definition"
               },
               {
-                "path": "residual_knn.py",
-                "line": 218,
-                "description": "Uses shared cached product-text arrays."
+                "path": "sequence_model.py",
+                "line": 224,
+                "description": "Forward-selection definition"
               },
               {
-                "path": "residual_knn.py",
-                "line": 226,
-                "description": "Uses ordered lane2 semantic seed arrays."
+                "path": "sequence_model.py",
+                "line": 310,
+                "description": "Final model training wrapper"
               }
             ]
+          },
+          {
+            "path": "text_features.py",
+            "role": "Own ModernBERT review embeddings, product/text cache preparation, Qwen attribute generation, and the attribute forward gate.",
+            "evidence": [
+              {
+                "path": "text_features.py",
+                "line": 115,
+                "description": "Review embedding cache preparation"
+              },
+              {
+                "path": "text_features.py",
+                "line": 271,
+                "description": "Qwen measurement entrypoint"
+              }
+            ]
+          },
+          {
+            "path": "kapso_datasets/common.py",
+            "role": "Reusable run-directory and prediction-writing helpers; preserve their output contract."
+          },
+          {
+            "path": "kapso_datasets/CONTRACT.md",
+            "role": "Authoritative input, output, shape, dtype, validation-isolation, and scoring contract."
+          },
+          {
+            "path": "kapso_evaluation/grader.py",
+            "role": "Immutable scoring/orchestration implementation; inspect behavior but do not modify it."
           }
         ]
       },
       "core.invariants": {
         "title": "Invariants",
-        "one_liner": "Predictions must remain aligned finite probabilities, and all model lineage and causal exclusion rules must be preserved.",
+        "one_liner": "Binary probability outputs, temporal and validation isolation, fixed registered shapes, and official ROC AUC scoring",
         "claims": [
           {
-            "kind": "invariant",
-            "statement": "Validation and test outputs are coerced to finite float32 probabilities in the inclusive [0,1] range before saving.",
-            "confidence": 1.0,
+            "kind": "contract",
+            "statement": "The implementation expects the configured shared cache, RelBench cache/dataset/task identifiers, and run-output helper; sequence and text caches are rooted under KAPSO_SHARED_CACHE_DIR while task data is rooted under RELBENCH_CACHE_DIR/RELBENCH_DATASET.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "main.py",
-                "line": 27,
-                "description": "Sanitizes and clips validation predictions."
+                "path": "sequence_data.py",
+                "line": 20,
+                "description": "Uses KAPSO_SHARED_CACHE_DIR for the versioned cache root"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 26,
+                "description": "Builds the data root from RELBENCH_CACHE_DIR and RELBENCH_DATASET"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 43,
+                "description": "Uses RELBENCH_TASK to locate task parquet files"
               },
               {
                 "path": "main.py",
-                "line": 28,
-                "description": "Sanitizes and clips test predictions."
-              },
-              {
-                "path": "main.py",
-                "line": 29,
-                "description": "Saves the sanitized arrays."
+                "line": 35,
+                "description": "Uses the run-data helper for metrics output"
               }
             ]
           },
           {
-            "kind": "invariant",
-            "statement": "The registered evaluator requires probabilities aligned to the complete 409,792-row validation table and 351,885-row test table; the candidate records both resulting shapes in diagnostics.",
-            "confidence": 1.0,
+            "kind": "contract",
+            "statement": "This candidate emits one-dimensional float probability vectors: predict_network allocates one value per seed and takes the fifth softmax interval probability, while full runs clip both vectors to [0,1].",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "eval_profile.md",
+                "path": "sequence_model.py",
+                "line": 179,
+                "description": "Allocates one prediction per seed"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 186,
+                "description": "Uses softmax interval index 4 as the prediction"
+              },
+              {
+                "path": "main.py",
+                "line": 181,
+                "description": "Clips validation predictions to [0,1]"
+              },
+              {
+                "path": "main.py",
+                "line": 182,
+                "description": "Clips test predictions to [0,1]"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "For the registered profile, full runs require validation shape (409792,) and test shape (351885,), and reject non-finite predictions before writing artifacts.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 177,
+                "description": "Enforces the registered validation and test shapes"
+              },
+              {
+                "path": "main.py",
+                "line": 179,
+                "description": "Rejects non-finite predictions"
+              },
+              {
+                "path": "MEASUREMENT_PROFILE.md",
                 "line": 5,
-                "description": "Defines required finite aligned validation and test vectors and their row counts."
+                "description": "Defines the evaluator's validation row count"
               },
               {
-                "path": "main.py",
-                "line": 31,
-                "description": "Records the validation prediction shape."
-              },
-              {
-                "path": "main.py",
-                "line": 32,
-                "description": "Records the test prediction shape."
+                "path": "MEASUREMENT_PROFILE.md",
+                "line": 9,
+                "description": "Defines validation and test population sizes"
               }
             ]
           },
           {
-            "kind": "invariant",
-            "statement": "Non-debug seed data must preserve original task row order: feature rows are sorted by row_id and checked against a contiguous original ordering, while labels are read with file_row_number ordering.",
-            "confidence": 1.0,
+            "kind": "contract",
+            "statement": "Validation predictions are generated before any train-plus-validation fitting: Model A predicts validation, its predictions are copied, Model B is then trained on concatenated train and validation data, and the copy is compared afterward.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "residual_knn.py",
+                "path": "main.py",
+                "line": 155,
+                "description": "Predicts validation with Model A"
+              },
+              {
+                "path": "main.py",
                 "line": 163,
-                "description": "Defines ordered split-label loading."
+                "description": "Preserves the validation predictions"
               },
               {
-                "path": "residual_knn.py",
-                "line": 165,
-                "description": "Orders parquet labels by file_row_number."
+                "path": "main.py",
+                "line": 166,
+                "description": "Creates train-plus-validation data"
               },
               {
-                "path": "residual_knn.py",
-                "line": 198,
-                "description": "Sorts feature rows by row_id."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 200,
-                "description": "Rejects non-debug seed data that is not in original task order."
+                "path": "main.py",
+                "line": 175,
+                "description": "Verifies validation predictions remain unchanged"
               }
             ]
           },
           {
-            "kind": "invariant",
-            "statement": "Model A must exclude validation labels from its complete chain; Model B may use validation labels for test predictions only after the validation-side prediction is captured.",
-            "confidence": 1.0,
+            "kind": "contract",
+            "statement": "Seed construction enforces temporal safety: each task origin must be registered, each customer must have a preceding event, and no selected review may occur after the task cutoff.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "eval_profile.md",
+                "path": "sequence_data.py",
+                "line": 345,
+                "description": "Maps task days to registered cutoffs"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 347,
+                "description": "Rejects unregistered origins"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 357,
+                "description": "Rejects missing seed histories"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 359,
+                "description": "Rejects future review events"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The test split does not load churn labels: task_arrays omits the churn column for test and fills its target field with -1, while test metrics are not computed as supervised scores.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "sequence_data.py",
+                "line": 45,
+                "description": "Only requests churn for non-test splits"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 56,
+                "description": "Uses -1 targets for test rows"
+              },
+              {
+                "path": "main.py",
+                "line": 91,
+                "description": "Records a null positive rate for the test origin"
+              },
+              {
+                "path": "MEASUREMENT_PROFILE.md",
+                "line": 9,
+                "description": "States that test outcomes were not accessed"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "The official contract still requires both validation and test prediction files with positional row alignment, and validation labels must not train the validation predictor.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 15,
+                "description": "Requires both prediction files"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 16,
+                "description": "Requires positional alignment"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 17,
+                "description": "Defines validation predictions as out-of-sample"
+              }
+            ]
+          },
+          {
+            "kind": "contract",
+            "statement": "Validation ROC AUC is the registered selection metric; the candidate additionally records average precision, accuracy, F1, bootstrap variation, sequence AUC, and hazard AUC.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "MEASUREMENT_PROFILE.md",
                 "line": 5,
-                "description": "Defines the Model A and Model B label-use contract."
+                "description": "Defines ROC AUC as the selection metric and lists secondary metrics"
               },
               {
-                "path": "residual_knn.py",
-                "line": 248,
-                "description": "Produces validation predictions before Model B training."
+                "path": "main.py",
+                "line": 94,
+                "description": "Computes average precision"
               },
               {
-                "path": "residual_knn.py",
-                "line": 252,
-                "description": "Starts the combined Model B feature matrix."
+                "path": "main.py",
+                "line": 97,
+                "description": "Computes validation ROC AUC"
               },
               {
-                "path": "residual_knn.py",
-                "line": 261,
-                "description": "Records validation preservation before Model B."
+                "path": "main.py",
+                "line": 100,
+                "description": "Records sequence AUC"
               },
               {
-                "path": "residual_knn.py",
-                "line": 358,
-                "description": "Records the validation-preserved lineage invariant."
-              }
-            ]
-          },
-          {
-            "kind": "invariant",
-            "statement": "Graph propagation and retrieval are causal: query customers are excluded, source labels must be mature by query time, and the frozen stack is developed only on the permitted forward-origin design.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "PLAN.md",
-                "line": 8,
-                "description": "Requires causal maturity checks for residual propagation."
-              },
-              {
-                "path": "PLAN.md",
-                "line": 10,
-                "description": "Limits stack development to origins 20 and 24 with one origin-30 confirmation."
-              },
-              {
-                "path": "changes.log",
-                "line": 12,
-                "description": "Records query-customer-excluded causal graph construction."
-              },
-              {
-                "path": "changes.log",
-                "line": 13,
-                "description": "Records latest matured source rows and exact customer removal for retrieval."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 356,
-                "description": "Records that graph sources are matured by query time and stack selection is frozen."
+                "path": "main.py",
+                "line": 101,
+                "description": "Records hazard AUC"
               }
             ]
           }
@@ -1737,113 +1814,108 @@
       },
       "core.testing": {
         "title": "Testing",
-        "one_liner": "Use the debug smoke path for pipeline checks, then validate forward-fold gates, performance thresholds, and the registered full evaluator.",
+        "one_liner": "Use the reduced debug run, cache-preparation mode, prediction checker, and official fast evaluator",
         "claims": [
           {
-            "kind": "testing",
-            "statement": "The debug path loads debug seeds, builds graph features, fits a small holdout graph model, exercises a 64D FAISS search, and returns legal fallback-shaped outputs.",
-            "confidence": 1.0,
-            "evidence": [
-              {
-                "path": "residual_knn.py",
-                "line": 285,
-                "description": "Defines the debug smoke test."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 288,
-                "description": "Builds debug graph features."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 293,
-                "description": "Creates the small debug LightGBM model."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 302,
-                "description": "Creates a 64D FAISS index."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 305,
-                "description": "Loads legal baseline validation and test outputs."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 316,
-                "description": "Announces debug completion."
-              }
-            ]
-          },
-          {
-            "kind": "testing",
-            "statement": "Internal acceptance uses forward-origin movement and customer-clustered bootstrap support rather than official validation feedback; official validation is a post-freeze diagnostic.",
+            "kind": "other",
+            "statement": "python main.py --debug is a real reduced pipeline: it uses a 50,000-row training sample, one epoch, Qwen debug measurement, and only the first 5,000 validation/test rows for model inference while still writing full-shape vectors.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "eval_profile.md",
-                "line": 19,
-                "description": "Defines internal forward-origin and clustered-support acceptance."
+                "path": "main.py",
+                "line": 112,
+                "description": "Runs debug Qwen measurement"
               },
               {
-                "path": "changes.log",
-                "line": 14,
-                "description": "Records the origin-30 clustered confirmation and stack decision."
+                "path": "main.py",
+                "line": 117,
+                "description": "Samples 50,000 training rows"
               },
               {
-                "path": "residual_knn.py",
-                "line": 266,
-                "description": "Defines validation resolution diagnostics."
+                "path": "main.py",
+                "line": 119,
+                "description": "Limits validation and test debug rows to 5,000"
               },
               {
-                "path": "residual_knn.py",
-                "line": 281,
-                "description": "Labels validation resolution as post-freeze only."
+                "path": "main.py",
+                "line": 123,
+                "description": "Uses a one-epoch debug selection"
               },
               {
-                "path": "residual_knn.py",
-                "line": 344,
-                "description": "Computes final validation resolution after prediction selection."
+                "path": "main.py",
+                "line": 129,
+                "description": "Writes the full validation and test prediction vectors"
               }
             ]
           },
           {
-            "kind": "testing",
-            "statement": "The residual campaign has explicit throughput gates of above 500,000 graph seed rows per minute and above 500 retrieval queries per second, with a 90-minute retrieval projection cap; the recorded measurements passed those thresholds.",
+            "kind": "other",
+            "statement": "python main.py --prepare-cache builds the temporal index and all text caches, then exits before fitting or writing predictions.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 202,
+                "description": "Checks for cache-preparation mode"
+              },
+              {
+                "path": "main.py",
+                "line": 203,
+                "description": "Runs text preparation"
+              },
+              {
+                "path": "main.py",
+                "line": 205,
+                "description": "Returns after cache preparation"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "After writing predictions, run python kapso_datasets/check_predictions.py to validate required files, row shapes, finite values, binary bounds, and recommendation-format checks.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 27,
+                "description": "Provides the self-check command"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 30,
+                "description": "Checks both validation and test splits"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 54,
+                "description": "Checks non-recommendation shapes"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 62,
+                "description": "Reports successful split checks"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The official fast evaluator remains the quickest end-to-end check: it runs main.py in debug mode but scores the complete validation split.",
             "confidence": 0.98,
             "evidence": [
               {
-                "path": "PLAN.md",
-                "line": 1,
-                "description": "Sets graph and retrieval throughput targets."
+                "path": "kapso_evaluation/README.md",
+                "line": 22,
+                "description": "Defines fast fidelity as main.py --debug"
               },
               {
-                "path": "eval_profile.md",
-                "line": 35,
-                "description": "Defines the residual graph/retrieval performance gates."
+                "path": "kapso_evaluation/README.md",
+                "line": 24,
+                "description": "States that fast scores the complete validation split"
               },
               {
-                "path": "eval_profile.md",
+                "path": "kapso_evaluation/README.md",
                 "line": 37,
-                "description": "Records measured graph rate, retrieval rate, and projection."
-              }
-            ]
-          },
-          {
-            "kind": "testing",
-            "statement": "The registered full-fidelity run_0017 completed from versioned caches, scored all validation rows, and archived both contract arrays.",
-            "confidence": 0.99,
-            "evidence": [
-              {
-                "path": "changes.log",
-                "line": 18,
-                "description": "Records run_0017 completion, score, runtime, and archived arrays."
-              },
-              {
-                "path": "eval_profile.md",
-                "line": 39,
-                "description": "Records the complete official validation result and post-freeze comparison."
+                "description": "Recommends a fast dry run"
               }
             ]
           }
@@ -1851,172 +1923,230 @@
       },
       "core.gotchas": {
         "title": "Gotchas",
-        "one_liner": "The full path is cache- and ordering-sensitive, and rejected experimental channels intentionally fall back to the banked champion.",
+        "one_liner": "Fixed-profile assumptions, cache reuse, reduced debug coverage, GPU-local model requirements, and gated optional features",
         "claims": [
           {
-            "kind": "gotcha",
-            "statement": "If the selected stack is not accepted, the full run deliberately emits the banked run_0014 validation and test predictions instead of graph/kNN predictions; the debug path also reports the banked legal fallback as its output source.",
-            "confidence": 1.0,
-            "evidence": [
-              {
-                "path": "changes.log",
-                "line": 11,
-                "description": "Records byte-matched banked run_0014 validation and test copies."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 333,
-                "description": "Initializes final diagnostics as using fallback."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 341,
-                "description": "Enters the fallback branch when the stack is not accepted."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 342,
-                "description": "Copies baseline validation predictions."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 314,
-                "description": "Identifies the debug output source as the banked legal run_0014 fallback."
-              }
-            ]
-          },
-          {
-            "kind": "gotcha",
-            "statement": "The kNN channel is computed for diagnostics and stack selection but was excluded from the accepted final stack because its development-origin movement inverted between origins.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "changes.log",
-                "line": 14,
-                "description": "Records the inverted kNN development result and its exclusion."
-              },
-              {
-                "path": "eval_profile.md",
-                "line": 37,
-                "description": "Records that the kNN channel was excluded and graph contribution retained."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 330,
-                "description": "Shows that kNN predictions are still generated before selection."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 331,
-                "description": "Passes the kNN OOF channel into stack selection."
-              }
-            ]
-          },
-          {
-            "kind": "gotcha",
-            "statement": "Debug mode uses debug feature files and bypasses the non-debug original-row-order assertion, so it is a smoke test rather than a representative full-data evaluation.",
-            "confidence": 0.98,
-            "evidence": [
-              {
-                "path": "residual_knn.py",
-                "line": 169,
-                "description": "Defines debug-specific feature-file selection."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 173,
-                "description": "Selects debug train files when requested."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 200,
-                "description": "Applies the row-order failure check only when not debug."
-              },
-              {
-                "path": "main.py",
-                "line": 20,
-                "description": "Activates debug mode through the command line."
-              }
-            ]
-          },
-          {
-            "kind": "gotcha",
-            "statement": "The residual pipeline requires pre-existing shared and RelBench cache environment variables; missing variables fail during cache-root or task-root construction rather than triggering a download.",
+            "kind": "other",
+            "statement": "The implementation is fixed to the registered churn profile rather than being generic: full_run hardcodes 409,792 validation rows and 351,885 test rows, so another dataset or split size will fail the shape assertion.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "residual_knn.py",
-                "line": 97,
-                "description": "Builds the versioned shared cache root from KAPSO_SHARED_CACHE_DIR."
+                "path": "main.py",
+                "line": 177,
+                "description": "Hardcodes the registered prediction shapes"
               },
               {
-                "path": "residual_knn.py",
-                "line": 103,
-                "description": "Defines the task-root helper."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 104,
-                "description": "Reads the required RelBench cache, dataset, and task variables."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 108,
-                "description": "Uses a separate versioned lane1 feature cache."
+                "path": "MEASUREMENT_PROFILE.md",
+                "line": 9,
+                "description": "Documents the matching validation and test sizes"
               }
             ]
           },
           {
-            "kind": "gotcha",
-            "statement": "Artifacts are versioned and registered in a shared manifest under an exclusive file lock; temporary JSON files are atomically renamed, so changing feature semantics requires changing the version or artifact path.",
-            "confidence": 0.98,
+            "kind": "other",
+            "statement": "Debug mode fills the complete output vectors with the sampled training positive rate and replaces only the first 5,000 rows with neural predictions; it is therefore an execution/contract check, not a full-quality approximation.",
+            "confidence": 0.99,
             "evidence": [
               {
-                "path": "residual_knn.py",
-                "line": 26,
-                "description": "Defines the residual pipeline version."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 126,
-                "description": "Defines atomic JSON writing."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 132,
-                "description": "Defines shared artifact registration."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 137,
-                "description": "Takes an exclusive registry lock."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 153,
-                "description": "Releases the registry lock."
-              }
-            ]
-          },
-          {
-            "kind": "gotcha",
-            "statement": "The new experiment output directory output_data_generic_exp_7 is intentionally ignored by git, while changes.log remains tracked.",
-            "confidence": 1.0,
-            "evidence": [
-              {
-                "path": ".gitignore",
-                "line": 5,
-                "description": "Keeps changes.log tracked despite the log ignore rule."
-              },
-              {
-                "path": ".gitignore",
-                "line": 11,
-                "description": "Ignores output_data_generic_exp_7."
+                "path": "main.py",
+                "line": 125,
+                "description": "Initializes full vectors to the sampled training mean"
               },
               {
                 "path": "main.py",
-                "line": 34,
-                "description": "Uses output_data_generic_exp_7 for local outputs."
+                "line": 127,
+                "description": "Overwrites only selected validation debug rows"
+              },
+              {
+                "path": "main.py",
+                "line": 128,
+                "description": "Overwrites only selected test debug rows"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "A full run silently reuses final_predictions.npz and final_metrics.json whenever both exist; remove or invalidate those shared-cache files to force model selection and retraining.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 137,
+                "description": "Tests for both completed-cache files"
+              },
+              {
+                "path": "main.py",
+                "line": 141,
+                "description": "Returns after reusing cached predictions"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Default training keeps only the latest eight train origins, even though the profile contains 31 train origins; forward selection then uses the last two days within that reduced training set.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "sequence_data.py",
+                "line": 338,
+                "description": "Enables latest_train_only by default"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 341,
+                "description": "Selects the latest eight unique train days"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 231,
+                "description": "Uses the latest two available training days for selection folds"
+              },
+              {
+                "path": "MEASUREMENT_PROFILE.md",
+                "line": 9,
+                "description": "Documents the full 31-origin train history"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The sequence and text paths assume CUDA: text projection/model loading uses .cuda(), and prediction uses CUDA autocast, so CPU-only execution is not a supported fallback.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "text_features.py",
+                "line": 42,
+                "description": "Moves the projection matrix to CUDA"
+              },
+              {
+                "path": "text_features.py",
+                "line": 87,
+                "description": "Moves ModernBERT to CUDA"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 184,
+                "description": "Uses CUDA autocast during prediction"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "ModernBERT cache creation is guarded by a one-million-document throughput probe and aborts below 1,200 documents per second; the cache is intended to be prepared once and reused.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "text_features.py",
+                "line": 167,
+                "description": "Triggers the one-million-document probe"
+              },
+              {
+                "path": "text_features.py",
+                "line": 174,
+                "description": "Defines the minimum safe throughput"
+              },
+              {
+                "path": "text_features.py",
+                "line": 175,
+                "description": "Raises when throughput is too low"
+              },
+              {
+                "path": "text_features.py",
+                "line": 121,
+                "description": "Reuses an existing complete embedding cache"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "Malformed Qwen responses are coerced through bounded parsing, digit extraction, or an all-2 default attribute vector; FeatureStore ignores attributes entirely unless the Qwen plus-model gate is kept.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "text_features.py",
+                "line": 208,
+                "description": "Attempts strict then permissive attribute parsing"
+              },
+              {
+                "path": "text_features.py",
+                "line": 212,
+                "description": "Uses extracted digits or defaults to four 2 values"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 80,
+                "description": "Stores whether the Qwen gate keeps attributes"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 85,
+                "description": "Returns fallback missing indicators when attributes are not kept"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The hazard rank blend is optional and is enabled only if every forward fold improves over the sequence-only score; otherwise the neural sequence probability is used unchanged.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "sequence_model.py",
+                "line": 281,
+                "description": "Builds the 75/25 sequence-hazard rank blend for evaluation"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 285,
+                "description": "Measures fold blend improvement"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 302,
+                "description": "Requires all fold improvements to enable blending"
+              },
+              {
+                "path": "main.py",
+                "line": 158,
+                "description": "Applies the blend only when selected"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The debug text path uses the full ModernBERT cache when its metadata exists and otherwise falls back to debug text preparation, so a debug invocation can still perform substantial cache work on a fresh environment.",
+            "confidence": 0.97,
+            "evidence": [
+              {
+                "path": "main.py",
+                "line": 111,
+                "description": "Chooses full versus debug text preparation based on cache metadata"
+              },
+              {
+                "path": "main.py",
+                "line": 113,
+                "description": "Times the debug text/Qwen phase"
+              }
+            ]
+          },
+          {
+            "kind": "other",
+            "statement": "The standalone checker warns rather than fails for recommendation IDs outside the valid range or duplicate IDs, so those warnings remain contract-quality problems even though this churn implementation emits binary vectors.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 42,
+                "description": "Out-of-range recommendation IDs produce a warning"
+              },
+              {
+                "path": "kapso_datasets/check_predictions.py",
+                "line": 44,
+                "description": "Duplicate recommendation IDs produce a warning"
+              },
+              {
+                "path": "kapso_datasets/CONTRACT.md",
+                "line": 21,
+                "description": "Requires valid distinct recommendation IDs for recommendation tasks"
               }
             ]
           }
@@ -2024,106 +2154,126 @@
       },
       "core.dependencies": {
         "title": "Dependencies",
-        "one_liner": "The active residual implementation depends on DuckDB/parquet caches, LightGBM, FAISS, NumPy/Pandas, Numba, SciPy, and scikit-learn plus shared RelBench/Kapso environment variables.",
+        "one_liner": "CUDA Python stack with DuckDB/Parquet preprocessing, PyTorch sequence models, scikit-learn gates, and locally cached Hugging Face checkpoints",
         "claims": [
           {
-            "kind": "dependency",
-            "statement": "residual_knn.py directly imports DuckDB, FAISS, LightGBM, NumPy, Pandas, Numba, SciPy, and scikit-learn components for data access, modeling, retrieval, numerical transforms, and diagnostics.",
-            "confidence": 1.0,
-            "evidence": [
-              {
-                "path": "residual_knn.py",
-                "line": 13,
-                "description": "Imports DuckDB."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 14,
-                "description": "Imports FAISS."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 15,
-                "description": "Imports LightGBM."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 16,
-                "description": "Imports NumPy."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 17,
-                "description": "Imports Pandas."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 18,
-                "description": "Imports Numba."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 19,
-                "description": "Imports SciPy optimization and transforms."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 22,
-                "description": "Imports scikit-learn PCA."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 23,
-                "description": "Imports scikit-learn ROC-AUC scoring."
-              }
-            ]
-          },
-          {
-            "kind": "dependency",
-            "statement": "The active pipeline depends on KAPSO_SHARED_CACHE_DIR for versioned shared artifacts, RELBENCH_CACHE_DIR/RELBENCH_DATASET/RELBENCH_TASK for task parquet files, and KAPSO_RUN_DATA_DIR for evaluator-local diagnostics.",
-            "confidence": 1.0,
-            "evidence": [
-              {
-                "path": "residual_knn.py",
-                "line": 98,
-                "description": "Reads KAPSO_SHARED_CACHE_DIR."
-              },
-              {
-                "path": "residual_knn.py",
-                "line": 104,
-                "description": "Reads the RelBench task environment variables."
-              },
-              {
-                "path": "main.py",
-                "line": 36,
-                "description": "Reads KAPSO_RUN_DATA_DIR."
-              }
-            ]
-          },
-          {
-            "kind": "dependency",
-            "statement": "The residual model consumes upstream lane1 feature parquet files and lane1 product-text and lane2 ordered-semantic NumPy arrays from shared caches.",
+            "kind": "deployment",
+            "statement": "The pipeline depends on NumPy, PyTorch, DuckDB, Numba, PyArrow, scikit-learn, and Transformers for array processing, parquet/index construction, JIT seed localization, neural training, statistical gates, and text encoding.",
             "confidence": 0.99,
             "evidence": [
               {
-                "path": "residual_knn.py",
-                "line": 169,
-                "description": "Locates lane1 feature parquet files."
+                "path": "main.py",
+                "line": 9,
+                "description": "Imports NumPy and PyTorch"
               },
               {
-                "path": "residual_knn.py",
-                "line": 196,
-                "description": "Reads feature parquet columns."
+                "path": "main.py",
+                "line": 11,
+                "description": "Imports scikit-learn metrics"
               },
               {
-                "path": "residual_knn.py",
-                "line": 218,
-                "description": "Locates cached product-text arrays."
+                "path": "sequence_data.py",
+                "line": 9,
+                "description": "Imports DuckDB"
               },
               {
-                "path": "residual_knn.py",
-                "line": 226,
-                "description": "Locates cached ordered semantic arrays."
+                "path": "sequence_data.py",
+                "line": 10,
+                "description": "Imports Numba"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 12,
+                "description": "Imports PyArrow parquet"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 13,
+                "description": "Imports the scikit-learn SGD classifier"
+              },
+              {
+                "path": "text_features.py",
+                "line": 19,
+                "description": "Imports Hugging Face Transformers models and tokenizer"
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "Hugging Face model files must already be available locally: ModernBERT is pinned to answerdotai/ModernBERT-base revision 8949b909ec900327062f0ebf497f51aef5e6f0c8, and Qwen uses Qwen/Qwen3.5-0.8B; both loaders request local_files_only=True.",
+            "confidence": 0.99,
+            "evidence": [
+              {
+                "path": "text_features.py",
+                "line": 24,
+                "description": "Defines the ModernBERT model identifier"
+              },
+              {
+                "path": "text_features.py",
+                "line": 25,
+                "description": "Defines the pinned ModernBERT revision"
+              },
+              {
+                "path": "text_features.py",
+                "line": 26,
+                "description": "Defines the Qwen model identifier"
+              },
+              {
+                "path": "text_features.py",
+                "line": 81,
+                "description": "Loads ModernBERT with local_files_only"
+              },
+              {
+                "path": "text_features.py",
+                "line": 290,
+                "description": "Loads Qwen tokenizer from local files"
+              },
+              {
+                "path": "text_features.py",
+                "line": 291,
+                "description": "Loads Qwen model from local files"
+              }
+            ]
+          },
+          {
+            "kind": "deployment",
+            "statement": "Runtime configuration is supplied through KAPSO_SHARED_CACHE_DIR, RELBENCH_CACHE_DIR, RELBENCH_DATASET, RELBENCH_TASK, KAPSO_RUN_DATA_DIR, and OMP_NUM_THREADS; the implementation uses OMP_NUM_THREADS for DuckDB, PyTorch, and SGD parallelism.",
+            "confidence": 0.98,
+            "evidence": [
+              {
+                "path": "sequence_data.py",
+                "line": 20,
+                "description": "Reads KAPSO_SHARED_CACHE_DIR"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 26,
+                "description": "Reads RELBENCH_CACHE_DIR and RELBENCH_DATASET"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 43,
+                "description": "Reads RELBENCH_TASK"
+              },
+              {
+                "path": "sequence_data.py",
+                "line": 92,
+                "description": "Uses OMP_NUM_THREADS for DuckDB"
+              },
+              {
+                "path": "main.py",
+                "line": 197,
+                "description": "Configures PyTorch thread count from OMP_NUM_THREADS"
+              },
+              {
+                "path": "sequence_model.py",
+                "line": 212,
+                "description": "Uses OMP_NUM_THREADS for the SGD hazard model"
+              },
+              {
+                "path": "main.py",
+                "line": 35,
+                "description": "Writes run metrics through the run-data directory helper"
               }
             ]
           }
@@ -2133,104 +2283,22 @@
   },
   "experiments": [
     {
-      "recorded_at": "2026-08-12T01:11:30.648627+00:00",
+      "recorded_at": "2026-08-12T18:03:01.607848+00:00",
       "branch": "generic_exp_2",
       "parent_branch": "main",
-      "base_commit": "fd105d748d7d02c8bf4843d6a6fe029194022e0c",
-      "head_commit": "a356a85c2d00002d9ae90f0e3a7b4a3ce6fc7f0d",
-      "code_head_commit": "a356a85c2d00002d9ae90f0e3a7b4a3ce6fc7f0d",
-      "solution_spec": "# Cutoff-specific self-supervised temporal transformer\n\n## Core idea\n\nPretrain a compact causal transformer on review sequences using next-gap and next-mark objectives, fine-tune it for churn, and blend it with the champion. Unlike the original Candidate 6, every internal fold receives a trunk checkpoint trained only on events available by that fold, eliminating temporal optimism in model selection.\n\nThis is the highest-ceiling structural alternative if tabular feature widening saturates.\n\n## Implementation\n\n1. Read the living documents, reproduce the champion, and cache its fold, validation, and test predictions. It remains the fallback and ensemble partner.\n\n2. In the first full evaluation, make a non-empty hosted `gpt-5.6-luna` call over at least 4,096 review texts dated no later than the earliest forward-fold cutoff. Request structured reader-intent and review-state attributes, cache them, and train a fixed hashed-text distiller. Report the semantic block’s forward-fold effect. The teacher cutoff ensures one fixed distiller is legal for every fold.\n\n3. Build customer CSR sequences ordered by review time. Collapse same-day reviews into one event-day token retaining multiplicity, pooled rating/verified/text attributes, and the most recent product marks.\n\n4. Event inputs:\n\n   - log time gap and Fourier calendar features;\n   - rating, verification, multiplicity, text/summary length, price;\n   - LLM-distilled semantic scores;\n   - hashed product, category, and brand embeddings;\n   - as-of-event product popularity bucket.\n\n   Add a lifetime summary token containing tenure, counts, gap quantiles, and category diversity beyond the last 64 event-days.\n\n5. Pretrain chronologically with three objectives:\n\n   - next-gap bucket over 32 log-spaced bins;\n   - next-category hash;\n   - next-rating and verification.\n\n   Save trunks at the exact event cutoffs corresponding to official origins 20, 24, and 30. An internal fold uses its own checkpoint, never the later validation-era trunk.\n\n6. For a seed whose last review was \\(a\\) days earlier, derive a zero-shot churn score as \\(S(a+91\\mid H)/S(a\\mid H)\\). Validate this calculation against empirical gap distributions before fine-tuning.\n\n7. Attach a query token containing current recency, recent activity, season, and system activity, then fine-tune a binary churn head. For each fold, use the cutoff-specific trunk and only official labels from earlier origins. Gate full-trunk fine-tuning against a frozen-trunk head; keep the simpler version if tied.\n\n8. Final Model A continues self-supervised training only through `V`, then fine-tunes on official train labels. Final Model B continues the same lineage from `V` through `T` and fine-tunes on train+validation labels. Events after the relevant prediction cutoff never enter that chain.\n\n9. Compare zero-shot transformer, fine-tuned transformer, champion, and rank blends on origins 20/24/30. Require positive median paired improvement and approximately 80% customer-clustered bootstrap support. Report results by recent activity 1/2–3/4+, sequence truncation, recency, and product rarity.\n\n10. Preserve Model A validation predictions before training Model B. Debug uses 30,000 customers, sequence length 16, 300 pretraining steps, one fold, and full-shape fallback output.\n\n## Hyperparameters and budget\n\n- Transformer: 3 layers, hidden size 160, 4 heads, FFN 448, dropout 0.10\n- Sequence length: 64 event-days\n- Product hash vocabulary: 131,072; category and brand: 8,192 each\n- Gap buckets: 32, logarithmic from one day to eight years\n- Pretraining: AdamW, learning rate `5e-4`, batch 1,024, two chronological epochs, BF16\n- Fine-tuning: learning rate `1.5e-4`, two epochs, temporal weights\n- Loss weights: gap 1.0, category 0.35, rating/verified 0.20\n- Blend grid: transformer rank weight 0.1–0.5 in steps of 0.1\n- Expected cold runtime on one A100: 0.5 hour sequence build, 2–2.5 hours pretraining/checkpoints, 1.5 hours fine-tuning and fold heads, 2 hours champion/final fits, at least 0.5 hour safety\n- Expected range: approximately 0.718–0.732, with greater variance than Ranks 1–2\n\n# Coverage\n\n- **Input distribution — MEASURED:** All 12.64M review events become self-supervised timing data rather than only the 4.71M task labels.\n- **History depth — MEASURED:** Every seed has a recent event; last-64 sequences cover local order while the lifetime token preserves deeper history.\n- **Regime — MEASURED:** Extreme origin drift makes cutoff-specific pretraining essential. Checkpoints at each forward fold and separate V/T final states enforce that discipline.\n- **All tables — MEASURED:** Review sequences join product category, brand, title-derived state, and price; customer-level lifetime state is represented in the query token.\n- **Transformer benefit — ASSUMED:** Ordered gap/mark interactions may improve over aggregate renewal features. Zero-shot, frozen-trunk, and fine-tuned gates distinguish useful sequence learning from capacity overfit.\n- **Semantic benefit — ASSUMED:** Hosted-LLM attributes may improve event marks; the mandatory fold comparison decides whether they remain.\n- **Metric mechanics — MEASURED:** All architecture and blend choices use expanding training folds with customer-clustered paired AUC inference.\n- **Output contract — MEASURED:** Model A excludes validation labels; Model B may use them. Both outputs preserve exact task order and required probability bounds.\n- **Harness — MEASURED:** The resource declaration provides one A100, not four. The compact architecture and two epochs are sized for the eight-hour limit.\n- **Permitted-data geometry — MEASURED:** Each trunk checkpoint contains only events at or before its cutoff, each seed representation contains only events at or before its timestamp, and no test-window labels are constructed.",
-      "changed_files": [
-        "PLAN.md",
-        "champion_runner.py",
-        "changes.log",
-        "eval_profile.md",
-        "main.py",
-        "output_data_generic_exp_2/debug_metrics.json",
-        "output_data_generic_exp_2/metrics.json",
-        "semantic_champion.py",
-        "temporal_transformer.py"
-      ],
-      "diff_numstat": [
-        {
-          "added": "11",
-          "deleted": "0",
-          "path": "PLAN.md"
-        },
-        {
-          "added": "142",
-          "deleted": "0",
-          "path": "champion_runner.py"
-        },
-        {
-          "added": "10",
-          "deleted": "0",
-          "path": "changes.log"
-        },
-        {
-          "added": "27",
-          "deleted": "0",
-          "path": "eval_profile.md"
-        },
-        {
-          "added": "43",
-          "deleted": "45",
-          "path": "main.py"
-        },
-        {
-          "added": "91",
-          "deleted": "0",
-          "path": "output_data_generic_exp_2/debug_metrics.json"
-        },
-        {
-          "added": "397",
-          "deleted": "0",
-          "path": "output_data_generic_exp_2/metrics.json"
-        },
-        {
-          "added": "230",
-          "deleted": "0",
-          "path": "semantic_champion.py"
-        },
-        {
-          "added": "1436",
-          "deleted": "0",
-          "path": "temporal_transformer.py"
-        }
-      ],
-      "run_result": {
-        "score": 0,
-        "run_had_error": false,
-        "error_message": "",
-        "error_details": "",
-        "feedbacks": "",
-        "ideation_repo_memory_sections_consulted": [],
-        "repo_memory_sections_consulted": [
-          "core.architecture",
-          "core.dependencies",
-          "core.entrypoints",
-          "core.gotchas",
-          "core.invariants",
-          "core.testing",
-          "core.where_to_edit"
-        ]
-      }
-    },
-    {
-      "recorded_at": "2026-08-12T05:21:54.924508+00:00",
-      "branch": "generic_exp_7",
-      "parent_branch": "generic_exp_2",
-      "base_commit": "a18ec0b67fe15e0b310a36253c3168ac3e866d1f",
-      "head_commit": "104e523173f1d1d70f76e6d03226bb7ba12417db",
-      "code_head_commit": "104e523173f1d1d70f76e6d03226bb7ba12417db",
-      "solution_spec": "# Core Idea\n\nBuild a sparse-history expert from strictly cross-customer, state-matched residual label propagation and causal approximate-nearest-neighbor retrieval. Combine it with run_0014 only if nested forward evaluation confirms complementary value.\n\n# Why This Approach\n\nCandidate 5’s original novelty claim was incorrect: the champion already contains product/category/brand label priors and eight-product neighbor-target features. Prior live co-reviewer state also hurt the main model.\n\nThe genuinely new signal is narrower:\n\n- remove every contribution from the query customer;\n- propagate residual churn after conditioning on source recency/activity;\n- retrieve outcomes from other customers with similar behavior and semantic state.\n\n# Solution Steps\n\n1. Rescore and preserve run_0014 as fallback. Verify the cached 12,644,508 review-edge arrays, lane-1 parquets, product-text seed arrays, and ordered semantic arrays.\n\n2. Record the overlap with existing champion features in `features_history.md`. Append only cross-customer residual propagation and causal kNN as new proposals.\n\n3. Process official labels sequentially by origin. A source label from origin `s` becomes available only after `s+91d`.\n\n4. At the source’s own timestamp, capture its distinct last 1/4/8 products and state:\n\n   - recency: `0–14`, `15–30`, `31–60`, `61–91`;\n   - activity: `1`, `2–3`, `4+`.\n\n5. Use eight deterministic customer hash buckets. For a query in bucket `b`, derive every state prior and product/category/brand accumulator after subtracting bucket `b`. This guarantees that the query customer cannot contribute any of its own historical labels, at the cost of excluding one-eighth of unrelated peers.\n\n6. Propagate:\n\n   - raw churn;\n   - residual churn relative to the source-origin state prior excluding bucket `b`;\n   - an undecayed version;\n   - a 730-day half-life version.\n\n   Shrink raw rates to the contemporaneous state prior and product residuals to category/brand residuals.\n\n7. Emit roughly 30 features over the query’s last 1/4/8 products:\n\n   - raw and state-matched empirical-Bayes rates;\n   - residual and decayed-residual means;\n   - counts and coverage;\n   - mean/min/max/std across products;\n   - last-product values;\n   - disagreement with the query’s own historical rate.\n\n8. Stage the graph block on fold 20 before materializing every final cutoff. Continue if either the fused LightGBM or a fixed 0.05/0.10 rank blend has positive pooled movement, or positive sparse-slice movement without pooled regression.\n\n9. Construct an independent kNN score from existing aligned caches. Use a 64-dimensional vector:\n\n   - 24 fixed renewal/state/product-context scalars;\n   - 24 last-product MiniLM PCA coordinates;\n   - 16 training-only PCA coordinates from the ordered semantic block.\n\n   Fit robust scaling from source rows only.\n\n10. For each target fold or final origin, index the latest matured labeled row per external customer. This prevents prolific repeat customers from dominating retrieval.\n\n11. Use CPU FAISS `IndexIVFPQ`:\n\n   - retrieve 512 candidates;\n   - remove every candidate matching the query customer;\n   - retain the nearest 100 external customers;\n   - compute inverse-distance, age-decayed, top-20, and top-100 churn rates plus distance, entropy, age, and coverage diagnostics.\n\n   Fall back to the state empirical-Bayes rate if fewer than 20 neighbors survive.\n\n12. Benchmark one fold for one minute. If projected retrieval time exceeds 90 minutes, reduce `nprobe` and retrieved candidates once; if still excessive, drop kNN while retaining the residual graph gate.\n\n13. Develop all feature choices and blend weights on origins 20 and 24. Freeze them, then confirm once on origin 30 using 1,000 customer-clustered draws.\n\n14. Final chains:\n\n   - Model A training-row graph features use sources matured by each row’s timestamp; validation queries may use training labels matured by `V`.\n   - Model B keeps historical train features unchanged. Validation training rows use features computed at `V` without their own labels. Test-query aggregates and the retrieval index may add validation labels matured by `T`.\n   - Validation predictions are never regenerated from Model B.\n\n15. Fit a strongly regularized nonnegative rank stack over run_0014, the graph-fused model, and the raw kNN expert. Permit only one precommitted interaction for `n_91 == 1`. If origin 30 does not confirm, emit run_0014 unchanged.\n\n# Hyperparameters\n\n- Product fanouts: 1, 4, 8\n- Customer-exclusion buckets: 8\n- State cells: 4 recency × 3 activity\n- Raw-rate EB strength: 50\n- Product residual EB strength: 25\n- Decay half-life: 730 days\n- Graph LightGBM: 500 trees, learning rate 0.035, 63 leaves, minimum child 1,000, feature fraction 0.8, L2 8\n- FAISS: CPU `IndexIVFPQ`, `nlist=8192`, `m=8`, 8 bits, `nprobe=16`, retrieve 512, retain 100\n- Stack: nonnegative rank logistic, `C=0.05`\n- Bootstrap: 1,000 customer-clustered draws\n- Expected runtime: 2.5–4 hours, with a hard 90-minute kNN projection cap\n\n# Coverage\n\n- **Input graph — MEASURED:** The cache contains all 12,644,508 customer-review-product edges.\n- **Existing overlap — MEASURED:** Raw product label propagation and category/brand/product priors already exist; state-residualized, hash-excluded propagation is new.\n- **Sparse-history need — MEASURED:** No-prior-label and one-review slices score roughly 0.649 and 0.620.\n- **Repeated-customer risk — MEASURED:** Earlier-origin customer coverage rises from about 49% to 85% across folds; exact same-customer exclusion is mandatory.\n- **Prior graph evidence — MEASURED:** Live co-reviewer features hurt the main model, while a weak relational expert contributed only at a small blend weight.\n- **Runtime geometry — MEASURED:** Edge arrays and behavioral, product-text, and semantic seed vectors are cached; installed FAISS is CPU-only.\n- **Temporal safety — MEASURED:** Every source label enters only after its complete 91-day window, and every source/query product history stops at its own timestamp.\n- **Output register — MEASURED:** Both new chains and the fallback preserve original order and Model A/Model B separation.\n- **Metric mechanics — MEASURED:** All choices use forward origins and customer-clustered uncertainty rather than official validation.\n- **Sparse-slice transfer — ASSUMED:** Residual peer labels and semantic retrieval may improve weak slices enough to earn a small decorrelated ensemble weight.",
+      "base_commit": "e94a1f49d36a44915e87a730ea0ed0affe905357",
+      "head_commit": "4421f0a58034fb93ccffbead0a9095d4b920cdc7",
+      "code_head_commit": "4421f0a58034fb93ccffbead0a9095d4b920cdc7",
+      "solution_spec": "# Core Idea\n\nTrain a compact event-sequence survival model over each customer’s last 32 reviews. Combine raw event cadence, review/product text embeddings, product context, and long-history summary tokens. Predict five next-event intervals, using the probability of no event within 91 days as churn.\n\n# Why This Is Complementary\n\nThis preserves event order and interactions such as “negative review after a slowing cadence,” which scalar aggregation loses, while avoiding the 64-token transformer and pretraining schedule that made Candidate 1 too risky.\n\n# Implementation\n\n1. Read the living documents. Measure text lengths, sequence depths, duplicate timestamps, gap distributions, and the fraction of histories truncated by lengths 16/32/64.\n\n2. Sort reviews once by `(customer_id, review_time)` and build NumPy offsets. For every seed, binary-search the last event satisfying `review_time <= timestamp`; never materialize a 5M×32 Python-object table.\n\n3. Encode each distinct review once with ModernBERT using `summary + first 128 tokens of review_text`, reducing normalized embeddings to 64 dimensions. Encode product title/description to 32 dimensions. Cache FP16 arrays keyed by model revision and text hash.\n\n4. Execute the required local-LLM measurement before bulk training:\n\n   - Validate one Qwen response against a fixed integer schema.\n   - Score at least 25,000 fixed-hash review documents spanning the two latest internal train origins.\n   - Report an attributes-only forward-fold AUC and its paired delta when inserted into event marks.\n   - Cache all results; keep the block only if it improves the internal forward fold.\n\n5. Each of the last 32 event marks contains:\n\n   - Review embedding and product embedding.\n   - Rating, verified, price, category/brand buckets, and text missingness.\n   - Log age to cutoff, log gap to preceding event, same-day multiplicity, and product popularity known at the seed time.\n   - LLM attributes where measured, with explicit missing flags.\n\n6. Add five learned summary tokens representing 30/91/182/365-day and lifetime pools: counts, distinct products, mean gaps, ratings, verified share, active-window persistence, and exponentially weighted review embeddings. These retain long-range behavior beyond the 32-event truncation.\n\n7. Use a two-layer bidirectional-over-history GRU or dilated causal TCN. Since every event is in the past, attention within the past sequence is allowed; the cutoff token pools the final representation. Concatenate within-origin ranks for recency, depth, recent count, and overdue ratio.\n\n8. Reconstruct auxiliary labels from raw reviews only for allowed labeled rows: next review in `(0,7]`, `(7,30]`, `(30,60]`, `(60,91]`, or none within 91 days. Optimize five-class cross-entropy plus binary BCE. Model A reconstructs these targets only for train rows. Model B may additionally use validation outcomes.\n\n9. Train on the last eight train origins. Choose sequence length, GRU versus TCN, and epoch count on the 2015-04-02 and 2015-07-02 forward folds only. Report AUC by lifetime depth, recency, text presence, truncation, and rating extremity.\n\n10. Produce validation predictions with Model A, then refit Model B on train plus validation for test. Preserve Model A’s validation file before Model B training. Gate a 20–30% rank blend with a regularized logistic hazard head only if it improves both forward folds.\n\n11. Debug mode processes 50,000 train sequences and 5,000 rows from each prediction split, runs 32 real LLM documents and one optimizer epoch, then fills skipped rows with the prior.\n\n# Hyperparameters\n\n- Sequence length: 32 events plus five summary tokens.\n- Review/product embeddings: 64/32 dimensions.\n- GRU: two layers, hidden size 128, dropout 0.20; alternative TCN has six width-128 dilated blocks.\n- Batch size: 4,096; AdamW `lr=8e-4`, `weight_decay=2e-4`.\n- Epochs: maximum three, fixed from forward folds.\n- Binary auxiliary weight: 0.30.\n- Gradient clipping: 1.0.\n- Runtime target: text embeddings 120 minutes; index/sequence construction 35; folds 60; Model A 80; Model B 95; inference/checks 30; 60-minute reserve.\n\n# Coverage\n\n- **History — MEASURED:** median lifetime depth is six at both prediction origins, but the tail exceeds 4,500 reviews. Summary tokens cover the tail while explicit events serve the majority.\n- **Recency — MEASURED:** median recency changes from 37 validation days to 46 test days; absolute and normalized lags are explicit inputs.\n- **All tables — MEASURED:** customer seeds route through reviews to product attributes and content.\n- **Text — MEASURED:** review text/summary and product title/description exist. **ASSUMED:** ModernBERT embeddings outperform cheaper lexical marks for churn; gate this on forward folds.\n- **Auxiliary targets — MEASURED by label-query equivalence:** the fifth interval exactly equals churn. No auxiliary validation target enters Model A.\n- **Runtime — ASSUMED:** cached FP16 embedding throughput leaves sufficient training time; enforce a one-million-document throughput probe and fall back to summaries plus 64 body tokens if needed.\n- **Metric/output — MEASURED:** the fifth softmax probability is finite, bounded, scalar, and row-aligned.\n- **Temporal safety — MEASURED by binary-search assertions:** every sequence ends at or before its seed time; model fits obey the two-model contract.",
       "changed_files": [
         ".gitignore",
+        "MEASUREMENT_PROFILE.md",
         "PLAN.md",
         "changes.log",
-        "eval_profile.md",
         "main.py",
-        "residual_knn.py"
+        "sequence_data.py",
+        "sequence_model.py",
+        "text_features.py"
       ],
       "diff_numstat": [
         {
@@ -2239,29 +2307,39 @@
           "path": ".gitignore"
         },
         {
-          "added": "8",
-          "deleted": "8",
+          "added": "21",
+          "deleted": "0",
+          "path": "MEASUREMENT_PROFILE.md"
+        },
+        {
+          "added": "11",
+          "deleted": "0",
           "path": "PLAN.md"
         },
         {
-          "added": "8",
+          "added": "14",
           "deleted": "0",
           "path": "changes.log"
         },
         {
-          "added": "12",
-          "deleted": "0",
-          "path": "eval_profile.md"
-        },
-        {
-          "added": "5",
-          "deleted": "20",
+          "added": "199",
+          "deleted": "46",
           "path": "main.py"
         },
         {
-          "added": "1565",
+          "added": "382",
           "deleted": "0",
-          "path": "residual_knn.py"
+          "path": "sequence_data.py"
+        },
+        {
+          "added": "475",
+          "deleted": "0",
+          "path": "sequence_model.py"
+        },
+        {
+          "added": "551",
+          "deleted": "0",
+          "path": "text_features.py"
         }
       ],
       "run_result": {
@@ -2271,15 +2349,7 @@
         "error_details": "",
         "feedbacks": "",
         "ideation_repo_memory_sections_consulted": [],
-        "repo_memory_sections_consulted": [
-          "core.architecture",
-          "core.dependencies",
-          "core.entrypoints",
-          "core.gotchas",
-          "core.invariants",
-          "core.testing",
-          "core.where_to_edit"
-        ]
+        "repo_memory_sections_consulted": []
       }
     }
   ],
@@ -2287,6 +2357,6 @@
     "evidence_ok": true,
     "missing_evidence": [],
     "section_count": 7,
-    "claim_count": 27
+    "claim_count": 34
   }
 }

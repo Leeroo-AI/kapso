@@ -3,227 +3,70 @@
   "task": "user-churn",
   "family": "entity_binary_classification",
   "primary_metric": "roc_auc",
-  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 9add85ca136e)",
-  "run": "run_0025",
-  "head_evaluator_id": "9add85ca136eaad8140a8ae1343083ed7ac28eb557e9e8e2a30653c71ea1af8d",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 616552807e4a)",
+  "run": "run_0019",
+  "head_evaluator_id": "616552807e4a217c9a4250f555da3458ea11c20f560fd5ce85b9baf164675894",
   "scored": {
-    "run_0008": 0.71143453616493,
-    "run_0009": 0.7120386717424552,
-    "run_0012": 0.7119747179136553,
-    "run_0014": 0.7123846046555528,
-    "run_0015": 0.7123846046555528,
-    "run_0016": 0.7123846046555528,
-    "run_0017": 0.7124067197159354,
-    "run_0018": 0.7123846046555528,
-    "run_0022": 0.7121874661633709,
-    "run_0023": 0.7124982805486367,
-    "run_0024": 0.7125124101623446,
-    "run_0025": 0.7125548676135727
+    "run_0001": 0.7014834376964073,
+    "run_0002": 0.7054437025726736,
+    "run_0003": 0.7068018038295729,
+    "run_0010": 0.7101500279513163,
+    "run_0015": 0.7068018038295729,
+    "run_0018": 0.7077848218955414,
+    "run_0019": 0.7135699072436248,
+    "run_0020": 0.7135699072436248,
+    "run_0022": 0.7135699072436248
   },
   "excluded": {},
   "val_metrics": {
-    "average_precision": 0.7916087544134532,
-    "accuracy": 0.6335580001561768,
-    "f1": 0.6793025828524566,
-    "roc_auc": 0.7125548676135727
+    "average_precision": 0.7931185644266894,
+    "accuracy": 0.6379602334843042,
+    "f1": 0.6854485973976963,
+    "roc_auc": 0.7135699072436248
   },
   "test_metrics": {
-    "average_precision": 0.7685663842539594,
-    "accuracy": 0.6399647612146013,
-    "f1": 0.6747551505038187,
-    "roc_auc": 0.7143261711223059
+    "average_precision": 0.7677777885793965,
+    "accuracy": 0.6463929977123208,
+    "f1": 0.6845465054962885,
+    "roc_auc": 0.7155089625147266
   },
   "audit": {
     "clean": false,
     "findings": [
       {
-        "file": "champion_runner.py",
-        "line": 106,
+        "file": "residual_model.py",
+        "line": 144,
         "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
         "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "train_b = pd.concat([train_frame, val_for_b], ignore_index=True)"
+        "snippet": "intervals = np.concatenate(train_intervals)"
       },
       {
-        "file": "champion_runner.py",
-        "line": 107,
+        "file": "residual_model.py",
+        "line": 147,
         "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
         "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "y_b = np.concatenate([y_train, val_labels])"
+        "snippet": "base_intervals = np.concatenate(train_base_intervals)"
       },
       {
-        "file": "residual_knn.py",
-        "line": 104,
-        "pattern": "RELBENCH_CACHE_DIR",
-        "concern": "tampers with the data cache location",
-        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"tasks\" / os.environ[\"RELBENCH_TASK\"]"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 320,
-        "pattern": "RELBENCH_CACHE_DIR",
-        "concern": "tampers with the data cache location",
-        "snippet": "product = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\" / \"product.parquet\""
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1178,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "customer=np.concatenate([train.customer, val.customer]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1179,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "origin=np.concatenate([train.origin, np.full(len(val.customer), 31, dtype=np.int16)]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1180,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "day=np.concatenate([train.day, val.day]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1181,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "label=np.concatenate([train.label, val.label]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1182,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "base=np.concatenate([train.base, val.base]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1183,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "recency=np.concatenate([train.recency, val.recency]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1184,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "activity=np.concatenate([train.activity, val.activity]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1185,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "own_rate=np.concatenate([train.own_rate, val.own_rate]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1186,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "product_text=np.concatenate([np.asarray(train.product_text), np.asarray(val.product_text)]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1187,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "semantic=np.concatenate([np.asarray(train.semantic), np.asarray(val.semantic)]),"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1388,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "development_baseline = np.concatenate([rank_values(run14[train.origin == fold]) for fold in (20, 24)])"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1450,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "x_b = np.concatenate([x_train, x_val], axis=0)"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1451,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "y_b = np.concatenate([train.label, val.label])"
-      },
-      {
-        "file": "residual_knn.py",
-        "line": 1452,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "origin_b = np.concatenate([train.origin, np.full(len(val.label), 31, dtype=np.int16)])"
-      },
-      {
-        "file": "semantic_champion.py",
-        "line": 208,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "train_b = pd.concat([train, val_for_b], ignore_index=True)"
-      },
-      {
-        "file": "semantic_champion.py",
-        "line": 209,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "y_b = np.concatenate([y_train, val_y])"
-      },
-      {
-        "file": "temporal_transformer.py",
-        "line": 51,
+        "file": "sequence_data.py",
+        "line": 26,
         "pattern": "RELBENCH_CACHE_DIR",
         "concern": "tampers with the data cache location",
         "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
       },
       {
-        "file": "temporal_transformer.py",
-        "line": 1279,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "return {name: np.concatenate([np.asarray(train[name]), np.asarray(val[name])], axis=0) for name in names}"
-      },
-      {
-        "file": "transition_specialist.py",
-        "line": 56,
+        "file": "survival_data.py",
+        "line": 323,
         "pattern": "RELBENCH_CACHE_DIR",
         "concern": "tampers with the data cache location",
-        "snippet": "return Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"tasks\" / os.environ[\"RELBENCH_TASK\"]"
-      },
-      {
-        "file": "transition_specialist.py",
-        "line": 1022,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "x_b = np.concatenate([x_train, x_val], axis=0)"
-      },
-      {
-        "file": "transition_specialist.py",
-        "line": 1023,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "y_b = np.concatenate([labels[train_rows], val_labels[val_rows]])"
-      },
-      {
-        "file": "transition_specialist.py",
-        "line": 1024,
-        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
-        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "origin_b = np.concatenate([train[\"origin\"][train_rows], np.full(len(val_rows), 31, dtype=np.int16)])"
+        "snippet": "source = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"] / \"db\" / \"customer.parquet\""
       }
     ],
     "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
   },
-  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0025/code",
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0019/code",
   "predictions": {
-    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0025/val_predictions.npy",
-    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0025/test_predictions.npy"
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0019/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--user-churn/runs/run_0019/test_predictions.npy"
   }
 }

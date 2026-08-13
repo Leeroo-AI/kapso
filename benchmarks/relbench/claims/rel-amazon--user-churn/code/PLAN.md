@@ -1,12 +1,13 @@
-CRITICAL PATH: chronological transition-state and mature-residual feature matrices; target at least 1,000,000 seed rows/minute after the first compiled cutoff.
-CONFIRMATION POINTS: exact run_0019 bank/hash check, transition-state coverage audit, origins 25/27/28 development gate, one untouched origin-29 clustered confirmation, prediction contract check.
-FREEZE TIME: minute 135 of the 160-minute implementation window; reserve 25 minutes for Model A/B finalization, registered evaluation, and handoff.
+Critical-path artifact: coalesced-event likelihood trajectory; target at least 25,000 completed transitions/s on the assigned GPU, with the cached 11.8M-document ModernBERT marks reused.
+Confirmation points: 100,000-transition runtime probe, four leakage-safe forward origins, residual stage gates, debug contract run, full registered evaluation.
+Freeze time: begin final Model A/B inference by minute 210 and preserve the final 35 minutes for contract checks, archiving, and the foreground registered evaluation.
 
-# Plan
+Completed: the review cache sustained 2,042.3 documents/s, all confirmation points passed, and registered run_0003 completed at 18:00 UTC with exact archive rescore agreement.
 
-1. Preserve the exact `full_candidate2` floor from shared-lock run_0019 and record the immutable hashes.
-2. Materialize causal last/previous-distinct product, category-level-2, brand, gap, review-count, active-day, raw-frequency, fanout, popularity, and surprise features.
-3. Sweep origins chronologically, admitting labels only after 91-day maturity; residualize against recency by tenure by activity state and build six empirical-Bayes transition channels plus 16-dimensional forward/reverse CountSketch channels.
-4. Fit the fixed regularized activity-one LightGBM specialist on the compact champion lineage plus transition features; require positive overall and activity-one movement on origins 25, 27, and 28.
-5. Freeze and confirm once on origin 29 with customer-clustered uncertainty and slice-reversal gates, then construct legal Model A/Model B routed predictions or return the exact banked floor.
-6. Validate full-shape finite probabilities, run the immutable registered evaluator once after freeze, and persist measured slice, runtime, and cache diagnostics.
+Completed conditional-survival iteration: 9,277,863 coalesced events were built at 167,303 events/s. The initial 128-event probe varied from 18,965 to 26,470 transitions/s under concurrent lane load, so the prescribed fallback selected one likelihood pass and 64-event explicit segments; steady chronological passes then processed 109,000-157,000 completed transitions/s. Four forward origins selected the latent/community residual and batch 1,024; final Model A/B inference began at elapsed minute 4.46 and run_0013 archived at 6.05 minutes with validation ROC AUC 0.7009088638.
+
+1. Persist the measured input and evaluator profile without altering the protected evaluator tree.
+2. Build sorted temporal indices, content embeddings, and the fixed-hash Qwen attribute panel in the shared cache.
+3. Build censored 32-event sequences, five summary tokens, rank features, auxiliary interval targets, and the GRU plus hazard gate.
+4. Run internal forward folds, train Model A and Model B under the two-model contract, and emit predictions.
+5. Run the debug gate and the full registered evaluation, then record slice diagnostics and artifacts.
