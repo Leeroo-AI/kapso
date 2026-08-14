@@ -630,6 +630,66 @@ Config (Rule 1): `learning.trajectory_store: {remote, local}` — reusing the
 existing artifacts bucket layout. No remote configured → the store is the local
 directory and everything still resolves (local-only users).
 
+#### 3.4.1 The mined view — the campaign's story, reassembled
+
+Mining's output is a **derived OKF bundle inside the trajectory** at
+`<trajectory_id>/mined/` — regenerable, marked derived in the manifest. Three
+decisions define it:
+
+1. **One format everywhere.** The mined view uses the same convention as the bank:
+   markdown with frontmatter, prose-first, `index.md` progressive disclosure, path
+   as identity, the same referencing language. Raw trajectory → mined view → bank is
+   one reading and writing skill; the bank's extractor machinery applies unchanged.
+2. **A flow document's sections ARE the evolve stages.** The campaign's causal unit
+   is the **idea flow** — idea → selection → implementation (possibly drifted) →
+   evaluation → judgment — and each flow doc carries exactly those sections, plus
+   Difficulties. **Status is emergent**: a flow that died early simply has fewer
+   sections (a derived frontmatter tag names it: `ideated | selected-unbuilt |
+   build-failed | evaluated | judged | champion`). Rejected-at-ideation flows are
+   kept — the selector's stated reason plus the untried frontier are real value.
+3. **In-bundle home → citable refs.** Mined flow docs are ordinary bundle paths, so
+   card evidence can cite them directly (`ref: mined/it-2/flow-3.md#evaluation`) —
+   assembled, readable evidence refs with the raw artifacts one hop beneath.
+
+```
+<trajectory_id>/mined/
+├── index.md              # the campaign: objective, outcome, iterations as hero lines
+├── it-1/
+│   ├── index.md          # the round: lens in force (+ replan rationale), parent,
+│   │                     # flows as hero lines, round winner
+│   ├── flow-1.md         # one file per idea flow
+│   └── flow-2.md
+├── it-2/…
+├── strategy.md           # cross-flow: lens history as belief → evidence → re-aim
+├── operations.md         # cross-flow: kills, crashes, harness incidents
+└── artifacts.md          # cross-flow: what was built into the shared space
+```
+
+Flow doc anatomy — frontmatter holds only what code parses (flow id, iteration,
+member/lens, derived status, node/branch/run ids, scores, validity, refs into raw);
+the body is the loop: `## Idea` (verbatim, as authored) · `## Selection` (outcome +
+the selector's words about this idea) · `## Implementation` (what was actually
+built, and the **drift note** — build-vs-idea fidelity, deviations, why) ·
+`## Evaluation` (the run sequence with scores; the internal story for multi-run
+flows) · `## Judgment` (the judge's verdict, verbatim) · `## Difficulties` (the
+implementor's report, verbatim).
+
+The byproduct question resolves by **grain, not kind**: per-flow byproducts fold
+into their flow (Difficulties is a section); only genuinely cross-flow channels get
+their own campaign-grain documents (strategy, operations, artifacts).
+
+Policies: **verbatim by default** — idea, selector reason, judgment, difficulties
+are authored one-shot artifacts carried whole (these docs are the substrate future
+evidence cites; condensation lives only in index hero lines); **drift is the only
+synthesized content** in the entire mined view — everything else is reassembly —
+which keeps the *push-authorship-upstream* principle alive: whenever mining needs
+intelligence, that is a signal the campaign should author it natively (an
+`idea_fidelity` field in the implementor's closing report would make future mined
+views fully reassembled). Bundle-contract addition this design surfaces: the
+**ideation candidate pool and the selector's reasoning must be archived** — today
+the selector runs in a temporary worktree and its artifacts die, making
+rejected-at-ideation flows unrecoverable.
+
 ## 4. The trajectory learner
 
 An evolve-shaped agentic pipeline: deterministic orchestrator (`TrajectoryLearner`)
