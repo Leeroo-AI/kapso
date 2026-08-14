@@ -14,15 +14,16 @@ single largest banked gain of the campaign; user-badge 89.5; amazon/user-churn
 71.43).
 
 The board ranks **31 tasks in three independent categories**; this document covers
-the two the request asked for — Classification (12 tasks) and Regression (9).
-Recommendation (10) is omitted.
+all three — Classification (12 tasks), Regression (9), and Recommendation (10).
 
 **Headline:** Kapso ranks **1 of 28** on classification (mean AUROC 81.19,
-passing KumoRFM-ft's 81.1) and **4 of 26** on regression (mean NMAE 0.2608),
-beating the single best published number on **2/12** classification and
-**6/9** regression tasks. The #1 was sealed 2026-08-14 by study-outcome 82.08
-(K=2 champion-seeded re-run: registry snapshot-direct funnel over a
-judgment-ensemble fallback).
+passing KumoRFM-ft's 81.1), **4 of 26** on regression (mean NMAE 0.2608),
+and **1 of 8** on recommendation (mean MAP@10 18.8 vs ID-GNN-4L's 14.0),
+beating the single best published number on **2/12** classification,
+**6/9** regression, and **8/10** recommendation tasks. The classification
+#1 was sealed 2026-08-14 by study-outcome 82.08 (K=2 champion-seeded
+re-run: registry snapshot-direct funnel over a judgment-ensemble
+fallback).
 
 ---
 
@@ -126,6 +127,43 @@ judgment-ensemble fallback).
 | rel-stack/post-votes | 0.1215 | Rel-LLM (Llama-3.2-1B + GNN soft prompts, fine-tuned) | **0.122** | +0.0005  |
 | rel-trial/study-adverse | 0.1097 | RelAgent (GPT-5.2 agent) | **0.0872** | -0.0225 ✅ |
 | rel-trial/site-success | 0.5519 | RT (pretrained + fine-tuned) | **0.778** | +0.226  |
+
+---
+
+## 3. Recommendation
+
+### Recommendation — test MAP@10 (%), higher is better
+
+Published rows transcribed from the static board table (the board's
+recommendation category carries only these methods; ContextGNN and
+KumoRFM-ft recommendation numbers exist per-task in papers and appear
+in the best-known column below). Kapso cells from `RESULTS.md`.
+
+| # | Method | Regime | Mean | amazon/user-item-purchase | amazon/user-item-rate | amazon/user-item-review | avito/user-ad-visit | f1/driver-circuit-compete | hm/user-item-purchase | stack/user-post-comment | stack/post-post-related | trial/condition-sponsor-run | trial/site-sponsor-run |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | **Kapso (this work)** | agent | **18.8** | 2.54 | 2.31 | 2.95 | 4.2 | 87.9 | 3.26 | 13.1 | 26.1 | 12.3 | 33.3 |
+| 2 | ID-GNN (4 layers) | task-specific | 14.0 | 0.1 | 0.1 | 0.1 | 3.9 | 76.2 | 2.9 | 13.8 | 12.5 | 11.3 | 19.0 |
+| 3 | ID-GNN (2 layers) | task-specific | 12.3 | 0.1 | 0.1 | 0.1 | 3.6 | 62.3 | 2.8 | 12.7 | 10.7 | 11.4 | 19.0 |
+| 4 | LightGBM (entity features + heuristic ranks) | task-specific | 7.3 | 0.1 | 0.2 | 0.1 | 0.1 | 57.8 | 0.4 | 0.0 | 1.9 | 4.5 | 8.2 |
+| 5 | Global Popularity | task-specific | 5.9 | 0.2 | 0.1 | 0.1 | 0.0 | 50.1 | 0.3 | 0.0 | 1.5 | 2.5 | 3.8 |
+| 6 | Past Visit | task-specific | 5.3 | 0.1 | 0.1 | 0.0 | 1.9 | 20.8 | 0.9 | 1.4 | 1.7 | 8.4 | 17.3 |
+| 7 | GraphSAGE (two-tower, 4 layers) | task-specific | 3.4 | 0.9 | 1.0 | 0.6 | 0.1 | 16.6 | 0.7 | 0.2 | 0.1 | 2.7 | 11.1 |
+| 8 | GraphSAGE (two-tower, 2 layers) | task-specific | 2.6 | 0.7 | 0.8 | 0.5 | 0.0 | 9.7 | 0.8 | 0.2 | 0.0 | 3.1 | 10.4 |
+
+### Per-task vs the best published result (board ∪ papers)
+
+| Task | Best published | Method | Kapso | Δ |
+|---|---|---|---|---|
+| rel-amazon/user-item-purchase | 2.93 | ContextGNN / KumoRFM-ft | **2.54** | -0.39  |
+| rel-amazon/user-item-rate | 2.25 | ContextGNN / KumoRFM-ft | **2.31** | +0.06 ✅ |
+| rel-amazon/user-item-review | 1.63 | ContextGNN / KumoRFM-ft | **2.95** | +1.32 ✅ |
+| rel-avito/user-ad-visit | 4.17 | KumoRFM-ft | **4.2** | +0.03 ✅ |
+| rel-f1/driver-circuit-compete | 76.2 | ID-GNN (4 layers) | **87.9** | +11.7 ✅ |
+| rel-hm/user-item-purchase | 3.14 | KumoRFM-ft | **3.26** | +0.12 ✅ |
+| rel-stack/user-post-comment | 14.0 | RelGNN | **13.1** | -0.9  |
+| rel-stack/post-post-related | 12.5 | ID-GNN (4 layers) | **26.1** | +13.6 ✅ |
+| rel-trial/condition-sponsor-run | 11.7 | ContextGNN / KumoRFM-ft | **12.3** | +0.6 ✅ |
+| rel-trial/site-sponsor-run | 28.0 | ContextGNN / KumoRFM-ft | **33.3** | +5.3 ✅ |
 
 ---
 
