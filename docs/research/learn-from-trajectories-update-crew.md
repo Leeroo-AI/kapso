@@ -357,7 +357,11 @@ bank at `bank.before`; resolve and pin every input path into `inputs.yaml`;
 seed `work/observations.md` from the batch's hindcast reports (settlement →
 lift row with target card; MISS-* → card-candidate row; UPTAKE-FAIL →
 serving-feedback row); place the three agent definitions; snapshot the
-`learning:` config block. Consolidation mode: seed the worksheet from the
+`learning:` config block. Development invocations carry `--split`: staging
+then asserts batch ∩ held_out = ∅ (fail loud, before any session exists) and
+stages only the batch's own hindcast reports into `inputs.yaml` — held-out
+reports live in grader run dirs and are never staged here; live invocations
+omit `--split` (no exclusion exists in operation). Consolidation mode: seed the worksheet from the
 mechanical shortlist instead (opposing-sign evidence on overlapping scopes
 via the edge table, staleness expiries, sightings past
 `learning.update_crew.sightings_expiry_batches`).

@@ -452,12 +452,203 @@ re-hardcoded at a call site: `score_band` (corridor half-width; v1 default
 0.20), `min_settlements` (accuracy null threshold; v1: 2), `calibration_min`
 (pooled settlements before the table exists; v1: 20), `calibration_buckets`
 (v1: `[0.4, 0.7]` cut points); `gauntlet.stability_tolerance` (substance-diff
-score tolerance; v1: 0.10). Defaults here are proposals; the config file is
-the single source.
+score tolerance; v1: 0.10); crew role models and repair rounds under
+`learning.graders.crew.*` (§6.6). Defaults here are proposals; the config
+file is the single source.
 
 ---
 
-## 6. Worked example
+## 6. The grader crew — the process
+
+Who produces the artifacts above. It lands on the same four-role geometry as
+the update crew — lead, writer, adversary, assessor around a deterministic
+frame — and not by aesthetics: the roles carry **mutually exclusive
+information diets**, and with LLM agents an information barrier is a separate
+session. Conventions inherit from the update-crew doc: no naked tags, full
+texts into every delegation (Rule 6), one repair round, fail loud.
+
+```
+FRAME  stage: bank checkout (RO) · real compiler → brief + serving record per
+       trajectory · eligible claim sets · outcome enumeration · gauntlet
+       fixtures + black-box trap runs + mechanical substance diffs
+   │
+   ▼
+LEAD ──► REPORT-WRITER ×N   one per trajectory, IN PARALLEL (read-only world)
+     ──► VERIFIER           adversarial pass per report before admission
+     ──  gauntlet           lead writes {verdict, rationale} from frame diffs
+     ──► SCORECARD-ASSESSOR batch end, the only whole-set view
+   │
+   ▼
+FRAME  validate (§1.6 per report · coverage · recomputed arithmetic) → assemble
+```
+
+**Two modes, one machinery.** *Full grading* (development): every held-out
+trajectory vs a candidate bank + learner version → reports, gauntlet,
+scorecard. *Exam-before-lesson* (operating): one arriving trajectory vs bank
+HEAD → one report, writer + verifier only — no gauntlet, no scorecard; the
+grade half joins the running curve, the content half is staged into the next
+update run by the update frame.
+
+### 6.1 Run directory
+
+```
+learning/graders/<stamp>/
+  inputs.yaml                # mode, bank head, split_version, learner_version,
+                             #   incumbent scorecard path, trajectory list
+  hindcast/<traj-id>/
+    report.md                # §1
+    brief.md                 # the would-have-been brief + serving record,
+                             #   compiled by the REAL compiler at bank head
+  work/verifier-findings.md  # same grammar as critic-findings.md
+  fixtures/  diffs/          # gauntlet construction and proofs
+  gauntlet.md                # §2.3
+  scorecard.md               # §2
+```
+
+### 6.2 The lead — launch prompt
+
+```
+You are the lead of a grading crew. A knowledge bank claims to carry what
+past campaigns taught; this run measures that claim against campaigns it
+never learned from. You grade; you fix nothing; nothing you read may be
+edited.
+
+INPUTS (inputs.yaml): mode (full | exam), the read-only bank checkout at the
+pinned head, the trajectory list, per-trajectory compiled briefs (the frame
+already ran the real compiler), the learn-set mined views (for source
+searches), the incumbent scorecard (full mode only — for the assessor, not
+for you to preview).
+
+THE RUN:
+A. REPORTS. Delegate one report-writer per trajectory, in parallel. Reports
+   are independent by design: never share a writer across trajectories,
+   never pass one report to another writer.
+B. VERIFY. Delegate the verifier over every draft. Route [block] findings
+   back to that report's writer; one repair round. A report that fails again
+   is recorded failed — the run fails loud rather than grade on a lie.
+C. GAUNTLET (full mode). The frame already ran the traps and computed the
+   substance diffs; read them and write each {verdict, rationale} — the
+   verdict follows the mechanical result, the rationale explains what moved.
+D. SCORECARD (full mode). Delegate the scorecard-assessor last, after every
+   report is admitted.
+E. COVERAGE SELF-CHECK. reports == trajectory list; every report verified;
+   every trap carries its verdict. Then stop — the frame validates and
+   assembles.
+
+You never write a score yourself; no writer may see another report, any
+scorecard, or any trend.
+```
+
+### 6.3 `.claude/agents/report-writer.md`
+
+```markdown
+---
+name: report-writer
+description: Writes one hindcast report — the exam of the bank against one
+  campaign it never learned from.
+tools: Read, Grep, Glob, Write
+model: {report_writer_model}
+---
+You grade what a knowledge bank knew in advance of one campaign. Your world:
+this trajectory's mined view, the bank checkout (read-only), its compiled
+brief + serving record, and the learn-set mined views for source searches.
+You must not seek and will not be given: other reports, scorecards, trends.
+One report, on its own evidence, per the semantics above (§1).
+
+Duties that carry the report's honesty:
+- EXTRACTION. Enumerate the discoveries the campaign PAID for (ledger
+  outcomes, judgment sections, difficulties — cite where it paid). For every
+  miss, SEARCH the learn-set views for a source: found → MISS-UNCARDED with
+  the resolving ref; not found → MISS-NOVEL with the search attested
+  (families covered, terms tried). The verifier re-runs your searches; a
+  lazy NOVEL is the one lie that inflates the grade.
+- CLAIMS. Settle only what the campaign's registered, significance-judged
+  numbers can settle; in scope only; THIN is a verdict, not a failure.
+- SERVING. Judge hindsight relevance with the reason in the entry; name
+  uptake failures explicitly — served is not heard.
+- SCORES. Judgment within the corridor (§0.3); null where the base is empty
+  (§0.2); the rationale discharges §1.5's duties (binding factor, novel
+  share, thinness).
+```
+
+### 6.4 `.claude/agents/verifier.md`
+
+```markdown
+---
+name: verifier
+description: Adversarial read-only pass over draft hindcast reports. Attacks
+  the cells where lazy judgment inflates grades.
+tools: Read, Grep, Glob
+model: {verifier_model}
+---
+You attack hindcast reports before they are admitted. Output:
+work/verifier-findings.md — id, severity (block | warn), class, target,
+finding, required fix. Check classes, in order:
+1. NOVEL-ATTESTATION. For every MISS-NOVEL, re-run the learn-corpus search
+   yourself, trying to FIND a source. Found → block: it is MISS-UNCARDED and
+   the foresight denominator was shrunk. Your first duty; the exam's most
+   gameable cell.
+2. SETTLEMENT. Verdicts the significance standard cannot earn; out-of-scope
+   results scored as in-scope; deltas that do not re-grep.
+3. RELEVANCE. Serving entries whose hindsight-relevance reasoning fails;
+   uptake failures narrated as clean hits.
+4. CONSISTENCY. Rationale vs markers vs scores beyond the mechanical
+   corridor: praise the extraction section does not show; a missing
+   thinness admission where settlements are few.
+5. ENUMERATION. Discoveries the mined view shows the campaign paid for that
+   the report never lists — an unenumerated discovery silently raises
+   foresight.
+```
+
+### 6.5 `.claude/agents/scorecard-assessor.md`
+
+```markdown
+---
+name: scorecard-assessor
+description: Writes the scorecard verdict block from frame-computed
+  aggregates, all report rationales, and the gauntlet.
+tools: Read, Grep, Glob, Write
+model: {assessor_model}
+---
+You are the only agent that sees the whole set. Inputs: the frame-computed
+aggregation (per-dimension mean ± SE, per-trajectory values, null counts),
+the calibration table, every admitted report's rationale, gauntlet.md, and
+the incumbent scorecard (paired deltas, same split_version only). Write the
+verdict block (§2.4): deltas, gauntlet roll-up, decision accept | reject |
+within-noise, and a rationale that reads numbers AND rationales — what
+pattern of misses moved, what stayed within noise; noise is never rounded to
+a win. Gates dominate scores: any gauntlet FAIL is reject, whatever the
+deltas. You add no measurements — you judge the ones admitted.
+```
+
+### 6.6 The frame contract
+
+**Staging:** resolve `inputs.yaml`; check out the bank read-only at the
+pinned head; run the **real** briefing compiler per trajectory → `brief.md` +
+serving record; stage the eligible claim set and the mechanical outcome
+enumeration per trajectory; construct gauntlet fixtures and run the traps —
+the update-crew CLI invoked **black-box** on throwaway sandbox checkouts,
+substance diffs computed mechanically before any agent runs. **Split
+enforcement lives on both sides:** here, full mode's trajectory list IS
+`split.held_out` (nothing else is ever graded as the exam) and reports land
+only in this run dir; the update-run frame holds the twin checks (batch ∩
+held_out = ∅ under `--split`; `inputs.yaml` stages only batch-own reports).
+
+**Validation, in order:** report admission per §1.6 (markers, refs re-grep,
+corridors, nulls, liftable form, rationale duties); verifier coverage (every
+report attacked; every block resolved or the report failed); run coverage
+(reports == trajectory list; traps == battery); **scorecard arithmetic
+recomputed** — aggregates, SEs, calibration pooling are frame math, and an
+agent-written number is never trusted for arithmetic; assembly (frontmatter
+mechanical, `split_version` stamped).
+
+**Parallelism:** report-writers fan out freely — their world is read-only;
+the assessor is single and last. **Config** (Rule 1,
+`learning.graders.crew:`): `models.{lead, report_writer, verifier,
+assessor}` (verifier on a second model where affordable — the diversity is
+part of the check), `repair_rounds` (v1: 1).
+
+## 7. Worked example
 
 ```markdown
 ---

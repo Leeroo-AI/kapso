@@ -1041,7 +1041,10 @@ marker vocabulary, corridors, anchors and null rules, the scorecard roll-up
 (paired deltas ± SE on the shared held-out set, the calibration table, the
 verdict block), the gates-dominate-scores contract and minimal two-trap gauntlet
 (duplicate, stability — verdict + rationale, never naked tags), the split
-manifest with its rotation discipline, and the settlement→evidence lift.
+manifest with its rotation discipline, the settlement→evidence lift, and the
+grader crew's process — lead, parallel history-blind report-writers, the
+adversarial verifier (NOVEL re-search as its first duty), the
+scorecard-assessor.
 
 **The curve never stops.** Exam-before-lesson (§4.1) makes every live trajectory
 a fresh rung-2 point before it is ingested, so the scorecard is a running series
