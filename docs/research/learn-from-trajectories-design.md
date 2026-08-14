@@ -187,8 +187,11 @@ kapso-bank-relbench/                # standalone private repo — the OKF bundle
   insights/<slug>.md                # insight cards
   insights/index.md
   procedures/<slug>/card.md         # ALL of a procedure's metadata + its method body
-  procedures/<slug>/<entrypoint>.py #   code — present once representation reaches `code`
-  procedures/<slug>/replay_test.py  #   fixture setup + entrypoint run + expected-metric assert
+  procedures/<slug>/code/           #   code — present once representation reaches `code`;
+                                    #   this whole dir (with card.md) is what gets staged
+  procedures/<slug>/replay/         #   frame-only verification: fixture setup + entrypoint
+                                    #   run + expected-metric assert; NEVER staged into
+                                    #   campaigns (needs archive access; runs learner-side)
   procedures/index.md
   reference/...                     # optional mounted OKF concepts — never scored
   retired/...                       # moved, never deleted; history intact
@@ -332,7 +335,7 @@ probe: >-                        # optional: how a future campaign can test this
   Ablate within-group companions of the top-5 features on one forward fold.
 # --- procedure cards additionally (representation: code only) ---
 # representation: text | code
-# entrypoint: run_forward_gate.py
+# entrypoint: run_forward_gate.py     (resolved inside the procedure's code/ dir)
 # preconditions: {task_families: […], requires: [features parquet, ≥2 origins]}
 # replay: {archived_run: runs/run_0019, expected_metric: …, last_replayed: …}
 ```
@@ -531,10 +534,12 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   gbrain's `--explain` applied to injection) so every brief is auditable and
   attribution later binds to exactly what was served — the serving record is the
   ground truth the usage-consistency check runs against (§5.2).
-- **Code-representation procedures** stage into the shared artifact workspace (`shared_cache/procedures/…`)
-  with the registry entry and a provenance README — "verified exemplars: adapt or
-  invoke; replay-tested against <run>". (Callable-tool wiring, ASI's +3.7 injection-site
-  result, is a v2 upgrade; staged-and-registered is v1.)
+- **Code-representation procedures** stage into the shared artifact workspace
+  (`shared_cache/procedures/<slug>@v<N>/`, version-pinned) as `card.md` + `code/`, plus
+  the registry entry and a provenance README — "verified exemplars: adapt or invoke;
+  replay-tested against <run>". `replay/` never stages: verification is frame-side and
+  archive-adjacent. (Callable-tool wiring, ASI's +3.7 injection-site result, is a v2
+  upgrade; staged-and-registered is v1.)
 - **The citation contract**: ideation/implementation prompts gain one paragraph — a spec
   that uses a card cites `[card:<id>]`; the feedback judge's verdict template gains a
   `cards_load_bearing` field. This is the attribution substrate, and it is honest about
