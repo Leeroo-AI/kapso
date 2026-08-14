@@ -1,0 +1,85 @@
+{
+  "debug": true,
+  "extraction": {
+    "official_2018": {
+      "cache_hit": false,
+      "hosted": {
+        "cache_hits": 17,
+        "calls": 0,
+        "failures": 0,
+        "model": "gpt-5.4-mini-2026-03-17",
+        "probe_passed": true,
+        "prompt_version": "primary-result-adjudication-v3",
+        "usable_rows": 6
+      },
+      "origin": "2018-01-01",
+      "payloads": {
+        "abstract_fallback_records": 14,
+        "admissible_records": 16,
+        "cached_xml_records": 2,
+        "payload_windows": 17,
+        "safe_full_text_records": 2,
+        "workers": 4
+      },
+      "retrieval": {
+        "admissible_records": 2173,
+        "complete_date_share": 0.9687643546164446,
+        "coverage": 0.41903827281648676,
+        "date_policy": "accept a complete electronic/first-publication date only when strictly earlier than origin; year-only dates only when year is strictly earlier than origin year",
+        "elapsed_seconds": 800.8319261074066,
+        "linked_rows": 1019,
+        "origin": "2018-01-01",
+        "parsed_cache_hit": true,
+        "preprints": 0,
+        "queried_trials": 1019,
+        "records": 2177,
+        "result_reference_records": 124,
+        "retrieval_version": "literature-retrieval-v3",
+        "retrieved_at": "2026-08-14T04:21:32Z",
+        "sources": {
+          "aact_result_references": {
+            "cache_hits": 4,
+            "calls": 0,
+            "pmids": 125
+          },
+          "europe_pmc": {
+            "cache_hits": 131,
+            "calls": 3185,
+            "query_templates": [
+              "ACCESSION_ID:<NCT> AND pre-origin FIRST_PDATE",
+              "quoted field-free <NCT> AND pre-origin FIRST_PDATE",
+              "SRC:PPR AND quoted <NCT> with a complete pre-origin version date"
+            ],
+            "workers": 5
+          },
+          "pubmed": {
+            "batch_size": 40,
+            "cache_hits": 86,
+            "calls": 0,
+            "query_templates": [
+              "(<NCT>[si] OR ...) AND pre-origin pdat",
+              "(<NCT>[tiab] OR ...) AND pre-origin pdat"
+            ]
+          }
+        },
+        "trials_per_minute": 76.3456074606902,
+        "trials_with_admissible_evidence": 427
+      },
+      "split": "official_2018",
+      "uncapped_candidates": 17
+    }
+  },
+  "probe": {
+    "calls": 1,
+    "model": "gpt-5.4-mini-2026-03-17",
+    "prompt_version": "primary-result-adjudication-v3",
+    "results": [
+      {
+        "insufficient_evidence": false,
+        "payload_type": "abstract",
+        "report_type": "primary-results",
+        "trial_identity": "exact"
+      }
+    ]
+  }
+}

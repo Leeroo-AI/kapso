@@ -1,7 +1,0 @@
-{
-  "debug": true,
-  "publication_cache": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/shared_cache/predictions/generic_exp_4_publication_evidence_v2.npz",
-  "test_prediction_label_fit": "banked_run_0009_plus_cached_publication_routing_smoke",
-  "validation_checksum": "1b5dced2576fdf7befa211335499a16b34bf0bfbb44201b9efcf47d4f06f698e",
-  "validation_prediction_label_fit": "banked_run_0009_plus_cached_publication_routing_smoke"
-}

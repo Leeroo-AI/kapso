@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import time
+import zipfile
 from pathlib import Path
 
 import pyarrow as pa
@@ -21,6 +22,15 @@ SNAPSHOT_URLS = {
     "2018-12-01": "https://aact.ctti-clinicaltrials.org/static/static_db_copies/daily/2018-12-01?source=web",
     "2019-12-01": "https://aact.ctti-clinicaltrials.org/static/static_db_copies/daily/2019-12-01?source=web",
     "2020-12-01": "https://aact.ctti-clinicaltrials.org/static/static_db_copies/daily/2020-12-01?source=web",
+}
+
+SNAPSHOT_SHA256 = {
+    "2017-06-13": "6dff60cfe80684157c2c072238945851c8cfb3f29e4a0a07c1d893c26353969c",
+    "2017-12-17": "866a9d38df183788fb20db57bae0ddef83c2963a7bf95b2fd15011189af9a42b",
+    "2018-06-01": "f13182b5a8cb42c3e8700dbd8d1e7f59e1b33e0c07c14b896f623ad402523d69",
+    "2018-12-01": "8590ca2c0767957b2fc7b1bf8283c18891aa15ef7288c62cf54755ca153a2212",
+    "2019-12-01": "c56c06707fa77786229f3c745771bbc747ba304a32601085988bedb9c5442909",
+    "2020-12-01": "d44da0ac916022efb876089dc7e8a7bb698e8d0db72211be184bc90426868405",
 }
 
 TABLE_COLUMNS = {
@@ -204,3 +214,63 @@ def project_snapshot(dump_path: Path, snapshot_date: str, output_root: Path) -> 
     temporary_metadata.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
     os.replace(temporary_metadata, metadata_path)
     return metadata
+
+
+# Snapshot materialization
+
+def ensure_snapshots(output_root: Path, download_root: Path) -> dict[str, object]:
+    output_root.mkdir(parents=True, exist_ok=True)
+    download_root.mkdir(parents=True, exist_ok=True)
+    diagnostics = {}
+    for snapshot_date, url in SNAPSHOT_URLS.items():
+        destination = output_root / snapshot_date
+        metadata_path = destination / "metadata.json"
+        if metadata_path.exists():
+            metadata = json.loads(metadata_path.read_text())
+            if metadata.get("archive_sha256") == SNAPSHOT_SHA256[snapshot_date] and metadata.get("parser_version") == PARSER_VERSION:
+                diagnostics[snapshot_date] = {"state": "projected_cache", "sha256": metadata["archive_sha256"]}
+                continue
+        dump_path = download_root / f"{snapshot_date}.dmp"
+        current_hash = file_sha256(dump_path) if dump_path.exists() else ""
+        if current_hash != SNAPSHOT_SHA256[snapshot_date]:
+            if dump_path.exists() and dump_path.stat().st_size > 0:
+                command = ["curl", "--location", "--silent", "--show-error", "--fail", "--retry", "6", "--continue-at", "-", "--output", str(dump_path), url]
+            else:
+                command = ["curl", "--location", "--silent", "--show-error", "--fail", "--retry", "6", "--output", str(dump_path), url]
+            completed = subprocess.run(command, capture_output=True, text=True)
+            if completed.returncode != 0:
+                if dump_path.exists():
+                    dump_path.unlink()
+                completed = subprocess.run(["curl", "--location", "--silent", "--show-error", "--fail", "--retry", "6", "--output", str(dump_path), url], capture_output=True, text=True)
+            if completed.returncode != 0:
+                raise RuntimeError(f"Snapshot download failed for {snapshot_date}: {completed.stderr[-1000:]}")
+            current_hash = file_sha256(dump_path)
+        if current_hash != SNAPSHOT_SHA256[snapshot_date]:
+            raise RuntimeError(f"Snapshot SHA-256 mismatch for {snapshot_date}: {current_hash}")
+        projection_source = dump_path
+        if zipfile.is_zipfile(dump_path):
+            projection_source = download_root / f"{snapshot_date}.postgres_data.dmp"
+            if not projection_source.exists():
+                temporary_projection = projection_source.with_suffix(".dmp.part")
+                with zipfile.ZipFile(dump_path) as archive:
+                    with archive.open("postgres_data.dmp") as source, temporary_projection.open("wb") as destination_stream:
+                        while True:
+                            block = source.read(16 * 1024 * 1024)
+                            if not block:
+                                break
+                            destination_stream.write(block)
+                os.replace(temporary_projection, projection_source)
+        metadata = project_snapshot(projection_source, snapshot_date, output_root)
+        metadata["archive_sha256"] = current_hash
+        metadata["archive_url"] = url
+        metadata_path = output_root / snapshot_date / "metadata.json"
+        temporary_metadata = metadata_path.with_suffix(".json.part")
+        temporary_metadata.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary_metadata, metadata_path)
+        diagnostics[snapshot_date] = {
+            "state": "projected",
+            "sha256": current_hash,
+            "rows": metadata["table_rows"],
+            "elapsed_seconds": metadata["elapsed_seconds"],
+        }
+    return diagnostics

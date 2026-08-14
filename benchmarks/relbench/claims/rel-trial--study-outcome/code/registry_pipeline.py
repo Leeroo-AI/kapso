@@ -83,8 +83,8 @@ def run(debug: bool) -> None:
     report("linkage", split_reports=json.dumps(split_reports, sort_keys=True))
     if validation_coverage < 0.90 or test_coverage < 0.90:
         raise RuntimeError(f"Registry linkage coverage gate failed: validation={validation_coverage:.4f} test={test_coverage:.4f}")
-    incumbent_exact = cache / "predictions" / "incumbent_run_0007"
-    incumbent_channels = cache / "predictions" / "incumbent_run_0007_channels_v1.npz"
+    incumbent_exact = cache / "predictions" / "generic_exp_0_incumbent_core"
+    incumbent_channels = cache / "predictions" / "generic_exp_0_core_channels_v1.npz"
     if not incumbent_channels.exists():
         incumbent_channels = cache / "predictions" / "generic_exp_1_compact_v1.npz"
         report("incumbent_forward_cache", state="compact_fallback", path=incumbent_channels)
@@ -111,7 +111,7 @@ def run(debug: bool) -> None:
     np.save(output / "test_predictions.npy", np.asarray(test_prediction, dtype=np.float64))
     subprocess_result = __import__("subprocess").run([sys.executable, "kapso_datasets/check_predictions.py"], check=True, capture_output=True, text=True)
     print(subprocess_result.stdout, end="")
-    candidate_cache = cache / "predictions" / "generic_exp_2_registry_clock_v1.npz"
+    candidate_cache = cache / "predictions" / "generic_exp_0_registry_clock_v1.npz"
     save_registry_candidate(candidate_cache, model_a, external_test, test_prediction, {"by_snapshot": bundle.reports, "by_split": split_reports})
     diagnostics = {
         "linkage_by_snapshot": bundle.reports,
@@ -127,7 +127,7 @@ def run(debug: bool) -> None:
     diagnostics_cache.write_text(json.dumps(diagnostics, indent=2, sort_keys=True, allow_nan=True) + "\n")
     register_artifact(cache, {
         "name": "generic_exp_2 point-in-time registry clock candidate",
-        "path": "predictions/generic_exp_2_registry_clock_v1.npz",
+        "path": "predictions/generic_exp_0_registry_clock_v1.npz",
         "description": "Conservatively linked pre-origin AACT registry-clock and neighborhood expert with recent forward-gate diagnostics and Model A/B vectors.",
         "content_key": "rel-trial-study-outcome:generic-exp-2:registry-clock-v1",
         "rebuild_hint": "Run registry_pipeline.py after projecting the six declared safe snapshots.",

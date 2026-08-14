@@ -1,0 +1,91 @@
+{
+  "debug": true,
+  "extraction": {
+    "official_2018": {
+      "cache_hit": false,
+      "extraction": {
+        "available_safe_xml_candidates": 16,
+        "complete_negative_documents": 0,
+        "documents_parsed": 16,
+        "documents_with_facts": 3,
+        "documents_with_tables": 14,
+        "eligible_records_with_pmcid": 1981,
+        "extractor_version": "jats-endpoint-facts-v1",
+        "facts": 25,
+        "positive_documents": 0,
+        "result_sections": 17,
+        "safe_documents": 16,
+        "tables": 34,
+        "trials_with_verdict": 0,
+        "workers": 4
+      },
+      "fixtures": {
+        "coverage": {
+          "colspan": 16,
+          "footnote": 12,
+          "missing_cell": 6,
+          "multi_arm": 1,
+          "nested_header": 5,
+          "rowspan": 16,
+          "unicode_inequality": 6
+        },
+        "fixtures": 16,
+        "path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/shared_cache/jats_endpoint_evidence_v1/origins/official_2018/fixtures.json"
+      },
+      "origin": "2018-01-01",
+      "retrieval": {
+        "admissible_records": 2173,
+        "complete_date_share": 0.9687643546164446,
+        "coverage": 0.41903827281648676,
+        "date_policy": "accept a complete electronic/first-publication date only when strictly earlier than origin; year-only dates only when year is strictly earlier than origin year",
+        "elapsed_seconds": 800.8319261074066,
+        "linked_rows": 1019,
+        "origin": "2018-01-01",
+        "parsed_cache_hit": true,
+        "preprints": 0,
+        "queried_trials": 1019,
+        "records": 2177,
+        "result_reference_records": 124,
+        "retrieval_version": "literature-retrieval-v3",
+        "retrieved_at": "2026-08-14T04:21:32Z",
+        "sources": {
+          "aact_result_references": {
+            "cache_hits": 4,
+            "calls": 0,
+            "pmids": 125
+          },
+          "europe_pmc": {
+            "cache_hits": 131,
+            "calls": 3185,
+            "query_templates": [
+              "ACCESSION_ID:<NCT> AND pre-origin FIRST_PDATE",
+              "quoted field-free <NCT> AND pre-origin FIRST_PDATE",
+              "SRC:PPR AND quoted <NCT> with a complete pre-origin version date"
+            ],
+            "workers": 5
+          },
+          "pubmed": {
+            "batch_size": 40,
+            "cache_hits": 86,
+            "calls": 0,
+            "query_templates": [
+              "(<NCT>[si] OR ...) AND pre-origin pdat",
+              "(<NCT>[tiab] OR ...) AND pre-origin pdat"
+            ]
+          }
+        },
+        "trials_per_minute": 76.3456074606902,
+        "trials_with_admissible_evidence": 427
+      },
+      "split": "official_2018"
+    }
+  },
+  "fallback": {
+    "run": "run_0006",
+    "score": 0.7632025697041176,
+    "status": "final",
+    "test_sha256": "d78b03000fd5e8bc329e83939c4205238eb55a27595a38f0003db1eff75944d8",
+    "validation_sha256": "c34c8481d20a1cf5adbb11a466aa7f4ab203bf05bf1b073c265cceee7019be3b"
+  },
+  "parsed_xml_limit": 16
+}

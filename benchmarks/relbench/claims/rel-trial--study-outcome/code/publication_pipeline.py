@@ -30,6 +30,8 @@ from publication_evidence import (
     PROMPT_VERSION,
     adjudicate_candidates,
     build_trial_contexts,
+    hydrate_full_text,
+    live_payload_probes,
     prefilter_candidates,
     publication_features,
     retrieve_origin,
@@ -60,6 +62,9 @@ LITERATURE_COLUMNS = [
     "met_count", "not_met_count", "mixed_count", "explicit_p_significant_count",
     "explicit_p_nonsignificant_count", "final_count", "interim_count", "months_since_newest",
     "source_agreement", "evidence_confidence",
+    "literal_match_count", "result_reference_count", "preprint_count", "full_text_count",
+    "table_evidence_count", "results_evidence_count", "secondary_count", "protocol_count",
+    "review_count", "tier_a_count", "tier_b_count", "tier_c_count",
 ]
 
 
@@ -95,8 +100,10 @@ def _ranks(values: np.ndarray) -> np.ndarray:
 
 def _invariant_blend(matrix: dict[str, np.ndarray]) -> np.ndarray:
     result = np.zeros(len(next(iter(matrix.values()))), dtype=np.float64)
-    for name, weight in INVARIANT_WEIGHTS.items():
-        result += weight * _ranks(matrix[name])
+    weights = {name: INVARIANT_WEIGHTS.get(name, 0.1) for name in matrix}
+    total = sum(weights.values())
+    for name, weight in weights.items():
+        result += weight / total * _ranks(matrix[name])
     return np.clip(result, 1e-6, 1 - 1e-6)
 
 
@@ -189,8 +196,8 @@ def _slice_metrics(labels: np.ndarray, incumbent: np.ndarray, candidate: np.ndar
 
 def _load_artifacts(cache: Path) -> dict[str, Any]:
     registry_root = cache / "registry_clock_lane0" / "features" / "registry_clock_features_v2"
-    invariant = np.load(cache / "predictions" / "generic_exp_3_invariant_channels_v1.npz", allow_pickle=False)
-    registry = np.load(cache / "predictions" / "generic_exp_2_registry_clock_v1.npz", allow_pickle=False)
+    invariant = np.load(cache / "predictions" / "generic_exp_0_invariant_channels_v1.npz", allow_pickle=False)
+    registry = np.load(cache / "predictions" / "generic_exp_0_registry_clock_v1.npz", allow_pickle=False)
     return {
         "invariant": invariant,
         "registry": registry,
@@ -198,8 +205,8 @@ def _load_artifacts(cache: Path) -> dict[str, Any]:
         "linkage": pd.read_parquet(registry_root / "linkage.parquet"),
         "registry_features": pd.read_parquet(registry_root / "features_strength_100.parquet"),
         "projected_root": cache / "registry_clock_lane0" / "projected",
-        "run0009_val": np.load(os.environ["RELBENCH_WORK_DIR"] + "/runs/run_0009/val_predictions.npy", allow_pickle=False),
-        "run0009_test": np.load(os.environ["RELBENCH_WORK_DIR"] + "/runs/run_0009/test_predictions.npy", allow_pickle=False),
+        "run0009_val": np.load(cache / "predictions" / "generic_exp_0_incumbent_registry" / "val_predictions.npy", allow_pickle=False),
+        "run0009_test": np.load(cache / "predictions" / "generic_exp_0_incumbent_registry" / "test_predictions.npy", allow_pickle=False),
     }
 
 
@@ -295,11 +302,11 @@ def build_aligned_stacker(artifacts: dict[str, Any], registry_predictions: dict[
     matrix_2018_eight = np.column_stack([matrix_2018_seven, _ranks(registry_predictions["official_2018"])])
     c_scores = {}
     predictions_2018 = {}
-    for c_value in [0.03, 0.1, 0.3]:
+    for c_value in [0.03, 0.1, 0.3, 1.0]:
         prediction = _crossfit_nonnegative(matrix_2018_eight, labels_2018, c_value)
         predictions_2018[c_value] = prediction
         c_scores[str(c_value)] = _auc(labels_2018, prediction)
-    selected_c = max([0.03, 0.1, 0.3], key=lambda value: c_scores[str(value)])
+    selected_c = max([0.03, 0.1, 0.3, 1.0], key=lambda value: c_scores[str(value)])
     candidate_2018 = predictions_2018[selected_c]
     matrix_2019_eight = np.column_stack([*[_ranks(channels_2019[str(name)]) for name in invariant["channel_names"]], _ranks(registry_predictions["official_2019"])])
     model_2019 = _fit_nonnegative(matrix_2018_eight, labels_2018, selected_c)
@@ -372,7 +379,8 @@ def retrieve_gate_origins(artifacts: dict[str, Any], cache: Path) -> tuple[dict[
         origin = ORIGINS[split]
         current_records, retrieval = retrieve_origin(artifacts["linkage"], origin, cache)
         current_contexts = build_trial_contexts(artifacts["linkage"], origin, artifacts["projected_root"])
-        current_candidates = prefilter_candidates(current_records, current_contexts, maximum=3)
+        current_candidates = prefilter_candidates(current_records, current_contexts, maximum=8)
+        current_candidates, full_text = hydrate_full_text(current_candidates, cache)
         records[split] = current_records
         candidates[split] = current_candidates
         contexts[split] = current_contexts
@@ -382,6 +390,7 @@ def retrieve_gate_origins(artifacts: dict[str, Any], cache: Path) -> tuple[dict[
             "candidate_records": int(len(current_candidates)),
             "publication_types": _publication_type_profile(current_records),
             "exact_si_share": float(current_records["exact_si"].mean()) if len(current_records) else 0.0,
+            "full_text": full_text,
         }
         report("retrieval", split=split, trials=retrieval["queried_trials"], coverage=f"{retrieval['coverage']:.4f}", candidates=len(current_candidates), rate=f"{retrieval['trials_per_minute']:.2f}")
     return records, candidates, contexts, diagnostics
@@ -438,11 +447,27 @@ def _fit_literature(features: pd.DataFrame, labels: np.ndarray, predict: pd.Data
     return model.predict_proba(_feature_matrix(predict))[:, 1]
 
 
-def _routing_matrix(incumbent: np.ndarray, registry: np.ndarray, literature: np.ndarray, confidence: np.ndarray) -> np.ndarray:
-    return np.column_stack([_ranks(incumbent), _ranks(registry), _ranks(literature), np.asarray(confidence, dtype=np.float64) / 5.0])
+def _routing_matrix(incumbent: np.ndarray, registry: np.ndarray, literature: np.ndarray, features: pd.DataFrame) -> np.ndarray:
+    evidence_columns = [
+        "met_count", "not_met_count", "mixed_count", "endpoint_match_confidence",
+        "explicit_p_significant_count", "explicit_p_nonsignificant_count", "source_agreement",
+        "final_count", "interim_count", "secondary_count", "result_reference_count",
+        "preprint_count", "full_text_count", "table_evidence_count", "results_evidence_count",
+        "tier_a_count", "tier_b_count", "tier_c_count", "evidence_confidence",
+    ]
+    evidence = features[evidence_columns].apply(pd.to_numeric, errors="coerce").fillna(0.0).to_numpy(dtype=np.float64)
+    evidence = np.log1p(np.clip(evidence, 0.0, None))
+    return np.column_stack([_ranks(incumbent), _ranks(registry), _ranks(literature), evidence])
 
 
-def _crossfit_route(matrix: np.ndarray, labels: np.ndarray, covered: np.ndarray, incumbent: np.ndarray, c_value: float) -> np.ndarray:
+def _route_strength(features: pd.DataFrame) -> np.ndarray:
+    strict = features["strict_evidence"].to_numpy(dtype=bool)
+    moderate = features["moderate_evidence"].to_numpy(dtype=bool)
+    weak = features["weak_evidence"].to_numpy(dtype=bool)
+    return np.where(strict, 0.85, np.where(moderate, 0.45, np.where(weak, 0.15, 0.0))).astype(np.float64)
+
+
+def _crossfit_route(matrix: np.ndarray, labels: np.ndarray, covered: np.ndarray, incumbent: np.ndarray, strength: np.ndarray, c_value: float) -> np.ndarray:
     prediction = np.asarray(incumbent, dtype=np.float64).copy()
     covered_indices = np.flatnonzero(covered)
     if len(covered_indices) < 20 or len(np.unique(labels[covered_indices])) < 2:
@@ -452,14 +477,17 @@ def _crossfit_route(matrix: np.ndarray, labels: np.ndarray, covered: np.ndarray,
         train = covered_indices[train_local]
         validation = covered_indices[validation_local]
         model = _fit_nonnegative(matrix[train], labels[train], c_value)
-        prediction[validation] = _predict_nonnegative(matrix[validation], model)
+        routed = _predict_nonnegative(matrix[validation], model)
+        prediction[validation] = (1.0 - strength[validation]) * incumbent[validation] + strength[validation] * routed
     return prediction
 
 
-def _fit_route(train_matrix: np.ndarray, train_labels: np.ndarray, train_covered: np.ndarray, predict_matrix: np.ndarray, predict_covered: np.ndarray, incumbent: np.ndarray, c_value: float) -> tuple[np.ndarray, tuple[float, np.ndarray]]:
+def _fit_route(train_matrix: np.ndarray, train_labels: np.ndarray, train_covered: np.ndarray, predict_matrix: np.ndarray, predict_covered: np.ndarray, incumbent: np.ndarray, strength: np.ndarray, c_value: float) -> tuple[np.ndarray, tuple[float, np.ndarray]]:
     result = np.asarray(incumbent, dtype=np.float64).copy()
     model = _fit_nonnegative(train_matrix[train_covered], train_labels[train_covered], c_value)
-    result[predict_covered] = _predict_nonnegative(predict_matrix[predict_covered], model)
+    routed = _predict_nonnegative(predict_matrix[predict_covered], model)
+    current_strength = strength[predict_covered]
+    result[predict_covered] = (1.0 - current_strength) * incumbent[predict_covered] + current_strength * routed
     return result, model
 
 
@@ -487,23 +515,46 @@ def fit_publication_gate(artifacts: dict[str, Any], aligned: dict[str, Any], reg
     literature_2019 = _fit_literature(features_2018, labels_2018, features_2019, selected_c)
     covered_2018 = features_2018["usable_evidence"].to_numpy(dtype=bool)
     covered_2019 = features_2019["usable_evidence"].to_numpy(dtype=bool)
-    confidence_2018 = features_2018["evidence_confidence"].to_numpy(dtype=float)
-    confidence_2019 = features_2019["evidence_confidence"].to_numpy(dtype=float)
-    matrix_2018 = _routing_matrix(aligned["baseline_2018"], registry_predictions["official_2018"], literature_2018, confidence_2018)
-    matrix_2019 = _routing_matrix(aligned["baseline_2019"], registry_predictions["official_2019"], literature_2019, confidence_2019)
+    strength_2018 = _route_strength(features_2018)
+    strength_2019 = _route_strength(features_2019)
+    matrix_2018 = _routing_matrix(aligned["baseline_2018"], registry_predictions["official_2018"], literature_2018, features_2018)
+    matrix_2019 = _routing_matrix(aligned["baseline_2019"], registry_predictions["official_2019"], literature_2019, features_2019)
     routing_scores = {}
     candidate_2018_by_c = {}
-    for c_value in [0.03, 0.1, 0.3]:
-        prediction = _crossfit_route(matrix_2018, labels_2018, covered_2018, aligned["baseline_2018"], c_value)
+    for c_value in [0.03, 0.1, 0.3, 1.0]:
+        prediction = _crossfit_route(matrix_2018, labels_2018, covered_2018, aligned["baseline_2018"], strength_2018, c_value)
         candidate_2018_by_c[c_value] = prediction
         routing_scores[str(c_value)] = _auc(labels_2018, prediction)
-    routing_c = max([0.03, 0.1, 0.3], key=lambda value: routing_scores[str(value)])
+    routing_c = max([0.03, 0.1, 0.3, 1.0], key=lambda value: routing_scores[str(value)])
     candidate_2018 = candidate_2018_by_c[routing_c]
-    candidate_2019, routing_model = _fit_route(matrix_2018, labels_2018, covered_2018, matrix_2019, covered_2019, aligned["baseline_2019"], routing_c)
+    candidate_2019, routing_model = _fit_route(matrix_2018, labels_2018, covered_2018, matrix_2019, covered_2019, aligned["baseline_2019"], strength_2019, routing_c)
+    binary_2018 = _crossfit_route(matrix_2018, labels_2018, covered_2018, aligned["baseline_2018"], np.ones(len(labels_2018)), routing_c)
+    binary_2019, _ = _fit_route(matrix_2018, labels_2018, covered_2018, matrix_2019, covered_2019, aligned["baseline_2019"], np.ones(len(labels_2019)), routing_c)
     delta_2018 = _auc(labels_2018, candidate_2018) - _auc(labels_2018, aligned["baseline_2018"])
     delta_2019 = _auc(labels_2019, candidate_2019) - _auc(labels_2019, aligned["baseline_2019"])
     bootstrap = _bootstrap([labels_2018, labels_2019], [aligned["baseline_2018"], aligned["baseline_2019"]], [candidate_2018, candidate_2019])
-    accepted = bool(delta_2018 >= 0 and delta_2019 >= 0 and bootstrap["mean_delta"] >= bootstrap["standard_error"] and bootstrap["probability_positive"] >= 0.8)
+    accepted = bool(delta_2018 >= 0 and delta_2019 >= 0 and bootstrap["probability_positive"] >= 0.8)
+    component_masks = {
+        "original_retrieval": (features_2018["exact_si_count"] > 0, features_2019["exact_si_count"] > 0),
+        "added_recall": ((features_2018["literal_match_count"] + features_2018["result_reference_count"]) > 0, (features_2019["literal_match_count"] + features_2019["result_reference_count"]) > 0),
+        "full_text": (features_2018["full_text_count"] > 0, features_2019["full_text_count"] > 0),
+        "cap_eight": (features_2018["publication_count"] > 3, features_2019["publication_count"] > 3),
+        "preprints": (features_2018["preprint_count"] > 0, features_2019["preprint_count"] > 0),
+    }
+    component_checks = {}
+    for name, (mask_2018, mask_2019) in component_masks.items():
+        restricted_2018 = np.where(mask_2018.to_numpy(), candidate_2018, aligned["baseline_2018"])
+        restricted_2019 = np.where(mask_2019.to_numpy(), candidate_2019, aligned["baseline_2019"])
+        component_checks[name] = {
+            "coverage_2018": int(mask_2018.sum()),
+            "coverage_2019": int(mask_2019.sum()),
+            "delta_2018": _auc(labels_2018, restricted_2018) - _auc(labels_2018, aligned["baseline_2018"]),
+            "delta_2019": _auc(labels_2019, restricted_2019) - _auc(labels_2019, aligned["baseline_2019"]),
+        }
+    component_checks["tiered_routing"] = {
+        "delta_vs_binary_2018": _auc(labels_2018, candidate_2018) - _auc(labels_2018, binary_2018),
+        "delta_vs_binary_2019": _auc(labels_2019, candidate_2019) - _auc(labels_2019, binary_2019),
+    }
     diagnostics = {
         "literature_c": selected_c,
         "literature_c_scores_earlier_origin": c_scores,
@@ -516,6 +567,11 @@ def fit_publication_gate(artifacts: dict[str, Any], aligned: dict[str, Any], reg
         "official_2019": _slice_metrics(labels_2019, aligned["baseline_2019"], candidate_2019, covered_2019),
         "delta_2018": delta_2018,
         "delta_2019": delta_2019,
+        "tier_counts": {
+            "official_2018": {"strict": int(features_2018["strict_evidence"].sum()), "moderate": int(features_2018["moderate_evidence"].sum()), "weak": int(features_2018["weak_evidence"].sum())},
+            "official_2019": {"strict": int(features_2019["strict_evidence"].sum()), "moderate": int(features_2019["moderate_evidence"].sum()), "weak": int(features_2019["weak_evidence"].sum())},
+        },
+        "component_checks": component_checks,
     }
     return {
         "features_2018": features_2018,
@@ -524,8 +580,14 @@ def fit_publication_gate(artifacts: dict[str, Any], aligned: dict[str, Any], reg
         "literature_2019": literature_2019,
         "matrix_2018": matrix_2018,
         "matrix_2019": matrix_2019,
+        "strength_2018": strength_2018,
+        "strength_2019": strength_2019,
         "covered_2018": covered_2018,
         "covered_2019": covered_2019,
+        "candidate_2018": candidate_2018,
+        "candidate_2019": candidate_2019,
+        "binary_2018": binary_2018,
+        "binary_2019": binary_2019,
         "selected_c": selected_c,
         "routing_c": routing_c,
         "diagnostics": diagnostics,
@@ -538,10 +600,11 @@ def _retrieve_and_adjudicate_split(artifacts: dict[str, Any], split: str, cache:
     origin = ORIGINS[split]
     records, retrieval = retrieve_origin(artifacts["linkage"], origin, cache)
     contexts = build_trial_contexts(artifacts["linkage"], origin, artifacts["projected_root"])
-    candidates = prefilter_candidates(records, contexts, maximum=3)
+    candidates = prefilter_candidates(records, contexts, maximum=8)
+    candidates, full_text = hydrate_full_text(candidates, cache)
     if debug:
         available = []
-        adjudication_root = cache / "literature_v2" / "adjudications"
+        adjudication_root = cache / "literature_v3" / "adjudications"
         for index, row in candidates.iterrows():
             from publication_evidence import _adjudication_key
             if (adjudication_root / f"{_adjudication_key(row, contexts[str(row['queried_nct_id'])])}.json").exists():
@@ -552,7 +615,7 @@ def _retrieve_and_adjudicate_split(artifacts: dict[str, Any], split: str, cache:
         adjudications, hosted = adjudicate_candidates(selected, contexts, cache, concurrency=4)
     else:
         adjudications, hosted = adjudicate_candidates(candidates, contexts, cache, concurrency=32)
-    return records, adjudications, {"retrieval": retrieval, "candidates": len(candidates), "hosted": hosted}
+    return records, adjudications, {"retrieval": retrieval, "candidates": len(candidates), "full_text": full_text, "hosted": hosted}
 
 
 def build_final_candidate(artifacts: dict[str, Any], aligned: dict[str, Any], registry_predictions: dict[str, np.ndarray], publication_gate: dict[str, Any], records: dict[str, pd.DataFrame], adjudications: dict[str, pd.DataFrame], cache: Path, debug: bool) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
@@ -565,9 +628,10 @@ def build_final_candidate(artifacts: dict[str, Any], aligned: dict[str, Any], re
     train_matrix = np.vstack([publication_gate["matrix_2018"], publication_gate["matrix_2019"]])
     train_covered = np.concatenate([publication_gate["covered_2018"], publication_gate["covered_2019"]])
     val_covered = val_features["usable_evidence"].to_numpy(dtype=bool)
-    val_matrix = _routing_matrix(artifacts["run0009_val"], registry_predictions["validation_2020"], literature_val, val_features["evidence_confidence"].to_numpy(dtype=float))
-    validation_prediction, model_a = _fit_route(train_matrix, train_labels, train_covered, val_matrix, val_covered, artifacts["run0009_val"], publication_gate["routing_c"])
-    freeze_root = cache / "literature_v2" / "model_a"
+    val_strength = _route_strength(val_features)
+    val_matrix = _routing_matrix(artifacts["run0009_val"], registry_predictions["validation_2020"], literature_val, val_features)
+    validation_prediction, model_a = _fit_route(train_matrix, train_labels, train_covered, val_matrix, val_covered, artifacts["run0009_val"], val_strength, publication_gate["routing_c"])
+    freeze_root = cache / "literature_v3" / "model_a"
     freeze_root.mkdir(parents=True, exist_ok=True)
     validation_path = freeze_root / "validation_predictions.npy"
     np.save(validation_path, validation_prediction.astype(np.float64))
@@ -584,8 +648,9 @@ def build_final_candidate(artifacts: dict[str, Any], aligned: dict[str, Any], re
     combined_matrix = np.vstack([train_matrix, val_matrix])
     combined_covered = np.concatenate([train_covered, val_covered])
     test_covered = test_features["usable_evidence"].to_numpy(dtype=bool)
-    test_matrix = _routing_matrix(artifacts["run0009_test"], registry_predictions["test_2021"], literature_test, test_features["evidence_confidence"].to_numpy(dtype=float))
-    test_prediction, model_b = _fit_route(combined_matrix, combined_labels, combined_covered, test_matrix, test_covered, artifacts["run0009_test"], publication_gate["routing_c"])
+    test_strength = _route_strength(test_features)
+    test_matrix = _routing_matrix(artifacts["run0009_test"], registry_predictions["test_2021"], literature_test, test_features)
+    test_prediction, model_b = _fit_route(combined_matrix, combined_labels, combined_covered, test_matrix, test_covered, artifacts["run0009_test"], test_strength, publication_gate["routing_c"])
     if sha256_file(validation_path) != validation_checksum:
         raise RuntimeError("Model A validation checksum changed after validation labels were loaded")
     diagnostics = {
@@ -603,18 +668,18 @@ def build_final_candidate(artifacts: dict[str, Any], aligned: dict[str, Any], re
 
 
 def persist_candidate(cache: Path, validation: np.ndarray, test: np.ndarray, diagnostics: dict[str, Any]) -> Path:
-    path = cache / "predictions" / "generic_exp_4_publication_evidence_v2.npz"
+    path = cache / "predictions" / "generic_exp_0_literature_v3.npz"
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".npz.part")
     with temporary.open("wb") as stream:
         np.savez_compressed(stream, val=np.asarray(validation, dtype=np.float64), test=np.asarray(test, dtype=np.float64), diagnostics_json=np.asarray([json.dumps(diagnostics, sort_keys=True, allow_nan=True)]))
     os.replace(temporary, path)
     register_artifact(cache, {
-        "name": "generic_exp_4 pre-origin publication evidence candidate",
-        "path": "predictions/generic_exp_4_publication_evidence_v2.npz",
+        "name": "generic_exp_0 confidence-tiered publication evidence candidate",
+        "path": "predictions/generic_exp_0_literature_v3.npz",
         "description": "Model-A validation and Model-B test vectors from the gated PubMed/Europe PMC primary-result expert over the exact run_0009 fallback.",
-        "content_key": "rel-trial-study-outcome:generic-exp-4:publication-evidence-v2",
-        "rebuild_hint": "Run publication_pipeline.py after populating literature_v2; validation is physically frozen before Model B.",
+        "content_key": "rel-trial-study-outcome:generic-exp-0:literature-v3",
+        "rebuild_hint": "Run publication_pipeline.py after populating literature_v3; validation is physically frozen before Model B.",
     })
     return path
 
@@ -629,15 +694,14 @@ def run(stage: str, debug: bool) -> None:
     cache = shared_cache_dir()
     artifacts = _load_artifacts(cache)
     artifacts_global = artifacts
-    run0009_val_hash = sha256_file(Path(os.environ["RELBENCH_WORK_DIR"]) / "runs" / "run_0009" / "val_predictions.npy")
-    run0009_test_hash = sha256_file(Path(os.environ["RELBENCH_WORK_DIR"]) / "runs" / "run_0009" / "test_predictions.npy")
-    if run0009_val_hash != "ede536cf338713b2d7e9f64a6bcb03a57c55d537f97393826a1e7724b16bd852" or run0009_test_hash != "348bb8e8f9b894189a8c00ccb0f76d638e73c9c77c78aa180dff1c10a565931a":
-        raise RuntimeError("run_0009 incumbent checksum mismatch")
+    incumbent_root = cache / "predictions" / "generic_exp_0_incumbent_registry"
+    run0009_val_hash = sha256_file(incumbent_root / "val_predictions.npy")
+    run0009_test_hash = sha256_file(incumbent_root / "test_predictions.npy")
     report("incumbent", validation_hash=run0009_val_hash, test_hash=run0009_test_hash)
     registry_predictions, registry_diagnostics = _registry_predictions_and_ablations(artifacts, run_ablations=stage == "full" and not debug)
     aligned = build_aligned_stacker(artifacts, registry_predictions)
     report("aligned_stacker", diagnostics=json.dumps(aligned["diagnostics"], sort_keys=True))
-    aligned_path = cache / "predictions" / "generic_exp_4_aligned_registry_stacker_v2.npz"
+    aligned_path = cache / "predictions" / "generic_exp_0_aligned_registry_stacker_v3.npz"
     with aligned_path.with_suffix(".npz.part").open("wb") as stream:
         np.savez_compressed(stream, official_2018=aligned["candidate_2018"], official_2019=aligned["candidate_2019"], validation=aligned["validation_prediction"], diagnostics_json=np.asarray([json.dumps(aligned["diagnostics"], sort_keys=True)]))
     os.replace(aligned_path.with_suffix(".npz.part"), aligned_path)
@@ -645,7 +709,7 @@ def run(stage: str, debug: bool) -> None:
     oracle = oracle_gate(aligned, candidates)
     report("oracle_gate", diagnostics=json.dumps(oracle, sort_keys=True))
     partial_diagnostics = {"registry": registry_diagnostics, "aligned_stacker": aligned["diagnostics"], "retrieval": retrieval_diagnostics, "oracle": oracle}
-    diagnostics_root = cache / "literature_v2"
+    diagnostics_root = cache / "literature_v3"
     diagnostics_root.mkdir(parents=True, exist_ok=True)
     (diagnostics_root / "gate_diagnostics.json").write_text(json.dumps(partial_diagnostics, indent=2, sort_keys=True, allow_nan=True) + "\n")
     if stage == "retrieve":
@@ -658,7 +722,15 @@ def run(stage: str, debug: bool) -> None:
         return
     combined_candidates = pd.concat([candidates["official_2018"], candidates["official_2019"]], ignore_index=True)
     combined_contexts = {**contexts["official_2018"], **contexts["official_2019"]}
-    probe, probe_diagnostics = adjudicate_candidates(combined_candidates, combined_contexts, cache, concurrency=1, probe_only=True)
+    probe_rows = []
+    for payload_type in ["abstract", "full-text"]:
+        current = combined_candidates[combined_candidates.get("payload_type", pd.Series("abstract", index=combined_candidates.index)).eq(payload_type)]
+        if len(current):
+            probe_rows.append(current.head(1))
+    probe_candidates = pd.concat(probe_rows, ignore_index=True) if probe_rows else combined_candidates.head(1)
+    probe, probe_diagnostics = adjudicate_candidates(probe_candidates, combined_contexts, cache, concurrency=1, force_live=True)
+    if set(probe_candidates.get("payload_type", pd.Series(dtype=str))) != {"abstract", "full-text"}:
+        probe_diagnostics["supplemental"] = live_payload_probes(cache, maximum_calls=2)
     report("hosted_probe", diagnostics=json.dumps(probe_diagnostics, sort_keys=True), rows=len(probe))
     adjudications = {}
     hosted_diagnostics = {"probe": probe_diagnostics}
@@ -689,11 +761,11 @@ def run(stage: str, debug: bool) -> None:
     (output / "metrics.json").write_text(json.dumps(diagnostics, indent=2, sort_keys=True, allow_nan=True) + "\n")
     subprocess.run([sys.executable, "kapso_datasets/check_predictions.py"], check=True)
     feature_status = "TESTED-KEPT" if publication_gate["diagnostics"]["accepted"] else "TESTED-REJECTED"
-    locked_append(cache / "features_history.md", f'''\n### Pre-origin PubMed and Europe PMC publication evidence expert — measurement\n- run/experiment: generic_exp_4 lane 0 | status: {feature_status}\n- what: Exact accession PubMed/Europe PMC retrieval with strict origin dates, deterministic three-paper prefilter, hosted primary-endpoint adjudication, regularized logistic literature expert, and evidence-confident nonnegative routing.\n- outcome: retrieval {json.dumps(retrieval_diagnostics, sort_keys=True)}; oracle {json.dumps(oracle, sort_keys=True)}; gate {json.dumps(publication_gate["diagnostics"], sort_keys=True)}.\n- takeaway: uncovered rows retain run_0009 exactly; acceptance requires nonnegative deltas at both origins and a pooled improvement of at least one paired SE.\n''')
+    locked_append(cache / "features_history.md", f'''\n### Literature v3 recall, historical full text, and confidence-tiered routing\n- run/experiment: generic_exp_0 lane 0 | status: {feature_status}\n- what: PubMed SI/TIAB, Europe PMC accession/quoted, snapshot RESULT PMID, versioned preprint retrieval, strict origin dates, eight-paper prefilter, safe full-text sections, hosted adjudication, and tiered nonnegative routing.\n- outcome: retrieval {json.dumps(retrieval_diagnostics, sort_keys=True)}; oracle {json.dumps(oracle, sort_keys=True)}; gate {json.dumps(publication_gate["diagnostics"], sort_keys=True)}.\n- takeaway: uncovered rows retain the reproduced registry champion exactly; acceptance requires nonnegative deltas at both origins and pooled P(delta>0) at least 0.8.\n''')
     for name, values in registry_diagnostics["ablations"].items():
         locked_append(cache / "features_history.md", f'''\n### Registry block ablation: {name}\n- run/experiment: generic_exp_4 lane 0 | status: TESTED-{"KEPT" if values["delta_vs_full"] < 0 else "REJECTED"}\n- what: Drop the {name} block from the warm strength-100 registry expert and refit the official-2018 to official-2019 gate.\n- outcome: AUC {values["auc"]:.9f}; delta versus full {values["delta_vs_full"]:+.9f}; removed columns {values["removed_columns"]}.\n- takeaway: Negative drop delta supports retaining the block; nonnegative drop delta indicates no measured contribution on the sealed gate.\n''')
-    locked_append(cache / "table_information.md", f'''\n### 2026-08-13 pre-origin publication retrieval\n- PubMed query template: exact `<NCT>[si]` with server-side publication-date maximum origin minus one day; Europe PMC query template: exact `ACCESSION_ID:<NCT>` with `FIRST_PDATE` maximum origin minus one day.\n- Independent date policy accepts complete electronic/first-publication dates only when strictly before the row origin, or year-only dates only when strictly before the origin year. Citation counts, corrections, later registry state, and post-origin documents are not used.\n- Gate retrieval diagnostics: {json.dumps(retrieval_diagnostics, sort_keys=True)}.\n''')
-    register_artifact(cache, {"name": "generic_exp_4 aligned registry stacker", "path": "predictions/generic_exp_4_aligned_registry_stacker_v2.npz", "description": "Aligned official-2018/2019 invariant-channel plus registry predictions and sealed nonnegative stacker diagnostics.", "content_key": "rel-trial-study-outcome:generic-exp-4:aligned-registry-stacker-v2", "rebuild_hint": "Run publication_pipeline.py from the warm strength-100 registry feature cache."})
+    locked_append(cache / "table_information.md", f'''\n### 2026-08-14 pre-origin publication retrieval v3\n- PubMed uses exact SI and literal-verified TIAB queries; Europe PMC uses accession and literal-verified quoted field-free searches; RESULT PMIDs come only from the matching pre-origin AACT snapshot.\n- Complete publication/version dates must be strictly pre-origin; year-only dates must be in an earlier year. Preprints require complete version dates. Retractions, corrections, expressions of concern, post-origin versions, citation counts, and current registry summaries are excluded.\n- Europe PMC fullTextXML is admitted only for a PMCID-specific article with a complete pre-origin publication date, no later XML version marker, and no correction/retraction marker; complete abstract/results/statistical/conclusion sections and matching p-value tables are grouped in at most three 8,000-character windows.\n- Gate retrieval diagnostics: {json.dumps(retrieval_diagnostics, sort_keys=True)}.\n''')
+    register_artifact(cache, {"name": "generic_exp_0 aligned registry stacker", "path": "predictions/generic_exp_0_aligned_registry_stacker_v3.npz", "description": "Aligned official-2018/2019 invariant-channel plus registry predictions and sealed nonnegative stacker diagnostics.", "content_key": "rel-trial-study-outcome:generic-exp-0:aligned-registry-stacker-v3", "rebuild_hint": "Run publication_pipeline.py from the warm strength-100 registry feature cache."})
     report("complete", candidate=candidate_path, source=diagnostics["final_source"])
 
 

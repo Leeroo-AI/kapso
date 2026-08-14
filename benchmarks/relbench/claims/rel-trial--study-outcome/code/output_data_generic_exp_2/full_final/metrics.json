@@ -1,7 +1,0 @@
-{
-  "debug": false,
-  "registry_cache": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/shared_cache/predictions/generic_exp_2_registry_clock_v1.npz",
-  "test_prediction_label_fit": "train_replay_plus_validation",
-  "validation_checksum": "ede536cf338713b2d7e9f64a6bcb03a57c55d537f97393826a1e7724b16bd852",
-  "validation_prediction_label_fit": "train_and_replay_only"
-}

@@ -1,6 +1,0 @@
-[phase] versions elapsed=0.52s python=3.12.8 numpy=2.4.2 pandas=2.3.3 sklearn=1.6.1 lightgbm=4.6.0 duckdb=1.5.4 torch=2.10.0+cu126 cuda=True cuda_devices=2 debug=False
-[phase] publication_cache elapsed=0.53s state=hit source=publication_evidence validation_covered=66 test_covered=90
-[check_predictions] OK val: shape (960,)
-[check_predictions] OK test: shape (825,)
-[check_predictions] all checks passed
-[phase] complete elapsed=2.93s cached=True validation_checksum=5e456194339d70f717df8c54d4a31938200a28c54ffc95cc12f410dfb3db3509

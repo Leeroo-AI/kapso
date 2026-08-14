@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -30,10 +31,11 @@ from hosted_judgments_v2 import MODEL as HOSTED_MODEL
 
 # Configuration
 
-RETRIEVAL_VERSION = "literature-retrieval-v2"
-PROMPT_VERSION = "primary-result-adjudication-v2"
+RETRIEVAL_VERSION = "literature-retrieval-v3"
+PROMPT_VERSION = "primary-result-adjudication-v3"
 PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 EUROPE_PMC_BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+EUROPE_PMC_REST = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 NCT_PATTERN = re.compile(r"\bNCT\d{8}\b", re.IGNORECASE)
 RESULT_WORDS = re.compile(r"\b(result|results|efficacy|effect|endpoint|outcome|survival|response|remission|improv|difference|randomi[sz]ed)\b", re.IGNORECASE)
 PROTOCOL_WORDS = re.compile(r"\b(protocol|design|rationale|methods paper|baseline characteristics)\b", re.IGNORECASE)
@@ -49,18 +51,20 @@ ADJUDICATION_SCHEMA = {
     "type": "object",
     "properties": {
         "is_this_trial": {"type": "boolean"},
+        "trial_identity": {"type": "string", "enum": ["exact", "probable", "mismatch", "insufficient"]},
         "report_type": {"type": "string", "enum": ["primary-results", "secondary-results", "interim-results", "protocol", "review", "other"]},
         "primary_endpoint_met": {"type": "string", "enum": ["yes", "no", "mixed", "not-reported"]},
         "explicit_p_value": {"type": ["string", "null"], "maxLength": 80},
         "final_status": {"type": "string", "enum": ["final", "interim", "unclear"]},
         "endpoint_match": {"type": "integer", "minimum": 0, "maximum": 5},
         "confidence": {"type": "integer", "minimum": 0, "maximum": 5},
+        "evidence_location": {"type": "string", "enum": ["abstract", "results", "statistical-results", "table", "conclusion", "multiple", "not-found"]},
         "insufficient_evidence": {"type": "boolean"},
     },
-    "required": ["is_this_trial", "report_type", "primary_endpoint_met", "explicit_p_value", "final_status", "endpoint_match", "confidence", "insufficient_evidence"],
+    "required": ["is_this_trial", "trial_identity", "report_type", "primary_endpoint_met", "explicit_p_value", "final_status", "endpoint_match", "confidence", "evidence_location", "insufficient_evidence"],
     "additionalProperties": False,
 }
-SYSTEM_PROMPT = """You are a senior clinical-trial results reviewer. Decide whether the complete publication abstract reports the supplied registered trial and whether it reports the registered primary endpoint as met. An accession match is strong identity evidence but reviews and papers mentioning many trials are not trial reports. Judge the registered primary outcome, not any favorable secondary endpoint. Use mixed when co-primary endpoints conflict. Use not-reported when the primary endpoint cannot be adjudicated from the complete abstract. Record an explicit p-value only when the abstract states it for the matching primary endpoint. Confidence and endpoint match use 0 for no evidence and 5 for explicit, unambiguous evidence. Mark insufficient evidence whenever a verdict would require guessing. Use only the supplied pre-origin registry context and publication abstract."""
+SYSTEM_PROMPT = """You are a senior clinical-trial results reviewer. Decide whether the supplied publication evidence reports the registered trial and whether its registered primary endpoint was met. An identifier match is strong identity evidence, but reviews and papers mentioning many trials are not trial reports. Classify final, interim, secondary, protocol, review, or other evidence before judging. Judge the registered primary outcome rather than a favorable secondary endpoint. Use mixed when co-primary endpoints conflict and not-reported when the primary endpoint cannot be adjudicated. Record a p-value only when it explicitly belongs to the matching primary endpoint. Identify where the evidence occurs. Confidence and endpoint match use 0 for no evidence and 5 for explicit, unambiguous evidence. Mark insufficient evidence whenever a verdict would require guessing. Use only the supplied pre-origin registry context and publication payload."""
 
 
 # Utilities
@@ -89,6 +93,8 @@ def _request(url: str, attempts: int = 6) -> bytes:
                 return response.read()
         except Exception as error:
             last_error = error
+            if isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500 and error.code != 429:
+                raise RuntimeError(f"Literature request rejected: {url}: HTTP {error.code}") from error
             if attempt + 1 < attempts:
                 time.sleep(min(20.0, 0.8 * (2 ** attempt)) + random.random())
     raise RuntimeError(f"Literature request failed after {attempts} attempts: {url}: {last_error}")
@@ -165,7 +171,13 @@ def _token_similarity(left: str, right: str) -> float:
 
 # PubMed
 
-def _parse_pubmed(payload: bytes, origin: pd.Timestamp) -> list[dict[str, Any]]:
+def _parse_pubmed(
+    payload: bytes,
+    origin: pd.Timestamp,
+    source: str = "pubmed_si",
+    allowed_accessions: set[str] | None = None,
+    pmid_accessions: dict[str, set[str]] | None = None,
+) -> list[dict[str, Any]]:
     root = ET.fromstring(payload)
     records = []
     for article in root.findall(".//PubmedArticle"):
@@ -183,7 +195,13 @@ def _parse_pubmed(payload: bytes, origin: pd.Timestamp) -> list[dict[str, Any]]:
         identifiers = {}
         for value in article.findall("PubmedData/ArticleIdList/ArticleId"):
             identifiers[value.attrib.get("IdType", "")] = _text(value)
-        accessions = sorted({_normalize_identifier(value.text) for value in article.findall(".//DataBank[DataBankName='ClinicalTrials.gov']/AccessionNumberList/AccessionNumber") if _normalize_identifier(value.text)})
+        structured_accessions = {_normalize_identifier(value.text) for value in article.findall(".//DataBank[DataBankName='ClinicalTrials.gov']/AccessionNumberList/AccessionNumber") if _normalize_identifier(value.text)}
+        literal_accessions = {match.group(0).upper() for match in NCT_PATTERN.finditer(f"{title}\n{' '.join(abstract_parts)}")}
+        accessions = structured_accessions | literal_accessions
+        if pmid_accessions:
+            accessions.update(pmid_accessions.get(pmid, set()))
+        if allowed_accessions is not None:
+            accessions &= allowed_accessions
         full_dates = []
         years = []
         if journal_article is not None:
@@ -201,13 +219,17 @@ def _parse_pubmed(payload: bytes, origin: pd.Timestamp) -> list[dict[str, Any]]:
             "title": title,
             "abstract": "\n".join(abstract_parts),
             "publication_types": publication_types,
-            "accessions": accessions,
+            "accessions": sorted(accessions),
             "publication_date": publication_date,
             "date_resolution": date_resolution,
             "date_reason": date_reason,
             "date_eligible": accepted,
-            "source": "pubmed",
-            "exact_si": True,
+            "source": source,
+            "exact_si": bool(structured_accessions & set(accessions)),
+            "literal_match": bool(literal_accessions & set(accessions)),
+            "is_preprint": False,
+            "document_version_id": identifiers.get("pmc", "") or pmid,
+            "document_version_date": publication_date,
         }
         record["publication_identity"] = _publication_identity(record)
         records.append(record)
@@ -218,37 +240,66 @@ def _retrieve_pubmed(accessions: list[str], origin: pd.Timestamp, root: Path) ->
     records = []
     calls = 0
     cache_hits = 0
-    for start in range(0, len(accessions), 40):
-        batch = sorted(accessions[start:start + 40])
-        key = hashlib.sha256(f"{origin.date()}\0{'|'.join(batch)}".encode()).hexdigest()[:20]
-        batch_root = root / "raw" / "pubmed" / origin.strftime("%Y-%m-%d")
-        search_path = batch_root / f"{key}.search.json.gz"
-        fetch_path = batch_root / f"{key}.fetch.xml.gz"
-        maximum = (origin - pd.Timedelta(days=1)).strftime("%Y/%m/%d")
-        term = f"({' OR '.join(f'{value}[si]' for value in batch)}) AND (\"1800/01/01\"[pdat] : \"{maximum}\"[pdat])"
-        search_url = f"{PUBMED_BASE}/esearch.fcgi?" + urllib.parse.urlencode({"db": "pubmed", "term": term, "retmode": "json", "retmax": 10000, "sort": "pub_date", "tool": "kapso_relbench", "email": "noreply@example.com"})
-        if search_path.exists():
-            search_payload = _gzip_read(search_path)
+    allowed = set(accessions)
+    for mode in ["si", "tiab"]:
+        for start in range(0, len(accessions), 40):
+            batch = sorted(accessions[start:start + 40])
+            key = hashlib.sha256(f"{RETRIEVAL_VERSION}\0{mode}\0{origin.date()}\0{'|'.join(batch)}".encode()).hexdigest()[:20]
+            batch_root = root / "raw" / f"pubmed_{mode}" / origin.strftime("%Y-%m-%d")
+            search_path = batch_root / f"{key}.search.json.gz"
+            fetch_path = batch_root / f"{key}.fetch.xml.gz"
+            maximum = (origin - pd.Timedelta(days=1)).strftime("%Y/%m/%d")
+            term = f"({' OR '.join(f'{value}[{mode}]' for value in batch)}) AND (\"1800/01/01\"[pdat] : \"{maximum}\"[pdat])"
+            search_url = f"{PUBMED_BASE}/esearch.fcgi?" + urllib.parse.urlencode({"db": "pubmed", "term": term, "retmode": "json", "retmax": 10000, "sort": "pub_date", "tool": "kapso_relbench", "email": "noreply@example.com"})
+            if search_path.exists():
+                search_payload = _gzip_read(search_path)
+                cache_hits += 1
+            else:
+                search_payload = _request(search_url)
+                _gzip_write(search_path, search_payload)
+                calls += 1
+                time.sleep(0.34)
+            identifiers = json.loads(search_payload)["esearchresult"]["idlist"]
+            if not identifiers:
+                continue
+            fetch_url = f"{PUBMED_BASE}/efetch.fcgi?" + urllib.parse.urlencode({"db": "pubmed", "id": ",".join(identifiers), "retmode": "xml", "tool": "kapso_relbench", "email": "noreply@example.com"})
+            if fetch_path.exists():
+                fetch_payload = _gzip_read(fetch_path)
+                cache_hits += 1
+            else:
+                fetch_payload = _request(fetch_url)
+                _gzip_write(fetch_path, fetch_payload)
+                calls += 1
+                time.sleep(0.34)
+            parsed = _parse_pubmed(fetch_payload, origin, source=f"pubmed_{mode}", allowed_accessions=allowed)
+            if mode == "tiab":
+                parsed = [record for record in parsed if record["literal_match"]]
+            records.extend(parsed)
+    return records, {"calls": calls, "cache_hits": cache_hits, "query_templates": ["(<NCT>[si] OR ...) AND pre-origin pdat", "(<NCT>[tiab] OR ...) AND pre-origin pdat"], "batch_size": 40}
+
+
+def _retrieve_reference_pmids(
+    pmid_accessions: dict[str, set[str]], origin: pd.Timestamp, root: Path, accessions: set[str]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    identifiers = sorted(pmid_accessions)
+    records = []
+    calls = 0
+    cache_hits = 0
+    for start in range(0, len(identifiers), 40):
+        batch = identifiers[start:start + 40]
+        key = hashlib.sha256(f"{RETRIEVAL_VERSION}\0references\0{origin.date()}\0{'|'.join(batch)}".encode()).hexdigest()[:20]
+        path = root / "raw" / "pubmed_references" / origin.strftime("%Y-%m-%d") / f"{key}.xml.gz"
+        url = f"{PUBMED_BASE}/efetch.fcgi?" + urllib.parse.urlencode({"db": "pubmed", "id": ",".join(batch), "retmode": "xml", "tool": "kapso_relbench", "email": "noreply@example.com"})
+        if path.exists():
+            payload = _gzip_read(path)
             cache_hits += 1
         else:
-            search_payload = _request(search_url)
-            _gzip_write(search_path, search_payload)
+            payload = _request(url)
+            _gzip_write(path, payload)
             calls += 1
             time.sleep(0.34)
-        identifiers = json.loads(search_payload)["esearchresult"]["idlist"]
-        if not identifiers:
-            continue
-        fetch_url = f"{PUBMED_BASE}/efetch.fcgi?" + urllib.parse.urlencode({"db": "pubmed", "id": ",".join(identifiers), "retmode": "xml", "tool": "kapso_relbench", "email": "noreply@example.com"})
-        if fetch_path.exists():
-            fetch_payload = _gzip_read(fetch_path)
-            cache_hits += 1
-        else:
-            fetch_payload = _request(fetch_url)
-            _gzip_write(fetch_path, fetch_payload)
-            calls += 1
-            time.sleep(0.34)
-        records.extend(_parse_pubmed(fetch_payload, origin))
-    return records, {"calls": calls, "cache_hits": cache_hits, "query_template": "(<NCT>[si] OR ...) AND (1800/01/01[pdat] : <origin-1d>[pdat])"}
+        records.extend(_parse_pubmed(payload, origin, source="aact_result_reference", allowed_accessions=accessions, pmid_accessions=pmid_accessions))
+    return records, {"calls": calls, "cache_hits": cache_hits, "pmids": len(identifiers)}
 
 
 # Europe PMC
@@ -268,27 +319,56 @@ class _RateLimiter:
             time.sleep(delay)
 
 
-def _parse_europe_pmc(payload: bytes, queried_accession: str, origin: pd.Timestamp) -> list[dict[str, Any]]:
+def _parse_europe_pmc(payload: bytes, queried_accession: str, origin: pd.Timestamp, query_mode: str) -> list[dict[str, Any]]:
     data = json.loads(payload)
     records = []
     for item in data.get("resultList", {}).get("result", []):
         full_dates = [value for value in [item.get("firstPublicationDate"), item.get("electronicPublicationDate")] if value and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(value))]
         years = [int(item["pubYear"])] if str(item.get("pubYear", "")).isdigit() else []
         accepted, publication_date, date_resolution, date_reason = _date_decision(full_dates, years, origin)
+        title = str(item.get("title") or "")
+        abstract = str(item.get("abstractText") or "")
+        literal_match = queried_accession in f"{title}\n{abstract}".upper()
+        source_code = str(item.get("source") or "")
+        publication_types = list(item.get("pubTypeList", {}).get("pubType", []))
+        is_preprint = source_code.upper() == "PPR" or any("preprint" in str(value).casefold() for value in publication_types)
+        version_values = item.get("versionList", {}).get("version", [])
+        if isinstance(version_values, dict):
+            version_values = [version_values]
+        version_id = str(item.get("id") or item.get("pmcid") or item.get("pmid") or item.get("doi") or "")
+        version_date = publication_date
+        for version in version_values:
+            current_id = str(version.get("versionNumber") or version.get("version") or version_id)
+            current_date = str(version.get("versionDate") or version.get("date") or "")
+            if current_date and re.fullmatch(r"\d{4}-\d{2}-\d{2}", current_date):
+                version_id = f"{version_id}:v{current_id}"
+                version_date = current_date
+                accepted = accepted and pd.Timestamp(current_date) < origin
+        prohibited = bool(re.search(r"\b(retraction|retracted|correction|erratum|expression of concern)\b", f"{title} {' '.join(publication_types)}", re.IGNORECASE))
+        if is_preprint and (date_resolution != "complete" or not version_date):
+            accepted = False
+            date_reason = "preprint_requires_complete_version_date"
+        if prohibited:
+            accepted = False
+            date_reason = "correction_or_retraction_rejected"
         record = {
             "pmid": str(item.get("pmid") or ""),
             "pmcid": str(item.get("pmcid") or ""),
             "doi": str(item.get("doi") or ""),
-            "title": str(item.get("title") or ""),
-            "abstract": str(item.get("abstractText") or ""),
-            "publication_types": list(item.get("pubTypeList", {}).get("pubType", [])),
+            "title": title,
+            "abstract": abstract,
+            "publication_types": publication_types,
             "accessions": [queried_accession],
             "publication_date": publication_date,
             "date_resolution": date_resolution,
             "date_reason": date_reason,
             "date_eligible": accepted,
-            "source": "europe_pmc",
+            "source": f"europe_pmc_{query_mode}",
             "exact_si": False,
+            "literal_match": literal_match,
+            "is_preprint": is_preprint,
+            "document_version_id": version_id,
+            "document_version_date": version_date,
         }
         record["publication_identity"] = _publication_identity(record)
         records.append(record)
@@ -299,46 +379,100 @@ def _retrieve_europe_pmc(accessions: list[str], origin: pd.Timestamp, root: Path
     limiter = _RateLimiter(0.205)
     calls = 0
     cache_hits = 0
+    failures = []
     counter_lock = threading.Lock()
     maximum = (origin - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
     def retrieve_one(accession: str) -> list[dict[str, Any]]:
         nonlocal calls, cache_hits
-        path = root / "raw" / "europe_pmc" / origin.strftime("%Y-%m-%d") / f"{accession}.json.gz"
-        query = f"ACCESSION_ID:{accession} AND FIRST_PDATE:[1800-01-01 TO {maximum}]"
-        url = EUROPE_PMC_BASE + "?" + urllib.parse.urlencode({"query": query, "resultType": "core", "format": "json", "pageSize": 1000})
-        if path.exists():
-            payload = _gzip_read(path)
-            with counter_lock:
-                cache_hits += 1
-        else:
-            limiter.wait()
-            payload = _request(url)
-            _gzip_write(path, payload)
-            with counter_lock:
-                calls += 1
-        return _parse_europe_pmc(payload, accession, origin)
+        current = []
+        for query_mode, query_term in [
+            ("accession", f"ACCESSION_ID:{accession}"),
+            ("quoted", f'"{accession}"'),
+            ("preprint", f'SRC:PPR AND "{accession}"'),
+        ]:
+            path = root / "raw" / f"europe_pmc_{query_mode}" / origin.strftime("%Y-%m-%d") / f"{accession}.json.gz"
+            query = f"{query_term} AND FIRST_PDATE:[1800-01-01 TO {maximum}]"
+            url = EUROPE_PMC_BASE + "?" + urllib.parse.urlencode({"query": query, "resultType": "core", "format": "json", "pageSize": 1000})
+            if path.exists():
+                payload = _gzip_read(path)
+                with counter_lock:
+                    cache_hits += 1
+            else:
+                limiter.wait()
+                try:
+                    payload = _request(url)
+                except Exception as error:
+                    with counter_lock:
+                        failures.append({"nct_id": accession, "source": query_mode, "error": str(error)})
+                    continue
+                _gzip_write(path, payload)
+                with counter_lock:
+                    calls += 1
+            parsed = _parse_europe_pmc(payload, accession, origin, query_mode)
+            if query_mode in ["quoted", "preprint"]:
+                allow_full_text_verification = len(parsed) <= 5
+                verified = []
+                for record in parsed:
+                    if record["literal_match"]:
+                        verified.append(record)
+                        continue
+                    if not allow_full_text_verification:
+                        continue
+                    pmcid = str(record.get("pmcid", "")).upper()
+                    if not pmcid:
+                        continue
+                    verification_path = root / "raw" / "europe_pmc_literal_verification" / f"{pmcid}.xml.gz"
+                    if verification_path.exists():
+                        full_payload = _gzip_read(verification_path)
+                        with counter_lock:
+                            cache_hits += 1
+                    else:
+                        limiter.wait()
+                        try:
+                            full_payload = _request(f"{EUROPE_PMC_REST}/{urllib.parse.quote(pmcid)}/fullTextXML", attempts=1)
+                            _gzip_write(verification_path, full_payload)
+                            with counter_lock:
+                                calls += 1
+                        except Exception:
+                            full_payload = b""
+                    if accession.encode() in full_payload.upper():
+                        record["literal_match"] = True
+                        verified.append(record)
+                parsed = verified
+            current.extend(parsed)
+        return current
 
     records = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         for current in executor.map(retrieve_one, accessions):
             records.extend(current)
-    return records, {"calls": calls, "cache_hits": cache_hits, "query_template": "ACCESSION_ID:<NCT> AND FIRST_PDATE:[1800-01-01 TO <origin-1d>]"}
+    return records, {"calls": calls, "cache_hits": cache_hits, "failures": failures, "query_templates": ["ACCESSION_ID:<NCT> AND pre-origin FIRST_PDATE", "quoted field-free <NCT> AND pre-origin FIRST_PDATE", "SRC:PPR AND quoted <NCT> with a complete pre-origin version date"], "workers": 5}
 
 
 # Retrieval assembly
 
 def _merge_records(pubmed: list[dict[str, Any]], europe: list[dict[str, Any]], accessions: list[str], origin: pd.Timestamp) -> list[dict[str, Any]]:
     relations: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    aliases: dict[tuple[str, str], str] = {}
     allowed = set(accessions)
-    for record in pubmed:
+    for record in pubmed + europe:
         for accession in record["accessions"]:
-            if accession in allowed:
-                relations.setdefault((accession, record["publication_identity"]), []).append(record)
-    for record in europe:
-        accession = record["accessions"][0]
-        if accession in allowed:
-            relations.setdefault((accession, record["publication_identity"]), []).append(record)
+            if accession not in allowed:
+                continue
+            normalized_title = re.sub(r"[^a-z0-9]+", " ", str(record.get("title", "")).casefold()).strip()
+            keys = [
+                f"pmid:{record['pmid']}" if record.get("pmid") else "",
+                f"pmcid:{str(record['pmcid']).upper()}" if record.get("pmcid") else "",
+                f"doi:{str(record['doi']).casefold()}" if record.get("doi") else "",
+                f"title:{normalized_title}" if normalized_title else "",
+                f"version:{record.get('document_version_id')}" if record.get("document_version_id") else "",
+            ]
+            keys = [value for value in keys if value]
+            identity = next((aliases[(accession, value)] for value in keys if (accession, value) in aliases), keys[0] if keys else record["publication_identity"])
+            for value in keys:
+                aliases[(accession, value)] = identity
+            relations.setdefault((accession, identity), []).append(record)
     merged = []
     for (accession, identity), values in sorted(relations.items()):
         abstracts = [value["abstract"] for value in values if value["abstract"]]
@@ -357,17 +491,178 @@ def _merge_records(pubmed: list[dict[str, Any]], europe: list[dict[str, Any]], a
             "publication_types": sorted({item for value in values for item in value["publication_types"]}),
             "sources": sorted({value["source"] for value in values}),
             "exact_si": any(value["exact_si"] for value in values),
+            "literal_match": any(value.get("literal_match", False) for value in values),
+            "is_preprint": any(value.get("is_preprint", False) for value in values),
+            "registry_result_reference": any(value["source"] == "aact_result_reference" for value in values),
+            "document_version_id": next((value.get("document_version_id", "") for value in values if value.get("document_version_id")), ""),
+            "document_version_date": next((value.get("document_version_date", "") for value in values if value.get("document_version_date")), date_source["publication_date"]),
             "publication_date": date_source["publication_date"],
             "date_resolution": date_source["date_resolution"],
             "date_reason": date_source["date_reason"],
             "date_eligible": bool(eligible),
             "content_hash": hashlib.sha256(f"{max(titles, key=len) if titles else ''}\0{max(abstracts, key=len) if abstracts else ''}".encode("utf-8", errors="replace")).hexdigest(),
+            "full_text": "",
+            "full_text_sections": [],
+            "full_text_safe": False,
+            "full_text_reason": "not_requested",
         })
     return merged
 
 
+# Full-text versions
+
+def _section_payloads(xml_payload: bytes, row: pd.Series) -> tuple[list[str], str]:
+    root = ET.fromstring(xml_payload)
+    article_id = ""
+    for element in root.findall(".//article-id"):
+        if element.attrib.get("pub-id-type", "").casefold() == "pmc":
+            article_id = _text(element).upper()
+    if article_id and article_id != str(row.get("pmcid", "")).upper().replace("PMC", "") and f"PMC{article_id}" != str(row.get("pmcid", "")).upper():
+        return [], "pmcid_mismatch"
+    prohibited = re.search(r"\b(retraction|retracted|correction|erratum|expression of concern)\b", f"{root.attrib.get('article-type', '')} {_text(root.find('.//article-title'))}", re.IGNORECASE)
+    if prohibited:
+        return [], "correction_or_retraction_rejected"
+    origin = pd.Timestamp(row["origin"])
+    version_dates = []
+    for element in root.findall(".//date"):
+        date_type = element.attrib.get("date-type", "").casefold()
+        if any(token in date_type for token in ["updated", "corrected", "revision", "rev-recd"]):
+            full, _ = _xml_date(element)
+            if full:
+                version_dates.append(pd.Timestamp(full))
+    if any(value >= origin for value in version_dates):
+        return [], "post_origin_document_version"
+    if str(row.get("date_resolution", "")) != "complete" or pd.Timestamp(row["publication_date"]) >= origin:
+        return [], "full_text_requires_complete_pre_origin_date"
+    selected = []
+    abstract = _text(root.find(".//abstract")) or str(row.get("abstract", ""))
+    if abstract:
+        selected.append(f"ABSTRACT\n{abstract}")
+    section_pattern = re.compile(r"\b(result|statistical|analysis|finding|conclusion|discussion)\b", re.IGNORECASE)
+    for section in root.findall(".//sec"):
+        title = _text(section.find("title"))
+        if not section_pattern.search(title):
+            continue
+        nested = section.findall("sec")
+        if nested:
+            continue
+        body_parts = []
+        for paragraph in section.findall("p"):
+            value = _text(paragraph)
+            if value:
+                body_parts.append(value)
+        for table in section.findall(".//table-wrap"):
+            value = _text(table)
+            if re.search(r"\bp\s*[<=>]|p-value|confidence interval|primary endpoint", value, re.IGNORECASE):
+                body_parts.append(f"TABLE: {value}")
+        payload = f"{title.upper()}\n" + "\n".join(body_parts)
+        if body_parts and len(payload) <= 8000:
+            selected.append(payload)
+    windows = []
+    current = []
+    length = 0
+    for section in selected:
+        if len(section) > 8000:
+            continue
+        if current and length + len(section) + 2 > 8000:
+            windows.append("\n\n".join(current))
+            current = []
+            length = 0
+        current.append(section)
+        length += len(section) + 2
+    if current:
+        windows.append("\n\n".join(current))
+    return windows[:3], "pmcid_specific_xml_complete_pre_origin_publication_no_later_version_marker"
+
+
+def hydrate_full_text(candidates: pd.DataFrame, cache_root: Path) -> tuple[pd.DataFrame, dict[str, int]]:
+    if candidates.empty:
+        return candidates.copy(), {"requested": 0, "safe": 0, "calls": 0, "cache_hits": 0, "windows": 0}
+    def hydrate_one(position: int, row: pd.Series) -> tuple[int, list[dict[str, Any]], dict[str, int]]:
+        item = row.to_dict()
+        pmcid = str(item.get("pmcid", "")).upper()
+        windows = []
+        reason = "no_pmcid"
+        counters = {"requested": 0, "safe": 0, "calls": 0, "cache_hits": 0}
+        if pmcid:
+            counters["requested"] = 1
+            path = cache_root / "literature_v3" / "raw" / "full_text_xml" / f"{pmcid}.xml.gz"
+            if path.exists():
+                payload = _gzip_read(path)
+                counters["cache_hits"] = 1
+            else:
+                url = f"{EUROPE_PMC_REST}/{urllib.parse.quote(pmcid)}/fullTextXML"
+                try:
+                    payload = _request(url)
+                    _gzip_write(path, payload)
+                    counters["calls"] = 1
+                except urllib.error.HTTPError as error:
+                    payload = b""
+                    if 400 <= int(error.code) < 500 and int(error.code) != 429:
+                        _gzip_write(path, payload)
+                        counters["calls"] = 1
+                except Exception:
+                    payload = b""
+            if payload:
+                try:
+                    windows, reason = _section_payloads(payload, row)
+                except Exception as error:
+                    reason = f"xml_parse_failure:{type(error).__name__}"
+        hydrated = []
+        if windows:
+            counters["safe"] = 1
+            for window_index, window in enumerate(windows):
+                current = dict(item)
+                current["full_text"] = window
+                current["full_text_sections"] = [value.split("\n", 1)[0] for value in window.split("\n\n")]
+                current["full_text_safe"] = True
+                current["full_text_reason"] = reason
+                current["payload_type"] = "full-text"
+                current["document_window_id"] = f"{pmcid}:window-{window_index + 1}"
+                current["content_hash"] = hashlib.sha256(window.encode("utf-8", errors="replace")).hexdigest()
+                hydrated.append(current)
+        else:
+            item["full_text_safe"] = False
+            item["full_text_reason"] = reason
+            item["payload_type"] = "abstract"
+            item["document_window_id"] = f"{item.get('publication_identity', '')}:abstract"
+            hydrated.append(item)
+        return position, hydrated, counters
+
+    completed = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(hydrate_one, position, row) for position, (_, row) in enumerate(candidates.iterrows())]
+        for future in concurrent.futures.as_completed(futures):
+            completed.append(future.result())
+    completed.sort(key=lambda value: value[0])
+    rows = [row for _, hydrated, _ in completed for row in hydrated]
+    totals = {key: sum(counters[key] for _, _, counters in completed) for key in ["requested", "safe", "calls", "cache_hits"]}
+    return pd.DataFrame(rows), {**totals, "windows": len(rows), "workers": 5}
+
+
+def _snapshot_reference_pmids(
+    linkage: pd.DataFrame, origin: pd.Timestamp, cache_root: Path, allowed: set[str]
+) -> dict[str, set[str]]:
+    from registry_clock import ORIGIN_SNAPSHOTS
+
+    snapshot = ORIGIN_SNAPSHOTS[pd.Timestamp(origin).normalize()]
+    path = cache_root / "registry_clock_lane0" / "projected" / snapshot / "study_references.parquet"
+    if not path.exists():
+        return {}
+    references = pd.read_parquet(path, columns=["nct_id", "pmid", "reference_type"])
+    references = references[
+        references["nct_id"].astype(str).isin(allowed)
+        & references["reference_type"].fillna("").astype(str).str.casefold().str.contains("result")
+        & references["pmid"].fillna("").astype(str).str.fullmatch(r"\d+")
+    ]
+    result: dict[str, set[str]] = {}
+    for accession, pmid in references[["nct_id", "pmid"]].itertuples(index=False):
+        result.setdefault(str(pmid), set()).add(str(accession))
+    return result
+
+
 def retrieve_origin(linkage: pd.DataFrame, origin: pd.Timestamp, cache_root: Path) -> tuple[pd.DataFrame, dict[str, Any]]:
-    root = cache_root / "literature_v2"
+    root = cache_root / "literature_v3"
     origin = pd.Timestamp(origin).normalize()
     eligible_linkage = linkage[
         linkage["linked"].astype(bool)
@@ -385,6 +680,9 @@ def retrieve_origin(linkage: pd.DataFrame, origin: pd.Timestamp, cache_root: Pat
         return frame, diagnostics
     started = time.time()
     pubmed, pubmed_diagnostics = _retrieve_pubmed(accessions, origin, root)
+    reference_map = _snapshot_reference_pmids(linkage, origin, cache_root, set(accessions))
+    references, reference_diagnostics = _retrieve_reference_pmids(reference_map, origin, root, set(accessions))
+    pubmed.extend(references)
     europe, europe_diagnostics = _retrieve_europe_pmc(accessions, origin, root)
     merged = _merge_records(pubmed, europe, accessions, origin)
     frame = pd.DataFrame(merged)
@@ -406,7 +704,9 @@ def retrieve_origin(linkage: pd.DataFrame, origin: pd.Timestamp, cache_root: Pat
         "records": int(len(frame)),
         "admissible_records": int(frame["date_eligible"].sum()) if len(frame) else 0,
         "complete_date_share": float((frame["date_resolution"] == "complete").mean()) if len(frame) else 0.0,
-        "sources": {"pubmed": pubmed_diagnostics, "europe_pmc": europe_diagnostics},
+        "sources": {"pubmed": pubmed_diagnostics, "europe_pmc": europe_diagnostics, "aact_result_references": reference_diagnostics},
+        "preprints": int(frame["is_preprint"].sum()) if len(frame) else 0,
+        "result_reference_records": int(frame["registry_result_reference"].sum()) if len(frame) else 0,
         "elapsed_seconds": float(time.time() - started),
         "trials_per_minute": float(len(accessions) / max((time.time() - started) / 60.0, 1e-6)),
         "retrieved_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
@@ -415,10 +715,10 @@ def retrieve_origin(linkage: pd.DataFrame, origin: pd.Timestamp, cache_root: Pat
     }
     diagnostics_path.write_text(json.dumps(diagnostics, indent=2, sort_keys=True) + "\n")
     register_artifact(cache_root, {
-        "name": "generic_exp_4 pre-origin publication cache",
-        "path": "literature_v2",
+        "name": "generic_exp_0 pre-origin publication cache v3",
+        "path": "literature_v3",
         "description": "Raw PubMed and Europe PMC responses, origin-specific date decisions, deterministic candidates, hosted adjudications, and publication-expert vectors.",
-        "content_key": "rel-trial-study-outcome:literature-retrieval-v2:primary-result-adjudication-v2",
+        "content_key": "rel-trial-study-outcome:literature-retrieval-v3:primary-result-adjudication-v3",
         "rebuild_hint": "Run publication_pipeline.py; retrieval resumes from origin/accession-addressed raw responses.",
     })
     return frame, diagnostics
@@ -467,7 +767,7 @@ def build_trial_contexts(linkage: pd.DataFrame, origin: pd.Timestamp, projected_
     return contexts
 
 
-def prefilter_candidates(records: pd.DataFrame, contexts: dict[str, dict[str, Any]], maximum: int = 3) -> pd.DataFrame:
+def prefilter_candidates(records: pd.DataFrame, contexts: dict[str, dict[str, Any]], maximum: int = 8) -> pd.DataFrame:
     if records.empty:
         return records.copy()
     scored = []
@@ -484,13 +784,18 @@ def prefilter_candidates(records: pd.DataFrame, contexts: dict[str, dict[str, An
         score += 4.0 * _token_similarity(title, trial_title)
         score += 3.0 * _token_similarity(f"{title} {abstract[:4000]}", primary)
         score += 2.0 if re.search(r"randomized controlled trial|clinical trial", publication_types, re.IGNORECASE) else 0.0
+        score += 3.0 if bool(row.get("registry_result_reference", False)) else 0.0
+        score += 1.5 if re.search(r"\b(final|primary endpoint|primary outcome)\b", f"{title} {abstract}", re.IGNORECASE) else 0.0
+        score -= 1.5 if re.search(r"\b(interim|preliminary|secondary analysis|post hoc)\b", f"{title} {abstract}", re.IGNORECASE) else 0.0
         score -= 5.0 if PROTOCOL_WORDS.search(f"{title} {publication_types}") else 0.0
         score -= 5.0 if REVIEW_WORDS.search(f"{title} {publication_types}") else 0.0
+        score -= min(6.0, max(0, len(set(NCT_PATTERN.findall(f"{title} {abstract}"))) - 1) * 1.5)
         score -= 3.0 if len(abstract.strip()) < 100 else 0.0
         item = row.to_dict()
         item["prefilter_score"] = float(score)
         item["title_similarity"] = float(_token_similarity(title, trial_title))
         item["primary_outcome_similarity"] = float(_token_similarity(f"{title} {abstract[:4000]}", primary))
+        item["nct_mention_count"] = int(len(set(value.upper() for value in NCT_PATTERN.findall(f"{title} {abstract}"))))
         scored.append(item)
     frame = pd.DataFrame(scored)
     if frame.empty:
@@ -502,13 +807,15 @@ def prefilter_candidates(records: pd.DataFrame, contexts: dict[str, dict[str, An
 # Hosted adjudication
 
 def _adjudication_key(row: pd.Series, context: dict[str, Any]) -> str:
-    payload = json.dumps({"model": HOSTED_MODEL, "prompt": PROMPT_VERSION, "origin": row["origin"], "publication_identity": row["publication_identity"], "content_hash": row["content_hash"], "context": context}, sort_keys=True).encode()
+    payload = json.dumps({"model": HOSTED_MODEL, "prompt": PROMPT_VERSION, "origin": row["origin"], "publication_identity": row["publication_identity"], "document_window_id": row.get("document_window_id", ""), "content_hash": row["content_hash"], "context": context}, sort_keys=True).encode()
     return hashlib.sha256(payload).hexdigest()
 
 
 def _adjudicate_one(row: pd.Series, context: dict[str, Any]) -> dict[str, Any]:
     client = OpenAI(timeout=180.0, max_retries=0)
-    input_text = f"PRE-ORIGIN REGISTRY CONTEXT\n{json.dumps(context, sort_keys=True)}\n\nPUBLICATION TITLE\n{row['title']}\n\nCOMPLETE ABSTRACT\n{row['abstract']}"
+    payload_type = str(row.get("payload_type", "abstract"))
+    document = str(row.get("full_text", "")) if payload_type == "full-text" else str(row["abstract"])
+    input_text = f"PRE-ORIGIN REGISTRY CONTEXT\n{json.dumps(context, sort_keys=True)}\n\nPUBLICATION TITLE\n{row['title']}\n\nPAYLOAD TYPE\n{payload_type}\n\nCOMPLETE PUBLICATION PAYLOAD\n{document}"
     last_error = None
     for attempt in range(6):
         try:
@@ -531,8 +838,15 @@ def _adjudicate_one(row: pd.Series, context: dict[str, Any]) -> dict[str, Any]:
     raise RuntimeError(f"Publication adjudication failed: {last_error}")
 
 
-def adjudicate_candidates(candidates: pd.DataFrame, contexts: dict[str, dict[str, Any]], cache_root: Path, concurrency: int = 32, probe_only: bool = False) -> tuple[pd.DataFrame, dict[str, Any]]:
-    root = cache_root / "literature_v2" / "adjudications"
+def adjudicate_candidates(
+    candidates: pd.DataFrame,
+    contexts: dict[str, dict[str, Any]],
+    cache_root: Path,
+    concurrency: int = 32,
+    probe_only: bool = False,
+    force_live: bool = False,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    root = cache_root / "literature_v3" / "adjudications"
     root.mkdir(parents=True, exist_ok=True)
     if candidates.empty:
         return candidates.copy(), {"calls": 0, "cache_hits": 0, "failures": 0, "usable_rows": 0, "probe_passed": False}
@@ -542,7 +856,7 @@ def adjudicate_candidates(candidates: pd.DataFrame, contexts: dict[str, dict[str
     missing = []
     for index, key in keys.items():
         path = root / f"{key}.json"
-        if path.exists():
+        if path.exists() and not force_live:
             results[index] = json.loads(path.read_text())["result"]
         else:
             missing.append(index)
@@ -570,8 +884,44 @@ def adjudicate_candidates(candidates: pd.DataFrame, contexts: dict[str, dict[str
         item.update({f"judgment_{key}": value for key, value in results[index].items()})
         rows.append(item)
     frame = pd.DataFrame(rows)
-    usable = frame["judgment_is_this_trial"].astype(bool) & ~frame["judgment_insufficient_evidence"].astype(bool) & frame["judgment_primary_endpoint_met"].isin(["yes", "no", "mixed"])
+    usable = frame["judgment_is_this_trial"].astype(bool) & frame["judgment_trial_identity"].isin(["exact", "probable"]) & frame["judgment_primary_endpoint_met"].isin(["yes", "no", "mixed"])
     return frame, {"calls": len(missing), "cache_hits": len(selected) - len(missing), "failures": 0, "usable_rows": int(usable.sum()), "probe_passed": True, "model": HOSTED_MODEL, "prompt_version": PROMPT_VERSION}
+
+
+def live_payload_probes(cache_root: Path, maximum_calls: int = 2) -> dict[str, Any]:
+    context = {
+        "nct_id": "NCT00000000",
+        "origin": "2019-01-01",
+        "brief_title": "Masked clinical trial probe",
+        "official_title": "Masked randomized clinical trial probe",
+        "conditions": ["masked condition"],
+        "interventions": ["masked intervention"],
+        "phase": "Phase 3",
+        "enrollment": "200",
+        "arms": "2",
+        "allocation": "Randomized",
+        "masking": "Double",
+        "primary_outcomes": [{"title": "Masked primary endpoint", "time_frame": "12 months"}],
+    }
+    payloads = [
+        ("abstract", "This structured probe is a final report of NCT00000000. The masked primary endpoint was not reported."),
+        ("full-text", "RESULTS\nNCT00000000 enrolled the masked population. The matching primary endpoint was not reported.\n\nCONCLUSION\nEvidence is insufficient for an endpoint verdict."),
+    ][:maximum_calls]
+    results = []
+    for index, (payload_type, document) in enumerate(payloads):
+        row = pd.Series({
+            "origin": "2019-01-01",
+            "publication_identity": f"live-probe-{payload_type}",
+            "document_window_id": f"live-probe-{index}",
+            "content_hash": hashlib.sha256(document.encode()).hexdigest(),
+            "title": "Structured output live probe",
+            "abstract": document,
+            "full_text": document if payload_type == "full-text" else "",
+            "payload_type": payload_type,
+        })
+        result = _adjudicate_one(row, context)
+        results.append({"payload_type": payload_type, "report_type": result["report_type"], "trial_identity": result["trial_identity"], "insufficient_evidence": result["insufficient_evidence"]})
+    return {"calls": len(results), "model": HOSTED_MODEL, "prompt_version": PROMPT_VERSION, "results": results}
 
 
 # Feature assembly
@@ -582,7 +932,10 @@ def publication_features(linkage: pd.DataFrame, records: pd.DataFrame, adjudicat
         "publication_count", "primary_report_count", "endpoint_match_confidence", "met_count",
         "not_met_count", "mixed_count", "explicit_p_significant_count", "explicit_p_nonsignificant_count",
         "final_count", "interim_count", "months_since_newest", "source_agreement", "evidence_confidence",
-        "exact_si_count", "usable_evidence",
+        "exact_si_count", "literal_match_count", "result_reference_count", "preprint_count",
+        "full_text_count", "table_evidence_count", "results_evidence_count", "secondary_count",
+        "protocol_count", "review_count", "tier_a_count", "tier_b_count", "tier_c_count",
+        "strict_evidence", "moderate_evidence", "weak_evidence", "usable_evidence",
     ]
     for column in numeric:
         result[column] = 0.0
@@ -592,12 +945,18 @@ def publication_features(linkage: pd.DataFrame, records: pd.DataFrame, adjudicat
     record_group = eligible.groupby("queried_nct_id")
     record_counts = record_group.size()
     exact_counts = record_group["exact_si"].sum()
+    literal_counts = record_group["literal_match"].sum()
+    reference_counts = record_group["registry_result_reference"].sum()
+    preprint_counts = record_group["is_preprint"].sum()
     agreement = record_group["sources"].apply(lambda values: float(any(len(value) > 1 for value in values)))
     for index, row in result.iterrows():
         accession = str(row["external_nct_id"])
         if accession in record_counts:
             result.at[index, "publication_count"] = float(record_counts[accession])
             result.at[index, "exact_si_count"] = float(exact_counts[accession])
+            result.at[index, "literal_match_count"] = float(literal_counts[accession])
+            result.at[index, "result_reference_count"] = float(reference_counts[accession])
+            result.at[index, "preprint_count"] = float(preprint_counts[accession])
             result.at[index, "source_agreement"] = float(agreement[accession])
             dates = pd.to_datetime(eligible.loc[eligible["queried_nct_id"] == accession, "publication_date"], errors="coerce")
             if dates.notna().any():
@@ -605,18 +964,32 @@ def publication_features(linkage: pd.DataFrame, records: pd.DataFrame, adjudicat
     if adjudications.empty:
         return result
     frame = adjudications.copy()
-    frame["usable"] = frame["judgment_is_this_trial"].astype(bool) & ~frame["judgment_insufficient_evidence"].astype(bool) & frame["judgment_primary_endpoint_met"].isin(["yes", "no", "mixed"])
+    frame["verdict"] = frame["judgment_primary_endpoint_met"].isin(["yes", "no", "mixed"])
+    frame["identity"] = frame["judgment_is_this_trial"].astype(bool) & frame["judgment_trial_identity"].isin(["exact", "probable"])
+    frame["sufficient"] = ~frame["judgment_insufficient_evidence"].astype(bool)
     frame["primary"] = frame["judgment_report_type"].eq("primary-results").astype(float)
     frame["met"] = frame["judgment_primary_endpoint_met"].eq("yes").astype(float)
     frame["not_met"] = frame["judgment_primary_endpoint_met"].eq("no").astype(float)
     frame["mixed"] = frame["judgment_primary_endpoint_met"].eq("mixed").astype(float)
     frame["final"] = frame["judgment_final_status"].eq("final").astype(float)
     frame["interim"] = frame["judgment_final_status"].eq("interim").astype(float)
+    frame["secondary"] = frame["judgment_report_type"].eq("secondary-results").astype(float)
+    frame["protocol"] = frame["judgment_report_type"].eq("protocol").astype(float)
+    frame["review"] = frame["judgment_report_type"].eq("review").astype(float)
+    frame["full_text_evidence"] = frame.get("payload_type", pd.Series("abstract", index=frame.index)).eq("full-text").astype(float)
+    frame["table_evidence"] = frame["judgment_evidence_location"].eq("table").astype(float)
+    frame["results_evidence"] = frame["judgment_evidence_location"].isin(["results", "statistical-results", "table", "multiple"]).astype(float)
     parsed_p = frame["judgment_explicit_p_value"].fillna("").astype(str).str.extract(r"([01]?(?:\.\d+))", expand=False)
     parsed_p = pd.to_numeric(parsed_p, errors="coerce")
     frame["p_significant"] = (parsed_p <= 0.05).astype(float)
     frame["p_nonsignificant"] = (parsed_p > 0.05).astype(float)
     frame["match_confidence"] = frame["judgment_endpoint_match"].astype(float) * frame["judgment_confidence"].astype(float) / 25.0
+    explicit = parsed_p.notna()
+    final_primary = frame["judgment_final_status"].eq("final") & frame["judgment_report_type"].eq("primary-results")
+    frame["tier_a"] = (frame["identity"] & frame["sufficient"] & frame["verdict"] & final_primary & explicit & (frame["judgment_endpoint_match"] >= 4) & (frame["judgment_confidence"] >= 4)).astype(float)
+    frame["tier_b"] = (frame["identity"] & frame["sufficient"] & frame["verdict"] & final_primary & ~explicit & (frame["judgment_endpoint_match"] >= 3) & (frame["judgment_confidence"] >= 3)).astype(float)
+    frame["tier_c"] = (frame["identity"] & frame["sufficient"] & frame["verdict"] & ~final_primary & (frame["judgment_endpoint_match"] >= 2) & (frame["judgment_confidence"] >= 2)).astype(float)
+    frame["usable"] = frame[["tier_a", "tier_b", "tier_c"]].max(axis=1)
     grouped = frame.groupby("queried_nct_id").agg(
         primary_report_count=("primary", "sum"),
         endpoint_match_confidence=("match_confidence", "max"),
@@ -627,6 +1000,18 @@ def publication_features(linkage: pd.DataFrame, records: pd.DataFrame, adjudicat
         explicit_p_nonsignificant_count=("p_nonsignificant", "sum"),
         final_count=("final", "sum"),
         interim_count=("interim", "sum"),
+        secondary_count=("secondary", "sum"),
+        protocol_count=("protocol", "sum"),
+        review_count=("review", "sum"),
+        full_text_count=("full_text_evidence", "sum"),
+        table_evidence_count=("table_evidence", "sum"),
+        results_evidence_count=("results_evidence", "sum"),
+        tier_a_count=("tier_a", "sum"),
+        tier_b_count=("tier_b", "sum"),
+        tier_c_count=("tier_c", "sum"),
+        strict_evidence=("tier_a", "max"),
+        moderate_evidence=("tier_b", "max"),
+        weak_evidence=("tier_c", "max"),
         evidence_confidence=("judgment_confidence", "max"),
         usable_evidence=("usable", "max"),
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 import unicodedata
@@ -16,6 +17,7 @@ import pandas as pd
 LINKER_VERSION = "registry_linker_v1"
 FEATURE_VERSION = "registry_clock_features_v2"
 LITERATURE_FEATURE_VERSION = "registry_literature_v1"
+DIRECT_EVIDENCE_VERSION = "snapshot_direct_evidence_v1"
 
 ORIGIN_SNAPSHOTS = {
     pd.Timestamp("2017-07-01"): "2017-06-13",
@@ -220,6 +222,160 @@ def _days(snapshot_date: str, values: pd.Series) -> pd.Series:
 def _boolean(values: pd.Series) -> pd.Series:
     normalized = values.fillna("").astype(str).str.casefold()
     return normalized.isin(["t", "true", "1", "yes"]).astype(float)
+
+
+def _empty_direct_evidence(linkage: pd.DataFrame, origin: pd.Timestamp) -> pd.DataFrame:
+    result = pd.DataFrame({
+        "row_id": linkage["row_id"].to_numpy(dtype=np.int64),
+        "nct_id": linkage["nct_id"].to_numpy(),
+        "external_nct_id": linkage.get("external_nct_id", pd.Series(np.nan, index=linkage.index)).to_numpy(),
+        "linked": linkage.get("linked", pd.Series(False, index=linkage.index)).fillna(False).to_numpy(dtype=bool),
+        "origin": np.repeat(pd.Timestamp(origin).strftime("%Y-%m-%d"), len(linkage)),
+        "snapshot_eligible": np.zeros(len(linkage), dtype=bool),
+        "snapshot_verified": np.zeros(len(linkage), dtype=bool),
+        "snapshot_date": np.repeat("", len(linkage)),
+        "archive_sha": np.repeat("", len(linkage)),
+    })
+    for column in [
+        "min_qualifying_pvalue", "significant_analysis_count", "qualifying_analysis_count",
+        "registered_primary_count", "reported_primary_count", "analyzed_primary_count",
+        "results_submission_recency_days", "results_submission_qc_recency_days",
+        "results_posting_recency_days",
+    ]:
+        result[column] = np.nan
+    for column in [
+        "has_results_submission", "has_results_submission_qc", "has_results_posting",
+        "result_dates_temporally_valid", "completed_results_reporting",
+        "all_registered_primary_analyzed", "direct_positive", "direct_complete_negative",
+    ]:
+        result[column] = False
+    result["direct_abstain"] = True
+    result["expert_probability"] = np.nan
+    result["direct_evidence_version"] = DIRECT_EVIDENCE_VERSION
+    return result
+
+
+def snapshot_direct_evidence(linkage: pd.DataFrame, projected_root: Path, origin: pd.Timestamp) -> pd.DataFrame:
+    from registry_snapshot import SNAPSHOT_SHA256
+
+    origin = pd.Timestamp(origin).normalize()
+    current = linkage.copy().reset_index(drop=True)
+    if "timestamp" in current:
+        timestamps = pd.to_datetime(current["timestamp"]).dt.normalize()
+        if not timestamps.eq(origin).all():
+            raise RuntimeError("Snapshot direct-evidence rows span multiple origins")
+    result = _empty_direct_evidence(current, origin)
+    snapshot_date = ORIGIN_SNAPSHOTS.get(origin)
+    if snapshot_date is None:
+        return result
+    snapshot_timestamp = pd.Timestamp(snapshot_date)
+    if snapshot_timestamp >= origin:
+        raise RuntimeError(f"Snapshot {snapshot_date} does not strictly precede {origin.date()}")
+    metadata_path = projected_root / snapshot_date / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    expected_sha = SNAPSHOT_SHA256[snapshot_date]
+    archive_sha = str(metadata.get("archive_sha256", ""))
+    if archive_sha != expected_sha or len(archive_sha) != 64:
+        raise RuntimeError(f"Snapshot archive SHA verification failed for {snapshot_date}")
+    maximum_timestamp = pd.Timestamp(metadata["maximum_usable_timestamp"])
+    if maximum_timestamp >= origin:
+        raise RuntimeError(f"Snapshot maximum timestamp is not pre-origin for {snapshot_date}")
+    for table_name in ["studies", "calculated_values", "design_outcomes", "outcomes", "outcome_analyses"]:
+        path = projected_root / snapshot_date / f"{table_name}.parquet"
+        if not path.exists() or path.stat().st_size == 0:
+            raise RuntimeError(f"Snapshot table is unavailable: {path}")
+    studies = pd.read_parquet(projected_root / snapshot_date / "studies.parquet")
+    calculated = pd.read_parquet(projected_root / snapshot_date / "calculated_values.parquet")
+    design_outcomes = pd.read_parquet(projected_root / snapshot_date / "design_outcomes.parquet")
+    outcomes = pd.read_parquet(projected_root / snapshot_date / "outcomes.parquet")
+    analyses = pd.read_parquet(projected_root / snapshot_date / "outcome_analyses.parquet")
+    primary = outcomes[outcomes["outcome_type"].fillna("").str.casefold().eq("primary")].copy()
+    primary["outcome_id_numeric"] = pd.to_numeric(primary["id"], errors="coerce")
+    registered = design_outcomes[
+        design_outcomes["outcome_type"].fillna("").str.casefold().eq("primary")
+    ].groupby("nct_id").size()
+    reported = primary.groupby("nct_id")["outcome_id_numeric"].nunique()
+    analyses["outcome_id_numeric"] = pd.to_numeric(analyses["outcome_id"], errors="coerce")
+    analyses["p_value_numeric"] = pd.to_numeric(analyses["p_value"], errors="coerce")
+    qualifying = analyses[
+        analyses["p_value_numeric"].between(0.0, 1.0, inclusive="both")
+        & (analyses["p_value_modifier"].isna() | analyses["p_value_modifier"].ne(">"))
+    ].merge(
+        primary[["outcome_id_numeric", "nct_id"]],
+        on="outcome_id_numeric",
+        how="inner",
+        suffixes=("", "_outcome"),
+    )
+    qualifying = qualifying[qualifying["nct_id"].astype(str).eq(qualifying["nct_id_outcome"].astype(str))]
+    grouped = qualifying.groupby("nct_id").agg(
+        min_qualifying_pvalue=("p_value_numeric", "min"),
+        significant_analysis_count=("p_value_numeric", lambda values: int((values <= 0.05).sum())),
+        qualifying_analysis_count=("p_value_numeric", "size"),
+        analyzed_primary_count=("outcome_id_numeric", "nunique"),
+    )
+    studies = studies.drop_duplicates("nct_id").set_index("nct_id")
+    calculated = calculated.drop_duplicates("nct_id").set_index("nct_id")
+    external = result["external_nct_id"]
+    result["snapshot_eligible"] = True
+    result["snapshot_verified"] = True
+    result["snapshot_date"] = snapshot_date
+    result["archive_sha"] = archive_sha
+    for column in [
+        "min_qualifying_pvalue", "significant_analysis_count", "qualifying_analysis_count",
+        "analyzed_primary_count",
+    ]:
+        result[column] = external.map(grouped[column]).to_numpy(dtype=float)
+    result["registered_primary_count"] = external.map(registered).fillna(0.0).to_numpy(dtype=float)
+    result["reported_primary_count"] = external.map(reported).fillna(0.0).to_numpy(dtype=float)
+    date_columns = {
+        "results_submission_recency_days": "results_first_submitted_date",
+        "results_submission_qc_recency_days": "results_first_submitted_qc_date",
+        "results_posting_recency_days": "results_first_posted_date",
+    }
+    parsed_dates: dict[str, pd.Series] = {}
+    for feature_name, source_name in date_columns.items():
+        dates = pd.to_datetime(external.map(studies[source_name]), errors="coerce")
+        valid = dates.notna() & dates.lt(origin)
+        result[feature_name] = np.where(valid, (origin - dates).dt.days.astype(float), np.nan)
+        parsed_dates[source_name] = dates
+    result["has_results_submission"] = parsed_dates["results_first_submitted_date"].notna().to_numpy()
+    result["has_results_submission_qc"] = parsed_dates["results_first_submitted_qc_date"].notna().to_numpy()
+    result["has_results_posting"] = parsed_dates["results_first_posted_date"].notna().to_numpy()
+    dates_temporally_valid = np.ones(len(result), dtype=bool)
+    any_result_date = np.zeros(len(result), dtype=bool)
+    for dates in parsed_dates.values():
+        dates_temporally_valid &= (dates.isna() | dates.lt(origin)).to_numpy()
+        any_result_date |= dates.notna().to_numpy()
+    results_reported = external.map(calculated["were_results_reported"]).fillna("").astype(str).str.casefold().isin(["t", "true", "1", "yes"]).to_numpy()
+    result["result_dates_temporally_valid"] = dates_temporally_valid
+    result["completed_results_reporting"] = results_reported & any_result_date & dates_temporally_valid
+    result["all_registered_primary_analyzed"] = (
+        result["registered_primary_count"].gt(0)
+        & result["reported_primary_count"].eq(result["registered_primary_count"])
+        & result["analyzed_primary_count"].eq(result["registered_primary_count"])
+    )
+    has_qualifying = result["min_qualifying_pvalue"].notna()
+    result["direct_positive"] = result["linked"] & has_qualifying & result["min_qualifying_pvalue"].le(0.05)
+    result["direct_complete_negative"] = (
+        result["linked"]
+        & has_qualifying
+        & result["min_qualifying_pvalue"].gt(0.05)
+        & result["all_registered_primary_analyzed"]
+        & result["completed_results_reporting"]
+    )
+    result["direct_abstain"] = ~(result["direct_positive"] | result["direct_complete_negative"])
+    result.loc[result["direct_positive"], "expert_probability"] = 0.995
+    result.loc[result["direct_complete_negative"], "expert_probability"] = 0.005
+    result["direct_evidence_version"] = DIRECT_EVIDENCE_VERSION
+    digest_columns = [
+        "row_id", "external_nct_id", "min_qualifying_pvalue", "qualifying_analysis_count",
+        "registered_primary_count", "analyzed_primary_count", "direct_positive",
+        "direct_complete_negative", "snapshot_date", "archive_sha",
+    ]
+    result.attrs["content_sha256"] = hashlib.sha256(
+        result[digest_columns].to_json(orient="records", date_format="iso").encode()
+    ).hexdigest()
+    return result
 
 
 def _relation_lists(frame: pd.DataFrame, value_column: str, prefix: str, allowed_nct: set[str] | None = None) -> dict[str, list[str]]:
