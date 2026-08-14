@@ -858,7 +858,10 @@ remaining the truth; **Rejections** — admission failures with named findings
 and dispositions; **Assessor round-up** — batch-end lifecycle transitions;
 **Closing assessment** — gaps noticed (feeds the next batch and
 consolidation), probe-queue changes proposed, anything troubling. The full
-field-by-field spec belongs to the update-crew instruction document.
+field-by-field spec, the crew's internal stage sequence, the lead's launch
+prompt, the three agent definitions, the in-flight schema contracts
+(worksheet, journal, findings), and the frame contract are specified in the
+companion **`learn-from-trajectories-update-crew.md`**.
 
 ### 4.4 The development regime — the learner is the candidate
 
@@ -1062,8 +1065,7 @@ v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`):
 (§3.4: bundle assembly, save/manifest/resolve/open_ref — the relbench adapter
 supplies gather paths), `learner.py` (the crew frame: batch driver,
 launch/stage/check/commit, evidence admission, event ledger), `crews/` (mining
-and update instruction documents + agent definitions; the mining set is already
-drafted in the companion prompts doc), `graders.py` (hindcast runner, gauntlet,
+and update instruction documents + agent definitions; both drafted in their companion docs), `graders.py` (hindcast runner, gauntlet,
 scorecard), `verification.py` (replay + citation resolution), `briefing.py`,
 `reliability.py` (assessor frame), and a config `learning:` block (models per
 role, batch size, probe budget, sightings expiry, thresholds — Rule 1; crews are
