@@ -251,6 +251,9 @@ evidence:                        # ≥1 required; written by the learning proces
       learner_run: lr_20260814T0900
       trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
       ref: features_history.md#within-origin-ranks
+      card_version: null         # the card version in force when this evidence arose —
+                                 # frame-verified against the campaign's bank_head;
+                                 # null = the card did not exist (independent/founding)
     verdict: confirm             # effect on the card: confirm | weaken | refine |
                                  # refute | spawn | exercise — the §3.3 disposition
                                  # vocabulary reused; one ledger event per entry
@@ -285,6 +288,13 @@ reliability:                     # written ONLY by the reliability assessor (§3
     score-moving next: one regression-family test — hence the probe.
   state: candidate               # candidate | active | cold | retired | superseded
 provenance: {version: 1}         # the rest is derivable — git history + evidence sources
+log:                             # append-only, ONE line per version, frame-written at
+                                 # the version-bumping transaction (curator authors the
+                                 # sentence, frame stamps version/date/learner_run);
+                                 # learner_run <-> bank commit resolves via git (one
+                                 # commit per run, run id in the commit message)
+  - "v1 · 2026-08-14 · lr_20260814T0900 · created from two independent instances
+     (induction route): depth-slice profile [E1] + cold-entity forensics [E2]"
 supersedes: null                 # the one typed edge code needs; all other relations
                                  # are ordinary body markdown links
 probe: >-                        # optional: how a future campaign can test this cheaply
@@ -316,7 +326,12 @@ hero + the reliability line (state and all four scores, so the reading LLM weigh
 battle-tested fact differently from a fresh or narrow one, CLIN's hedging result) +
 scope + fact + evidence digest + probe — never stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (reader
 scope) express the same thing at two precisions; the stage-V verifier checks their
-consistency.
+consistency. One sanctioned exception to "derivable is never stored": the **`log`
+field** — one line per version, append-only, frame-written — because bundles are
+consumed without `.git` (OKF tarballs, served projections) and a learner commit
+touches many cards, so per-card semantic history ("what changed about THIS card,
+and why") must ride with the card; the sha stays out of the file (version →
+commit resolves via the line's `learner_run` id, one commit per run).
 
 #### 3.2.1 The two sections, defined
 
@@ -521,9 +536,11 @@ Admission runs three checks:
    record carries the card at the stamped `bank_head` AND `[card:<id>]` greps in the
    spec/changes.log; claimed serving → the serving record; claimed independence →
    the card absent from the serving record or postdating the campaign (all founding
-   evidence is independent by construction). The checker's conclusion is recorded
-   ledger-side; a narrative the record cannot support is rejected with a named
-   finding.
+   evidence is independent by construction). The `source.card_version` is
+   verified the same way: a claimed version must match what the stamped `bank_head`
+   actually served; `null` requires verified absence. The checker's conclusion is
+   recorded ledger-side; a narrative or version the record cannot support is
+   rejected with a named finding.
 3. **Effect is grader-backed and supports the verdict** — outcomes trace to
    registered evaluations, judged significant by the campaign's own clustered-SE
    machinery, and the entry's `verdict` must be earnable from them: `confirm` /
