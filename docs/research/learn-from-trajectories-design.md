@@ -172,8 +172,10 @@ knowledge_bank/
 ```
 
 Git is the audit trail, version store, and rollback: every learner run commits as one
-reviewed transaction; `bank_head` (commit sha) stamps everything downstream, exactly
-as `evaluator_id` stamps evaluations today. Retrieval is **scope-first, never flat**
+reviewed transaction, and the frame tags that commit `lr_<id>` post-commit — making
+run ids in card logs and evidence sources commit-addressable without storing shas (a
+commit cannot contain its own hash); `bank_head` (commit sha) stamps everything
+downstream, exactly as `evaluator_id` stamps evaluations today. Retrieval is **scope-first, never flat**
 (the mempalace lesson): queries filter on scope tags before similarity ranks within.
 
 ### 3.2 The card — two types, OKF-conformant
@@ -290,9 +292,11 @@ reliability:                     # written ONLY by the reliability assessor (§3
 provenance: {version: 1}         # the rest is derivable — git history + evidence sources
 log:                             # append-only, ONE line per version, frame-written at
                                  # the version-bumping transaction (curator authors the
-                                 # sentence, frame stamps version/date/learner_run);
-                                 # learner_run <-> bank commit resolves via git (one
-                                 # commit per run, run id in the commit message)
+                                 # sentence, frame stamps version/date/learner_run).
+                                 # No shas stored — a commit cannot contain its own
+                                 # hash; instead the frame TAGS each bank commit
+                                 # lr_<id> post-commit, so every log line and evidence
+                                 # source is commit-addressable: git show lr_<id>:<card>
   - "v1 · 2026-08-14 · lr_20260814T0900 · created from two independent instances
      (induction route): depth-slice profile [E1] + cold-entity forensics [E2]"
 supersedes: null                 # the one typed edge code needs; all other relations
