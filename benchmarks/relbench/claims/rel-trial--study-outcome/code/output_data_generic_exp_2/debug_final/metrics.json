@@ -1,0 +1,7 @@
+{
+  "debug": true,
+  "registry_cache": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/shared_cache/predictions/generic_exp_2_registry_clock_v1.npz",
+  "test_prediction_label_fit": "banked_run_0007_train_plus_validation",
+  "validation_checksum": "0e3d1a96d0bc419ec34ea000154f54023e7ee28ad106fd9196b083a4f827ba44",
+  "validation_prediction_label_fit": "banked_run_0007_train_only"
+}

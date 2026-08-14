@@ -1,0 +1,435 @@
+{
+  "aligned_stacker": {
+    "accepted": false,
+    "alignment": {
+      "official_2018": 1128,
+      "official_2019": 1093,
+      "test": 825,
+      "validation": 960
+    },
+    "auc_2018": {
+      "baseline": 0.7344505754270657,
+      "candidate": 0.7333760922534722,
+      "delta": -0.0010744831735934879
+    },
+    "auc_2019": {
+      "baseline": 0.7276578113745866,
+      "candidate": 0.7282399669936994,
+      "delta": 0.0005821556191127897
+    },
+    "bootstrap": {
+      "draws": 2000,
+      "lower_10": -0.0036481762160626725,
+      "mean_delta": -0.0002715822064938681,
+      "probability_positive": 0.4635,
+      "standard_error": 0.002597329540429444,
+      "upper_90": 0.0030857868555804833
+    },
+    "coefficients_2019": [
+      0.6840142760120546,
+      0.2611260030491899,
+      0.04434078057744257,
+      0.7991301797202145,
+      0.6744309379833491,
+      0.4829503121928321,
+      0.5997853184800218,
+      0.03679171571403761
+    ],
+    "regularization_scores_2018": {
+      "0.03": 0.7309031279031709,
+      "0.1": 0.7333760922534722,
+      "0.3": 0.7333231946203107
+    },
+    "selected_c": 0.1
+  },
+  "final_source": "publication_evidence",
+  "hosted": {
+    "official_2018": {
+      "cache_hits": 1,
+      "calls": 844,
+      "failures": 0,
+      "model": "gpt-5.4-mini-2026-03-17",
+      "probe_passed": true,
+      "prompt_version": "primary-result-adjudication-v2",
+      "usable_rows": 89
+    },
+    "official_2019": {
+      "cache_hits": 0,
+      "calls": 795,
+      "failures": 0,
+      "model": "gpt-5.4-mini-2026-03-17",
+      "probe_passed": true,
+      "prompt_version": "primary-result-adjudication-v2",
+      "usable_rows": 77
+    },
+    "probe": {
+      "cache_hits": 0,
+      "calls": 1,
+      "failures": 0,
+      "model": "gpt-5.4-mini-2026-03-17",
+      "probe_passed": true,
+      "prompt_version": "primary-result-adjudication-v2",
+      "usable_rows": 0
+    }
+  },
+  "hosted_model": "gpt-5.4-mini-2026-03-17",
+  "model_a_b": {
+    "model_a_coefficients": [
+      0.7138364681785381,
+      0.7496016788649869,
+      2.235223136260306,
+      0.0
+    ],
+    "model_b_coefficients": [
+      0.8523731289384257,
+      0.8224396146514047,
+      2.669942615369319,
+      0.0
+    ],
+    "test": {
+      "candidates": 1059,
+      "hosted": {
+        "cache_hits": 0,
+        "calls": 1059,
+        "failures": 0,
+        "model": "gpt-5.4-mini-2026-03-17",
+        "probe_passed": true,
+        "prompt_version": "primary-result-adjudication-v2",
+        "usable_rows": 111
+      },
+      "retrieval": {
+        "admissible_records": 4776,
+        "complete_date_share": 0.9949748743718593,
+        "coverage": 0.575,
+        "date_policy": "accept a complete electronic/first-publication date only when strictly earlier than origin; year-only dates only when year is strictly earlier than origin year",
+        "elapsed_seconds": 250.12188625335693,
+        "linked_rows": 760,
+        "origin": "2021-01-01",
+        "parsed_cache_hit": false,
+        "queried_trials": 760,
+        "records": 4776,
+        "retrieval_version": "literature-retrieval-v2",
+        "retrieved_at": "2026-08-13T20:31:42Z",
+        "sources": {
+          "europe_pmc": {
+            "cache_hits": 0,
+            "calls": 760,
+            "query_template": "ACCESSION_ID:<NCT> AND FIRST_PDATE:[1800-01-01 TO <origin-1d>]"
+          },
+          "pubmed": {
+            "cache_hits": 0,
+            "calls": 36,
+            "query_template": "(<NCT>[si] OR ...) AND (1800/01/01[pdat] : <origin-1d>[pdat])"
+          }
+        },
+        "trials_per_minute": 182.3111137346828,
+        "trials_with_admissible_evidence": 437
+      }
+    },
+    "test_covered": 90,
+    "test_prediction_label_fit": "official_2018_official_2019_plus_validation_labels",
+    "validation": {
+      "candidates": 858,
+      "hosted": {
+        "cache_hits": 0,
+        "calls": 858,
+        "failures": 0,
+        "model": "gpt-5.4-mini-2026-03-17",
+        "probe_passed": true,
+        "prompt_version": "primary-result-adjudication-v2",
+        "usable_rows": 80
+      },
+      "retrieval": {
+        "admissible_records": 2538,
+        "complete_date_share": 0.9858156028368794,
+        "coverage": 0.4461009174311927,
+        "date_policy": "accept a complete electronic/first-publication date only when strictly earlier than origin; year-only dates only when year is strictly earlier than origin year",
+        "elapsed_seconds": 263.3462052345276,
+        "linked_rows": 872,
+        "origin": "2020-01-01",
+        "parsed_cache_hit": false,
+        "queried_trials": 872,
+        "records": 2538,
+        "retrieval_version": "literature-retrieval-v2",
+        "retrieved_at": "2026-08-13T20:25:51Z",
+        "sources": {
+          "europe_pmc": {
+            "cache_hits": 0,
+            "calls": 872,
+            "query_template": "ACCESSION_ID:<NCT> AND FIRST_PDATE:[1800-01-01 TO <origin-1d>]"
+          },
+          "pubmed": {
+            "cache_hits": 0,
+            "calls": 40,
+            "query_template": "(<NCT>[si] OR ...) AND (1800/01/01[pdat] : <origin-1d>[pdat])"
+          }
+        },
+        "trials_per_minute": 198.673831920989,
+        "trials_with_admissible_evidence": 389
+      }
+    },
+    "validation_checksum": "5e456194339d70f717df8c54d4a31938200a28c54ffc95cc12f410dfb3db3509",
+    "validation_covered": 66,
+    "validation_prediction_label_fit": "official_2018_and_official_2019_training_labels_only"
+  },
+  "oracle": {
+    "bootstrap": {
+      "draws": 2000,
+      "lower_10": 0.14198700591330263,
+      "mean_delta": 0.15157784928754928,
+      "probability_positive": 1.0,
+      "standard_error": 0.0077205091689804915,
+      "upper_90": 0.16148177814758508
+    },
+    "official_2018": {
+      "coverage": 0.3519503546099291,
+      "covered": 397,
+      "incumbent_auc": 0.7344505754270657,
+      "oracle_auc": 0.8806513682303427,
+      "oracle_delta": 0.14620079280327702
+    },
+    "official_2019": {
+      "coverage": 0.3549862763037511,
+      "covered": 388,
+      "incumbent_auc": 0.7276578113745866,
+      "oracle_auc": 0.8840391460319015,
+      "oracle_delta": 0.15638133465731485
+    },
+    "passed": true
+  },
+  "prompt_version": "primary-result-adjudication-v2",
+  "publication_gate": {
+    "accepted": true,
+    "bootstrap": {
+      "draws": 2000,
+      "lower_10": 0.00656576352793231,
+      "mean_delta": 0.011517291042173307,
+      "probability_positive": 1.0,
+      "standard_error": 0.003845826458644572,
+      "upper_90": 0.016562847836797318
+    },
+    "delta_2018": 0.013067368441933347,
+    "delta_2019": 0.010010279504625741,
+    "literature_c": 0.1,
+    "literature_c_scores_earlier_origin": {
+      "0.03": 0.8627118644067797,
+      "0.1": 0.8779661016949153,
+      "0.3": 0.8779661016949152
+    },
+    "official_2018": {
+      "covered": {
+        "candidate_ap": 0.973852259473879,
+        "candidate_auc": 0.9347457627118645,
+        "count": 79,
+        "incumbent_ap": 0.9262986843682122,
+        "incumbent_auc": 0.811864406779661,
+        "label_rate": 0.7468354430379747
+      },
+      "overall": {
+        "candidate_ap": 0.8281120306119565,
+        "candidate_auc": 0.7475179438689991,
+        "count": 1128,
+        "incumbent_ap": 0.8153842501596485,
+        "incumbent_auc": 0.7344505754270657,
+        "label_rate": 0.6108156028368794
+      },
+      "prediction_correlation": 0.9350061532448236,
+      "uncovered": {
+        "candidate_ap": 0.8109418925718213,
+        "candidate_auc": 0.7350664848278213,
+        "count": 1049,
+        "incumbent_ap": 0.8109418925718213,
+        "incumbent_auc": 0.7350664848278213,
+        "label_rate": 0.6005719733079123
+      }
+    },
+    "official_2019": {
+      "covered": {
+        "candidate_ap": 0.9336608951224961,
+        "candidate_auc": 0.8919191919191919,
+        "count": 67,
+        "incumbent_ap": 0.8468258138144913,
+        "incumbent_auc": 0.7373737373737373,
+        "label_rate": 0.6716417910447762
+      },
+      "overall": {
+        "candidate_ap": 0.801821721341378,
+        "candidate_auc": 0.7376680908792124,
+        "count": 1093,
+        "incumbent_ap": 0.79374322907217,
+        "incumbent_auc": 0.7276578113745866,
+        "label_rate": 0.6029277218664227
+      },
+      "prediction_correlation": 0.938219391943559,
+      "uncovered": {
+        "candidate_ap": 0.7909005822526998,
+        "candidate_auc": 0.7300547895385977,
+        "count": 1026,
+        "incumbent_ap": 0.7909005822526998,
+        "incumbent_auc": 0.7300547895385977,
+        "label_rate": 0.5984405458089669
+      }
+    },
+    "routing_c": 0.3,
+    "routing_coefficients_sealed_later_origin": [
+      0.6877794038589732,
+      0.4304191470959131,
+      1.7002703660742937,
+      0.0
+    ],
+    "routing_scores_earlier_origin": {
+      "0.03": 0.7369946209719279,
+      "0.1": 0.7411636156854706,
+      "0.3": 0.7475179438689991
+    }
+  },
+  "registry": {
+    "ablations": {
+      "condition": {
+        "auc": 0.622151283539506,
+        "delta_vs_full": -0.011567939134144112,
+        "removed_columns": 96
+      },
+      "density_weighting": {
+        "auc": 0.6337192226736501,
+        "delta_vs_full": 0.0,
+        "removed_columns": 0
+      },
+      "facility": {
+        "auc": 0.6379341692132333,
+        "delta_vs_full": 0.004214946539583209,
+        "removed_columns": 58
+      },
+      "registry_evolution": {
+        "auc": 0.6331860170765649,
+        "delta_vs_full": -0.0005332055970852512,
+        "removed_columns": 12
+      },
+      "snapshot_age": {
+        "auc": 0.624149493367272,
+        "delta_vs_full": -0.009569729306378116,
+        "removed_columns": 60
+      },
+      "sponsor": {
+        "auc": 0.6278924218373041,
+        "delta_vs_full": -0.005826800836346013,
+        "removed_columns": 72
+      }
+    },
+    "official_2018_safe_proxy_auc": 0.6256632867283144,
+    "official_2018_supervised_registry_unavailable": "No complete pre-2018 label cohort has compatible point-in-time registry features; the earlier-origin vector uses only public-result neighborhood rates.",
+    "official_2019_full_auc": 0.6337192226736501
+  },
+  "retrieval": {
+    "official_2018": {
+      "candidate_records": 845,
+      "candidate_trials": 397,
+      "exact_si_share": 0.11538461538461539,
+      "publication_types": {
+        "Clinical Trial": 23,
+        "Clinical Trial, Phase I": 26,
+        "Clinical Trial, Phase II": 60,
+        "Clinical Trial, Phase III": 82,
+        "Comment": 27,
+        "Comparative Study": 68,
+        "Editorial": 26,
+        "Journal Article": 1970,
+        "Meta-Analysis": 40,
+        "Multicenter Study": 162,
+        "Randomized Controlled Trial": 239,
+        "Research Support, N.I.H., Extramural": 365,
+        "Research Support, N.I.H., Intramural": 27,
+        "Research Support, Non-U.S. Gov't": 607,
+        "Research Support, U.S. Gov't, Non-P.H.S.": 55,
+        "Review": 1138,
+        "Systematic Review": 60,
+        "research-article": 974,
+        "review-article": 788,
+        "systematic-review": 29
+      },
+      "retrieval": {
+        "admissible_records": 2028,
+        "complete_date_share": 0.9886587771203156,
+        "coverage": 0.38959764474975467,
+        "date_policy": "accept a complete electronic/first-publication date only when strictly earlier than origin; year-only dates only when year is strictly earlier than origin year",
+        "elapsed_seconds": 287.8354787826538,
+        "linked_rows": 1019,
+        "origin": "2018-01-01",
+        "parsed_cache_hit": true,
+        "queried_trials": 1019,
+        "records": 2028,
+        "retrieval_version": "literature-retrieval-v2",
+        "retrieved_at": "2026-08-13T20:11:29Z",
+        "sources": {
+          "europe_pmc": {
+            "cache_hits": 0,
+            "calls": 1019,
+            "query_template": "ACCESSION_ID:<NCT> AND FIRST_PDATE:[1800-01-01 TO <origin-1d>]"
+          },
+          "pubmed": {
+            "cache_hits": 0,
+            "calls": 44,
+            "query_template": "(<NCT>[si] OR ...) AND (1800/01/01[pdat] : <origin-1d>[pdat])"
+          }
+        },
+        "trials_per_minute": 212.4130074399477,
+        "trials_with_admissible_evidence": 397
+      }
+    },
+    "official_2019": {
+      "candidate_records": 795,
+      "candidate_trials": 388,
+      "exact_si_share": 0.1337126600284495,
+      "publication_types": {
+        "Clinical Trial": 25,
+        "Clinical Trial, Phase I": 29,
+        "Clinical Trial, Phase II": 49,
+        "Clinical Trial, Phase III": 104,
+        "Comment": 30,
+        "Comparative Study": 82,
+        "Editorial": 54,
+        "Journal Article": 2020,
+        "Meta-Analysis": 31,
+        "Multicenter Study": 198,
+        "Network Meta-Analysis": 21,
+        "Randomized Controlled Trial": 274,
+        "Research Support, N.I.H., Extramural": 324,
+        "Research Support, Non-U.S. Gov't": 580,
+        "Research Support, U.S. Gov't, Non-P.H.S.": 49,
+        "Review": 1166,
+        "Systematic Review": 63,
+        "research-article": 974,
+        "review-article": 820,
+        "systematic-review": 23
+      },
+      "retrieval": {
+        "admissible_records": 2109,
+        "complete_date_share": 0.9862494073020389,
+        "coverage": 0.39390862944162436,
+        "date_policy": "accept a complete electronic/first-publication date only when strictly earlier than origin; year-only dates only when year is strictly earlier than origin year",
+        "elapsed_seconds": 290.7711501121521,
+        "linked_rows": 985,
+        "origin": "2019-01-01",
+        "parsed_cache_hit": true,
+        "queried_trials": 985,
+        "records": 2109,
+        "retrieval_version": "literature-retrieval-v2",
+        "retrieved_at": "2026-08-13T20:17:07Z",
+        "sources": {
+          "europe_pmc": {
+            "cache_hits": 0,
+            "calls": 985,
+            "query_template": "ACCESSION_ID:<NCT> AND FIRST_PDATE:[1800-01-01 TO <origin-1d>]"
+          },
+          "pubmed": {
+            "cache_hits": 0,
+            "calls": 43,
+            "query_template": "(<NCT>[si] OR ...) AND (1800/01/01[pdat] : <origin-1d>[pdat])"
+          }
+        },
+        "trials_per_minute": 203.25262593406526,
+        "trials_with_admissible_evidence": 388
+      }
+    }
+  }
+}

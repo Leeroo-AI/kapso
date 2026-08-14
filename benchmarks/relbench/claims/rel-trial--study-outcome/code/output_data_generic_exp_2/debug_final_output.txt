@@ -1,0 +1,6 @@
+[phase] versions elapsed=8.50s python=3.12.8 numpy=2.4.2 pandas=2.3.3 sklearn=1.6.1 lightgbm=4.6.0 duckdb=1.5.4 torch=2.10.0+cu126 cuda=True cuda_devices=2 debug=True
+[phase] registry_debug elapsed=8.52s external_rows=50 linked=48 cheap_models=True
+[check_predictions] OK val: shape (960,)
+[check_predictions] OK test: shape (825,)
+[check_predictions] all checks passed
+[phase] complete elapsed=10.80s cached=True validation_checksum=0e3d1a96d0bc419ec34ea000154f54023e7ee28ad106fd9196b083a4f827ba44

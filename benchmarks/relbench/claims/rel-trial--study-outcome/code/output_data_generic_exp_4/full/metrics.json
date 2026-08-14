@@ -1,0 +1,7 @@
+{
+  "debug": false,
+  "publication_cache": "/home/ubuntu/kapso/tmp/relbench/rel-trial--study-outcome/shared_cache/predictions/generic_exp_4_publication_evidence_v2.npz",
+  "test_prediction_label_fit": "official_2018_official_2019_plus_validation_labels",
+  "validation_checksum": "5e456194339d70f717df8c54d4a31938200a28c54ffc95cc12f410dfb3db3509",
+  "validation_prediction_label_fit": "official_2018_and_official_2019_training_labels_only"
+}
