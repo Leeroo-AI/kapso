@@ -114,7 +114,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-f1/driver-dnf | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-dnf/20260811T002323_lane-c9.tgz` |
 | rel-trial/study-adverse | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-adverse/20260730T070548_lane-b.tgz` |
 | rel-avito/ad-ctr | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--ad-ctr/20260730T223905_lane-b3.tgz` |
-| rel-trial/study-outcome | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-outcome/20260814T002745_lane-c14.tgz` |
+| rel-trial/study-outcome | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--study-outcome/20260813T232753_lane-c12.tgz` |
 | rel-trial/condition-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--condition-sponsor-run/20260731T040617_lane-b2.tgz` |
 | rel-avito/user-ad-visit | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-ad-visit/20260731T042340_lane-b1.tgz` |
 | rel-avito/user-clicks | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-clicks/20260731T040738_lane-a1.tgz` |
