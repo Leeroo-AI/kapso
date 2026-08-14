@@ -19,7 +19,10 @@ agents, the default representation is a well-written prose section, never a spre
 of structured micro-fields: **structure exists only where deterministic code must
 parse it** (identity, scope filtering, lifecycle state, resolvable source pointers);
 everything else is prose an agent writes and an agent reads. When a proposed field
-could instead be a sentence inside an existing section, it is one.
+could instead be a sentence inside an existing section, it is one. And everything a
+card stores must be **easily understandable on sight**: a reader never decodes a
+packed line or guesses what an identifier is — parts get named fields, identifiers
+get names that say what they are for.
 
 ## 0. Position — what this replaces, keeps, and re-opens
 
@@ -250,7 +253,7 @@ scope_conditions: "rows share seed timestamp / session / parent entity"  # prose
 evidence:                        # ≥1 required; written by the learning process,
                                  # admitted only after the frame's three checks (§5.2)
   - source:                      # metadata: which learning process, which trajectory
-      learner_run: lr_20260814T0900
+      learner_run: lr_20260814T0900   # doubles as the bank commit tag (see log.commit)
       trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
       ref: features_history.md#within-origin-ranks
       card_version: null         # the card version in force when this evidence arose —
@@ -290,15 +293,18 @@ reliability:                     # written ONLY by the reliability assessor (§3
     score-moving next: one regression-family test — hence the probe.
   state: candidate               # candidate | active | cold | retired | superseded
 provenance: {version: 1}         # the rest is derivable — git history + evidence sources
-log:                             # append-only, ONE line per version, frame-written at
-                                 # the version-bumping transaction (curator authors the
-                                 # sentence, frame stamps version/date/learner_run).
-                                 # No shas stored — a commit cannot contain its own
-                                 # hash; instead the frame TAGS each bank commit
-                                 # lr_<id> post-commit, so every log line and evidence
-                                 # source is commit-addressable: git show lr_<id>:<card>
-  - "v1 · 2026-08-14 · lr_20260814T0900 · created from two independent instances
-     (induction route): depth-slice profile [E1] + cold-entity forensics [E2]"
+log:                             # append-only, ONE entry per version, frame-written
+                                 # at the version-bumping transaction (curator authors
+                                 # the change sentence; frame stamps the rest)
+  - version: 1
+    date: 2026-08-14
+    commit: lr_20260814T0900     # the bank commit TAG (= the learner-run id; the frame
+                                 # tags each commit post-commit, since a commit cannot
+                                 # contain its own sha). Address this version's exact
+                                 # text with: git show lr_<id>:<card path>
+    change: >-
+      Created from two independent instances (induction route): depth-slice
+      profile [E1] + cold-entity forensics [E2].
 supersedes: null                 # the one typed edge code needs; all other relations
                                  # are ordinary body markdown links
 probe: >-                        # optional: how a future campaign can test this cheaply
