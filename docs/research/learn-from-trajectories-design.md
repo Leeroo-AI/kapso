@@ -151,7 +151,7 @@ scoring-scope boundary (one bank per domain, already decided) made physical. The
 monorepo keeps the learner *machinery* (`src/kapso/learning/`) and the design docs;
 the trajectory archives keep the *evidence artifacts* the bank cites and replays
 against. Operationally: each campaign box holds a **durable local clone** that is
-the serving source — the briefing compiler reads it at a pinned head, so campaigns
+the serving source — the retriever reads it at a pinned head, so campaigns
 never depend on network mid-flight (unreachable remote → serve the local head,
 staleness noted loudly in the brief); the learner is the single writer and pushes
 after each run; boxes pull at campaign start. Config carries `bank.remote` and
@@ -173,10 +173,12 @@ beside the cards as unscored reference concepts.
 
 The repo is the system of record; everything queryable is derived — the gbrain
 discipline (git markdown as truth, synced into a retrieval index; proven at 155k
-pages) at our scale means one derived `index/` (embeddings + a link/edge table),
-rebuilt by the frame at merge. The **hero line is the primary retrieval text** —
-embedded per card and shown in every shortlist; claim + body embed as secondary text,
-so fast retrieval scans heroes and only the selected k cards render in full. **Link extraction is zero-LLM**: the frame parses body
+pages) at our scale means one derived `index/` (a link/edge table, plus embeddings
+used only by the consolidation near-duplicate shortlist), rebuilt by the frame
+at merge. The **hero line is the primary retrieval text** — shown in every
+shortlist: `index.md` for crews, `bank_search` for campaign sessions. The
+serving path is **vectorless** (§5.1): scope filters, reliability orders, the
+reading agent reranks, and only the selected k cards render in full. **Link extraction is zero-LLM**: the frame parses body
 markdown links and the typed extension fields (`supersedes`, `contradicts`) into the
 edge table; no model sits in the graph-construction path.
 
@@ -204,7 +206,7 @@ reviewed transaction, and the frame tags that commit `lr_<id>` post-commit — m
 run ids in card logs and evidence sources commit-addressable without storing shas (a
 commit cannot contain its own hash); `bank_head` (commit sha) stamps everything
 downstream, exactly as `evaluator_id` stamps evaluations today. Retrieval is **scope-first, never flat**
-(the mempalace lesson): queries filter on scope tags before similarity ranks within.
+(the mempalace lesson): eligibility filters on scope before anything ranks within (§5.1).
 
 ### 3.2 The card — two types, OKF-conformant
 
@@ -341,7 +343,7 @@ supersedes: null                 # typed edge: lifecycle machinery branches on i
 contradicts: []                  # typed edge: established tensions between active cards,
                                  # symmetric and frame-maintained (the crew names the
                                  # pair once, the frame writes both sides); consumed by
-                                 # the briefing co-serving guard and the consolidation
+                                 # the retriever's co-serving guard and the consolidation
                                  # sweep. Every OTHER relation is a body reference (§3.2.2)
 probe: >-                        # optional: how a future campaign can test this cheaply
   Ablate within-group companions of the top-5 features on one forward fold.
@@ -706,7 +708,7 @@ Six components, and a deliberate list of non-components:
 | 2 | Mining crew (§4.2) | agentic | nothing — writes `mined/` into the store |
 | 3 | The bank (§3.1–3.3) | passive git repo, one per domain | cards, sightings, indexes, log |
 | 4 | Update crew (§4.3) | agentic | nothing — commits to the bank |
-| 5 | Briefing compiler (§5.1) | deterministic + one scoped call | the serving record |
+| 5 | Retriever (§5.1) | deterministic code; push brief + pull tools | the serving record |
 | 6 | Grader suite (§4.4, §7) | deterministic + scoped judgment calls | learner scorecards |
 
 Non-components, per the minimality rule: no query service (`load_trajectory` +
@@ -738,8 +740,10 @@ One campaign through the cycle:
    fresh scorecard point per campaign, for free, forever.
 4. **Update** — batched. The update crew (§4.3) consumes all mined views since
    the last bank commit against a bank checkout and commits once.
-5. **Brief.** At the next campaign launch the compiler (§5.1) serves from bank
-   HEAD, stamps the serving record, and attaches at most the budgeted probe. The
+5. **Serve.** At the next campaign launch the retriever (§5.1) pushes the
+   brief from bank HEAD, exposes the pull tools to the sessions, logs every
+   serving event into the serving record, and attaches at most the budgeted
+   probe. The
    trajectory that returns carries exactly the evidence the bank needs — serving
    is also instrumentation; there is no separate telemetry channel.
 
@@ -886,31 +890,58 @@ self-hosting, gated on that trust and nothing else.
 
 ## 5. Closing the loop
 
-### 5.1 Injection — the briefing compiler
+### 5.1 Serving — the retriever
 
-At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
+The retriever is the mouth of the system — the single bridge between the bank
+and a running campaign; transfer physically happens here and nowhere else. It
+is deterministic code over the durable local clone at a head **pinned at
+launch** (campaigns never wait on the network and never see mid-flight bank
+drift), and it is **vectorless**: the serving path uses no embeddings — scope
+filters, reliability orders, and the reading agent reranks. (Embeddings stay
+derived-index machinery for the consolidation near-duplicate shortlist; a
+similarity tier can slot in behind the same protocol if eligible sets ever
+outgrow a screen — a config-triggered upgrade, deferred.) Two modes over one
+implementation:
 
-- **Insights and text-representation procedures** render into the problem context,
-  replacing the hand-maintained
-  `MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` blocks. The serving rule is
-  one line: **eligible where the task ∈ `scope`; rank = similarity × reliability,
-  discounted where ledger-derived coverage shows no visit; `tags` assist retrieval
-  ranking only, never eligibility.** Top-k selection, k small (AutoGuide/DS-Agent:
-  2–4 per section, budgeted per kind), full text never clipped (Rule 6 — k caps
-  selection, not content). Each
-  renders with id, reliability line, and citations. Negative-signed insights
-  (pitfall-tagged) for the task family ride along as guardrails (AutoManual's fallback
-  routing). The brief closes with an explicit **gap analysis**, gbrain-style: which
-  scope tags of this task have no active cards, which nearest-scope cards were included
-  at reduced confidence, and which active cards are stale — the honest "what the bank
-  does not know" that both primes probes and stops false authority. The **co-serving
-  guard** runs here too: two selected cards joined by a `contradicts` edge always
-  serve together with the tension named ("these disagree on X; the boundary is
-  unresolved — treat as contested"), never silently side by side. Compilation writes
-  a **serving record** (per card: scope-match, similarity, reliability components —
-  gbrain's `--explain` applied to injection) so every brief is auditable and
-  attribution later binds to exactly what was served — the serving record is the
-  ground truth the usage-consistency check runs against (§5.2).
+- **Push — the launch brief.** The runner calls `Retriever.compile(task,
+  bank_head)` — internally `bank_search(task_descriptor)` with auto-`get` of
+  the top-k. Eligibility is law: **task ∈ `scope`; quarantine excluded
+  (decoys, `retired/`); rank = reliability order with ledger-derived coverage
+  discounts; `tags` assist ranking only, never eligibility.** k small
+  (AutoGuide/DS-Agent: 2–4 per section, budgeted per kind), full text never
+  clipped (Rule 6 — k caps selection, not content); each card renders as the
+  served projection (id, hero, reliability line, scope, fact, citations), and
+  the rendered brief replaces the hand-maintained
+  `MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` blocks.
+  Negative-signed insights (pitfall-tagged) for the task family ride along as
+  guardrails (AutoManual's fallback routing). The brief closes with the **gap
+  analysis**, gbrain-style: scope coordinates with no active cards,
+  nearest-scope cards included at reduced confidence, stale cards — the
+  honest "what the bank does not know" that both primes probes and stops
+  false authority. Push is a **pure function of (task, bank_head)** — the
+  hindcast replays it at historical heads, so no agent may ever sit inside it.
+- **Pull — the bank tools.** Ideation and implementation sessions get two
+  gated MCP tools, the same registry evolve already serves the episodic store
+  through: `bank_search(query)` returns the scope-and-quarantine-filtered,
+  reliability-ordered **hero shortlist** — at bank scale the whole eligible
+  set; the calling agent is the reranker, reading hero lines exactly as crews
+  read `index.md` — with a gap note when the eligible set is thin, never
+  padded with unmarked near-misses; `bank_get(card_ids)` returns full served
+  projections. The **feedback judge never gets the tools** — a judge reading
+  the bank couples the evaluator to the thing under evaluation (§6). Tool
+  exposure carries a per-benchmark off-switch in config (external harnesses
+  may flag agent tools — the PostTrainBench lesson).
+- **The serving record — one format, two exposure levels.** Every serving
+  event is logged: the push stamp and the pull log (query, shortlist shown,
+  gets), per card with scope-match, rank components, and card version —
+  gbrain's `--explain` applied to serving. `searched` (hero shown) and `got`
+  (full card rendered) are distinct levels: **attribution binds to `got`**;
+  hero-only exposure is recorded but weak. The record is the ground truth for
+  fast-path routing (§4.3), the usage-consistency checks (§5.2), and the
+  hindcast serving dimension. The **co-serving guard** runs in both modes: a
+  returned set containing a `contradicts` pair always names the tension
+  ("these disagree on X; the boundary is unresolved — treat as contested"),
+  never silently side by side.
 - **Code-representation procedures** stage into the shared artifact workspace
   (`shared_cache/procedures/<slug>@v<N>/`, version-pinned) as `card.md` + `code/`, plus
   the registry entry and a provenance README — "verified exemplars: adapt or invoke;
@@ -928,15 +959,15 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   each batch, ranking every card's open probe by **value of information**:
   uncertainty × serving exposure first (heavily served, thinly verified), then
   boundary tests that would split a scope, then cards whose lifecycle decision is
-  blocked pending measurement. The compiler attaches at most the configured
-  budget per campaign (`learning.probe_budget`, Rule 1 — e.g. one probe slot; a
-  hard cap, so learning never cannibalizes doing), each rendered as "unverified
-  on this family; `probe:` says how to test it in one fold" — steering a bounded
-  slice of the existing exploration budget into deliberate, pre-registered card
-  validation. This is the novel piece: the bank does not wait to be exercised, it
-  *purchases the observations that most reduce its uncertainty*, and the
-  replanner's evidence-driven re-aiming (proven in wave-4) is the natural
-  carrier.
+  blocked pending measurement. The retriever attaches (push-side) at most the
+  configured budget per campaign (`learning.probe_budget`, Rule 1 — e.g. one probe
+  slot; a hard cap, so learning never cannibalizes doing), each rendered as
+  "unverified on this family; `probe:` says how to test it in one fold" — steering
+  a bounded slice of the existing exploration budget into deliberate,
+  pre-registered card validation. This is the novel piece: the bank does not wait
+  to be exercised, it *purchases the observations that most reduce its
+  uncertainty*, and the replanner's evidence-driven re-aiming (proven in wave-4)
+  is the natural carrier.
 
 ### 5.2 Evidence — anatomy and mechanical checks
 
@@ -975,7 +1006,10 @@ Admission runs three checks:
 From each admitted entry the frame derives a ledger event (append-only, code-owned —
 the substrate §3.3's assessor works on). How usage should weigh on the assessor is
 guidance, not schema: the card's own probe is the strongest test (prospective); a
-cited use carries expectation effects (the campaign knew the predicted sign); an
+cited use carries expectation effects (the campaign knew the predicted sign); a
+**pulled** card (`bank_get` on the session's own query) is demand evidence —
+stronger engagement than passive serving, weaker independence (the session went
+looking for the answer it retrieved); an
 uncited-but-served test speaks to the fact more than to the serving; and evidence
 from a process that never saw the card — all founding evidence included — is an
 uncontaminated replication, the strongest support a fact can get, while saying
@@ -986,9 +1020,11 @@ it would move scores faster.
 
 ### 5.3 What changes in evolve
 
-Small and additive: the briefing block replaces two static context constants; two
-prompt paragraphs (citation contract, probe rendering); one judge template field;
-`bank_head` in campaign meta. No orchestrator/search changes — the learner runs *after*
+Small and additive: the push brief replaces two static context constants; the
+`bank_search`/`bank_get` tools join the gated-MCP presets for
+ideation/implementation sessions (never the judge; per-benchmark off-switch in
+config); two prompt paragraphs (citation contract, probe rendering); one judge
+template field; `bank_head` in campaign meta. No orchestrator/search changes — the learner runs *after*
 campaigns (post-fetch, next to harvest), never inside them.
 
 ## 6. Trust model — every documented failure mode gets a mechanism
@@ -1069,7 +1105,7 @@ v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`):
 supplies gather paths), `learner.py` (the crew frame: batch driver,
 launch/stage/check/commit, evidence admission, event ledger), `crews/` (mining
 and update instruction documents + agent definitions; both drafted in their companion docs), `graders.py` (hindcast runner, gauntlet,
-scorecard), `verification.py` (replay + citation resolution), `briefing.py`,
+scorecard), `verification.py` (replay + citation resolution), `retriever.py`,
 `reliability.py` (assessor frame), and a config `learning:` block (models per
 role, batch size, probe budget, sightings expiry, thresholds — Rule 1; crews are
 Claude-led, since self-organization needs the CLI's native subagents, with the
@@ -1092,9 +1128,9 @@ commit (Rule 8):
    seed); update-crew v1 over the learn-set; iterate crew versions against the
    scorecard (§4.4); human review of the first bank commits; keep-best banking
    of learner versions.
-5. **Serving** — the briefing compiler replaces the static context notes;
-   stamping + citation contract; exam-before-lesson goes live on every new
-   campaign. A/B-able immediately: founding cards vs static notes should be
+5. **Serving** — the retriever replaces the static context notes (push brief
+   + `bank_search`/`bank_get` tools); stamping + citation contract;
+   exam-before-lesson goes live on every new campaign. A/B-able immediately: founding cards vs static notes should be
    ≈neutral (same content, now scoped and cited), validating the plumbing before
    any mining takes credit.
 6. **Probes + arms** — probe-queue rendering into the lens planner under

@@ -102,7 +102,7 @@ accepted on agent authority alone.
 
 One report per (held-out trajectory × bank version). Inputs staged by the
 frame: the trajectory's mined view; the bank checkout at `bank_head`; the
-**would-have-been brief** — compiled by the *real* briefing compiler (design
+**would-have-been brief** — compiled by the *real* retriever's push path (design
 doc §5.1) at that head for this task, with its serving record. The report has
 three body sections (the evidence layer) and one frontmatter `hindcast:` block
 (the scoring layer). Frontmatter carries only what code parses: identity
@@ -132,7 +132,7 @@ campaign paid (which iterations/flows).
 
 **Claims-settlement section** — one entry per bank claim this campaign's
 measurements bear on. The eligible claim set is every active card whose scope
-covers this task (the same eligibility the compiler uses), plus any card the
+covers this task (the same eligibility the retriever uses), plus any card the
 campaign's numbers happen to touch. The settlement standard is the evidence
 standard (design doc §5.2): outcomes trace to registered evaluations and are
 judged by the campaign's own clustered-SE significance machinery — an
@@ -468,7 +468,7 @@ session. Conventions inherit from the update-crew doc: no naked tags, full
 texts into every delegation (Rule 6), one repair round, fail loud.
 
 ```
-FRAME  stage: bank checkout (RO) · real compiler → brief + serving record per
+FRAME  stage: bank checkout (RO) · real retriever (push) → brief + record per
        trajectory · eligible claim sets · outcome enumeration · gauntlet
        fixtures + black-box trap runs + mechanical substance diffs
    │
@@ -487,7 +487,9 @@ trajectory vs a candidate bank + learner version → reports, gauntlet,
 scorecard. *Exam-before-lesson* (operating): one arriving trajectory vs bank
 HEAD → one report, writer + verifier only — no gauntlet, no scorecard; the
 grade half joins the running curve, the content half is staged into the next
-update run by the update frame.
+update run by the update frame. The hindcast replays only the **push** path —
+what a dead campaign *would have pulled* cannot be simulated; pull uptake is
+measured live only (an accepted limit).
 
 ### 6.1 Run directory
 
@@ -498,7 +500,7 @@ learning/graders/<stamp>/
   hindcast/<traj-id>/
     report.md                # §1
     brief.md                 # the would-have-been brief + serving record,
-                             #   compiled by the REAL compiler at bank head
+                             #   compiled by the REAL retriever at bank head
   work/verifier-findings.md  # same grammar as critic-findings.md
   fixtures/  diffs/          # gauntlet construction and proofs
   gauntlet.md                # §2.3
@@ -515,7 +517,7 @@ edited.
 
 INPUTS (inputs.yaml): mode (full | exam), the read-only bank checkout at the
 pinned head, the trajectory list, per-trajectory compiled briefs (the frame
-already ran the real compiler), the learn-set mined views (for source
+already ran the real retriever), the learn-set mined views (for source
 searches), the incumbent scorecard (full mode only — for the assessor, not
 for you to preview).
 
@@ -624,7 +626,7 @@ deltas. You add no measurements — you judge the ones admitted.
 ### 6.6 The frame contract
 
 **Staging:** resolve `inputs.yaml`; check out the bank read-only at the
-pinned head; run the **real** briefing compiler per trajectory → `brief.md` +
+pinned head; run the **real** retriever (push path) per trajectory → `brief.md` +
 serving record; stage the eligible claim set and the mechanical outcome
 enumeration per trajectory; construct gauntlet fixtures and run the traps —
 the update-crew CLI invoked **black-box** on throwaway sandbox checkouts,

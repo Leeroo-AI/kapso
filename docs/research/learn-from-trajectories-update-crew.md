@@ -384,7 +384,7 @@ via the edge table, staleness expiries, sightings past
 5. **Score bounds** — every reliability block bounded against its ledger;
    no naked tags anywhere (verdict/finding/score without rationale fails).
 6. **Derived rebuilds** — the frame (not agents) recompiles `index/`
-   (embeddings, edges) and `index/probe-queue.md` (VoI rank: uncertainty ×
+   (edges; embeddings — consolidation-shortlist use only) and `index/probe-queue.md` (VoI rank: uncertainty ×
    serving exposure from ledger-derived stats), and appends the one-line
    `log.md` entry.
 
