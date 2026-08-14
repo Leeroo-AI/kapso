@@ -251,13 +251,13 @@ evidence:                        # ≥1 required; written by the learning proces
       learner_run: lr_20260814T0900
       trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
       ref: features_history.md#within-origin-ranks
-    label: independent           # participation: probe | cited | served-uncited |
-                                 # independent — frame-verified against the record (§5.2)
     verdict: confirm             # effect on the card: confirm | weaken | refine |
                                  # refute | spawn | exercise — the §3.3 disposition
                                  # vocabulary reused; one ledger event per entry
-    usage: >-                    # prose: the story behind the label — what the
-                                 # process actually did with (or without) the card
+    usage: >-                    # prose: how the card figured in the process — served,
+                                 # cited, probed by its own probe, or absent (an
+                                 # independent rediscovery); frame-verified against
+                                 # the record (§5.2)
       Not yet in the bank when this campaign ran — independent evidence: the
       lens replanner derived the within-origin normalization move on its own
       and lane 1 implemented it as a feature-widening block.
@@ -274,9 +274,9 @@ reliability:                     # written ONLY by the reliability assessor (§3
                                  # known boundary points, limits tested)
   coverage: 0.35                 # how much of the claimed scope has been visited
   score: 0.75                    # overall — the assessor's synthesis, not an average
-  rationale: >-                  # must justify EACH dimension, state the label
-                                 # weighing applied, and end with what would most
-                                 # change the score (the source of the next probe)
+  rationale: >-                  # must justify EACH dimension, state the
+                                 # participation weighing applied, and end with what
+                                 # would most change the score (next probe's source)
     Validity: two in-scope confirmations at 3.6 and >2 SE, both independent
     (uncontaminated), no disagreement. Boundary: untested — no contradiction
     has probed the edge; the grouped-rows condition is asserted from the
@@ -388,10 +388,10 @@ judgment with reasons, not a formula. The assessor's contract: **one score per
 dimension** (`validity`, `boundary`, `coverage`, each [0,1]) plus an **overall
 `score`** (a synthesis, not an average — a high-validity card with untested
 boundaries is not 0.9-reliable), and a `rationale` that justifies each dimension,
-states the evidence-label weighing applied (own-probe strongest; cited discounted
-for expectation effects; independent replication gold for the fact), and ends by
-naming what would most change the score — which is where the card's next `probe`
-comes from. The substrate stays code-owned, because LLM belief-updating is
+states the participation weighing applied — read from the usage prose: own-probe
+strongest, cited discounted for expectation effects, independent replication gold
+for the fact — and ends by naming what would most change the score, which is where
+the card's next `probe` comes from. The substrate stays code-owned, because LLM belief-updating is
 measurably miscalibrated under contradiction: the **event ledger is append-only and
 frame-written** (grader-signed events with resolving citations — all §5.2/§6
 defenses unchanged); the frame **bounds every score** against the ledger (a
@@ -501,27 +501,28 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   novel piece: the bank does not wait to be exercised, it *asks questions*, and the
   replanner's evidence-driven re-aiming (proven in wave-4) is the natural carrier.
 
-### 5.2 Evidence — three prose parts, three mechanical checks
+### 5.2 Evidence — anatomy and mechanical checks
 
-An evidence entry has exactly three parts, per the minimality rule: **`source`**
+An evidence entry has exactly four parts, per the minimality rule: **`source`**
 (metadata: which learner run created it, from which trajectory, pointing at which
-artifact), **`usage`** (prose: how the card figured in that campaign's process — was
-it served in the brief, cited by a spec, tested by its own probe, or absent so the
-campaign rediscovered it independently; what the process actually did with it), and
-**`effect`** (prose: what happened, numbers included). The writing is an intelligent
-agent's; the trust is the frame's. Admission runs three checks:
+artifact), **`verdict`** (the one tag: what this evidence did to the card),
+**`usage`** (prose: how the card figured in that campaign's process — served in the
+brief, cited by a spec, tested by its own probe, or absent so the campaign
+rediscovered it independently; what the process actually did with it), and
+**`effect`** (prose: what happened, numbers included, ending with the sentence that
+earns the verdict). The writing is an intelligent agent's; the trust is the frame's.
+Admission runs three checks:
 
 1. **Source resolves** — the trajectory exists, the ref exists inside it, and the
    effect's quoted numbers re-grep in the referenced artifact.
-2. **The label and its usage story are consistent with the record** — each entry
-   carries a `label` (`probe` | `cited` | `served-uncited` | `independent`) and the
-   frame verifies it against ground truth: `probe` → a probe output artifact matches
-   the card's probe spec; `cited` → the serving record carries the card at the
-   stamped `bank_head` AND `[card:<id>]` greps in the spec/changes.log;
-   `served-uncited` → in the serving record, no citation; `independent` → absent
-   from the serving record or the card postdates the campaign (all founding evidence
-   is `independent` by construction). The usage prose tells the story behind the
-   label; a label or narrative the record cannot support is rejected with a named
+2. **The usage story is consistent with the record** — every participation claim
+   the usage prose makes is verified against ground truth: a claimed probe → a probe
+   output artifact matching the card's probe spec; a claimed citation → the serving
+   record carries the card at the stamped `bank_head` AND `[card:<id>]` greps in the
+   spec/changes.log; claimed serving → the serving record; claimed independence →
+   the card absent from the serving record or postdating the campaign (all founding
+   evidence is independent by construction). The checker's conclusion is recorded
+   ledger-side; a narrative the record cannot support is rejected with a named
    finding.
 3. **Effect is grader-backed and supports the verdict** — outcomes trace to
    registered evaluations, judged significant by the campaign's own clustered-SE
