@@ -251,16 +251,21 @@ evidence:                        # ≥1 required; written by the learning proces
       learner_run: lr_20260814T0900
       trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
       ref: features_history.md#within-origin-ranks
-    label: independent           # probe | cited | served-uncited | independent —
-                                 # frame-verified against the record (§5.2)
+    label: independent           # participation: probe | cited | served-uncited |
+                                 # independent — frame-verified against the record (§5.2)
+    verdict: confirm             # effect on the card: confirm | weaken | refine |
+                                 # refute | spawn | exercise — the §3.3 disposition
+                                 # vocabulary reused; one ledger event per entry
     usage: >-                    # prose: the story behind the label — what the
                                  # process actually did with (or without) the card
       Not yet in the bank when this campaign ran — independent evidence: the
       lens replanner derived the within-origin normalization move on its own
       and lane 1 implemented it as a feature-widening block.
-    effect: >-                   # prose: what happened, numbers included
+    effect: >-                   # prose: what happened, numbers included, ending
+                                 # with the sentence that earns the verdict
       The block was gate-tested against the pre-widening matrix and KEPT:
-      +0.0032 AUC ≈ 3.6 clustered SE on the official validation split.
+      +0.0032 AUC ≈ 3.6 clustered SE on the official validation split — a
+      significant in-scope agreement, so this entry confirms the card.
 reliability:                     # written ONLY by the reliability assessor (§3.3),
                                  # each score frame-bounded against the event ledger
   validity: 0.80                 # in-scope agreement: do experiments agree with the
@@ -357,6 +362,9 @@ directions**:
 | `refine` | disagrees in scope, and a **mechanism-backed** boundary explanation exists | scope revision: version bump; the event ledger **repartitions** under the new scope — old confirms that still fall inside keep counting, the contradicting event becomes a *boundary observation* (evidence FOR the refined card); validity recomputes over in-scope events; generality ↓, boundary confidence ↑ |
 | `refute` | disagreement that breaks the mechanism itself | retirement path |
 | `spawn` | a refine whose complement region carries its own regularity | sibling card minted for the complement, linked, with the contradicting event as its founding evidence (the hypothesis-bank move: unexplained residuals become new hypotheses) |
+
+The dispositions double as the per-evidence `verdict` tag (§3.2) — one vocabulary
+at both levels, each admitted evidence entry deriving exactly one ledger event.
 
 This dissolves the paradox: after a legitimate refine, "the evidence was a
 contradiction" and "the card became more reliable" are both true — the contradiction
@@ -515,9 +523,14 @@ agent's; the trust is the frame's. Admission runs three checks:
    is `independent` by construction). The usage prose tells the story behind the
    label; a label or narrative the record cannot support is rejected with a named
    finding.
-3. **Effect is grader-backed** — outcomes trace to registered evaluations, judged
-   significant by the campaign's own clustered-SE machinery; sub-threshold effects
-   are recorded as exercise, not agreement.
+3. **Effect is grader-backed and supports the verdict** — outcomes trace to
+   registered evaluations, judged significant by the campaign's own clustered-SE
+   machinery, and the entry's `verdict` must be earnable from them: `confirm` /
+   `weaken` / `refute` need significant in-scope agreement / disagreement;
+   sub-threshold effects may only carry `exercise`; `refine` must include the
+   boundary explanation and passes the Lakatos guard (§3.3); `spawn` must name the
+   sibling card it founds. A verdict the numbers cannot earn is rejected with a
+   named finding.
 
 From each admitted entry the frame derives a ledger event (append-only, code-owned —
 the substrate §3.3's assessor works on). How usage should weigh on the assessor is
