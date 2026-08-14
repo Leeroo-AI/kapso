@@ -137,7 +137,27 @@ layers changes except stamping (§5.1).
 
 ## 3. The knowledge bank
 
-### 3.1 Storage — an OKF bundle in a git repo
+### 3.1 Storage — an OKF bundle in its own repo
+
+**The home: one standalone, private GitHub repo per domain** (`kapso-bank-relbench`;
+posttrain gets its own when it joins). Not a directory in the kapso monorepo: the
+learner commits autonomously, so on its own repo the git log IS the learning journal
+— one transaction per commit, nothing else — and the bank and the framework keep
+**two independent clocks**: a campaign pins `(kapso_commit, bank_head)` as two
+coordinates in `campaign_meta`, knowledge moves between framework releases, a bad
+learner run reverts without touching code, and the A/B harness (banked vs frozen
+brief) is literally two refs of one repo. The repo boundary is also the
+scoring-scope boundary (one bank per domain, already decided) made physical. The
+monorepo keeps the learner *machinery* (`src/kapso/learning/`) and the design docs;
+the trajectory archives keep the *evidence artifacts* the bank cites and replays
+against. Operationally: each campaign box holds a **durable local clone** that is
+the serving source — the briefing compiler reads it at a pinned head, so campaigns
+never depend on network mid-flight (unreachable remote → serve the local head,
+staleness noted loudly in the brief); the learner is the single writer and pushes
+after each run; boxes pull at campaign start. Config carries `bank.remote` and
+`bank.local_path` (Rule 1). No shared `lib/` between procedures in v1 — if two
+procedures ever share a helper, that recurrence is itself a signal to consolidate
+or mint, designed when it happens.
 
 The bank is an **Open Knowledge Format bundle**: a directory of markdown files with
 YAML frontmatter, one concept per file, **file path = identity**, ordinary markdown
@@ -161,13 +181,14 @@ markdown links and the typed extension fields (`supersedes`, `contradicts`) into
 edge table; no model sits in the graph-construction path.
 
 ```
-knowledge_bank/
+kapso-bank-relbench/                # standalone private repo — the OKF bundle IS the repo root
   index.md                          # root orientation for agents (OKF)
   log.md                            # learner-run journal (OKF)
   insights/<slug>.md                # insight cards
   insights/index.md
-  procedures/<slug>/card.md         # procedure cards (dir: docs + code + replay test)
-  procedures/<slug>/*.py            #   present once representation reaches `code`
+  procedures/<slug>/card.md         # ALL of a procedure's metadata + its method body
+  procedures/<slug>/<entrypoint>.py #   code — present once representation reaches `code`
+  procedures/<slug>/replay_test.py  #   fixture setup + entrypoint run + expected-metric assert
   procedures/index.md
   reference/...                     # optional mounted OKF concepts — never scored
   retired/...                       # moved, never deleted; history intact
