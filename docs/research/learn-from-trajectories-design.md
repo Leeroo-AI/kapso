@@ -836,9 +836,29 @@ ledger: per-event dispositions, per-card scores bounded against events, the
 Lakatos guard, lifecycle transitions — under one invariant adopted whole from
 uniforge's state controller: **an observation is evidence, never a decision.**
 No single trajectory flips a card's state; transitions commit at batch end over
-the whole ledger. Output: one bank commit tagged `lr_<id>`, the learner report
-(cards touched, events applied, routing journal, rejections with named reasons),
-the new `bank_head`.
+the whole ledger.
+
+**Output: one bank commit tagged `lr_<id>` + the learner report.** The report
+lives at `learning/runs/<lr_id>/report.md` — a run dir like every kapso
+activity, never the bank repo: the bank stays knowledge-only, and its root
+`log.md` carries the one-line journal entry (date, `lr_id`, headline) pointing
+here. Frontmatter: run identity (`run` = the commit tag, `learner_version`,
+`batch` — an empty list is consolidation mode, `bank: {before, after}`) plus
+the frame-computed **`health` block** (cards by state, open contradictions,
+sightings count and age, replay staleness) — mechanical state description, the
+trend line across runs; every *judgment* in the report carries its rationale
+(no naked tags). Body, in order: **Headline** — the lead's one-paragraph
+narrative of what the batch taught; **Routing journal** — the report's reason
+to exist: one entry per observation (`ATTACH`/`SPAWN`/`SIGHTING`/`PASS`, the
+ordinal level where fit was judged, rationale, refs), recording the decisions
+that left no diff — sightings, passes, near-ties — which the bank commit
+cannot show, and giving the duplicate/stability traps their regression
+surface; **Card changes** — one line per touched card, the card's own log
+remaining the truth; **Rejections** — admission failures with named findings
+and dispositions; **Assessor round-up** — batch-end lifecycle transitions;
+**Closing assessment** — gaps noticed (feeds the next batch and
+consolidation), probe-queue changes proposed, anything troubling. The full
+field-by-field spec belongs to the update-crew instruction document.
 
 ### 4.4 The development regime — the learner is the candidate
 
