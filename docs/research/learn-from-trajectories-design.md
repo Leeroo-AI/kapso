@@ -251,9 +251,10 @@ evidence:                        # ≥1 required; written by the learning proces
       learner_run: lr_20260814T0900
       trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
       ref: features_history.md#within-origin-ranks
-    usage: >-                    # prose: how the card figured in this campaign — was it
-                                 # served, cited by the spec, probed, or absent
-                                 # (independent)? what did the process do with it?
+    label: independent           # probe | cited | served-uncited | independent —
+                                 # frame-verified against the record (§5.2)
+    usage: >-                    # prose: the story behind the label — what the
+                                 # process actually did with (or without) the card
       Not yet in the bank when this campaign ran — independent evidence: the
       lens replanner derived the within-origin normalization move on its own
       and lane 1 implemented it as a feature-widening block.
@@ -261,14 +262,22 @@ evidence:                        # ≥1 required; written by the learning proces
       The block was gate-tested against the pre-widening matrix and KEPT:
       +0.0032 AUC ≈ 3.6 clustered SE on the official validation split.
 reliability:                     # written ONLY by the reliability assessor (§3.3),
-                                 # frame-bounded against the derived event ledger
-  score: 0.75                    # validity-in-scope [0,1]
-  rationale: >-                  # the assessor's cited reasoning — coverage, evidence
-                                 # modes, boundary history all live HERE as prose;
-                                 # tallies are derived, ledger-side, never card fields
-    Two independent in-scope confirmations in two families at 3.6 and >2 SE;
-    no in-scope disagreement; coverage limited to classification families;
-    no scope revisions yet.
+                                 # each score frame-bounded against the event ledger
+  validity: 0.80                 # in-scope agreement: do experiments agree with the
+                                 # fact inside the stated scope?
+  boundary: 0.55                 # how well-mapped the scope's edge is (revisions,
+                                 # known boundary points, limits tested)
+  coverage: 0.35                 # how much of the claimed scope has been visited
+  score: 0.75                    # overall — the assessor's synthesis, not an average
+  rationale: >-                  # must justify EACH dimension, state the label
+                                 # weighing applied, and end with what would most
+                                 # change the score (the source of the next probe)
+    Validity: two in-scope confirmations at 3.6 and >2 SE, both independent
+    (uncontaminated), no disagreement. Boundary: untested — no contradiction
+    has probed the edge; the grouped-rows condition is asserted from the
+    mechanism, not yet carved by evidence. Coverage: two families visited,
+    both classification on consumer datasets; regression unvisited. Most
+    score-moving next: one regression-family test — hence the probe.
   state: candidate               # candidate | active | cold | retired | superseded
 provenance: {version: 1}         # the rest is derivable — git history + evidence sources
 supersedes: null                 # the one typed edge code needs; all other relations
@@ -298,9 +307,9 @@ prose), no restating of any frontmatter field: a curator `REFINE` targets exactl
 home and a version bump means one thing. The fact is what the assessor matches
 events against — semantically, hero as the compact key and body as elaboration. The
 **served card is a renderer projection** assembled at brief-compile time — title +
-hero + derived reliability line (so the reading LLM weighs a battle-tested fact
-differently, CLIN's hedging result) + scope + fact + evidence digest + probe — never
-stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (reader
+hero + the reliability line (state and all four scores, so the reading LLM weighs a
+battle-tested fact differently from a fresh or narrow one, CLIN's hedging result) +
+scope + fact + evidence digest + probe — never stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (reader
 scope) express the same thing at two precisions; the stage-V verifier checks their
 consistency.
 
@@ -364,17 +373,24 @@ the anti-RDR stance: Ripple-Down Rules prove exception-accretion works operation
 but identifier-keyed exceptions are exactly the memory junk this design exists to
 avoid.)
 
-**Who decides — the assessor, on a mechanical substrate.** Dispositions, the numeric
-`score`, and its `rationale` are produced by a **reliability-assessor session** (a
-coding-agent CLI call reading the card, its event ledger, and the new events) —
-reliability is a judgment with reasons, not a formula. But the substrate stays
-code-owned, because LLM belief-updating is measurably miscalibrated under
-contradiction: the **event ledger is append-only and frame-written** (grader-signed
-events with resolving citations — all §5.2/§6 defenses unchanged); the frame
-**bounds the score** against the ledger (a score no set of cited events supports is
-rejected); `refine` proposals pass the Lakatos guard and citation resolution
-mechanically; and the decoy audit applies to the assessor (a decoy card whose score
-moves fails the learner run). Sequential-testing discipline for probe programs
+**Who decides — the assessor, on a mechanical substrate.** Dispositions and the
+reliability block are produced by a **reliability-assessor session** (a coding-agent
+CLI call reading the card, its event ledger, and the new events) — reliability is a
+judgment with reasons, not a formula. The assessor's contract: **one score per
+dimension** (`validity`, `boundary`, `coverage`, each [0,1]) plus an **overall
+`score`** (a synthesis, not an average — a high-validity card with untested
+boundaries is not 0.9-reliable), and a `rationale` that justifies each dimension,
+states the evidence-label weighing applied (own-probe strongest; cited discounted
+for expectation effects; independent replication gold for the fact), and ends by
+naming what would most change the score — which is where the card's next `probe`
+comes from. The substrate stays code-owned, because LLM belief-updating is
+measurably miscalibrated under contradiction: the **event ledger is append-only and
+frame-written** (grader-signed events with resolving citations — all §5.2/§6
+defenses unchanged); the frame **bounds every score** against the ledger (a
+dimension score no set of cited events supports is rejected — e.g. nonzero
+`boundary` with no boundary-touching event); `refine` proposals pass the Lakatos
+guard and citation resolution mechanically; and the decoy audit applies to the
+assessor (a decoy card whose scores move fails the learner run). Sequential-testing discipline for probe programs
 (POPPER-style e-value control instead of per-event z-tests) is the designated upgrade
 path once probes run routinely.
 
@@ -489,12 +505,16 @@ agent's; the trust is the frame's. Admission runs three checks:
 
 1. **Source resolves** — the trajectory exists, the ref exists inside it, and the
    effect's quoted numbers re-grep in the referenced artifact.
-2. **Usage is consistent with the record** — every assertion the usage prose makes
-   is checked against ground truth: the serving record at the stamped `bank_head`
-   (was the card in the brief?), citation greps in specs/changes.log (was it invoked
-   by name?), probe output artifacts (was this the card's own probe?), invocation
-   markers for procedures (did the staged code actually run?). A usage narrative the
-   record cannot support is rejected with a named finding.
+2. **The label and its usage story are consistent with the record** — each entry
+   carries a `label` (`probe` | `cited` | `served-uncited` | `independent`) and the
+   frame verifies it against ground truth: `probe` → a probe output artifact matches
+   the card's probe spec; `cited` → the serving record carries the card at the
+   stamped `bank_head` AND `[card:<id>]` greps in the spec/changes.log;
+   `served-uncited` → in the serving record, no citation; `independent` → absent
+   from the serving record or the card postdates the campaign (all founding evidence
+   is `independent` by construction). The usage prose tells the story behind the
+   label; a label or narrative the record cannot support is rejected with a named
+   finding.
 3. **Effect is grader-backed** — outcomes trace to registered evaluations, judged
    significant by the campaign's own clustered-SE machinery; sub-threshold effects
    are recorded as exercise, not agreement.
