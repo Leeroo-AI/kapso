@@ -397,6 +397,30 @@ block: a learner version replaces the incumbent only on `accept`.
 
 ---
 
+### 2.5 The A/B arm — rung 4's protocol
+
+The one causal instrument: does serving the **candidate** generation make
+campaigns better than the **incumbent** did? Settled design:
+
+- **Same-task pairs.** Arm T runs a task briefed from the candidate head; arm
+  C runs the identical task — same kapso commit, budget, config — briefed from
+  the **incumbent head** (the latest banked generation before this one; the
+  first generation's incumbent is the empty brief). Both are ordinary evolve
+  runs: the arms differ only in the ref the retriever reads — the read-only
+  substrate principle holds untouched.
+- **Verdict.** Paired per-task deltas, mean ± SE, plus the guard KPI: no
+  regression on tasks where the candidate bank is thin ("never worse where
+  irrelevant", measured). Lands in the scorecard's transfer row. Arm
+  trajectories enter the store like any others — the control arm's
+  discoveries are uncontaminated evidence by construction.
+- **Trigger.** A generation's final exam: fires only after sustained rung-2
+  wins, never per learner change — hindcast iterates, the A/B certifies.
+- **Optional by config** (`learning.ab`). With `required: false` a deployment
+  may promote on hindcast strength alone and ship straight to production —
+  the scorecard then records the A/B as **not-run, never as passed**. When
+  `required`, a within-noise result **blocks** promotion (noise is never
+  rounded to a win); `pairs` sets the sample size.
+
 ## 3. The split manifest
 
 The exam's fourth artifact — boring but load-bearing: **the authoritative
@@ -453,7 +477,8 @@ re-hardcoded at a call site: `score_band` (corridor half-width; v1 default
 (pooled settlements before the table exists; v1: 20), `calibration_buckets`
 (v1: `[0.4, 0.7]` cut points); `gauntlet.stability_tolerance` (substance-diff
 score tolerance; v1: 0.10); crew role models and repair rounds under
-`learning.graders.crew.*` (§6.6). Defaults here are proposals; the config
+`learning.graders.crew.*` (§6.6); the A/B gate under `learning.ab` —
+`required` (v1: false — rung 4 is waivable), `pairs` (v1: 5 same-task pairs). Defaults here are proposals; the config
 file is the single source.
 
 ---

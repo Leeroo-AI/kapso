@@ -886,7 +886,11 @@ gauntlet + axis panel, §7) → the scorecard accepts or rejects the change. Ban
 are disposable here; the artifact under development is the crew. Learner
 versions bank like champions — never replace a banked learner with one that
 scores worse — and promotion climbs the same ladder evidence does: hindcast win
-→ probe-budget exposure → sustained wins → an A/B arm → the default learner.
+→ probe-budget exposure → sustained wins → an A/B arm against the incumbent
+generation → the default learner. The A/B gate is config-governed and waivable
+(`learning.ab`): a deployment may promote on hindcast strength alone and ship
+straight to production — the scorecard then records the arm as not-run, never
+as passed.
 The frozen split stays forever as the learner's regression suite; the build
 order it forces is §8. Endgame, deliberately deferred: with graders that have
 earned trust, evolve itself can search learner designs against the suite (§9) —
@@ -1086,7 +1090,7 @@ apart in cost — cheap rungs iterate the learner, expensive rungs certify it
 | **1 — audits + gauntlet** | free; every learner run | provenance, coherence, revision, memory economy | diff invariants (the decoy audit of §6 among them, enforced per commit); the duplicate trap (a disguised clone of a real mined view must add nothing — the ~20× echo shape of our corpus, made a test); the stability trap (two runs on the same batch must agree in substance); implant and red-team specs deferred until an incident earns them |
 | **2 — hindcast** | minutes; no GPU | extraction, generalization-as-prediction, calibration, availability | freeze the bank; for a held-out trajectory compile the brief it *would have* served, then score against what that campaign actually measured: discoveries already banked (extraction — the re-derivation rate, inverted), bank claims settled by the campaign's graded outcomes inside claimed scope (calibration points for free), relevant cards actually **in** the brief at budget (availability: miss rate and noise rate) |
 | **3 — probes** | capped slice of live campaigns | generalization-as-causation for single claims; boundary carving | the probe queue (§5.1): pre-registered, VoI-ranked, budget-capped |
-| **4 — A/B arms** | full campaigns | transfer — terminal, incorruptible | banked-brief arm vs frozen-brief arm (two refs of one repo) on matched task waves — the same harness that ran champion vs no-champion; primary KPI: banked test-score delta; guard KPI: no regression where the bank is thin |
+| **4 — A/B arms** | full campaigns; config-waivable | transfer — terminal, incorruptible | candidate-head arm vs incumbent-head arm (two refs of one repo; the first generation's incumbent is the empty brief), **same-task pairs** — the champion-vs-no-champion harness; primary KPI: paired test-score delta ± SE; guard KPI: no regression where the bank is thin |
 
 Rung 2's honest limit, stated once: the hindcast measures **predictive
 alignment, not causal influence** — the held-out campaign was never steered by
