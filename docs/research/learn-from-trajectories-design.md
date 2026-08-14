@@ -1009,6 +1009,16 @@ alignment, not causal influence** — the held-out campaign was never steered by
 the compiled brief. That is what rungs 3–4 exist for, and why rung 4 is the one
 number the learner can never be optimized against directly.
 
+Scoring semantics are specified once, in the companion
+**`learn-from-trajectories-grader-scoring.md`**: the measurement idiom (a few
+named dimension scores + one rationale — agent-written, frame-bounded by
+marker-count corridors, agent-read; decisions stay categorical, measurements
+are scored), the hindcast dimensions (foresight, accuracy, serving) with their
+marker vocabulary, corridors, anchors and null rules, the scorecard roll-up
+(paired deltas ± SE on the shared held-out set, the calibration table, the
+verdict block), the gates-dominate-scores contract for the gauntlet, and the
+settlement→evidence lift.
+
 **The curve never stops.** Exam-before-lesson (§4.1) makes every live trajectory
 a fresh rung-2 point before it is ingested, so the scorecard is a running series
 rather than a one-time grade, and the frozen corpus split remains the learner's
