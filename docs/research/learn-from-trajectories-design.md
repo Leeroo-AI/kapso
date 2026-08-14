@@ -76,7 +76,7 @@ count, and LLM opinion are never score inputs — popularity ≠ correctness.
   ablation kills the gain). Kapso's K-lane iterations and KEPT/REJECTED ledger entries
   are ready-made contrastive pairs with ground-truth deltas.
 - **Abstract, don't archive** (Dynamic Cheatsheet's full-history < no-memory; companion
-  study's raw-trajectory −9.5% vs insights +6.5% forward transfer). Miners see
+  study's raw-trajectory −9.5% vs insights +6.5% forward transfer). The crews see
   structured views, never the 2.35M-line log (also Rule 6: window, don't clip).
 - **Verify code before storing** (Voyager's most-valuable-component ablation; ASI's
   ~15.6% admission rate; SkillRevise: one-shot authored skills score *below no-skill*
@@ -162,7 +162,7 @@ or mint, designed when it happens.
 The bank is an **Open Knowledge Format bundle**: a directory of markdown files with
 YAML frontmatter, one concept per file, **file path = identity**, ordinary markdown
 links between concepts forming the graph, `index.md` per directory for progressive
-disclosure (this is how navigating agent sessions orient — miners, the curator, and
+disclosure (this is how navigating agent sessions orient — the crews and
 any future OKF consumer read the same indexes; each index line is
 `- [title](path) — hero`, so a whole section scans in one screen), and a root
 `log.md` as the chronological journal (one entry per learner run). OKF is minimally opinionated —
@@ -184,6 +184,7 @@ edge table; no model sits in the graph-construction path.
 kapso-bank-relbench/                # standalone private repo — the OKF bundle IS the repo root
   index.md                          # root orientation for agents (OKF)
   log.md                            # learner-run journal (OKF)
+  sightings.md                      # pre-card observations awaiting recurrence (§4.3)
   insights/<slug>.md                # insight cards
   insights/index.md
   procedures/<slug>/card.md         # ALL of a procedure's metadata + its method body
@@ -235,7 +236,7 @@ genuinely insufficient, the escape hatch is gbrain-style schema packs (types as
 configurable data), not a richer built-in ontology.
 
 **Cards are abstractions; bound observations are evidence, never cards.** The unit
-the miners produce — "run_0019's blend of run_0010 gained +0.0032 on rel-amazon" — is
+mining produces — "run_0019's blend of run_0010 gained +0.0032 on rel-amazon" — is
 an *observation*: episodic, bound, useful only as evidence. A card is the
 generalization that observation supports, stated at the level of the domain
 (predictive ML modelling), carrying the **mechanism** (why it works) from which its
@@ -325,7 +326,7 @@ reliability:                     # written ONLY by the reliability assessor (§3
   state: candidate               # candidate | active | cold | retired | superseded
 provenance: {version: 1}         # the rest is derivable — git history + evidence sources
 log:                             # append-only, ONE entry per version, frame-written
-                                 # at the version-bumping transaction (curator authors
+                                 # at the version-bumping transaction (the crew authors
                                  # the change sentence; frame stamps the rest)
   - version: 1
     date: 2026-08-14
@@ -338,7 +339,7 @@ log:                             # append-only, ONE entry per version, frame-wri
       profile [E1] + cold-entity forensics [E2].
 supersedes: null                 # typed edge: lifecycle machinery branches on it
 contradicts: []                  # typed edge: established tensions between active cards,
-                                 # symmetric and frame-maintained (the curator names the
+                                 # symmetric and frame-maintained (the crew names the
                                  # pair once, the frame writes both sides); consumed by
                                  # the briefing co-serving guard and the consolidation
                                  # sweep. Every OTHER relation is a body reference (§3.2.2)
@@ -354,7 +355,7 @@ probe: >-                        # optional: how a future campaign can test this
 #     (a reproduced metric, a gate decision, an artifact with stated
 #     properties, a report with expected structure); replay/replay_test.py
 #     is the executable assertion of exactly this statement, and the
-#     stage-V verifier checks the two agree
+#     replay check (§4.3) verifies the two agree
 #   last_replayed: <date>
 ```
 
@@ -370,14 +371,14 @@ cards (the frame extracts links mechanically). `scope_conditions` holds
 applicability; `evidence` holds the instances; `reliability` holds the trust record.
 No body heading (the renderer adds the title), no separate claim/mechanism/limits
 sections (Toulmin-itis — the working systems and the practice notes all use unified
-prose), no restating of any frontmatter field: a curator `REFINE` targets exactly one
+prose), no restating of any frontmatter field: a scope refinement targets exactly one
 home and a version bump means one thing. The fact is what the assessor matches
 events against — semantically, hero as the compact key and body as elaboration. The
 **served card is a renderer projection** assembled at brief-compile time — title +
 hero + the reliability line (state and all four scores, so the reading LLM weighs a
 battle-tested fact differently from a fresh or narrow one, CLIN's hedging result) +
 scope + fact + evidence digest + probe — never stored. The duality that stays: `tags` (machine scope) vs `scope_conditions` (reader
-scope) express the same thing at two precisions; the stage-V verifier checks their
+scope) express the same thing at two precisions; the update crew's critic checks their
 consistency. One sanctioned exception to "derivable is never stored": the **`log`
 field** — one line per version, append-only, frame-written — because bundles are
 consumed without `.git` (OKF tarballs, served projections) and a learner commit
@@ -434,7 +435,7 @@ Three rules keep this from regrowing the old wiki's ontology:
   Body labels are descriptive — extractable, renderable, never load-bearing. A body
   label that needs machinery gets *promoted* to a frontmatter field as a deliberate
   design act; the extractor flags body-labeled `contradicts`/`supersedes` as
-  promotion candidates for the curator rather than triggering anything itself.
+  promotion candidates for the update crew rather than triggering anything itself.
 - **The vocabulary is discovered, not designed.** Free-form labels + the extractor
   mean the bank-health panel reports label frequencies; when synonyms emerge
   (`justifies`/`supports`), the consolidation sweep normalizes them as ordinary
@@ -520,7 +521,7 @@ with ≥m visits, or replay breaks for code procedures, or superseded). Retireme
 to `retired/` with history; a superseding card links back and inherits a *discounted*
 prior (RoMeRL warm-start, with its rides-old-credibility caveat noted in provenance).
 Contradiction's first response is never deletion: it is **scope split** — the frame
-requires a contradicting event to carry its own citation, and the curator proposes a
+requires a contradicting event to carry its own citation, and the update crew proposes a
 narrowed scope citing both sides.
 
 One distinction rides on tags (the mempalace validity-window idea): **env-tagged
@@ -615,7 +616,7 @@ harvest step and the evolve→learn bridge; `learn_from_trajectories()` calls it
 implicitly for anything passed as a raw handle or path — the adoption-before-mining
 rule's mechanism.
 
-**Load.** Three functions, and there is no other door — miners, citation
+**Load.** Three functions, and there is no other door — the crews, citation
 resolution, the assessor, replay, and humans all go through them:
 
 ```python
@@ -690,50 +691,175 @@ views fully reassembled). Bundle-contract addition this design surfaces: the
 the selector runs in a temporary worktree and its artifacts die, making
 rejected-at-ideation flows unrecoverable.
 
-## 4. The trajectory learner
+## 4. The learner — one machinery, two regimes
 
-An evolve-shaped agentic pipeline: deterministic orchestrator (`TrajectoryLearner`)
-around scoped coding-agent CLI sessions, one role per stage, mechanical post-conditions
-between. Reuses evolve's substrate — coding-agent adapters, prompt loader, gated MCP,
-budget/telemetry ledger, checkpoint pattern — but **not** the search strategy: learning
-is a pipeline with a loop-until-dry tail, not score-guided search. (Option B — running
-the learner *as* an evolve campaign whose "score" is downstream campaign performance —
-is deliberately deferred: its evaluation signal costs a campaign per iteration. §9.)
+The learner is two agentic crews around one git repo, held by deterministic
+frames — the maintainer pattern (mechanical frame, scoped coding-agent interior)
+applied twice. It reuses evolve's substrate — CLI adapters, prompt loader,
+budget/telemetry ledger, checkpoint pattern — but not its search strategy:
+learning is mining and updating **under measurement**, not score-guided search.
+Six components, and a deliberate list of non-components:
 
-Input: one or more **store-resident trajectories** (§3.4) plus the current bank at
-`bank_head`. `learn_from_trajectories()` accepts trajectory IDs, evolve result
-handles, remote URIs, or local paths — and normalizes them all through
-`save_trajectory` **before any miner runs** (adoption before mining): cards only
-ever cite store-resolvable IDs, never ephemeral paths. The T-stage then builds
-per-miner views from the resolved bundle (ledger, difficulties, lens history,
-judge verdicts, manifests, runs archive; the campaign log stays on-demand
-forensics only).
+| # | Component | Nature | Owns |
+|---|---|---|---|
+| 1 | Trajectory store (§3.4) | passive, append-only | raw bundles + their derived `mined/` views |
+| 2 | Mining crew (§4.2) | agentic | nothing — writes `mined/` into the store |
+| 3 | The bank (§3.1–3.3) | passive git repo, one per domain | cards, sightings, indexes, log |
+| 4 | Update crew (§4.3) | agentic | nothing — commits to the bank |
+| 5 | Briefing compiler (§5.1) | deterministic + one scoped call | the serving record |
+| 6 | Grader suite (§4.4, §7) | deterministic + scoped judgment calls | learner scorecards |
 
-| Stage | Intelligence (CLI session, read-only tools + views) | Mechanical post-condition (frame) |
-|---|---|---|
-| **T — Triage** | none (pure code) | Build per-miner views; classify nodes success/recovered/failed; drop imperfect-agent failures (deadline kills, infra deaths — end-facts are already recorded) from *knowledge* mining while keeping them for pitfall mining; compute campaign SEs from stored bootstrap numbers |
-| **M — Mine** (parallel, lens-per-miner) | contrast miner (ledger KEPT/REJECTED pairs + lane groups), pitfall miner (technical_difficulties + failed lineages), strategy miner (lens history + judge verdicts + postmortem), procedure scout (winning code across runs archive, looking for procedures recurring ≥2 times) | Output is **observations** (bound, episodic — never cards); every ref must **resolve** (file+line/run exists, sign matches, delta matches within tolerance) — unresolvable observations are rejected with a named finding, not repaired silently |
-| **A — Abstract** (the core stage) | one abstraction session per observation cluster: align new observations with each other AND with the bank's existing cards/evidence, then induce or refine generalizations — variable abstraction (bound entities → typed roles), cross-instance schema induction, or single-instance explanation-based generalization (state the mechanism; derive applicability from it; propose the falsifying probe) | Two admission routes, mechanically distinguished: **(i) induction** — ≥2 aligned instances from ≥2 independent measurements; **(ii) EBG** — 1 instance + a mechanism the stage-V verifier must independently endorse, admitted at reduced evidence weight. Every candidate card passes the bound-identifier lint and the MDL test (a card ≈ as long as its cited instances has not abstracted); observations that support no admissible card stay in the episodic ledger |
-| **C — Curate** | one session with the bank slice (embedding neighbors of each candidate) in context; emits typed ops: `create / attach_evidence(card) / revise_scope(card) / split_scope(card) / supersede(card) / link` | Frame applies ops deterministically (ACE): stable ids, in-place counter updates, embedding dedup assist; ops on nonexistent cards raise; no op may edit another card's evidence list except `attach_evidence` with resolving refs |
-| **V — Verify** | text: an adversarial checker per card — does the cited artifact actually support the claim at the stated strength? (the maintainer's change-request triage stance, pointed inward); code: a session adapts the procedure + writes its replay test | Text: checker verdict recorded; a failed check demotes to candidate with the objection attached. Code: frame executes replay against the archived run (correctness + actually-invoked + effect, ASI's three conditions) inside the existing sandbox/timeout machinery; failures stay candidates with the trace attached (SkillRevise's revision loop gets one retry, then parks) |
-| **S — Score** | the reliability-assessor session: per event a disposition (confirm/weaken/refine/refute/spawn), per touched card a score + rationale (§3.3) | Frame writes the append-only event ledger from §5.2 attributions, bounds every score against it, runs the Lakatos guard on refine proposals, applies lifecycle transitions, checks the decoy audit (§6) |
-| **R — Reflect (loop-until-dry)** | one critic session: "what did this trajectory teach that the bank now does not carry?" | Frame loops M–S on the critic's named gaps until a round adds nothing (two dry rounds), bounded by the learner's budget block |
+Non-components, per the minimality rule: no query service (`load_trajectory` +
+manifests suffice, §3.4), no consolidation service (the update crew in
+empty-batch mode), no probe scheduler (the probe queue is a derived index
+artifact, §5.1), no extractor service (the referencing-language parser is a
+library function), no daemon (every stage is an idempotent CLI step — `kapso
+learn mine|update|brief|grade` — run by cron or by hand). The same components
+run in **two regimes**: operating (live campaigns, §4.1) and development (frozen
+corpus + exam, §4.4); the hinge between them is §4.1 step 3.
 
-Output: one bank commit (all stages' changes, one reviewed transaction), a
-`learner_report.json` (cards created/updated/demoted, events applied, rejections with
-reasons), and the new `bank_head`. The commit message carries the source trajectory id —
-bank history reads as a ledger of learnings per campaign.
+### 4.1 The operating regime — save → mine → grade → update → brief
 
-Concurrency: learner runs are serialized per bank (single-writer; the curator is the
-only merge path — the same single-writer discipline evolve's repo_lock uses).
+One campaign through the cycle:
 
-Besides the per-trajectory run, the learner has one standing **consolidation mode**
-(gbrain's dream cycle, scheduled off-hours): a mechanical shortlist of suspected
-contradictions and near-duplicates (edge table + embedding neighbors + opposing-sign
-evidence on overlapping scopes) reviewed by one curator session emitting the same
-typed ops, plus the staleness sweep (validity expiries, cold transitions) and index
-rebuild — all under the same single-writer commit discipline. No new machinery: it is
-stages C/S with an empty mining phase.
+1. **Save.** The runner calls `save_trajectory` at campaign end (§3.4). Every
+   learner input is normalized through the store before anything reads it
+   (adoption before mining): cards only ever cite store-resolvable IDs, never
+   ephemeral paths.
+2. **Mine** — per trajectory, idempotent, bank-blind. The mining crew (§4.2)
+   reassembles the raw bundle into the mined view (§3.4.1). Raw logs are never
+   read downstream of this point except as forensics.
+3. **Grade before learning — the exam-before-lesson rule.** The bank predates
+   every arriving trajectory, so each one is first a genuine held-out test: the
+   hindcast (§7, rung 2) runs against the new mined view *before* ingestion —
+   did the bank already carry what this campaign learned the hard way? were its
+   served claims confirmed? Only then may the trajectory become a lesson.
+   Prequential ("test-then-train") evaluation: live operation manufactures a
+   fresh scorecard point per campaign, for free, forever.
+4. **Update** — batched. The update crew (§4.3) consumes all mined views since
+   the last bank commit against a bank checkout and commits once.
+5. **Brief.** At the next campaign launch the compiler (§5.1) serves from bank
+   HEAD, stamps the serving record, and attaches at most the budgeted probe. The
+   trajectory that returns carries exactly the evidence the bank needs — serving
+   is also instrumentation; there is no separate telemetry channel.
+
+Learner runs are serialized per bank (single writer, the same repo_lock
+discipline evolve uses); mining parallelizes freely (per-trajectory,
+store-local).
+
+### 4.2 The mining crew
+
+Designed in full in the companion prompts document
+(`learn-from-trajectories-mining-prompts.md`): a self-organizing lead session
+that surveys the bundle, writes the campaign-grain docs, and fans per-iteration
+flow docs out to flow-writer subagents, with a read-only critic pass —
+Claude-led, because self-organization runs on the CLI's native subagent
+mechanism. The frame is stage/check/commit only: mined-format schema, coverage
+arithmetic on stable identities (every ledger node accounted for), quote
+re-grep, raw immutability by manifest hash, one repair loop. Policies that
+matter downstream: verbatim by default, explicit gaps over fabrication,
+degenerate-artifact detection (a judge echo like the literal "your feedback
+message" placeholder is *flagged*, so §4.3 can quarantine it), drift as the only
+synthesized content.
+
+### 4.3 The update crew — mined views × bank → one commit
+
+A lead session on a writable bank checkout, mined views mounted read-only, three
+roles as native subagents: **card-writer** (drafts and revises cards), **critic**
+(adversarial pass over every proposed change), **reliability-assessor** (§3.3's
+one assessor). There are no typed ops: the crew edits files directly, and trust
+moved from an operation vocabulary into **diff invariants** the frame validates
+before commit — evidence and log fields are append-only; every version bump has
+exactly one log entry and vice versa; `contradicts` lands on both cards;
+retirement is a move to `retired/`, never a delete; decoys untouched; every new
+evidence entry passes §5.2 admission; derived indexes recompiled. Any violated
+invariant rejects the whole transaction. **Batching is load-bearing** —
+induction needs siblings side by side, so the crew runs on everything since the
+last commit — and **consolidation is the same crew on an empty batch** (gbrain's
+dream cycle): the contradiction/near-duplicate shortlist, the staleness sweep,
+sightings pruning, index rebuild. No new machinery.
+
+**Routing — which card does an observation belong to?** This is where clustering
+lives in this design (adopted from the uniforge M1 cluster design, which
+hardened the same decision for Claude Code session logs; our economics differ —
+few, rich, born-attributed trajectories — so the verdict shape survives while
+the defaults shift):
+
+- **Attributed fast path.** An observation about a served or cited card homes by
+  serving-record lookup — no judgment call. The serving record is our
+  attribution channel, and most evidence about existing cards arrives through
+  it.
+- **Categorical, mechanism-matched judgment** for the rest. Candidates come from
+  index traversal (scope-first, hero lines — vectorless at bank scale); the
+  card-writer rates ordinal fit per candidate — exact / strong / partial / weak
+  / unrelated — judged against the card's **body and evidence ledger**, not its
+  hero line (match against what the card *contains*, not what its summary
+  claims), and judged on **mechanism, not vocabulary** (a shared dataset or
+  feature name is not a match; uniforge's lexical mis-assignment bug was exactly
+  this failure). No numeric confidence anywhere in routing: models are reliable
+  at ordinal judgment and unreliable at self-reported floats; deterministic
+  rules turn the categories into the verdict.
+- **Asymmetric defaults, structurally encoded.** Attach on a lone
+  `exact`/`strong` winner; a tie or ambiguity **spawns a candidate card**, never
+  a forced attach — a wrong attach corrupts the ledger reliability is computed
+  from, while a spurious candidate just dies of non-recurrence. One observation
+  exercising two genuinely distinct mechanisms may evidence both cards; one
+  observation that two cards could merely *describe* is ambiguity, not
+  multi-membership.
+- **Passing needs a rebuttal.** An observation judged card-worthless is passed
+  over only after the critic has argued the strongest case *for* it — the
+  adversarial second opinion on the closest thing routing has to an irreversible
+  verdict. Passing is soft by construction (the mined view keeps everything),
+  but a passed first sighting would silently defeat the recurrence gate, so:
+- **The sightings ledger** (`sightings.md` at bank root). Unmatched single
+  observations land as one-line entries: date, trajectory ref, one phenomenon
+  sentence. The crew reads it every batch; a new observation matching an entry
+  fires the recurrence gate, and the born card cites both sightings. Entries
+  expire after a configured number of unmatched batches (memory economy). Every
+  routing verdict and its level journals into the learner report, so
+  over-passing is auditable and the gauntlet can regression-test routing.
+
+**Admission** is unchanged from the card model: two mechanically distinguished
+routes — **induction** (≥2 aligned instances from ≥2 independent measurements)
+or **EBG** (one instance plus a mechanism an independent check endorses,
+admitted at reduced evidence weight) — with the bound-identifier lint and the
+MDL test on every candidate. Failure vs junk: a *measured* failure is
+first-class evidence (refute and weaken are how the bank learns boundaries), but
+untrustworthy telemetry — infra deaths, deadline kills, the degenerate judge
+feedback mining flagged — is quarantined from scoring and mined only for
+pitfalls.
+
+**Verification and scoring close the batch.** Text evidence passes §5.2's three
+checks; code procedures replay frame-side (correct + actually-invoked + effect;
+one trace-conditioned revision, then parked). The assessor then walks the
+ledger: per-event dispositions, per-card scores bounded against events, the
+Lakatos guard, lifecycle transitions — under one invariant adopted whole from
+uniforge's state controller: **an observation is evidence, never a decision.**
+No single trajectory flips a card's state; transitions commit at batch end over
+the whole ledger. Output: one bank commit tagged `lr_<id>`, the learner report
+(cards touched, events applied, routing journal, rejections with named reasons),
+the new `bank_head`.
+
+### 4.4 The development regime — the learner is the candidate
+
+Almost nothing in the crews can be verified by inspection — "this card is
+abstract" is an empirical claim. So the learner is built the way kapso builds
+everything: **under a registered evaluation that exists before the thing it
+grades.** The archived corpus (~65 campaigns) splits **by task family and by
+time** — learn-set ≈50, held-out ≈15; split keys come from manifest metadata
+(campaigns are born attributed; no trajectory-grain clustering exists or is
+needed). The development loop: a **learner version** (crew prompts, contracts,
+thresholds — versioned candidates, never truths) runs over the learn-set → a
+candidate bank → the grader suite scores it (hindcast on the held-out set +
+gauntlet + axis panel, §7) → the scorecard accepts or rejects the change. Banks
+are disposable here; the artifact under development is the crew. Learner
+versions bank like champions — never replace a banked learner with one that
+scores worse — and promotion climbs the same ladder evidence does: hindcast win
+→ probe-budget exposure → sustained wins → an A/B arm → the default learner.
+The frozen split stays forever as the learner's regression suite; the build
+order it forces is §8. Endgame, deliberately deferred: with graders that have
+earned trust, evolve itself can search learner designs against the suite (§9) —
+self-hosting, gated on that trust and nothing else.
 
 ## 5. Closing the loop
 
@@ -774,11 +900,20 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   its limits (§6: silent influence is measured by A/B, not by attribution).
 - **Stamping**: `campaign_meta.json` gains `bank_head`; every attribution event later
   binds to the exact card versions the campaign read.
-- The lens planner/replanner prompts render low-transfer cards as **cheap probes** —
-  "unverified on this family; `probe:` says how to test it in one fold" — steering a
-  slice of the existing exploration budget into deliberate card validation. This is the
-  novel piece: the bank does not wait to be exercised, it *asks questions*, and the
-  replanner's evidence-driven re-aiming (proven in wave-4) is the natural carrier.
+- The lens planner/replanner prompts render **cheap probes** from the **probe
+  queue** (`index/probe-queue.md`) — a derived artifact the update crew recompiles
+  each batch, ranking every card's open probe by **value of information**:
+  uncertainty × serving exposure first (heavily served, thinly verified), then
+  boundary tests that would split a scope, then cards whose lifecycle decision is
+  blocked pending measurement. The compiler attaches at most the configured
+  budget per campaign (`learning.probe_budget`, Rule 1 — e.g. one probe slot; a
+  hard cap, so learning never cannibalizes doing), each rendered as "unverified
+  on this family; `probe:` says how to test it in one fold" — steering a bounded
+  slice of the existing exploration budget into deliberate, pre-registered card
+  validation. This is the novel piece: the bank does not wait to be exercised, it
+  *purchases the observations that most reduce its uncertainty*, and the
+  replanner's evidence-driven re-aiming (proven in wave-4) is the natural
+  carrier.
 
 ### 5.2 Evidence — anatomy and mechanical checks
 
@@ -849,52 +984,101 @@ campaigns (post-fetch, next to harvest), never inside them.
 | Stale cards misleading (cross-run doc staleness) | Reliability line + ledger-derived last-exercised render in the served card; staleness discounts rank; env-tagged insights carry validity windows (§3.3) |
 | Memory overfitting — bound exemplars posing as knowledge (Notes-to-Self; the survey's Reflection/Experience bar) | Cards-are-abstractions rule: observations are evidence, never cards; bound-identifier lint on claim fields; the claimed `scope` region measured by the transfer clock; MDL admission test; EBG route requires an endorsed mechanism |
 
-## 7. Measuring the learner itself
+## 7. Measuring the learner itself — the instrument ladder
 
-- **A/B arms, existing infra**: banked-brief arm vs frozen-brief arm (today's static
-  notes) on matched task waves — the same harness that ran champion vs no-champion.
-  Primary KPI: banked test-score delta; guard KPI: no regression on tasks where the
-  bank is thin.
-- **Re-derivation rate**: recurrences of the same technical_difficulty / re-built
-  procedure across campaigns (wave-4 baseline exists: e.g. the same resolution
-  diagnostic re-derived per lane). Should fall as the bank grows.
-- **Decoy audit** green on every learner run (§6).
-- **Bank health panel** in the learner report: cards by state, transfer-coverage per
-  family, contradiction backlog, replay freshness for code procedures.
+What "good" means was fixed before mechanism: **transfer is terminal** — past
+experience makes future, unseen work better, and never worse where it is
+irrelevant — and the remaining axes are balance points between named pathologies
+(generalization between rote and superstition; calibration between hedging and
+overclaiming; revision between dogma and gullibility; plus coherence,
+availability, memory economy, knowledge duality, provenance). The rule that
+makes these engineering instead of hopes: **every axis is measured by some rung
+below, or it is not a claim.** Four rungs, roughly three orders of magnitude
+apart in cost — cheap rungs iterate the learner, expensive rungs certify it
+(evolve's own fidelity ladder, one level up):
+
+| Rung | Cost | Axes measured | Instrument |
+|---|---|---|---|
+| **1 — audits + gauntlet** | free; every learner run | provenance, coherence, revision, memory economy | diff invariants; the decoy audit (§6); implanted-lesson test (a doctored mined view must be corrected, not swallowed); duplicate-evidence test (scores must not move); re-run stability diff; a red-team session paid to extract contradictory advice from one compiled brief |
+| **2 — hindcast** | minutes; no GPU | extraction, generalization-as-prediction, calibration, availability | freeze the bank; for a held-out trajectory compile the brief it *would have* served, then score against what that campaign actually measured: discoveries already banked (extraction — the re-derivation rate, inverted), bank claims settled by the campaign's graded outcomes inside claimed scope (calibration points for free), relevant cards actually **in** the brief at budget (availability: miss rate and noise rate) |
+| **3 — probes** | capped slice of live campaigns | generalization-as-causation for single claims; boundary carving | the probe queue (§5.1): pre-registered, VoI-ranked, budget-capped |
+| **4 — A/B arms** | full campaigns | transfer — terminal, incorruptible | banked-brief arm vs frozen-brief arm (two refs of one repo) on matched task waves — the same harness that ran champion vs no-champion; primary KPI: banked test-score delta; guard KPI: no regression where the bank is thin |
+
+Rung 2's honest limit, stated once: the hindcast measures **predictive
+alignment, not causal influence** — the held-out campaign was never steered by
+the compiled brief. That is what rungs 3–4 exist for, and why rung 4 is the one
+number the learner can never be optimized against directly.
+
+**The curve never stops.** Exam-before-lesson (§4.1) makes every live trajectory
+a fresh rung-2 point before it is ingested, so the scorecard is a running series
+rather than a one-time grade, and the frozen corpus split remains the learner's
+regression suite forever. The learner report carries the bank health panel per
+run: cards by state, ledger-derived coverage per family, contradiction backlog,
+replay freshness, sightings age.
+
+**Three diseases, named counters** — the same three evolve's governance already
+fights: **Goodharting rung 2** (a crew version overfits the held-out families) →
+rotate holdouts; rung 4 stays terminal. **Contamination** (learn-set siblings of
+a held-out family leak its lessons) → split by family and time, never by task.
+**Noise floors** (≈15 exam points → wide intervals) → every scorecard number
+ships with its SE, and "within noise" is a recorded verdict, never rounded up to
+a win.
 
 ## 8. v1 scope and phasing
 
-v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`): `bank.py`
-(store, schema, lifecycle, index), `trajectory_store.py` (§3.4: bundle assembly,
-save/manifest/resolve/open_ref — relbench adapter supplies gather paths),
-`learner.py` (the frame), `miners/` prompts,
-`verification.py` (replay + citation resolution), `briefing.py`, `reliability.py`
-(event ledger + assessor frame),
-`config.yaml` `learning:` block (models per role, thresholds, budgets — Rule 1; codex
-xhigh for miners/curator, fable for the adversarial verifier and critic, mirroring the
-evolve role split). Phasing, each an atomic commit (Rule 8):
+v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`):
+`bank.py` (store, schema, lifecycle, diff invariants, index), `trajectory_store.py`
+(§3.4: bundle assembly, save/manifest/resolve/open_ref — the relbench adapter
+supplies gather paths), `learner.py` (the crew frame: batch driver,
+launch/stage/check/commit, evidence admission, event ledger), `crews/` (mining
+and update instruction documents + agent definitions; the mining set is already
+drafted in the companion prompts doc), `graders.py` (hindcast runner, gauntlet,
+scorecard), `verification.py` (replay + citation resolution), `briefing.py`,
+`reliability.py` (assessor frame), and a config `learning:` block (models per
+role, batch size, probe budget, sightings expiry, thresholds — Rule 1; crews are
+Claude-led, since self-organization needs the CLI's native subagents, with the
+critic on a second model where it earns its cost). Phasing follows §4.4's forced
+order — **the graders exist before the thing they grade** — each phase an atomic
+commit (Rule 8):
 
-1. Bank + card schema + citation resolution + founding cards (the 9 practices,
-   back-filled evidence; ~5 pitfall-tagged insights and ~3 procedures from the
-   wave-4 trace as seed). Phase-1 tests include an OKF conformance check (reserved
-   fields present, indexes complete, links resolve).
-2. Briefing compiler replacing the static context notes; stamping; citation contract.
-   **A/B-able immediately** — founding cards vs static notes should be ≈neutral (same
-   content, now scoped/cited); this validates the plumbing before any mining.
-3. Learner stages T/M/C (mining into candidate cards, curated deltas) on archived
-   trajectories; human review of the first bank commits.
-4. Verification (replay gate, adversarial checker) + reliability assessor + lifecycle + decoy
-   audit; loop-until-dry; unattended learner runs post-fetch.
-5. Probe rendering into the lens planner; transfer measurement begins in earnest.
+1. **Store + corpus import** — save/load/manifest against the §3.4 contract;
+   normalize the ~65 archived campaign bundles into the store.
+2. **Mine the corpus** — the mining crew over every archived trajectory; human
+   review of the first mined views; the mining report's coverage arithmetic is
+   the acceptance gate. The corpus is now simultaneously curriculum, benchmark,
+   and first real input.
+3. **Grader suite v0** — family+time split (learn ≈50 / held-out ≈15), hindcast
+   runner, gauntlet skeleton (decoy, implant, duplicate, stability), scorecard
+   with SEs. Nothing exists yet for it to grade except founding banks — that is
+   the point: the exam predates the student.
+4. **Bank + update crew** — found the repo (the 9 practices back-filled with
+   evidence; ~5 pitfall insights and ~3 procedures from the wave-4 trace as
+   seed); update-crew v1 over the learn-set; iterate crew versions against the
+   scorecard (§4.4); human review of the first bank commits; keep-best banking
+   of learner versions.
+5. **Serving** — the briefing compiler replaces the static context notes;
+   stamping + citation contract; exam-before-lesson goes live on every new
+   campaign. A/B-able immediately: founding cards vs static notes should be
+   ≈neutral (same content, now scoped and cited), validating the plumbing before
+   any mining takes credit.
+6. **Probes + arms** — probe-queue rendering into the lens planner under
+   `learning.probe_budget`; the first A/B arm; transfer measurement in earnest.
 
 ## 9. Explicitly rejected / deferred
 
 - **Reusing the wiki/learners pipeline or its backends** — no outcome signal, wrong
   extraction target, heavyweight infra (Rules 7/10).
-- **Learner-as-evolve-campaign (option B)** — evaluating a bank edit costs a campaign;
-  deferred until the A/B harness gives a cheap proxy signal. The pipeline keeps the
-  frame-around-CLI-sessions architecture so the upgrade is a strategy swap, not a
-  rewrite.
+- **Self-hosting (evolve searching learner designs)** — the blocker that deferred
+  "learner-as-evolve-campaign" (evaluating a learner change used to cost a
+  campaign) is dissolved by the hindcast, and §4.4 already runs the same
+  discipline by hand: versioned learner candidates measured against a registered
+  grader suite. Handing that loop to evolve itself stays deferred until the
+  graders have earned trust — a search is only as sane as its grader.
+- **Trajectory-grain clustering** — the problem uniforge's M1 solves (route
+  unlabeled, heterogeneous session logs to a skill) does not exist here:
+  campaigns are born attributed (manifest task/family/dataset), so clustering
+  lives one level down, at observation→card routing (§4.3), and the exam split
+  needs only manifest metadata.
 - **A single scalar reliability score without a rationale or scope semantics** —
   conflates validity, boundary confidence, and coverage; a contradiction that should
   refine scope would instead just bleed score (§3.3).
