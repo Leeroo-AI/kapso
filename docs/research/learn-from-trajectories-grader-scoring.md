@@ -4,9 +4,8 @@ Companion to `learn-from-trajectories-design.md` (§4.4, §7): the complete
 scoring semantics for the grader suite's measurement artifacts — the hindcast
 report and the scorecard. The main doc owns the architecture (what the rungs
 are, when they run); this doc owns what every number and marker **means**, how
-it is written, how the frame bounds it, and how it aggregates. The gauntlet
-appears here only as a gate family; its per-member specs are written when the
-gauntlet is iterated.
+it is written, how the frame bounds it, and how it aggregates. The gauntlet is
+specified in §2.3 in its minimal two-trap form; the split manifest in §3.
 
 ---
 
@@ -49,6 +48,13 @@ reading agent consumes numbers *and* rationale together. The idiom instances:
 | Scorecard verdict | one learner version vs the held-out set | aggregated dimensions + calibration + gates | this doc §2 |
 
 Same shape, learned once; different objects, never conflated.
+
+One discipline underneath both modes: **no naked tags.** Every agent-written
+judgment ships as a categorical verdict *or* a score, **plus one rationale** —
+`{verdict, rationale}` for gates and routing verdicts, dimension scores +
+`rationale` for measurements. The frame parses the tag or number; the reading
+agent gets both. A verdict without its rationale is rejected like a score
+outside its corridor.
 
 ### 0.1 Scale
 
@@ -141,7 +147,7 @@ under-threshold result settles nothing.
 
 `AGREED`/`CONTRADICTED` entries are written **liftable**: each carries source,
 the measured delta with its ref, and an earnable verdict, so the update crew
-can lift it into a §5.2 evidence entry without recomputation (§3).
+can lift it into a §5.2 evidence entry without recomputation (§4).
 
 **Serving section** — one entry per serving event or failure, judged in
 hindsight (a card is *relevant* if it bears on what the campaign actually did
@@ -291,14 +297,83 @@ is reported as absent until it exists.
 
 ### 2.3 The gauntlet — gates, not scores
 
-Gauntlet members (decoy, implanted-lesson, duplicate-evidence, re-run
-stability, red-team coherence) return **PASS/FAIL plus the offending diff**,
-never a score, and **any FAIL rejects the learner version regardless of every
-number on the scorecard** — there is no scoring your way past a swallowed
-implant. Rationale: the gauntlet tests integrity properties whose partial
-credit is meaningless (a bank that inflates on duplicated evidence is broken
-at 10% exactly as at 100%). Per-member specs are written when the gauntlet is
-iterated; this contract — gates dominate scores — is fixed now.
+**Why it exists.** A learner's mistakes on real data are invisible — real data
+carries no answer key, so the machinery (evidence accounting, admission gates,
+reproducibility) can be broken while hindcast scores look fine. The gauntlet
+buys an answer key by construction: run the learning step on **controlled
+input whose correct handling is known in advance**, and diff the result.
+Affordable because a learning run is agent-minutes over markdown on a sandbox
+checkout — no GPU, no campaign. Verdicts are **PASS/FAIL + rationale** (no
+scores: these are integrity properties whose partial credit is meaningless — a
+bank that inflates on duplicated evidence is broken at 10% exactly as at
+100%), and **any FAIL rejects the learner version regardless of every number
+on the scorecard**.
+
+**The minimal battery — two traps**, both grounded in behavior we have
+observed, both = one extra controlled learning run + a diff:
+
+- **Duplicate** *(evidence independence — our corpus repeats itself by
+  design: ~20× log echoes, cumulative per-lineage changes.log, the same
+  result narrated in ledger, judge, and postmortem).* Clone one real mined
+  view — reworded, same run ids and numbers — and run the crew on
+  {original + clone} vs the control {original}. Known right answer: identical
+  banks; the clone adds zero independent information. FAIL: the
+  ≥2-independent-instances gate fired on original+clone, or any score differs
+  from control.
+- **Stability** *(LLM nondeterminism — how much of the bank is dice?).* Run
+  the same crew twice on the same batch from the same starting bank; diff the
+  two banks **in substance** (touched-card set, verdicts, lifecycle
+  transitions, scores within `stability_tolerance`; prose may differ). FAIL:
+  a card exists in one run and not the other, or scores move beyond
+  tolerance — then version-vs-version comparisons are measuring noise, and
+  nothing else on the scorecard can be trusted.
+
+**Demoted and deferred.** The decoy is not a gauntlet member: decoy cards are
+enforced by the standing §4.3 diff invariant on every commit (zero extra
+machinery), with the §6 trust-table row unchanged. Implant (doctored false
+lesson) and red-team (contradiction extraction from compiled briefs) are
+specified but **deferred until an incident earns them a slot** — minimality
+over completeness.
+
+**The artifact.** One `gauntlet.md` per grader run, beside the hindcast
+reports. Frontmatter: per-trap `{verdict, rationale}` plus the rolled-up
+`{verdict, rationale}` (all code parses is the verdicts); body: one section
+per trap — construction refs (fixtures live in the grader run dir, never the
+trajectory store) and, on FAIL, the stored proof (the actual diff/patch).
+
+```markdown
+---
+learner_version: crew_v3
+bank_head: lr_20260817T2100
+batch: [rel-hm/user-churn/20260819T0300_lane-a1, rel-avito/ad-ctr/20260820T1100_b2]
+gauntlet:
+  duplicate:
+    verdict: PASS
+    rationale: >-
+      Byte-empty bank diff vs control: the crew flagged the colliding run ids
+      and routed the clone's observations as already-seen. Independence
+      accounting held on the exact echo shape our corpus produces.
+  stability:
+    verdict: FAIL
+    rationale: >-
+      Run B minted a card run A never saw (session-gap-recency, from a THIN
+      borderline observation) and thin-history's score moved 0.55→0.71 across
+      runs at tolerance 0.10 — borderline observations are landing on
+      whichever side the dice roll; admission thresholds too sensitive.
+verdict: FAIL
+rationale: >-
+  Stability alone rejects crew_v3: score movement beyond tolerance means the
+  comparison against crew_v2 would be measuring noise. The duplicate pass is
+  real progress over v2 and carries forward.
+---
+
+## duplicate — construction + proof
+Cloned mined/it-2/flow-3.md of rel-hm/user-churn (reworded, same run ids and
+numbers); fixture: fixtures/duplicate/; control-vs-trap diff: empty.
+
+## stability — construction + proof
+Same crew, batch, starting bank, twice; substance diff: diffs/stability.patch.
+```
 
 ### 2.4 The verdict block
 
@@ -308,7 +383,8 @@ verdict:
   foresight_delta: +0.07 ± 0.03            # paired, SE over trajectories
   accuracy_delta:  +0.01 ± 0.04
   serving_delta:   +0.02 ± 0.02
-  gauntlet: PASS                           # or the failing member
+  gauntlet: PASS                           # rolled verdict from gauntlet.md (§2.3);
+                                           # on FAIL the member is named
   decision: accept | reject | within-noise
   rationale: >-
     …why, reading deltas AND the reports' rationales; what pattern of
@@ -321,7 +397,40 @@ block: a learner version replaces the incumbent only on `accept`.
 
 ---
 
-## 3. Dual use — settlements become evidence
+## 3. The split manifest
+
+The exam's fourth artifact — boring but load-bearing: **the authoritative
+partition of the trajectory store into learn-set and held-out**, versioned so
+holdout rotation is auditable. One `split.yaml` per exam version, living with
+the grader machinery in the monorepo (the exam is part of the harness, so it
+versions with code):
+
+```yaml
+version: 2
+rule: >-
+  split by (family, time), never by task: a family never appears on both
+  sides, and held-out families span early and late dates.
+rationale: >-
+  v2 rotates rel-avito out of held-out (two crew generations validated
+  against it — Goodhart risk) and rotates rel-event in.
+learn:
+  - {id: rel-amazon/user-churn/20260813T0154_c10, family: rel-amazon, date: 2026-08-13}
+  # … every learn-set trajectory, one line each
+held_out:
+  - {id: rel-event/user-attendance/20260701T0910_a3, family: rel-event, date: 2026-07-01}
+  # …
+```
+
+Frame checks at load: every store trajectory appears exactly once; no family
+on both sides; a version bump carries a rationale. Every scorecard stamps
+`split_version`, and **paired comparisons are valid only within one split
+version** — the two learner versions must have sat the same exam. Rotation is
+therefore a between-generations act (after a learner version ships, before the
+next development push), never mid-iteration: rotating counters Goodharting the
+holdout, but a rotation resets the pairing baseline and the first scorecard on
+a new split is a fresh anchor, not a delta.
+
+## 4. Dual use — settlements become evidence
 
 The claims-settlement computation is evidence ingestion run early: the
 campaign measured things that bear on bank claims. So every admitted
@@ -336,18 +445,19 @@ inherits the grading.
 
 ---
 
-## 4. Config constants (Rule 1)
+## 5. Config constants (Rule 1)
 
 All grader knobs live in the config `learning.graders:` block — none may be
 re-hardcoded at a call site: `score_band` (corridor half-width; v1 default
 0.20), `min_settlements` (accuracy null threshold; v1: 2), `calibration_min`
 (pooled settlements before the table exists; v1: 20), `calibration_buckets`
-(v1: `[0.4, 0.7]` cut points). Defaults here are proposals; the config file is
+(v1: `[0.4, 0.7]` cut points); `gauntlet.stability_tolerance` (substance-diff
+score tolerance; v1: 0.10). Defaults here are proposals; the config file is
 the single source.
 
 ---
 
-## 5. Worked example
+## 6. Worked example
 
 ```markdown
 ---

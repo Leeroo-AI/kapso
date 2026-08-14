@@ -999,7 +999,7 @@ apart in cost — cheap rungs iterate the learner, expensive rungs certify it
 
 | Rung | Cost | Axes measured | Instrument |
 |---|---|---|---|
-| **1 — audits + gauntlet** | free; every learner run | provenance, coherence, revision, memory economy | diff invariants; the decoy audit (§6); implanted-lesson test (a doctored mined view must be corrected, not swallowed); duplicate-evidence test (scores must not move); re-run stability diff; a red-team session paid to extract contradictory advice from one compiled brief |
+| **1 — audits + gauntlet** | free; every learner run | provenance, coherence, revision, memory economy | diff invariants (the decoy audit of §6 among them, enforced per commit); the duplicate trap (a disguised clone of a real mined view must add nothing — the ~20× echo shape of our corpus, made a test); the stability trap (two runs on the same batch must agree in substance); implant and red-team specs deferred until an incident earns them |
 | **2 — hindcast** | minutes; no GPU | extraction, generalization-as-prediction, calibration, availability | freeze the bank; for a held-out trajectory compile the brief it *would have* served, then score against what that campaign actually measured: discoveries already banked (extraction — the re-derivation rate, inverted), bank claims settled by the campaign's graded outcomes inside claimed scope (calibration points for free), relevant cards actually **in** the brief at budget (availability: miss rate and noise rate) |
 | **3 — probes** | capped slice of live campaigns | generalization-as-causation for single claims; boundary carving | the probe queue (§5.1): pre-registered, VoI-ranked, budget-capped |
 | **4 — A/B arms** | full campaigns | transfer — terminal, incorruptible | banked-brief arm vs frozen-brief arm (two refs of one repo) on matched task waves — the same harness that ran champion vs no-champion; primary KPI: banked test-score delta; guard KPI: no regression where the bank is thin |
@@ -1016,8 +1016,9 @@ marker-count corridors, agent-read; decisions stay categorical, measurements
 are scored), the hindcast dimensions (foresight, accuracy, serving) with their
 marker vocabulary, corridors, anchors and null rules, the scorecard roll-up
 (paired deltas ± SE on the shared held-out set, the calibration table, the
-verdict block), the gates-dominate-scores contract for the gauntlet, and the
-settlement→evidence lift.
+verdict block), the gates-dominate-scores contract and minimal two-trap gauntlet
+(duplicate, stability — verdict + rationale, never naked tags), the split
+manifest with its rotation discipline, and the settlement→evidence lift.
 
 **The curve never stops.** Exam-before-lesson (§4.1) makes every live trajectory
 a fresh rung-2 point before it is ingested, so the scorecard is a running series
@@ -1058,8 +1059,8 @@ commit (Rule 8):
    the acceptance gate. The corpus is now simultaneously curriculum, benchmark,
    and first real input.
 3. **Grader suite v0** — family+time split (learn ≈50 / held-out ≈15), hindcast
-   runner, gauntlet skeleton (decoy, implant, duplicate, stability), scorecard
-   with SEs. Nothing exists yet for it to grade except founding banks — that is
+   runner, the two-trap gauntlet (duplicate, stability), split manifest v1,
+   scorecard with SEs. Nothing exists yet for it to grade except founding banks — that is
    the point: the exam predates the student.
 4. **Bank + update crew** — found the repo (the 9 practices back-filled with
    evidence; ~5 pitfall insights and ~3 procedures from the wave-4 trace as
