@@ -90,7 +90,10 @@ Seed classes are mechanical: every `AGREED`/`CONTRADICTED` settlement becomes
 a `lift → <card>` row (its target card is already known — the attributed fast
 path resolved at seeding time); every `MISS-*` becomes a `card-candidate` row;
 every `UPTAKE-FAIL` becomes a `serving-feedback` row (journaled for the
-report's closing, no bank edit). The lead adds `[lead]` rows for everything
+report's closing, no bank edit); every probe the serving record shows attached
+becomes a `probe-check` row — did a matching experiment run? settle it with
+the prospective label (flow↔spec match, critic-verified) or journal it
+unexercised. The lead adds `[lead]` rows for everything
 the hindcast cannot see because it only compares against the bank:
 difficulties, drift notes, strategy/operations byproducts, cross-flow
 patterns. The worksheet is the coverage denominator: **every row gets exactly
@@ -301,7 +304,9 @@ CHECK CLASSES, in order:
    (claimed citation, claimed probe, claimed independence — all checkable).
    Verdicts the numbers cannot earn (sub-threshold confirm). INDEPENDENCE:
    two entries citing the same run ids or the same registered-eval outcome
-   are ONE measurement — flag any induction or score movement built on echo.
+   are ONE measurement — flag any induction or score movement built on echo. A
+   **prospective** (probe) label requires the settled flow to actually match
+   the probe spec the serving record shows attached — challenge the match.
 4. PASSES. For every PASS in the journal, argue the STRONGEST case that the
    observation IS card-worthy. If your case survives your own scrutiny, the
    PASS becomes a block finding; if not, record the rebuttal (it becomes part

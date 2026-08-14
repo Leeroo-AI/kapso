@@ -685,13 +685,17 @@ Policies: **verbatim by default** — idea, selector reason, judgment, difficult
 are authored one-shot artifacts carried whole (these docs are the substrate future
 evidence cites; condensation lives only in index hero lines); **drift is the only
 synthesized content** in the entire mined view — everything else is reassembly —
-which keeps the *push-authorship-upstream* principle alive: whenever mining needs
-intelligence, that is a signal the campaign should author it natively (an
-`idea_fidelity` field in the implementor's closing report would make future mined
-views fully reassembled). Bundle-contract addition this design surfaces: the
-**ideation candidate pool and the selector's reasoning must be archived** — today
-the selector runs in a temporary worktree and its artifacts die, making
-rejected-at-ideation flows unrecoverable.
+and mining synthesizes what it needs itself — **learning never asks evolve to
+author anything** (the read-only-substrate principle, §5.3): a native
+`idea_fidelity` field in the implementor's closing report would be a welcome
+nicety that made mined views fully reassembled, but it is a wish, never an
+obligation, and no learning mechanism may depend on it. Bundle-contract
+addition this design surfaces: the **ideation candidate pool and the
+selector's reasoning must be archived** — today the selector runs in a
+temporary worktree and its artifacts die, making rejected-at-ideation flows
+unrecoverable. (Archiving more of what evolve already produces is capture of
+natural production, not a job added to campaigns — it sits inside the
+principle, not against it.)
 
 ## 4. The learner — one machinery, two regimes
 
@@ -967,7 +971,14 @@ implementation:
   pre-registered card validation. This is the novel piece: the bank does not wait
   to be exercised, it *purchases the observations that most reduce its
   uncertainty*, and the replanner's evidence-driven re-aiming (proven in wave-4)
-  is the natural carrier.
+  is the natural carrier. **The outcome comes home with no evolve job** (§5.3):
+  a probe that ran is just an experiment in the campaign's natural artifacts,
+  so its measurement surfaces as an ordinary settlement; the serving record
+  carries the attached probe spec, and the update crew matches the settled flow
+  against that spec to award the **prospective** label — the match
+  critic-verified, and an ambiguous match downgrading to the incidental class
+  (errors fall conservative). Uptake is voluntary: an ignored probe stays
+  queued at its VoI rank, and the uptake rate lands in the health panel.
 
 ### 5.2 Evidence — anatomy and mechanical checks
 
@@ -984,8 +995,10 @@ Admission runs three checks:
 1. **Source resolves** — the trajectory exists, the ref exists inside it, and the
    effect's quoted numbers re-grep in the referenced artifact.
 2. **The usage story is consistent with the record** — every participation claim
-   the usage prose makes is verified against ground truth: a claimed probe → a probe
-   output artifact matching the card's probe spec; a claimed citation → the serving
+   the usage prose makes is verified against ground truth: a claimed probe → a
+   settled flow whose experiment matches the probe spec the serving record
+   shows attached (the match critic-verified; ambiguity downgrades the entry
+   to the served class); a claimed citation → the serving
    record carries the card at the stamped `bank_head` AND `[card:<id>]` greps in the
    spec/changes.log; claimed serving → the serving record; claimed independence →
    the card absent from the serving record or postdating the campaign (all founding
@@ -1020,11 +1033,23 @@ it would move scores faster.
 
 ### 5.3 What changes in evolve
 
-Small and additive: the push brief replaces two static context constants; the
-`bank_search`/`bank_get` tools join the gated-MCP presets for
-ideation/implementation sessions (never the judge; per-benchmark off-switch in
-config); two prompt paragraphs (citation contract, probe rendering); one judge
-template field; `bank_head` in campaign meta. No orchestrator/search changes — the learner runs *after*
+**Evolve is read-only substrate for learning.** Campaigns produce what they
+naturally produce; learning reads, mines, and settles entirely on its own
+side, and never adds an output obligation or workflow step to the campaign
+loop — the probe-outcome note this design once considered is the canonical
+counterexample, killed in favor of learning-side settlement matching (§5.1).
+What serving touches is exactly this: the push brief replaces two static
+context constants; the `bank_search`/`bank_get` tools join the gated-MCP
+presets for ideation/implementation sessions (never the judge; per-benchmark
+off-switch in config); probe rendering is one prompt paragraph *offering* a
+suggestion; `bank_head` in campaign meta is stamped by the retriever, not by
+sessions. **The one sanctioned convention** is the citation contract: a
+paragraph asking specs to mention `[card:<id>]` where a served card shaped a
+decision, plus the judge template's `cards_load_bearing` field — a writing
+habit inside prose the sessions already author (and grounding that serves the
+campaign itself), not an output artifact. It buys the `cited` rung of the
+attribution ladder (probe-settled ≻ cited ≻ served ≻ independent); dropping
+it would cost that rung and nothing else. No orchestrator/search changes — the learner runs *after*
 campaigns (post-fetch, next to harvest), never inside them.
 
 ## 6. Trust model — every documented failure mode gets a mechanism
@@ -1087,7 +1112,7 @@ a fresh rung-2 point before it is ingested, so the scorecard is a running series
 rather than a one-time grade, and the frozen corpus split remains the learner's
 regression suite forever. The learner report carries the bank health panel per
 run: cards by state, ledger-derived coverage per family, contradiction backlog,
-replay freshness, sightings age.
+replay freshness, sightings age, probe uptake rate.
 
 **Three diseases, named counters** — the same three evolve's governance already
 fights: **Goodharting rung 2** (a crew version overfits the held-out families) →
