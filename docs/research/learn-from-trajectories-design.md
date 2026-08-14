@@ -241,9 +241,14 @@ generalization that observation supports, stated at the level of the domain
 (predictive ML modelling), carrying the **mechanism** (why it works) from which its
 applicability conditions derive. Two mechanical guards enforce this:
 
-- **`generality: dataset | family | domain`** is a required extension field, and the claimed
-  level is what the transfer clock measures against — a domain card contradicted
-  outside its home family demotes to `family` scope, not to retirement.
+- **`scope` is a required extension field — the claimed region**: `domain`, or a
+  list of `family:…` or `dataset:…` coordinates. The coordinate prefix IS the
+  generality level (no separate field), region identifiers are *sanctioned* here
+  (the one place bindings belong in the claim layer), and the claimed region is
+  what the transfer clock measures coverage against. A domain card contradicted
+  outside its home family **demotes by scope edit** (`domain` → `[family:…]`),
+  versioned and logged — not retirement. Verified coverage is never authored: it
+  is derived from the evidence ledger.
 - **The bound-identifier lint** (Notes-to-Self operationalized): dataset names, task
   ids, run ids, column names, and campaign-specific numbers are *banned* from
   `title`/`description`/`scope_conditions` — mechanically checked against the
@@ -265,14 +270,16 @@ description: >-                  # HERO one-liner (OKF-native slot): the retriev
                                  # shortlists, and OKF viewers show for this card
   Rank and z-score features within their competing group — absolute values
   cannot see relative standing.
-resource: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/…  # source trajectory
-tags: [family:entity_binary_classification, family:entity_regression,
-       data:grouped_rows, benchmark:relbench]        # scope vocabulary (machine-checkable)
+tags: [data:grouped_rows]        # searchable attributes + rendering flavor
+                                 # (data-shape markers, pitfall, env) — retrieval
+                                 # assist only, NEVER eligibility
 timestamp: 2026-08-14T09:00:00Z
 # --- kapso extensions ---
-generality: domain               # dataset | family | domain — the level transfer is
-                                 # measured at (dataset-scoped facts are legitimate
-                                 # reuse: a database's quirk serves its ~6 tasks)
+scope: domain                    # the claimed region: `domain`, or a list of
+                                 # family:<id> / dataset:<id> coordinates. The
+                                 # prefix is the generality level; serving
+                                 # eligibility = task in scope; verified coverage
+                                 # is derived from the ledger, never authored
 scope_conditions: "rows share seed timestamp / session / parent entity"  # prose, judged
 evidence:                        # ≥1 required; written by the learning process,
                                  # admitted only after the frame's three checks (§5.2)
@@ -376,7 +383,7 @@ commit resolves via the line's `learner_run` id, one commit per run).
 **`insights/` — declarative memory.** Every card is a generalized, mechanism-backed
 fact about how predictive modelling works in this domain. Later evidence can only
 agree or disagree with it. Covers positive and negative regularities, segment
-findings, dataset facts (`generality: dataset` — reuse across the database's tasks),
+findings, dataset facts (`scope: [dataset:…]` — reuse across the database's tasks),
 and env facts (validity windows). Admission: abstraction gates (lint + MDL + an
 induction or EBG route), resolvable evidence, falsifiability (a card that cannot
 lose cannot be scored).
@@ -669,9 +676,12 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
 
 - **Insights and text-representation procedures** render into the problem context,
   replacing the hand-maintained
-  `MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` blocks: top-k by scope match ×
-  similarity × reliability rank, k small (AutoGuide/DS-Agent: 2–4 per section, budgeted
-  per kind), full text never clipped (Rule 6 — k caps selection, not content). Each
+  `MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` blocks. The serving rule is
+  one line: **eligible where the task ∈ `scope`; rank = similarity × reliability,
+  discounted where ledger-derived coverage shows no visit; `tags` assist retrieval
+  ranking only, never eligibility.** Top-k selection, k small (AutoGuide/DS-Agent:
+  2–4 per section, budgeted per kind), full text never clipped (Rule 6 — k caps
+  selection, not content). Each
   renders with id, reliability line, and citations. Negative-signed insights
   (pitfall-tagged) for the task family ride along as guardrails (AutoManual's fallback
   routing). The brief closes with an explicit **gap analysis**, gbrain-style: which
@@ -770,7 +780,7 @@ campaigns (post-fetch, next to harvest), never inside them.
 | Reward-hacking the bank (ACE's stated gap) | **Decoy audit**: each learner epoch maintains one known-noise decoy card (plausible, evidence-free-by-construction, quarantined id range); any score movement on a decoy fails the learner run loudly (RoMeRL's MRT protocol operationalized) |
 | Eval leakage via cards (cross-run doc) | The shingle gate runs over every card body and procedure file at admission, same spec as harvest |
 | Stale cards misleading (cross-run doc staleness) | Reliability line + ledger-derived last-exercised render in the served card; staleness discounts rank; env-tagged insights carry validity windows (§3.3) |
-| Memory overfitting — bound exemplars posing as knowledge (Notes-to-Self; the survey's Reflection/Experience bar) | Cards-are-abstractions rule: observations are evidence, never cards; bound-identifier lint on claim fields; `generality` field measured by the transfer clock; MDL admission test; EBG route requires an endorsed mechanism |
+| Memory overfitting — bound exemplars posing as knowledge (Notes-to-Self; the survey's Reflection/Experience bar) | Cards-are-abstractions rule: observations are evidence, never cards; bound-identifier lint on claim fields; the claimed `scope` region measured by the transfer clock; MDL admission test; EBG route requires an endorsed mechanism |
 
 ## 7. Measuring the learner itself
 
