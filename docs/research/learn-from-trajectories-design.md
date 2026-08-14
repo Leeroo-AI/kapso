@@ -348,7 +348,14 @@ probe: >-                        # optional: how a future campaign can test this
 # representation: text | code
 # entrypoint: run_forward_gate.py     (resolved inside the procedure's code/ dir)
 # preconditions: {task_families: […], requires: [features parquet, ≥2 origins]}
-# replay: {archived_run: runs/run_0019, expected_metric: …, last_replayed: …}
+# replay:
+#   archived_run: <trajectory_id>/runs/run_NNNN     # the fixture
+#   expected_outcome: >-       # what a successful replay PRODUCES — numeric or not
+#     (a reproduced metric, a gate decision, an artifact with stated
+#     properties, a report with expected structure); replay/replay_test.py
+#     is the executable assertion of exactly this statement, and the
+#     stage-V verifier checks the two agree
+#   last_replayed: <date>
 ```
 
 **The single-source card rule, and the body as THE FACT.** A card stores a learning
