@@ -30,7 +30,7 @@ best published number on **2/12** classification and **6/9** regression tasks.
 | # | Method | Regime | Mean | amazon/user-churn | amazon/item-churn | avito/user-visits | avito/user-clicks | event/user-repeat | event/user-ignore | f1/driver-dnf | f1/driver-top3 | hm/user-churn | stack/user-engagement | stack/user-badge | trial/study-outcome |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | KumoRFM (fine-tuned) | task-specific | 81.1 | 70.5 | 82.8 | 78.3 | 66.8 | 80.6 | 89.4 | 82.6 | 99.6 | 71.2 | 90.7 | 89.9 | 71.2 |
-| 2 | **Kapso (this work)** | agent | 80.9 | 71.6 | 83.1 | 67.8 | 70.2 | 81.2 | 88.9 | 83.3 | 93.6 | 71.6 | 91.5 | 89.5 | 78.4 |
+| 2 | **Kapso (this work)** | agent | 81.0 | 71.6 | 83.1 | 67.8 | 70.2 | 81.2 | 88.9 | 83.3 | 93.6 | 71.6 | 91.5 | 89.5 | 79.6 |
 | 3 | PluRel (pretrained + fine-tuned) | task-specific | 79.7 | 63.2 | 82.8 | 60.1 | 58.6 | 83 | 91.2 | 80.1 | 89.3 | 63.8 | 95.6 | 94.3 | 94.6 |
 | 4 | KumoRFM-2 (in-context) | zero-shot | 79.6 | 69.1 | 82.2 | 69.4 | 67.4 | 81.7 | 90.8 | 84.6 | 92.2 | 69.3 | 89.4 | 87.2 | 72 |
 | 5 | RT (pretrained + fine-tuned) | task-specific | 78.9 | 70.8 | 83.4 | 66.6 | 65.8 | 77.4 | 87.1 | 84.2 | 92.1 | 70.5 | 90.2 | 88.7 | 70.2 |
@@ -73,7 +73,7 @@ best published number on **2/12** classification and **6/9** regression tasks.
 | rel-hm/user-churn | 71.2 | KumoRFM (fine-tuned) | **71.6** | +0.4 ✅ |
 | rel-stack/user-engagement | 95.6 | PluRel (pretrained + fine-tuned) | **91.5** | -4.1  |
 | rel-stack/user-badge | 94.3 | PluRel (pretrained + fine-tuned) | **89.5** | -4.8  |
-| rel-trial/study-outcome | 94.6 | PluRel (pretrained + fine-tuned) | **78.4** | -16.2  |
+| rel-trial/study-outcome | 94.6 | PluRel (pretrained + fine-tuned) | **79.6** | -15.0  |
 
 ---
 
