@@ -329,8 +329,12 @@ log:                             # append-only, ONE entry per version, frame-wri
     change: >-
       Created from two independent instances (induction route): depth-slice
       profile [E1] + cold-entity forensics [E2].
-supersedes: null                 # the one typed edge code needs; all other relations
-                                 # are ordinary body markdown links
+supersedes: null                 # typed edge: lifecycle machinery branches on it
+contradicts: []                  # typed edge: established tensions between active cards,
+                                 # symmetric and frame-maintained (the curator names the
+                                 # pair once, the frame writes both sides); consumed by
+                                 # the briefing co-serving guard and the consolidation
+                                 # sweep. Every OTHER relation is a body reference (§3.2.2)
 probe: >-                        # optional: how a future campaign can test this cheaply
   Ablate within-group companions of the top-5 features on one forward fold.
 # --- procedure cards additionally (representation: code only) ---
@@ -385,6 +389,46 @@ failure). Procedures carry no textual claim to agree with — their verification
 execution: replay freshness, invocation outcomes. Code representation adds
 `entrypoint`, machine-checkable `preconditions`, and `replay`; code injects at the
 implementation site as staged artifacts, text renders like insights.
+
+#### 3.2.2 Relations — a referencing language, two typed edges, an emergent vocabulary
+
+Relations follow OKF's stance (untyped markdown links, meaning in the surrounding
+prose) upgraded with a **referencing language** so a mechanical extractor can
+recover the graph. The language is four lines:
+
+1. A **reference** is an ordinary markdown link whose target is a bank-internal
+   path: `[…](/insights/…)`, `[…](/procedures/…/card.md)`, `[…](/reference/…)`.
+2. An **edge label** is an optional `lowercase-token: ` prefix inside the link
+   text — `[justifies: cross-family portfolio effect](/insights/cross-family-portfolio-effect.md)`
+   — chosen because a plain link with a text prefix is the most habitual construct
+   a model writes (the CommonMark title-attribute variant is spec-legal but rare,
+   and wikilink syntax breaks OKF/GitHub rendering). Labels are **free-form**: no
+   registry, no validation.
+3. An unlabeled reference carries the generic label `references`.
+4. The **extractor** is one regex pass (zero-LLM, already the §3.1 policy): every
+   reference becomes an `edges.parquet` row `(from_card, to_card, label,
+   containing_sentence)` — the sentence rides along so "Referenced by" surfaces can
+   render each back-link with its stated reason. Forward links are stored only in
+   the author card's own body; **back-links are always derived** — no card ever
+   edits another card's body to announce a relationship.
+
+Three rules keep this from regrowing the old wiki's ontology:
+
+- **The firewall: machinery never branches on a body label.** `supersedes`
+  (lifecycle) and `contradicts` (co-serving guard + sweep) are the entire typed
+  frontmatter vocabulary, kept as fields precisely because code branches on them.
+  Body labels are descriptive — extractable, renderable, never load-bearing. A body
+  label that needs machinery gets *promoted* to a frontmatter field as a deliberate
+  design act; the extractor flags body-labeled `contradicts`/`supersedes` as
+  promotion candidates for the curator rather than triggering anything itself.
+- **The vocabulary is discovered, not designed.** Free-form labels + the extractor
+  mean the bank-health panel reports label frequencies; when synonyms emerge
+  (`justifies`/`supports`), the consolidation sweep normalizes them as ordinary
+  curation. The edge ontology emerges from use.
+- **Link edits version like any body edit** — a link-only change bumps the version
+  with a log line saying so ("v4 · linked to sibling — formulation unchanged"), so
+  `card_version` semantics stay one rule and the log carries the nuance; the
+  assessor treats formulation-identical versions as equivalent for event matching.
 
 ### 3.3 Reliability — three dimensions, an event algebra, one assessor
 
@@ -529,7 +573,10 @@ At campaign start the runner calls `BriefingCompiler.compile(task, bank_head)`:
   routing). The brief closes with an explicit **gap analysis**, gbrain-style: which
   scope tags of this task have no active cards, which nearest-scope cards were included
   at reduced confidence, and which active cards are stale — the honest "what the bank
-  does not know" that both primes probes and stops false authority. Compilation writes
+  does not know" that both primes probes and stops false authority. The **co-serving
+  guard** runs here too: two selected cards joined by a `contradicts` edge always
+  serve together with the tension named ("these disagree on X; the boundary is
+  unresolved — treat as contested"), never silently side by side. Compilation writes
   a **serving record** (per card: scope-match, similarity, reliability components —
   gbrain's `--explain` applied to injection) so every brief is auditable and
   attribution later binds to exactly what was served — the serving record is the
