@@ -516,6 +516,106 @@ a validity end), leaving the transfer record intact, where a measured contradict
 *refutes*. Conflating the two would poison env cards' reliability for no informational
 gain.
 
+### 3.4 The trajectory store — structure, save, load
+
+Trajectories cannot live where cards live: cards are KBs and clone everywhere; a
+trajectory is 2–46 GB. The store is therefore **identity-addressed prefixes on
+object storage plus a cache-through local mirror** — reference by identity, resolve
+by store — and it never mounts into campaign sessions (bundles carry test-side
+data; the trust boundary from §5 applies). Everything below is the whole design.
+
+**Identity.** `trajectory_id = <task>/<stamp>_<lane>` (the existing naming, e.g.
+`rel-amazon--user-churn/20260813T015420_lane-c10`). The ID is the path, in both
+stores: `gs://<remote>/<id>/…` and `<local>/<id>/…`. Bundles are stored **unpacked
+(one object per file), never as tarballs** — a point lookup into a non-resident
+trajectory is a single object GET, partial materialization is a prefix copy, and
+atomicity is recovered by writing the manifest last as the commit marker.
+
+**The bundle layout.** Evidence refs are paths relative to the bundle root, and the
+assembler normalizes by *gathering*, never renaming — existing ref habits
+(`runs/run_0019/…`, `features_history.md#anchor`) stay valid:
+
+```
+<task>/<stamp>_<lane>/
+├── trajectory.yaml            # manifest — written LAST (= the commit marker)
+├── campaign_meta.json  final_report.json  campaign.log
+├── features_history.md  table_information.md          # living documents
+├── lens_plan_history.jsonl  experiment_history.json   # from workspace .kapso/
+├── runs/run_NNNN/…            # registered evaluations, exactly as produced
+├── sessions/<branch>/stream.jsonl                     # session forensics
+└── evaluators/<evaluator_id>/…
+```
+
+**The completeness contract.** Required: manifest, `campaign_meta.json`,
+`final_report.json`, `campaign.log`, `features_history.md`,
+`lens_plan_history.jsonl`, `experiment_history.json`, and `runs/` with at least one
+registered run. Optional (present when produced): `table_information.md`,
+`sessions/`, `evaluators/`. A trajectory that cannot support ledger refs is not a
+trajectory: `save_trajectory` raises on a missing required part (Rule 2) — no thin
+saves. (This is a real change to today's harvest, which misses the workspace
+`.kapso/` files and the living documents — the wave-4 forensics gap.)
+
+**`trajectory.yaml`** — the fast answer, one small GET, no materialization:
+
+```yaml
+id: rel-amazon--user-churn/20260813T015420_lane-c10
+task: rel-amazon/user-churn
+created: 2026-08-13T02:11:00Z
+kapso_commit: <sha>            # the framework version that ran the campaign
+bank_head: <sha or null>       # what the campaign was served (null pre-bank)
+outcome:
+  selected_run: run_0019
+  val: {roc_auc: 0.7135699}
+  test: {roc_auc: 0.7155090}   # test-side data — fine here: the store is
+  cost_usd: 76.12              # learner/human-side only, never campaign-mounted
+  iterations: 3
+inventory: {files: 865, bytes: 6712057964, hashes: sha256 per file}
+```
+
+This manifest is why no query engine ships in v1: point lookups are object GETs,
+outcome lookups are one manifest read, and cross-trajectory *semantic* questions
+are already the job of two existing layers — the bank (cards + evidence entries
+are the cross-trajectory index, organized by learning) and the episodic experiment
+store (embedding search over exemplars). Revisit trigger, stated so it is noticed:
+if repeated ad-hoc scans across many resident trajectories measurably drag, a
+hosted query layer goes on top of this format, unchanged.
+
+**Save.**
+
+```python
+trajectory_id = kapso.save_trajectory(
+    trajectory,           # an evolve result handle, or explicit
+                          # {workspace_dir, work_dir, campaign_log} paths
+    output_path=None,     # default: trajectory_store.local
+    upload=None,          # default: True when trajectory_store.remote is set
+)
+```
+
+Behavior, in order: **gather** (handler work dir; workspace `.kapso/`; shared-cache
+living documents; the campaign log) into the layout above; **validate** the
+completeness contract; **hash** the inventory and write `trajectory.yaml` last;
+**register** — idempotent: an existing ID with matching hashes is a no-op, an
+existing ID with mismatching content raises (never silently overwritten); **upload**
+the unpacked prefix when configured, manifest last. `save_trajectory` IS the
+harvest step and the evolve→learn bridge; `learn_from_trajectories()` calls it
+implicitly for anything passed as a raw handle or path — the adoption-before-mining
+rule's mechanism.
+
+**Load.** Three functions, and there is no other door — miners, citation
+resolution, the assessor, replay, and humans all go through them:
+
+```python
+store.manifest(trajectory_id)              # parsed trajectory.yaml; one GET
+store.resolve(trajectory_id, subpath=None) # local path; cache-through; partial
+                                           # materialization by prefix (subpath)
+store.open_ref(trajectory_id, ref)         # one file; single object GET when
+                                           # the bundle is not resident
+```
+
+Config (Rule 1): `learning.trajectory_store: {remote, local}` — reusing the
+existing artifacts bucket layout. No remote configured → the store is the local
+directory and everything still resolves (local-only users).
+
 ## 4. The trajectory learner
 
 An evolve-shaped agentic pipeline: deterministic orchestrator (`TrajectoryLearner`)
@@ -526,10 +626,14 @@ is a pipeline with a loop-until-dry tail, not score-guided search. (Option B —
 the learner *as* an evolve campaign whose "score" is downstream campaign performance —
 is deliberately deferred: its evaluation signal costs a campaign per iteration. §9.)
 
-Input: a **trajectory bundle** — one campaign's artifacts located from the workspace or
-a GCS archive (the frame normalizes: ledger, difficulties, lens history, judge
-verdicts, manifests, runs archive, campaign log kept only for on-demand forensics).
-Plus the current bank at `bank_head`.
+Input: one or more **store-resident trajectories** (§3.4) plus the current bank at
+`bank_head`. `learn_from_trajectories()` accepts trajectory IDs, evolve result
+handles, remote URIs, or local paths — and normalizes them all through
+`save_trajectory` **before any miner runs** (adoption before mining): cards only
+ever cite store-resolvable IDs, never ephemeral paths. The T-stage then builds
+per-miner views from the resolved bundle (ledger, difficulties, lens history,
+judge verdicts, manifests, runs archive; the campaign log stays on-demand
+forensics only).
 
 | Stage | Intelligence (CLI session, read-only tools + views) | Mechanical post-condition (frame) |
 |---|---|---|
@@ -684,8 +788,9 @@ campaigns (post-fetch, next to harvest), never inside them.
 ## 8. v1 scope and phasing
 
 v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`): `bank.py`
-(store, schema, lifecycle, index), `trajectory_bundle.py` (artifact normalization —
-relbench adapter supplies paths), `learner.py` (the frame), `miners/` prompts,
+(store, schema, lifecycle, index), `trajectory_store.py` (§3.4: bundle assembly,
+save/manifest/resolve/open_ref — relbench adapter supplies gather paths),
+`learner.py` (the frame), `miners/` prompts,
 `verification.py` (replay + citation resolution), `briefing.py`, `reliability.py`
 (event ledger + assessor frame),
 `config.yaml` `learning:` block (models per role, thresholds, budgets — Rule 1; codex
