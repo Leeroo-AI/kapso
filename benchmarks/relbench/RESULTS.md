@@ -43,7 +43,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 | 24 | rel-trial/condition-sponsor-run | rec | v1★ | 11.7 (ContextGNN / KumoRFM-ft) | — | 11.7 | 11.3 | — | 12.3 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 25 | rel-avito/user-ad-visit | rec | v1★ | 4.17 (KumoRFM-ft) | — | 4.17 | 4.02 | — | 4.2 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 26 | rel-avito/user-clicks | clf | v1★ | 69.4 (RGP) | 68.4 | 66.8 | 64.1 | 69.4 | 70.2 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
-| 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | 0.857 | below best-known | 4xA100 | 12h | ✅ done |
+| 27 | rel-trial/site-success | reg | v1★ | 0.552 (RT-ft) | 0.811 | 0.632 | 0.876 | 0.91 | 0.778 | below best-known | 4xA100 | 6h | ✅ done |
 | 28 | rel-trial/site-sponsor-run | rec | v1★ | 28 (ContextGNN / KumoRFM-ft) | — | 28 | 20.8 | — | 33.3 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 46 | rel-hm/user-churn | clf | v1★ | 71.2 (KumoRFM-ft) | 71.1 | 71.2 | 67.7 | 69.3 | 71.6 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 47 | rel-hm/item-sales | reg | v1★ | 0.0686 (KumoRFM-ft/-2) | 0.0707 | 0.0686 | 0.0807 | 0.0686 | 0.0634 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
@@ -118,7 +118,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-trial/condition-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--condition-sponsor-run/20260731T040617_lane-b2.tgz` |
 | rel-avito/user-ad-visit | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-ad-visit/20260731T042340_lane-b1.tgz` |
 | rel-avito/user-clicks | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-clicks/20260731T040738_lane-a1.tgz` |
-| rel-trial/site-success | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-success/20260815T021419_lane-c14.tgz` |
+| rel-trial/site-success | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-success/20260731T043724_lane-b3.tgz` |
 | rel-trial/site-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-sponsor-run/20260731T042130_lane-a3.tgz` |
 | rel-hm/user-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-churn/20260731T092629_lane-a2.tgz` |
 | rel-hm/item-sales | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--item-sales/20260731T084234_lane-a1.tgz` |
