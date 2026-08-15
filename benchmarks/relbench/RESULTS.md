@@ -118,7 +118,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 | rel-trial/condition-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--condition-sponsor-run/20260731T040617_lane-b2.tgz` |
 | rel-avito/user-ad-visit | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-ad-visit/20260731T042340_lane-b1.tgz` |
 | rel-avito/user-clicks | `gs://leeroo-kapso-relbench-artifacts/runs/rel-avito--user-clicks/20260731T040738_lane-a1.tgz` |
-| rel-trial/site-success | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-success/20260731T043724_lane-b3.tgz` |
+| rel-trial/site-success | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-success/20260815T021419_lane-c14.tgz` |
 | rel-trial/site-sponsor-run | `gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-sponsor-run/20260731T042130_lane-a3.tgz` |
 | rel-hm/user-churn | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-churn/20260731T092629_lane-a2.tgz` |
 | rel-hm/item-sales | `gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--item-sales/20260731T084234_lane-a1.tgz` |
