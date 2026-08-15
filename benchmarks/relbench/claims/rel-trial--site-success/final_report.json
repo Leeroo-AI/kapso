@@ -1,0 +1,36 @@
+{
+  "dataset": "rel-trial",
+  "task": "site-success",
+  "family": "entity_regression",
+  "primary_metric": "mae",
+  "selected_by": "best validation mae",
+  "run": "run_0016",
+  "val_metrics": {
+    "r2": -0.11231583563820569,
+    "mae": 0.29823032427495105,
+    "rmse": 0.5038065741539692
+  },
+  "test_metrics": {
+    "r2": -0.4126531432725802,
+    "mae": 0.37026931608209074,
+    "rmse": 0.571954867456046
+  },
+  "audit": {
+    "clean": false,
+    "findings": [
+      {
+        "file": "relational_features.py",
+        "line": 15,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "self.root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+      }
+    ],
+    "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
+  },
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0016/code",
+  "predictions": {
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0016/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0016/test_predictions.npy"
+  }
+}

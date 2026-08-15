@@ -89,8 +89,18 @@ def _label_stats(spec: TaskSpec, train_df: pd.DataFrame, val_df: pd.DataFrame) -
             lines.append(
                 f"- {split}: {len(df):,} rows | target min={t.min():.3g} "
                 f"q25={t.quantile(0.25):.3g} median={t.median():.3g} "
-                f"q75={t.quantile(0.75):.3g} max={t.max():.3g} mean={t.mean():.3g}"
+                f"q75={t.quantile(0.75):.3g} max={t.max():.3g} mean={t.mean():.3g} "
+                f"std={t.std():.5g}"
             )
+    if spec.primary_metric == "mae":
+        train_std = float(train_df[spec.target_col].std())
+        lines.append(
+            f"- PUBLISHED-BOARD UNITS: the public leaderboard reports NMAE = "
+            f"MAE / std(train targets) = MAE / {train_std:.5g}. The constant "
+            f"divisor leaves your in-run MAE ordering unchanged, but every "
+            f"published bar is in NMAE units — divide your MAE by "
+            f"{train_std:.5g} before comparing against them."
+        )
     return "\n".join(lines)
 
 
