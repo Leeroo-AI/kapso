@@ -32,7 +32,7 @@ Values in the best-known number's units (AUROC/acc/MAP in %, NMAE, R², raw MAE)
 
 | ROI# | Task | Fam | Ver | Best known (method) | RelAgent | KumoRFM-ft | KumoRFM-v1 (ic) | KumoRFM-v2 (ic) | Kapso | vs best | HW | Cap | Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.316 | below best-known | 4xA100 | 12h | ✅ done |
+| 1 | rel-event/user-attendance | reg | v1★ | 0.307 (KumoRFM-2) | 0.315 | 0.311 | 0.345 | 0.307 | 0.315 | below best-known | 4xA100 | 6h | ✅ done |
 | 5 | rel-f1/driver-position ⚠ | reg | v1★ | 0.374 (PluRel-ft) | 0.572 | 0.389 | 0.391 | 0.406 | 0.344 | ✅ beats best-known | 4xA100 | 6h | ✅ done |
 | 9 | rel-event/user-repeat | clf | v1★ | 83.6 (GelGT) | 78.2 | 80.6 | 76.1 | 81.7 | 81.2 | below best-known | 4xA100 | 6h | ✅ done |
 | 10 | rel-event/user-ignore | clf | v1★ | 91.2 (PluRel-ft) | 87.2 | 89.4 | 89.2 | 90.8 | 88.9 | below best-known | 4xA100 | 6h | ✅ done |
@@ -107,7 +107,7 @@ Complete campaign state per run — session transcripts, lens/ideation history, 
 
 | Task | Archive |
 |---|---|
-| rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260815T022202_lane-c12.tgz` |
+| rel-event/user-attendance | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-attendance/20260730T223947_lane-a1.tgz` |
 | rel-f1/driver-position | `gs://leeroo-kapso-relbench-artifacts/runs/rel-f1--driver-position/20260730T221816_lane-a2.tgz` |
 | rel-event/user-repeat | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T223847_lane-a3.tgz` |
 | rel-event/user-ignore | `gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260809T215615_lane-c2.tgz` |
