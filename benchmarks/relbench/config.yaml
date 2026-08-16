@@ -217,6 +217,11 @@ modes:
       # --debug mode; must fit the debug-tier cap.
       calibration_timeout_seconds: 1200
       max_change_requests: 3
+      # Late-transition freeze: past this fraction of the time budget,
+      # evaluator change requests are deferred — a ruler change near the
+      # deadline orphans final selection (2026-08-16: a transition at 92%
+      # budget left one eligible final from a 12h ladder).
+      transition_freeze_fraction: 0.85
 
     coding_agent:
       type: "codex"

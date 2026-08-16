@@ -257,6 +257,12 @@ Data access (violations invalidate the run):
   methods, domain background, and library usage are fine. Solve it yourself.
 - PRETRAINED MODELS (encouraged) — any pretrained model may be downloaded
   and used however helps (fine-tune, distill, feature-extract).
+- SIBLING-TASK CLAIMS (encouraged) — proven prior solutions for other tasks
+  in this benchmark live in this checkout at
+  `benchmarks/relbench/claims/<dataset>--<task>/` (winning code plus its
+  final report). When label lineage links your task to a sibling
+  (modelling practice 11), that claim is a legitimate starting design and
+  reference engine — our own prior work, not an external source.
 - HOSTED MODEL APIS (encouraged) — calling hosted LLM APIs with the
   provided credentials (OPENAI_API_KEY) is explicitly PERMITTED, for
   feature extraction and anything else that helps. There is NO
@@ -325,6 +331,17 @@ Experimentation notes for this search:
   resulting features. Code that is wired up but scores zero rows at run time
   is not the measurement; a campaign must not reach final selection without
   this comparison having actually run.
+- When the label window abuts the data horizon (the test origin sits at or
+  near the last timestamps the database covers), a single flat validation
+  origin is PRESUMED DISHONEST: measured here, the better a candidate fit
+  such a validation window, the worse it transferred (flat, then +11%, then
+  +30% degradation across three campaigns' best candidates). From the FIRST
+  full evaluation, score every candidate across temporal sub-windows of
+  validation under test-identical truncation, gate selection on the
+  MOST-SHIFTED window, and report both the flat and windowed readings. If
+  the evaluation maintainer evolves the ruler mid-campaign, treat the newer
+  ruler's reading as the honest one immediately — do not keep optimizing
+  the old one.
 """
 
 

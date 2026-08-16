@@ -89,6 +89,7 @@ _MAINTAINER_BLOCK_KEYS = {
     "fast_variant_threshold_minutes",
     "overhead_factor",
     "max_change_requests",
+    "transition_freeze_fraction",
     "protected_data_paths",
 }
 
@@ -311,6 +312,7 @@ class OrchestratorAgent:
         (
             self.evaluation_maintainer,
             self._max_change_requests,
+            self._transition_freeze_fraction,
         ) = self._create_evaluation_maintainer()
         self._change_requests_filed = 0
         self._fidelity_active = False
@@ -595,7 +597,7 @@ class OrchestratorAgent:
         """Build the maintainer when the mode config declares one."""
         block = self.mode_config.get("evaluation_maintainer")
         if not block:
-            return None, 0
+            return None, 0, 1.0
         unknown = sorted(set(block) - _MAINTAINER_BLOCK_KEYS)
         if unknown:
             raise ValueError(
@@ -625,7 +627,13 @@ class OrchestratorAgent:
             overhead_factor=block.get("overhead_factor", 1.25),
             protected_data_paths=block.get("protected_data_paths", []),
         )
-        return maintainer, block.get("max_change_requests", 3)
+        freeze_fraction = block.get("transition_freeze_fraction", 0.85)
+        if not 0.0 < freeze_fraction <= 1.0:
+            raise ValueError(
+                "transition_freeze_fraction must be in (0, 1], got "
+                f"{freeze_fraction!r}"
+            )
+        return maintainer, block.get("max_change_requests", 3), freeze_fraction
 
     def _record_maintainer_spend(self) -> None:
         telemetry = self.evaluation_maintainer.last_transaction_telemetry
@@ -865,6 +873,24 @@ class OrchestratorAgent:
             match = CHANGE_REQUEST_PATTERN.search(candidate.agent_output or "")
             if match is None:
                 continue
+            # Late-transition freeze: an evaluator change accepted near the
+            # deadline orphans final selection (only the bridge run is
+            # head-stamped — observed 2026-08-16, one eligible final from a
+            # 12h ladder). Past the freeze fraction of a time budget, defer
+            # the request instead of filing it.
+            if (
+                self.budget_spec.time_budget_seconds is not None
+                and self.get_elapsed_seconds()
+                >= self._transition_freeze_fraction
+                * self.budget_spec.time_budget_seconds
+            ):
+                print(
+                    "[Orchestrator] Evaluation change request deferred: "
+                    f"budget fraction elapsed exceeds the transition freeze "
+                    f"({self._transition_freeze_fraction:.2f}); the ruler "
+                    "stays fixed through final selection"
+                )
+                return
             if self._change_requests_filed >= self._max_change_requests:
                 print(
                     "[Orchestrator] Change-request cap reached "
