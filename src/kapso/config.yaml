@@ -212,3 +212,19 @@ learning:
     critic_model: "claude-opus-4-8"
     timeout_minutes: 240
     repair_rounds: 1
+  retriever:
+    # Push-core serving knobs (design §5.1): k caps selection, never content
+    # (Rule 6); the unvisited discount is the ledger-derived coverage penalty.
+    k_insights: 4
+    k_procedures: 2
+    k_pitfalls: 2
+    unvisited_discount: 0.5
+  graders:
+    # Scoring semantics (grader-scoring doc §5): corridor half-width, the
+    # accuracy settlement floor, calibration pooling minimum and buckets.
+    score_band: 0.20
+    min_settlements: 2
+    calibration_min: 20
+    calibration_buckets: [0.4, 0.7]
+    gauntlet:
+      stability_tolerance: 0.10
