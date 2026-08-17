@@ -3,34 +3,41 @@
   "task": "site-success",
   "family": "entity_regression",
   "primary_metric": "mae",
-  "selected_by": "best validation mae",
-  "run": "run_0016",
+  "selected_by": "max rescored validation mae among head-stamped final runs (evaluator e9d1efaa0b5f)",
+  "run": "run_0008",
+  "head_evaluator_id": "e9d1efaa0b5fd4ac0891eb083b9fe653560755415c2a0516814af5fe06e3a408",
+  "scored": {
+    "run_0003": 0.386801337958497,
+    "run_0006": 0.31841419621347,
+    "run_0008": 0.310346247180728
+  },
+  "excluded": {},
   "val_metrics": {
-    "r2": -0.11231583563820569,
-    "mae": 0.29823032427495105,
-    "rmse": 0.5038065741539692
+    "r2": -0.1720654638195851,
+    "mae": 0.310346247180728,
+    "rmse": 0.5171609264681092
   },
   "test_metrics": {
-    "r2": -0.4126531432725802,
-    "mae": 0.37026931608209074,
-    "rmse": 0.571954867456046
+    "r2": -0.4095155923028668,
+    "mae": 0.36196538005734313,
+    "rmse": 0.5713193487167189
   },
   "audit": {
-    "clean": false,
+    "clean": true,
     "findings": [
       {
-        "file": "relational_features.py",
-        "line": 15,
-        "pattern": "RELBENCH_CACHE_DIR",
-        "concern": "tampers with the data cache location",
-        "snippet": "self.root = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / os.environ[\"RELBENCH_DATASET\"]"
+        "file": "trial_pipeline.py",
+        "line": 788,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "frame = pd.concat([train, validation, test], ignore_index=True)"
       }
     ],
     "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
   },
-  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0016/code",
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0008/code",
   "predictions": {
-    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0016/val_predictions.npy",
-    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0016/test_predictions.npy"
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0008/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-trial--site-success/runs/run_0008/test_predictions.npy"
   }
 }
