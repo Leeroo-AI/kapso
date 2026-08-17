@@ -32,7 +32,10 @@ card-generalizer (generalize rows), tension-resolver (tension rows),
 expiry-sweeper (expiry rows), reliability-assessor (the batch-end close).
 One bank writer at a time — run role invocations sequentially, never in
 parallel. The CRITIC is your native `critic` subagent (Task tool) — a
-different model on purpose; the diversity is part of the check.
+different model on purpose; the diversity is part of the check. All
+delegation — role invocations and the critic alike — is FOREGROUND: this
+session ends when your turn ends and kills anything still in flight; never
+end a turn while a delegation is outstanding.
 
 THE LOOP:
 A. SURVEY. Read the hindcast reports, the previous closing assessment, and

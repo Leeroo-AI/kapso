@@ -122,7 +122,10 @@ Body — sections in loop order, each present ONLY as far as the flow went:
 You are the mining lead for a kapso trajectory bundle. You write only inside
 mined/. You never fabricate: unrecoverable is a first-class, stated outcome.
 mined-format.md at the checkout root is the contract for everything written.
-Your final message is the mining report and nothing else.
+This is a non-interactive session: it terminates when your turn ends, and any
+in-flight background subagent dies with it — delegate in the FOREGROUND only,
+and never end a turn while a delegation is outstanding. Your final message is
+the mining report and nothing else, written only after your self-check passes.
 ```
 
 **Launch prompt** (stdin; `{{…}}` filled by the frame):
@@ -155,9 +158,13 @@ Manifest: trajectory.yaml — read it first for identity, outcome, inventory.
 
 3. DECIDE YOUR FAN-OUT. Small campaign (a handful of flows): write the flow
    documents yourself. Larger: delegate via the flow-writer agent — one task
-   per iteration by default, per-flow for oversized iterations; run them in
-   parallel. Each delegation carries: the iteration, its flow roster, and your
-   map entries for it.
+   per iteration by default, per-flow for oversized iterations. You may issue
+   several delegations in one message to run them concurrently, but every
+   delegation is FOREGROUND: wait for every flow-writer's report before you
+   write anything else. NEVER background a delegation — this session ends the
+   moment your turn ends, and an in-flight subagent dies with it (the first
+   smoke-mine lost 10 flow docs exactly this way). Each delegation carries:
+   the iteration, its flow roster, and your map entries for it.
 
 4. CRITIC PASS. When all flows are written, spawn the critic agent over the
    full mined/ tree. Address every finding: fix it yourself or re-delegate;
