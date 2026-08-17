@@ -240,3 +240,23 @@ learning:
       timeout_minutes: 90
     # Grader run dirs (doubt D6: repo-root learning/, gitignored).
     run_root: learning/graders
+  bank:
+    # The bank home (design §3.1; doubt D3: a local bare repo at P4, the
+    # private GitHub remote under Leeroo-AI arrives at P5). Every update run
+    # clones this home, edits, and pushes back — single writer per bank.
+    local_path: data/kapso-bank-relbench.git
+    remote: null
+  update_crew:
+    # The update crew (design §4.3; update-crew doc): Claude lead (structural
+    # — self-organization + native critic subagent), codex GPT-5.6 xhigh
+    # workers driven via run-role.sh (doubt D4), cross-model critic.
+    lead: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+    worker: {cli: codex, model: "gpt-5.6", effort: "xhigh"}
+    critic: {cli: claude_code, model: "claude-opus-4-8"}
+    repair_rounds: 1
+    timeout_minutes: 240
+    # Inclusive docket nomination threshold — similarity nominates, mechanism
+    # decides (a false nomination costs minutes of review, never correctness).
+    dup_nominate_jaccard: 0.5
+    sightings_expiry_batches: 6
+    run_root: learning/runs

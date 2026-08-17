@@ -21,6 +21,8 @@ import argparse
 import sys
 from typing import Optional
 
+import yaml
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -29,7 +31,8 @@ from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
 from kapso.learning.graders.frame import GradingFrame
-from kapso.learning.graders.split import load_split, validate_split
+from kapso.learning.graders.split import assert_batch_disjoint, load_split, validate_split
+from kapso.learning.update_frame import UpdateFrame, init_bank
 from kapso.learning.mining import MiningFrame
 from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.researcher import ResearchMode, ResearchDepth
@@ -234,6 +237,23 @@ def cmd_learn(args) -> None:
         else:
             result = grading.grade_exam(args.trajectory, args.bank, args.bank_head, run_root)
             print(f"Exam report: {result}")
+    elif args.learn_command == "update":
+        store = TrajectoryStore.from_config(config)
+        batch = []
+        if args.batch_manifest:
+            with open(args.batch_manifest) as handle:
+                batch = yaml.safe_load(handle) or []
+        if args.split:
+            split = load_split(args.split)
+            assert_batch_disjoint(split, [item["trajectory"] for item in batch])
+        frame = UpdateFrame(store, config)
+        run_dir = frame.run_update(
+            batch, config["learning"]["update_crew"]["run_root"], args.learner_version
+        )
+        print(f"Learner report: {run_dir / 'report.md'}")
+    elif args.learn_command == "init-bank":
+        init_bank(config["learning"]["bank"]["local_path"])
+        print(f"Bank home created: {config['learning']['bank']['local_path']}")
 
 
 def cmd_deploy(args) -> None:
@@ -501,6 +521,21 @@ Examples:
     learn_grade.add_argument("--learner-version", type=str, help="Learner version under exam (full mode)")
     learn_grade.add_argument("--trajectory", type=str, help="One trajectory id (exam mode)")
     learn_grade.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_update = learn_sub.add_parser(
+        "update",
+        help="Run the update crew: fold a batch of mined+graded trajectories into the bank",
+    )
+    learn_update.add_argument("--batch-manifest", type=str,
+                              help="YAML list of {trajectory, hindcast_report}; omit for docket-only consolidation")
+    learn_update.add_argument("--learner-version", type=str, required=True, help="Crew version identifier")
+    learn_update.add_argument("--split", type=str, help="Split manifest (development runs: asserts batch/held-out disjointness)")
+    learn_update.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_init_bank = learn_sub.add_parser(
+        "init-bank", help="Create the bank home (bare repo + founding skeleton)"
+    )
+    learn_init_bank.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     
     # =========================================================================
     # DEPLOY command
