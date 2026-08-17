@@ -28,6 +28,7 @@ from kapso.kapso import Kapso, Source, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
+from kapso.learning.mining import MiningFrame
 from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.researcher import ResearchMode, ResearchDepth
 
@@ -192,6 +193,21 @@ def cmd_learn(args) -> None:
         else:
             outcome = import_archive(store, args.archive, args.id, upload)
             print(f"{outcome['id']}: {outcome['status']}")
+    elif args.learn_command == "mine":
+        frame = MiningFrame.from_config(config)
+        if bool(args.trajectory) == bool(args.all):
+            print("Error: exactly one of --trajectory or --all is required")
+            sys.exit(1)
+        targets = (
+            [args.trajectory] if args.trajectory
+            else sorted(
+                m["id"] for m in frame.store.list_manifests()
+                if not m.get("derived", {}).get("mined")
+            )
+        )
+        for trajectory_id in targets:
+            mined_dir = frame.mine(trajectory_id, force=args.force)
+            print(f"{trajectory_id}: mined -> {mined_dir}")
 
 
 def cmd_deploy(args) -> None:
@@ -439,6 +455,15 @@ Examples:
     learn_import.add_argument("--id", type=str, help="Trajectory id override for --archive")
     learn_import.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     learn_import.add_argument("--no-upload", action="store_true", help="Skip remote upload even if configured")
+
+    learn_mine = learn_sub.add_parser(
+        "mine",
+        help="Mine store-resident trajectories into their derived mined/ views",
+    )
+    learn_mine.add_argument("--trajectory", type=str, help="One trajectory id")
+    learn_mine.add_argument("--all", action="store_true", help="Mine every un-mined imported trajectory")
+    learn_mine.add_argument("--force", action="store_true", help="Regenerate even if already mined")
+    learn_mine.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     
     # =========================================================================
     # DEPLOY command

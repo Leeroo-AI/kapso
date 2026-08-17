@@ -212,6 +212,19 @@ class TrajectoryStore:
 
     # ------------------------------------------------------------- read doors
 
+    def list_manifests(self) -> List[Dict[str, Any]]:
+        """Parsed manifests of every locally resident trajectory.
+
+        Enumeration is local-mirror only (batch drivers operate on what has
+        been materialized); remote-wide listing is not a v1 need.
+        """
+        manifests = []
+        for manifest_path in sorted(self.local.glob(f"*/*/{MANIFEST_NAME}")):
+            trajectory_id = manifest_path.parent.relative_to(self.local).as_posix()
+            if TRAJECTORY_ID_PATTERN.match(trajectory_id):
+                manifests.append(self.manifest(trajectory_id))
+        return manifests
+
     def manifest(self, trajectory_id: str) -> Dict[str, Any]:
         """Parsed trajectory.yaml; one GET when the bundle is not resident."""
         local_manifest = self._local_dir(trajectory_id) / MANIFEST_NAME
@@ -290,6 +303,21 @@ class TrajectoryStore:
         if upload:
             self._upload(trajectory_id)
         return trajectory_id
+
+    def upload_derived(self, trajectory_id: str, subdir: str) -> None:
+        """Mirror a derived layer (e.g. mined/) plus the updated manifest."""
+        bundle_dir = self._local_dir(trajectory_id)
+        prefix = self._remote_prefix(trajectory_id)
+        subprocess.run(
+            ["gsutil", "-m", "rsync", "-r", str(bundle_dir / subdir),
+             f"{prefix}/{subdir}"],
+            check=True,
+        )
+        subprocess.run(
+            ["gsutil", "cp", str(bundle_dir / MANIFEST_NAME),
+             f"{prefix}/{MANIFEST_NAME}"],
+            check=True,
+        )
 
     def _upload(self, trajectory_id: str) -> None:
         """Upload the unpacked prefix, manifest last (the remote commit marker)."""
