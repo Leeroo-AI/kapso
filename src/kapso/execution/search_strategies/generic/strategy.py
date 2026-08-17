@@ -1662,7 +1662,13 @@ class GenericSearch(SearchStrategy):
                 cwd=ideation_dir,
                 timeout_seconds=selector_deadline,
                 effort=selector.get("effort"),
-                artifacts_dir=os.path.join(ideation_dir, ".kapso", "selector"),
+                # Durable workspace home, not the temp ideation worktree —
+                # the selector's pool + reasoning must outlive selection
+                # (trajectory bundle contract, learning design §3.4.1).
+                artifacts_dir=os.path.join(
+                    self.workspace_dir, ".kapso", "ideation",
+                    f"iter{self.iteration_count}", "selector",
+                ),
                 web_search=True,
             )
             result = CodingResult(

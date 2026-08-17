@@ -15,6 +15,7 @@ from kapso.learning.corpus_import import (
     import_subset,
     trajectory_id_from_archive_uri,
 )
+from kapso.learning.harvest import harvest_campaign
 from kapso.learning.trajectory_store import (
     MANIFEST_NAME,
     TrajectoryStore,
@@ -274,3 +275,73 @@ def test_store_from_config_requires_block(tmp_path):
         {"learning": {"trajectory_store": {"local": str(tmp_path / "s"), "remote": None}}}
     )
     assert store.remote is None
+
+
+def build_workspace(root):
+    """A workspace with the evolve .kapso artifacts the harvest gathers."""
+    kapso_dir = root / "workspace" / ".kapso"
+    kapso_dir.mkdir(parents=True)
+    (kapso_dir / "lens_plan_history.jsonl").write_text('{"iteration": 1}\n')
+    (kapso_dir / "experiment_history.json").write_text("[]")
+    (kapso_dir / "sessions" / "gen0").mkdir(parents=True)
+    (kapso_dir / "sessions" / "gen0" / "stream.jsonl").write_text('{"event": "x"}\n')
+    (kapso_dir / "ideation" / "iter1" / "selector").mkdir(parents=True)
+    (kapso_dir / "ideation" / "iter1" / "selector" / "output.md").write_text("pool\n")
+    return root / "workspace"
+
+
+def test_harvest_campaign_strict_gather(tmp_path):
+    # Regression: the P1.G harvest — workspace .kapso artifacts and living
+    # documents land per the strict layout, the shared cache (model caches)
+    # stays out of the bundle, sessions/ideation dirs are gathered whole.
+    store = make_store(tmp_path)
+    work_dir, log = build_work_dir(tmp_path, strict=False)
+    shared_cache = work_dir / "shared_cache"
+    (shared_cache / "hf").mkdir(parents=True)
+    (shared_cache / "hf" / "huge_model.bin").write_bytes(b"\x00" * 64)
+    (shared_cache / "features_history.md").write_text("## F1 — KEPT\n")
+    (shared_cache / "artifacts.json").write_text("[]")
+    workspace = build_workspace(tmp_path)
+
+    harvest_campaign(
+        store, TRAJECTORY_ID,
+        work_dir=str(work_dir), campaign_log=str(log),
+        workspace_dir=str(workspace),
+        living_documents={
+            "features_history.md": str(shared_cache / "features_history.md"),
+            "artifacts.json": str(shared_cache / "artifacts.json"),
+        },
+        work_dir_exclude=("shared_cache",),
+    )
+    manifest = store.manifest(TRAJECTORY_ID)
+    assert manifest["contract"] == "strict"
+    files = manifest["inventory"]["sha256"]
+    assert "features_history.md" in files
+    assert "lens_plan_history.jsonl" in files
+    assert "experiment_history.json" in files
+    assert "sessions/gen0/stream.jsonl" in files
+    assert "ideation/iter1/selector/output.md" in files
+    assert "artifacts.json" in files
+    assert not [p for p in files if p.startswith("shared_cache/")]
+
+
+def test_harvest_missing_workspace_artifact_raises(tmp_path):
+    # Regression: no thin saves — a workspace missing lens_plan_history.jsonl
+    # must fail the harvest loudly, not save a bundle mining cannot use.
+    store = make_store(tmp_path)
+    work_dir, log = build_work_dir(tmp_path, strict=False)
+    shared_cache = work_dir / "shared_cache"
+    shared_cache.mkdir()
+    (shared_cache / "features_history.md").write_text("## F1\n")
+    workspace = build_workspace(tmp_path)
+    (workspace / ".kapso" / "lens_plan_history.jsonl").unlink()
+    with pytest.raises(FileNotFoundError, match="lens_plan_history.jsonl"):
+        harvest_campaign(
+            store, TRAJECTORY_ID,
+            work_dir=str(work_dir), campaign_log=str(log),
+            workspace_dir=str(workspace),
+            living_documents={
+                "features_history.md": str(shared_cache / "features_history.md")
+            },
+            work_dir_exclude=("shared_cache",),
+        )

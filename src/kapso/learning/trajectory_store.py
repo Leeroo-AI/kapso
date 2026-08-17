@@ -311,33 +311,44 @@ def _gather(
     work_dir: Path,
     campaign_log: Path,
     extra_files: Optional[Dict[str, Path]],
+    work_dir_exclude: tuple,
 ) -> None:
     """Assemble the bundle layout by gathering, never renaming (design §3.4).
 
     Work-dir contents land at the bundle root so existing ref habits
     (`runs/run_0019/...`, `features_history.md#anchor`) stay valid. The one
     layout-specified name is `campaign.log`. `extra_files` maps bundle-relative
-    names to sources (the workspace .kapso files and living documents that
-    strict harvests supply).
+    names to sources — files or directories (the workspace .kapso files,
+    living documents, and session/ideation dirs that strict harvests supply).
+    `work_dir_exclude` names top-level work-dir entries that are not campaign
+    evidence (e.g. the shared cache with its model caches).
     """
     if not work_dir.is_dir():
         raise FileNotFoundError(f"work_dir {work_dir} is not a directory")
     if not campaign_log.is_file():
         raise FileNotFoundError(f"campaign_log {campaign_log} is not a file")
-    shutil.copytree(
-        work_dir,
-        staged_dir,
-        ignore=shutil.ignore_patterns(*GATHER_EXCLUDED_DIR_NAMES),
-        dirs_exist_ok=True,
-    )
+
+    def _ignore(directory: str, names: List[str]) -> List[str]:
+        ignored = [n for n in names if n in GATHER_EXCLUDED_DIR_NAMES]
+        if Path(directory) == work_dir:
+            ignored += [n for n in names if n in work_dir_exclude]
+        return ignored
+
+    shutil.copytree(work_dir, staged_dir, ignore=_ignore, dirs_exist_ok=True)
     shutil.copy2(campaign_log, staged_dir / CAMPAIGN_LOG_NAME)
     for rel_name, source in (extra_files or {}).items():
         rel = _clean_ref(rel_name)
-        if not source.is_file():
-            raise FileNotFoundError(f"extra file {source} for {rel_name!r} is missing")
         target = staged_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        if source.is_dir():
+            shutil.copytree(
+                source, target,
+                ignore=shutil.ignore_patterns(*GATHER_EXCLUDED_DIR_NAMES),
+            )
+        elif source.is_file():
+            shutil.copy2(source, target)
+        else:
+            raise FileNotFoundError(f"extra item {source} for {rel_name!r} is missing")
 
 
 def save_trajectory(
@@ -346,6 +357,7 @@ def save_trajectory(
     work_dir: str,
     campaign_log: str,
     extra_files: Optional[Dict[str, str]] = None,
+    work_dir_exclude: tuple = (),
     contract: str = "strict",
     kapso_commit: Optional[str] = None,
     bank_head: Optional[str] = None,
@@ -369,6 +381,7 @@ def save_trajectory(
         Path(work_dir).expanduser(),
         Path(campaign_log).expanduser(),
         {name: Path(path).expanduser() for name, path in (extra_files or {}).items()},
+        work_dir_exclude,
     )
     missing = _validate_contract(staged_dir, contract)
     report = _load_final_report(staged_dir)

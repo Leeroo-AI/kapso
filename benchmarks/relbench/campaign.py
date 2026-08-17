@@ -23,7 +23,13 @@ import json
 import subprocess
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+
+from kapso.core.config import load_config
+from kapso.kapso import DEFAULT_CONFIG_PATH
+from kapso.learning.harvest import harvest_campaign
+from kapso.learning.trajectory_store import TrajectoryStore
 
 NO_STOP_NOTE = """# Budget-bound campaign — do not stop early
 
@@ -138,6 +144,43 @@ def select_tasks(queue: list, hardware: str, work_root: Path,
     return chosen
 
 
+def _harvest_trajectory(ds: str, task: str, lane, workspace: str, log_path: Path) -> str:
+    """Save the finished campaign into the trajectory store (P1.G).
+
+    save_trajectory is the harvest step and the evolve->learn bridge (design
+    §3.4): work dir minus the shared cache (model caches are not evidence),
+    the campaign log, the workspace .kapso artifacts, and the living
+    documents copied to the bundle root per the strict-contract layout. A
+    contract violation raises after the verdict/scorecard have landed — loud,
+    and the campaign result itself is untouched.
+    """
+    config = load_config(DEFAULT_CONFIG_PATH)
+    if not config["learning"]["harvest"]["enabled"]:
+        return "harvest-disabled"
+    work_dir = REPO_ROOT / "tmp" / "relbench" / f"{ds}--{task}"
+    shared_cache = work_dir / "shared_cache"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    trajectory_id = f"{ds}--{task}/{stamp}_{lane or 'local'}"
+    kapso_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True,
+        text=True, check=True,
+    ).stdout.strip()
+    living = {"features_history.md": str(shared_cache / "features_history.md")}
+    for optional in ("table_information.md", "artifacts.json"):
+        if (shared_cache / optional).is_file():
+            living[optional] = str(shared_cache / optional)
+    return harvest_campaign(
+        TrajectoryStore.from_config(config),
+        trajectory_id,
+        work_dir=str(work_dir),
+        campaign_log=str(log_path),
+        workspace_dir=str(REPO_ROOT / workspace),
+        living_documents=living,
+        work_dir_exclude=("shared_cache",),
+        kapso_commit=kapso_commit,
+    )
+
+
 def run_one(task_id: str, args) -> dict:
     ds, task = task_id.split("/")
     extra_args = []
@@ -192,6 +235,8 @@ def run_one(task_id: str, args) -> dict:
         [sys.executable, "-m", "benchmarks.relbench.scorecard", "--reference"],
         cwd=REPO_ROOT,
     )
+    if verdict["status"] == "done":
+        verdict["trajectory_id"] = _harvest_trajectory(ds, task, args.lane, workspace, log_path)
     print(f"  VERDICT: {json.dumps(verdict, default=str)}")
     return verdict
 

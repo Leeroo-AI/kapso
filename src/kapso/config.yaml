@@ -193,3 +193,8 @@ learning:
   # Import reports land under the run-dir home (doubt D6: repo-root
   # `learning/`, gitignored, synced to the artifacts bucket).
   import_report_dir: learning/imports
+  harvest:
+    # Campaign drivers save finished campaigns into the store under the
+    # strict contract (P1.G — the evolve->learn bridge). Store stays
+    # local-only until `trajectory_store.remote` is set (doubt D2).
+    enabled: true
