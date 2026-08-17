@@ -131,7 +131,10 @@ recorded in the entry). Docket rows take: `MERGE` (successor supersedes ≥2
 twin parents, evidence by reference), `GENERALIZE` (domain successor born
 candidate + unseen-family probe queued), `RESOLVE` (a tension settled: scope
 split, a retirement proposed to the assessor, or kept-contested with a probe
-queued — the entry says which), `EXPIRE` (staleness/sightings pruning).
+queued — the entry says which), `EXPIRE` (staleness/sightings pruning). A
+declined nomination journals as `PASS` with the distinguishing rationale —
+the inclusive threshold makes false nominations normal, so no rebuttal is
+required.
 
 ### 1.3 `critic-findings.md` — the challenge record
 
@@ -430,6 +433,9 @@ whose lifecycle clock expired):
   active → cold on the visit clock; cold/contested → retired only on measured
   contradiction (never on age alone); superseded links both ways. Every
   transition journals to work/journal.md with its rationale.
+- Docket proposals (propose-retire, expiry lapses) reach you through the
+  journal: execute only what the ledger supports; decline with a rationale
+  otherwise.
 Your final message: cards scored, transitions made, anything the ledger
 cannot support that the run claimed.
 ```
