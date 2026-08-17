@@ -38,6 +38,32 @@ scenarios on demand (`kapso learn behave <scenario|--all>`).
 | B9 | **Codify faithfulness** | a fixture procedure + archived implementation where a *plausible shortcut* reproduces the number without the method | the feedback judge rejects the shortcut implementation (faithfulness), accepts the faithful one; the final replay/ asserts the card's `expected_outcome`, not something weaker | P7 |
 | B10 | **End-to-end learning effect** | a mini-corpus of 3–4 fixture trajectories engineered to contain one transferable lesson + noise | after save → mine → update → grade: the lesson exists in the bank as an abstraction (B2 standard), and hindcast foresight on a planted 4th sibling beats the empty-bank baseline — the whole loop demonstrably *learned* | P4 (mini), extended P5 |
 
+## Fixture sourcing — real by default
+
+Realism comes from the relbench corpus; ground truth comes from a minimal,
+recorded intervention. Three modes, every scenario in exactly one:
+
+- **Selected-real** — untouched corpus material whose truth we already know
+  from the documented forensics (the wave-4 deep analysis; the D1 churn
+  cluster's known recurring lessons): B2, B7 (real trajectory + assembled
+  fixture bank), B10, B5-preferred (a natural cross-dataset contradiction).
+- **Doctored-real** — real material with one localized, recorded edit that
+  implants the truth (the implant/duplicate-trap lineage): B3 (a real card
+  reworded as its twin; a real shared-vocabulary pair as the decoy), B5
+  fallback (sign-flip in a copied mined view), B9 (the authored shortcut
+  beside the real implementation), B1's lexical trap.
+- **Frozen-real** — early artifacts of the system itself, frozen: founding
+  bank cards (B1 targets, B3/B4 material), first-crew outputs where a
+  scenario needs a bank in a known state (B6 ledgers, B8's bank).
+
+Two rules keep this honest: **every fixture cites its source refs**
+(trajectory / run / card — the standard referencing discipline), and its
+`truth.md` records source + edits + expected outcome, **with corpus
+citations for any truth-by-our-reading** — selected-real truth is only as
+good as the forensics behind it, so truth files get human sign-off at
+creation. Fixture construction is a per-phase work item (mined material
+exists from P2, cards from P4), matching the scenarios' phase mapping.
+
 ## Reviewer contract
 
 One rubric per scenario, shipped beside its fixture. The reviewer: reads the
