@@ -95,9 +95,9 @@ All doubts resolved 2026-08-17 (user review). Resolutions are binding.
 
 | Plan | Status | Last commit |
 |---|---|---|
-| P1 trajectory store | not started | — |
-| P2 mine corpus | not started | — |
-| P3 grader suite | not started | — |
+| P1 trajectory store | code + tests done (store, importer, CLI, P1.G harvest); D1 corpus import running | 958a7cdb |
+| P2 mine corpus | frame + crew material + tests done; real mining runs await corpus + smoke-mine review | d64f7bfc |
+| P3 grader suite | code + tests done (hindcast, split checks, scorecard math, gauntlet harness, bank read model, push core, grading frame + crew prompts); split-v1 instance awaits imported corpus | 517f68d2 |
 | P4 bank + update crew | not started | — |
 | P5 serving | not started | — |
 | P6 probes + arms | not started | — |
