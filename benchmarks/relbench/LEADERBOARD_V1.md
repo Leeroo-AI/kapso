@@ -17,7 +17,7 @@ The board ranks **31 tasks in three independent categories**; this document cove
 all three — Classification (12 tasks), Regression (9), and Recommendation (10).
 
 **Headline:** Kapso ranks **1 of 28** on classification (mean AUROC 81.19,
-passing KumoRFM-ft's 81.1), **4 of 26** on regression (mean NMAE 0.2608),
+passing KumoRFM-ft's 81.1), **3 of 26** on regression (mean NMAE 0.2589, passing KumoRFM-ft),
 and **1 of 8** on recommendation (mean MAP@10 18.8 vs ID-GNN-4L's 14.0),
 beating the single best published number on **2/12** classification,
 **6/9** regression, and **8/10** recommendation tasks. The classification
@@ -89,8 +89,8 @@ fallback).
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | RT (pretrained + fine-tuned) | task-specific | 0.233 | 0.2569 | 0.0804 | 0.4319 | 0.0303 | 0.3757 | 0.0948 | 0.1455 | 0.1275 | 0.5519 |
 | 2 | PluRel (pretrained + fine-tuned) | task-specific | 0.237 | 0.2672 | 0.084 | 0.3923 | 0.0708 | 0.3745 | 0.0966 | 0.1472 | 0.124 | 0.5766 |
-| 3 | KumoRFM (fine-tuned) | task-specific | 0.26 | 0.2474 | 0.0824 | 0.3554 | 0.311 | 0.3887 | 0.0686 | 0.1273 | 0.1304 | 0.6325 |
-| 4 | **Kapso (this work)** | agent | 0.261 | 0.238 | 0.0655 | 0.334 | 0.315 | 0.344 | 0.0634 | 0.122 | 0.0872 | 0.778 |
+| 4 | KumoRFM (fine-tuned) | task-specific | 0.26 | 0.2474 | 0.0824 | 0.3554 | 0.311 | 0.3887 | 0.0686 | 0.1273 | 0.1304 | 0.6325 |
+| 3 | **Kapso (this work)** | agent | 0.259 | 0.238 | 0.0655 | 0.334 | 0.315 | 0.344 | 0.0634 | 0.122 | 0.0872 | 0.761 |
 | 5 | RelGNN | task-specific | 0.285 | 0.2475 | 0.0825 | 0.3867 | 0.311 | 0.5406 | 0.109 | 0.1273 | 0.1311 | 0.6325 |
 | 6 | PluRel (synthetic + real) | zero-shot | 0.29 | 0.2852 | 0.1041 | 0.4182 | 0.0878 | 0.4835 | 0.1555 | 0.1654 | 0.1731 | 0.735 |
 | 7 | KumoRFM-2 (in-context) | zero-shot | 0.291 | 0.2421 | 0.0795 | 0.3554 | 0.3071 | 0.4062 | 0.0686 | 0.1254 | 0.1277 | 0.9099 |
@@ -126,7 +126,7 @@ fallback).
 | rel-hm/item-sales | 0.0686 | KumoRFM (fine-tuned) | **0.0634** | -0.0052 ✅ |
 | rel-stack/post-votes | 0.1215 | Rel-LLM (Llama-3.2-1B + GNN soft prompts, fine-tuned) | **0.122** | +0.0005  |
 | rel-trial/study-adverse | 0.1097 | RelAgent (GPT-5.2 agent) | **0.0872** | -0.0225 ✅ |
-| rel-trial/site-success | 0.5519 | RT (pretrained + fine-tuned) | **0.778** | +0.226  |
+| rel-trial/site-success | 0.5519 | RT (pretrained + fine-tuned) | **0.761** | +0.209  |
 
 ---
 
