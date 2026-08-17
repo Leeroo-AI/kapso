@@ -28,6 +28,8 @@ from kapso.kapso import Kapso, Source, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
+from kapso.learning.graders.frame import GradingFrame
+from kapso.learning.graders.split import load_split, validate_split
 from kapso.learning.mining import MiningFrame
 from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.researcher import ResearchMode, ResearchDepth
@@ -208,6 +210,30 @@ def cmd_learn(args) -> None:
         for trajectory_id in targets:
             mined_dir = frame.mine(trajectory_id, force=args.force)
             print(f"{trajectory_id}: mined -> {mined_dir}")
+    elif args.learn_command == "grade":
+        grading = GradingFrame(TrajectoryStore.from_config(config), config)
+        run_root = config["learning"]["graders"]["run_root"]
+        if bool(args.split) == bool(args.trajectory):
+            print("Error: exactly one of --split (full) or --trajectory (exam) is required")
+            sys.exit(1)
+        if args.split:
+            if not args.learner_version:
+                print("Error: --learner-version is required in full mode")
+                sys.exit(1)
+            split = load_split(args.split)
+            findings = validate_split(split, grading.store.list_manifests())
+            if findings:
+                print("Split validation failed:")
+                for finding in findings:
+                    print(f"  - {finding}")
+                sys.exit(1)
+            run_dir = grading.grade_full(
+                split, args.bank, args.bank_head, args.learner_version, run_root
+            )
+            print(f"Scorecard: {run_dir / 'scorecard.yaml'}")
+        else:
+            result = grading.grade_exam(args.trajectory, args.bank, args.bank_head, run_root)
+            print(f"Exam report: {result}")
 
 
 def cmd_deploy(args) -> None:
@@ -464,6 +490,17 @@ Examples:
     learn_mine.add_argument("--all", action="store_true", help="Mine every un-mined imported trajectory")
     learn_mine.add_argument("--force", action="store_true", help="Regenerate even if already mined")
     learn_mine.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_grade = learn_sub.add_parser(
+        "grade",
+        help="Grade a bank against held-out trajectories (full) or one arriving trajectory (exam)",
+    )
+    learn_grade.add_argument("--bank", type=str, required=True, help="Bank checkout dir")
+    learn_grade.add_argument("--bank-head", type=str, required=True, help="The graded bank head (lr_ tag or sha)")
+    learn_grade.add_argument("--split", type=str, help="Split manifest (full mode)")
+    learn_grade.add_argument("--learner-version", type=str, help="Learner version under exam (full mode)")
+    learn_grade.add_argument("--trajectory", type=str, help="One trajectory id (exam mode)")
+    learn_grade.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     
     # =========================================================================
     # DEPLOY command

@@ -228,3 +228,15 @@ learning:
     calibration_buckets: [0.4, 0.7]
     gauntlet:
       stability_tolerance: 0.10
+    # The grader roles (scoring doc §6; doubt D4): report-writer + assessor on
+    # codex/GPT-5.6 xhigh; the verifier cross-model on Claude — the diversity
+    # is part of the check. Per-role {cli, model, effort} so the all-Claude
+    # switch is one config change.
+    crew:
+      report_writer: {cli: codex, model: "gpt-5.6", effort: "xhigh"}
+      verifier: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+      assessor: {cli: codex, model: "gpt-5.6", effort: "xhigh"}
+      repair_rounds: 1
+      timeout_minutes: 90
+    # Grader run dirs (doubt D6: repo-root learning/, gitignored).
+    run_root: learning/graders
