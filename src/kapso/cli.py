@@ -30,6 +30,7 @@ from kapso.kapso import Kapso, Source, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
+from kapso.learning.behavior import BehaviorRunner
 from kapso.learning.develop import DevelopmentDriver
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.graders.split import assert_batch_disjoint, load_split, validate_split
@@ -267,6 +268,20 @@ def cmd_learn(args) -> None:
         driver = DevelopmentDriver(store, config)
         scorecard_dir = driver.run(split, args.learner_version)
         print(f"Scorecard: {scorecard_dir / 'scorecard.yaml'}")
+    elif args.learn_command == "behave":
+        runner = BehaviorRunner(TrajectoryStore.from_config(config), config)
+        run_root = config["learning"]["behavior"]["run_root"]
+        if bool(args.scenario) == bool(args.all):
+            print("Error: exactly one of --scenario or --all is required")
+            sys.exit(1)
+        if args.scenario:
+            result = runner.run_scenario(args.scenario, run_root)
+            print(f"{result['scenario']}: {result['verdict']} — {result['rationale']}")
+        else:
+            rollup = runner.run_all(run_root)
+            print(f"Behavior suite: {rollup['verdict']}")
+            for row in rollup["scenarios"]:
+                print(f"  {row['scenario']}: {row['verdict']}")
 
 
 def cmd_deploy(args) -> None:
@@ -557,6 +572,14 @@ Examples:
     learn_develop.add_argument("--split", type=str, required=True, help="Split manifest")
     learn_develop.add_argument("--learner-version", type=str, required=True, help="Crew version identifier")
     learn_develop.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_behave = learn_sub.add_parser(
+        "behave",
+        help="Run behavior scenarios (semantic production tests, agentic review)",
+    )
+    learn_behave.add_argument("--scenario", type=str, help="One scenario dir")
+    learn_behave.add_argument("--all", action="store_true", help="Run every scenario")
+    learn_behave.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     
     # =========================================================================
     # DEPLOY command

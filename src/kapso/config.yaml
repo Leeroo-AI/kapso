@@ -267,3 +267,11 @@ learning:
     batch_size: 3
     run_root: learning/develop
     versions_ledger: learning/versions.yaml
+  behavior:
+    # The semantic production suite (behavior-tests.md): real machinery on
+    # known-truth fixtures, judged by a cross-model reviewer; FAIL gates
+    # promotion like a gauntlet trap. Fixtures land with their phases.
+    scenarios_dir: benchmarks/relbench/data/learning_behavior
+    reviewer: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+    timeout_minutes: 60
+    run_root: learning/behavior
