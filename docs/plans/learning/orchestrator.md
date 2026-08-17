@@ -98,10 +98,10 @@ All doubts resolved 2026-08-17 (user review). Resolutions are binding.
 | P1 trajectory store | code + tests done (store, importer, CLI, P1.G harvest); D1 corpus import running | 958a7cdb |
 | P2 mine corpus | frame + crew material + tests done; real mining runs await corpus + smoke-mine review | d64f7bfc |
 | P3 grader suite | code + tests done (hindcast, split checks, scorecard math, gauntlet harness, bank read model, push core, grading frame + crew prompts); split-v1 instance awaits imported corpus | 517f68d2 |
-| P4 bank + update crew | not started | — |
-| P5 serving | not started | — |
+| P4 bank + update crew | frame code + tests done (bank read/write model, diff invariants + evidence admission, update frame + crew instruction set, development driver, keep-best ledger); founding bank + real crew runs await mined corpus | fe767ac6 |
+| P5 serving | push core done early (P3, hindcast dependency); pull tools + evolve edits pending | 09b6954c |
 | P6 probes + arms | not started | — |
 | P7 codify path | not started | — |
-| Behavior suite (cross-phase) | defined; fixtures land with phases | — |
+| Behavior suite (cross-phase) | runner done (serve/grade-exam/update machineries + reviewer gate); fixtures land with phases | b4b9307d |
 
 Update the status ledger in the same commit as the work it describes.
