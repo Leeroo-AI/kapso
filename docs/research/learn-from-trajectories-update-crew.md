@@ -13,7 +13,7 @@ to *run* one. Scoring semantics live in
 
 ## 0. The shape of a run
 
-Nine actors — frame, lead, card-writer, four docket specialists, critic,
+Ten actors — frame, lead, card-writer, five docket specialists, critic,
 assessor — one writable surface, one loop:
 
 ```
@@ -24,7 +24,7 @@ FRAME (deterministic code)
 LEAD (Claude session, native Task subagents)
   A. survey   — complete the observation worksheet beyond the seeds
   B. route+draft — card-writer works the batch rows; docket rows go to their
-                   specialists (merger · generalizer · resolver · sweeper);
+                   specialists (merger · generalizer · resolver · sweeper · codifier);
                    one bank writer at a time
   C. challenge — critic attacks the full diff + journal; one repair round
   D. close    — assessor walks the ledger: scores + lifecycle, batch-end only
@@ -106,8 +106,12 @@ pre-run bank via the derived index: `dup-merge` rows (embedding pairs above
 `learning.update_crew.dup_threshold` — inclusive; similarity nominates,
 mechanism decides), `tension` rows (`contradicts` pairs both active, or
 opposing-sign evidence on overlapping scopes), `generalize` rows
-(sibling-scope cards with same mechanism and agreeing ledgers), and
-`expiry` rows (validity windows, cold clocks, sightings past expiry). With
+(sibling-scope cards with same mechanism and agreeing ledgers),
+`expiry` rows (validity windows, cold clocks, sightings past expiry), and
+`codify` rows (text procedures whose reference-closure recurrence over
+executed-verdict entries crosses `learning.codify.min_recurrence`; guards:
+active, uncontested, no failed attempt since the last executed evidence —
+seeder rule in the companion codify doc). With
 `batch: []` the run is docket-only. The worksheet is the coverage denominator: **every row gets exactly
 one journal verdict, and the frame counts.**
 
@@ -136,7 +140,9 @@ recorded in the entry). Docket rows take: `MERGE` (successor supersedes ≥2
 twin parents, evidence by reference), `GENERALIZE` (domain successor born
 candidate + unseen-family probe queued), `RESOLVE` (a tension settled: scope
 split, a retirement proposed to the assessor, or kept-contested with a probe
-queued — the entry says which), `EXPIRE` (staleness/sightings pruning). A
+queued — the entry says which), `EXPIRE` (staleness/sightings pruning), `CODIFY`
+(a representation flip folded from a green codify run — companion codify
+doc). A
 declined nomination journals as `PASS` with the distinguishing rationale —
 the inclusive threshold makes false nominations normal, so no rebuttal is
 required.
@@ -197,7 +203,8 @@ B. ROUTE + DRAFT. Delegate BATCH rows to the card-writer (sequential — the
    bank has one writer at a time; group related rows into one delegation so
    induction sees siblings). Delegate DOCKET rows to their specialists —
    dup-merge → card-merger, generalize → card-generalizer, tension →
-   tension-resolver, expiry → expiry-sweeper — one row per delegation,
+   tension-resolver, expiry → expiry-sweeper, codify → procedure-codifier —
+   one row per delegation,
    serialized with the card-writer. A specialist's PASS that names a
    re-route (a generalize row that is really a tension) comes back to you:
    re-delegate it to the named specialist.
@@ -301,7 +308,7 @@ not route with confidence (the lead re-delegates or takes it to the critic).
 
 ---
 
-## 4. The docket specialists — four single-verdict agents
+## 4. The docket specialists — five single-verdict agents
 
 The maintenance verdicts are critical enough to be first-class agents: one
 definition per verdict, each doing exactly one thing, staged into every
@@ -425,6 +432,12 @@ validity windows, cards past their cold clocks.
 Journal EXPIRE, grouped: what was pruned, what was proposed, with refs.
 ```
 
+### 4.5 `.claude/agents/procedure-codifier.md`
+
+Defined in the companion `learn-from-trajectories-codify.md` (§6), beside the
+codify run it drives: the compatibility gate before any machine spins, the
+run request, the outcome fold. Staged into the workspace with the other four.
+
 ## 5. `.claude/agents/critic.md`
 
 ```markdown
@@ -526,7 +539,10 @@ omit `--split` (no exclusion exists in operation). The maintenance docket is see
 sibling-scope agreement, validity/cold/sightings expiries past
 `learning.update_crew.sightings_expiry_batches`); with `batch: []` the run
 is docket-only (standalone consolidation). Docket state is read at staging
-from `bank.before` — twins born inside this run surface next run.
+from `bank.before` — twins born inside this run surface next run. `codify`
+rows follow the companion codify doc's seeder rule; the frame launches
+requested codify runs on `learning.codify.target` (ephemeral GCP by default)
+and holds the transaction open for the result.
 
 **Validation (after the lead stops), in order, all mechanical:**
 
@@ -538,7 +554,9 @@ from `bank.before` — twins born inside this run surface next run.
    successor supersedes ≥2 parents (both moved to `retired/`, links both ways,
    founding evidence citing parent ledgers by reference — never copied); a
    `GENERALIZE` successor is state candidate with its unseen-family probe
-   present and coverage claiming only seen families.
+   present and coverage claiming only seen families; a `representation:
+   code` flip requires a green codify run in the same transaction (companion
+   codify doc).
 3. **Evidence admission** — §5.2's three checks per new entry (source
    resolves + numbers re-grep; usage vs serving record; verdict earnable).
    Independence: entries citing identical run ids / eval outcomes are one

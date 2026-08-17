@@ -356,8 +356,8 @@ probe: >-                        # optional: how a future campaign can test this
 #   expected_outcome: >-       # what a successful replay PRODUCES — numeric or not
 #     (a reproduced metric, a gate decision, an artifact with stated
 #     properties, a report with expected structure); replay/replay_test.py
-#     is the executable assertion of exactly this statement, and the
-#     replay check (§4.3) verifies the two agree
+#     is the executable assertion of exactly this statement — it IS the
+#     codify run's registered evaluation (companion codify doc)
 #   last_replayed: <date>
 ```
 
@@ -782,11 +782,11 @@ synthesized content.
 ### 4.3 The update crew — mined views × bank → one commit
 
 A lead session on a writable bank checkout, mined views mounted read-only,
-seven roles as native subagents: **card-writer** (batch rows: routes and
-drafts), the four **docket specialists** — card-merger, card-generalizer,
-tension-resolver, expiry-sweeper — each executing exactly one maintenance
-verdict, **critic** (adversarial pass over every proposed change), and
-**reliability-assessor** (§3.3's one assessor). There are no typed ops: the crew edits files directly, and trust
+eight roles as native subagents: **card-writer** (batch rows: routes and
+drafts), the five **docket specialists** — card-merger, card-generalizer,
+tension-resolver, expiry-sweeper, procedure-codifier — each executing exactly
+one maintenance verdict, **critic** (adversarial pass over every proposed
+change), and **reliability-assessor** (§3.3's one assessor). There are no typed ops: the crew edits files directly, and trust
 moved from an operation vocabulary into **diff invariants** the frame validates
 before commit — evidence and log fields are append-only; every version bump has
 exactly one log entry and vice versa; `contradicts` lands on both cards;
@@ -801,6 +801,11 @@ cross-family generalization candidates, and staleness/sightings expiries;
 batch `[]` makes a run docket-only (callable standalone — gbrain's dream
 cycle, now the default tail of every learning run). Twins born inside a run
 surface on the next run's docket (one-run lag, accepted). No new machinery.
+The docket also carries **`codify` rows** — the procedure code path
+(detection by reference-closure recurrence, the codify run as
+evolve-minus-ideation with a claims-judging feedback loop, ephemeral-GCP
+placement, the freshness clock) is specified in the companion
+**`learn-from-trajectories-codify.md`**, closing former open question §10.5.
 
 **Routing — which card does an observation belong to?** This is where clustering
 lives in this design (adopted from the uniforge M1 cluster design, which
@@ -1149,7 +1154,8 @@ v1 is relbench-scoped with a benchmark-blind core (`src/kapso/learning/`):
 supplies gather paths), `learner.py` (the crew frame: batch driver,
 launch/stage/check/commit, evidence admission, event ledger), `crews/` (mining
 and update instruction documents + agent definitions; both drafted in their companion docs), `graders.py` (hindcast runner, gauntlet,
-scorecard), `verification.py` (replay + citation resolution), `retriever.py`,
+scorecard), `verification.py` (citation resolution), `codify.py` (the
+seeder, the codify-run driver, freshness re-runs), `retriever.py`,
 `reliability.py` (assessor frame), and a config `learning:` block (models per
 role, batch size, probe budget, sightings expiry, thresholds — Rule 1; crews are
 Claude-led, since self-organization needs the CLI's native subagents, with the
@@ -1229,8 +1235,3 @@ commit (Rule 8):
    size? label sparsity?). v1 uses the benchmark's own family enum + dataset tags;
    expect this to be wrong in interesting ways and let contradiction-driven scope
    splits discover the real axes.
-5. **When does a procedure climb the representation ladder** — the mechanism is
-   settled (same card, representation upgraded through the replay gate), the *trigger*
-   is not: recurrence ≥2 with compatible implementations is the DreamCoder-flavored
-   default; whether a broken code representation demotes back to text or parks as
-   candidate is open.
