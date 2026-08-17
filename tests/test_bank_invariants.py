@@ -283,3 +283,25 @@ def test_evidence_admission_verdict_earnable(tmp_path):
         store, {},
     )
     assert findings == []
+
+
+def test_retired_cards_are_frozen_history(tmp_path):
+    # Regression: a card already in retired/ before the run must never change
+    # again — merge founding references point into it.
+    def setup(root):
+        (root / "retired" / "insights").mkdir(parents=True)
+        text = read_card(root, "a-card").replace("state: active", "state: retired")
+        (root / "retired" / "insights" / "a-card.md").write_text(text)
+        (root / "insights" / "a-card.md").unlink()
+
+    before_root = build_bank(tmp_path / "before", {
+        "a-card": card_text("a-card"), "b-card": card_text("b-card")})
+    setup(before_root)
+    after_root = tmp_path / "after" / "bank"
+    shutil.copytree(before_root, after_root)
+    retired = after_root / "retired" / "insights" / "a-card.md"
+    retired.write_text(retired.read_text().replace("score: 0.7", "score: 0.1"))
+    findings = BankTransactionValidator(
+        Bank(str(before_root)), Bank(str(after_root))
+    ).validate()
+    assert any("modified after retirement" in f for f in findings)

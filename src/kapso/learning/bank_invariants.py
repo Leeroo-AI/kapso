@@ -81,6 +81,20 @@ class BankTransactionValidator:
                 )
         for name in sorted(set(self.before.retired_cards) - retired_names):
             findings.append(f"retired/{name}: a retired card was deleted")
+        # Cards already retired before this run are frozen history: their
+        # files never change again (merge founding references point INTO
+        # them, so their stability is load-bearing).
+        for name in sorted(set(self.before.retired_cards) & retired_names):
+            before_card = self.before.retired_cards[name]
+            after_card = self.after.retired_cards[name]
+            if (
+                before_card.frontmatter != after_card.frontmatter
+                or before_card.body != after_card.body
+            ):
+                findings.append(
+                    f"retired/{name}: modified after retirement — retired "
+                    f"cards are frozen history"
+                )
         return findings
 
     def _check_decoys_untouched(self) -> List[str]:
