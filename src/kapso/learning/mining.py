@@ -408,8 +408,12 @@ class MiningFrame:
         return (
             "The frame's mechanical verification of mined/ found the following "
             "violations. Fix each one in place (mined/ only — the raw bundle "
-            "stays read-only), then finish with the updated mining report as "
-            "your final message.\n\n" + numbered
+            "stays read-only). Your final message must be the COMPLETE updated "
+            "mining report (counts per kind, the map's shape, gaps and "
+            "degenerate artifacts, critic findings addressed vs disputed, plus "
+            "what you repaired here) — the frame files it as "
+            "mined/mining-report.md, replacing the previous one, so a "
+            "repair-only narrative would erase the full record.\n\n" + numbered
         )
 
     def _commit(

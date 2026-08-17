@@ -1,0 +1,70 @@
+# Split manifest v1 — the exam's authority (grader-scoring doc §3).
+# Generated from the imported D1 corpus + docs/plans/learning/d1-subset.yaml
+# roles; validated against the store at generation time. Rotation is a
+# between-generations act with a version bump + rationale.
+version: 1
+rule: 'split by (family, time), never by task: the grouping key is the dataset; no
+  dataset appears on both sides, and held-out spans early and late stamps'
+rationale: 'founding split over the D1 corpus (doubt D1, resolved 2026-08-17): learn
+  = the churn/entity-activity cluster across rel-amazon, rel-hm, rel-ratebeer, rel-stack;
+  held-out = rel-event, a dataset absent from the learn side, with sibling binary
+  user-activity tasks spanning 2026-07-30 to 2026-08-12'
+learn:
+- id: rel-amazon--user-churn/20260731T210811_lane-b2
+  family: rel-amazon
+  date: '2026-07-31'
+- id: rel-amazon--user-churn/20260812T091402_lane-c10
+  family: rel-amazon
+  date: '2026-08-12'
+- id: rel-amazon--user-churn/20260813T015420_lane-c10
+  family: rel-amazon
+  date: '2026-08-13'
+- id: rel-hm--user-churn/20260731T092629_lane-a2
+  family: rel-hm
+  date: '2026-07-31'
+- id: rel-ratebeer--beer-churn/20260801T211237_lane-b2
+  family: rel-ratebeer
+  date: '2026-08-01'
+- id: rel-ratebeer--beer-churn/20260801T214326_lane-b2
+  family: rel-ratebeer
+  date: '2026-08-01'
+- id: rel-ratebeer--user-churn/20260801T224425_lane-a1
+  family: rel-ratebeer
+  date: '2026-08-01'
+- id: rel-ratebeer--user-churn/20260812T183402_lane-c13
+  family: rel-ratebeer
+  date: '2026-08-12'
+- id: rel-stack--user-engagement/20260731T104428_lane-b3
+  family: rel-stack
+  date: '2026-07-31'
+- id: rel-stack--user-engagement/20260810T011603_lane-c5
+  family: rel-stack
+  date: '2026-08-10'
+- id: rel-stack--user-engagement/20260811T003120_lane-c4
+  family: rel-stack
+  date: '2026-08-11'
+- id: rel-stack--user-engagement/20260811T191745_lane-c4
+  family: rel-stack
+  date: '2026-08-11'
+held_out:
+- id: rel-event--user-ignore/20260809T215615_lane-c2
+  family: rel-event
+  date: '2026-08-09'
+- id: rel-event--user-ignore/20260810T214652_lane-c2
+  family: rel-event
+  date: '2026-08-10'
+- id: rel-event--user-ignore/20260812T121029_lane-c11
+  family: rel-event
+  date: '2026-08-12'
+- id: rel-event--user-repeat/20260730T063610_lane-a
+  family: rel-event
+  date: '2026-07-30'
+- id: rel-event--user-repeat/20260730T153525_lane-b1
+  family: rel-event
+  date: '2026-07-30'
+- id: rel-event--user-repeat/20260730T223847_lane-a3
+  family: rel-event
+  date: '2026-07-30'
+- id: rel-event--user-repeat/20260810T160954_lane-c8
+  family: rel-event
+  date: '2026-08-10'
