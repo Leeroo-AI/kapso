@@ -157,6 +157,15 @@ class Bank:
         for path in sorted(self.root.glob("procedures/*/card.md")):
             card = Card.parse(path, self.root)
             self.cards[card.name] = card
+        # retired/ mirrors the active layout; moved, never deleted (§3.1).
+        self.retired_cards: Dict[str, Card] = {}
+        for path in sorted(self.root.glob("retired/insights/*.md")):
+            if path.name != "index.md":
+                card = Card.parse(path, self.root / "retired")
+                self.retired_cards[card.name] = card
+        for path in sorted(self.root.glob("retired/procedures/*/card.md")):
+            card = Card.parse(path, self.root / "retired")
+            self.retired_cards[card.name] = card
 
     @property
     def decoy_names(self) -> set:
