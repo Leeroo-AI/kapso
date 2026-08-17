@@ -64,6 +64,22 @@ good as the forensics behind it, so truth files get human sign-off at
 creation. Fixture construction is a per-phase work item (mined material
 exists from P2, cards from P4), matching the scenarios' phase mapping.
 
+### Concrete candidates known today
+
+Pinned now: **B7** = the wave-4 rel-amazon/user-churn bundle (line-by-line
+forensics already documented in the mining-prompts doc §0). Candidates named:
+**B2/B10** lessons — the wave-4-documented re-derivation case (the resolution
+diagnostic rebuilt per lane) and the 9 practices as truth sources; exact
+instance refs pinned at P2 from the mined views. **B9** — a
+forward-gate-class procedure, chosen at P7 from what P4 carded. **B5** — the
+P2 fixture-candidate hunt (below) searches for a natural cross-dataset
+contradiction; sign-flip doctoring is the fallback. **B1/B3/B4/B6/B8** are
+recipe-only by necessity (their material — founding-bank cards, first-crew
+outputs — exists from P4). The P2 mining reports carry a **fixture-candidate
+hunt**: recurring lessons with ≥2 instance refs, natural opposing-sign
+findings, and procedure recurrences are flagged as they surface, so fixture
+selection is a pick from a documented list, not a search.
+
 ## Reviewer contract
 
 One rubric per scenario, shipped beside its fixture. The reviewer: reads the

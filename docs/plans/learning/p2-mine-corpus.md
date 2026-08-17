@@ -32,6 +32,11 @@ mine <trajectory-id|--all>`.
    (per-trajectory, idempotent, bank-blind — parallelizable per MD§4.1).
 4. **Mining report** per run (MP's mining-report step) — the acceptance
    surface for the human checkpoint.
+5. **Fixture-candidate hunt** (behavior suite): the mining report flags,
+   as they surface across the corpus, recurring lessons with ≥2 instance
+   refs (B2/B10 material), natural opposing-sign findings across datasets
+   (B5), and procedure recurrences (B9) — with refs, so behavior-suite
+   fixtures are picked from a documented list at their phases.
 
 ## Tests
 
