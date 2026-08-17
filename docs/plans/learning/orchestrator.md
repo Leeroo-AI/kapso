@@ -49,7 +49,7 @@ named human checkpoint (if any) is signed off. Gates:
 
 | Phase | Gate |
 |---|---|
-| P1 | 64-archive corpus imported; double-`save_trajectory` idempotent; corrupt manifest raises |
+| P1 | the D1 curated subset imported (concrete list signed off); double-`save_trajectory` idempotent; corrupt manifest raises |
 | P2 | mined views for every imported trajectory; mining report coverage arithmetic green; **human review of first mined views** (MD§8.2) |
 | P3 | hindcast runner admits/rejects the GS§6 worked example exactly (0.45 admitted, 0.50-serving rejected at band 0.20); split checks trip on a family straddling sides; scorecard math reproduces fixtures |
 | P4 | founding bank passes OKF conformance; crew v1 run end-to-end on a learn batch; **human review of first bank commits** (MD§8.4); duplicate+stability traps executed against the crew; keep-best ledger of crew versions started |
