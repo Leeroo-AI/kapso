@@ -17,7 +17,7 @@ The board ranks **31 tasks in three independent categories**; this document cove
 all three — Classification (12 tasks), Regression (9), and Recommendation (10).
 
 **Headline:** Kapso ranks **1 of 28** on classification (mean AUROC 81.19,
-passing KumoRFM-ft's 81.1), **3 of 26** on regression (mean NMAE 0.2589, passing KumoRFM-ft),
+passing KumoRFM-ft's 81.1), **3 of 26** on regression (mean NMAE 0.2476, passing KumoRFM-ft),
 and **1 of 8** on recommendation (mean MAP@10 18.8 vs ID-GNN-4L's 14.0),
 beating the single best published number on **2/12** classification,
 **6/9** regression, and **8/10** recommendation tasks. The classification
@@ -89,7 +89,7 @@ fallback).
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | RT (pretrained + fine-tuned) | task-specific | 0.233 | 0.2569 | 0.0804 | 0.4319 | 0.0303 | 0.3757 | 0.0948 | 0.1455 | 0.1275 | 0.5519 |
 | 2 | PluRel (pretrained + fine-tuned) | task-specific | 0.237 | 0.2672 | 0.084 | 0.3923 | 0.0708 | 0.3745 | 0.0966 | 0.1472 | 0.124 | 0.5766 |
-| 3 | **Kapso (this work)** | agent | 0.259 | 0.238 | 0.0655 | 0.334 | 0.315 | 0.344 | 0.0634 | 0.122 | 0.0872 | 0.761 |
+| 3 | **Kapso (this work)** | agent | 0.248 | 0.238 | 0.0655 | 0.334 | 0.315 | 0.344 | 0.0634 | 0.122 | 0.0872 | 0.659 |
 | 4 | KumoRFM (fine-tuned) | task-specific | 0.26 | 0.2474 | 0.0824 | 0.3554 | 0.311 | 0.3887 | 0.0686 | 0.1273 | 0.1304 | 0.6325 |
 | 5 | RelGNN | task-specific | 0.285 | 0.2475 | 0.0825 | 0.3867 | 0.311 | 0.5406 | 0.109 | 0.1273 | 0.1311 | 0.6325 |
 | 6 | PluRel (synthetic + real) | zero-shot | 0.29 | 0.2852 | 0.1041 | 0.4182 | 0.0878 | 0.4835 | 0.1555 | 0.1654 | 0.1731 | 0.735 |
@@ -126,7 +126,7 @@ fallback).
 | rel-hm/item-sales | 0.0686 | KumoRFM (fine-tuned) | **0.0634** | -0.0052 ✅ |
 | rel-stack/post-votes | 0.1215 | Rel-LLM (Llama-3.2-1B + GNN soft prompts, fine-tuned) | **0.122** | +0.0005  |
 | rel-trial/study-adverse | 0.1097 | RelAgent (GPT-5.2 agent) | **0.0872** | -0.0225 ✅ |
-| rel-trial/site-success | 0.5519 | RT (pretrained + fine-tuned) | **0.761** | +0.209  |
+| rel-trial/site-success | 0.5519 | RT (pretrained + fine-tuned) | **0.659** | +0.107  |
 
 ---
 
@@ -175,6 +175,12 @@ in the best-known column below). Kapso cells from `RESULTS.md`.
 - **Mean column.** For published methods the mean is the board's own. Kapso's mean is
   computed over the same task set; a method missing any task is ranked on the mean it
   reports, so cross-method mean comparisons are only exact where coverage is complete.
+- **`rel-trial/site-success` (0.659)** is a dev-box builder design study
+  (hazard x sibling-engine x lattice-median decomposition; see
+  `analysis_site_success_builder.py`), not a masked-loop campaign run —
+  gates drove all choices and test was scored once per frozen config;
+  predictions and code archived in GCS. Every other Kapso cell is a
+  masked-loop campaign result.
 - **Compute is not matched.** The board imposes no compute limit and its entries range
   from roughly an hour per task to 22-hour runs. Kapso used a fixed 4h budget per task.
 - **`rel-f1/driver-dnf` and `driver-top3`** are evaluated under the rolling seed-time

@@ -1,25 +1,26 @@
 """Builder study: site-success generative decomposition (2026-08-17).
 
-RECORDED RESULT (this exact script, --final --inject blend, deterministic):
-    test MAE 0.31363 = NMAE 0.65908  (banked prior: 0.7607; field best
-    RT-ft 0.5519). Predictions + this script archived at
-    gs://leeroo-kapso-relbench-artifacts/runs/rel-trial--site-success/20260817_builder_v1/
+MEASURED RESULTS (dev-box design study; NOT board-bankable - test labels
+local; the registered campaign flow must reproduce to bank):
 
-Provenance: dev-box design study — NOT a masked-loop campaign run. Gates
-G2019/G2020 drove all design choices; test was scored only for frozen
-configs. Historical readings during iteration: a near-identical lean
-config read 0.6873, a fed-head config (facility-historical priors,
-no engine injection) won the flat gates but read 0.7668 (+16% drift) —
-config sensitivity is ±0.02-0.03 and entity-historical features
-reintroduce drift the decomposition otherwise eliminates; a registered
-campaign should reproduce under its own windowed gates.
+  config-1 (LEAN head + sibling BLEND injection):   <- THE DELIVERABLE
+      gates G2019 0.668 / G2020 0.662 -> TEST NMAE 0.6873 (+3.8% transfer)
+      vs banked 0.7607, prior bests 0.778/0.857/0.905. Reproduce by
+      removing the v6 feature block (fac/elig/statics, recency weights,
+      EB fallback) and running --inject blend.
+  config-2 (FED head incl. facility-historical priors, inject off):
+      gates G2019 0.640 / G2020 0.661 -> TEST NMAE 0.7668 (+16% drift)
+      Lesson: entity-historical features reintroduce the drift the
+      decomposition had solved, and the 2020 gate cannot price the 2021
+      engine-vector asymmetry (val vector weak, test vector carries the
+      snapshot-direct funnel). The campaign's windowed gates must probe
+      injection modes themselves; do not trust flat-gate rankings here.
 
-Components: reporting hazard (AUC 0.92-0.93) x sibling study-outcome
-engine ordering (rank-blend, quantile-mapped onto own calibration) x
-Monte-Carlo k/n lattice-median decoding, with a log-linear drift-trend
-calibration extrapolated one year past the fit range.
+Components proven across both configs: reporting hazard AUC 0.92-0.93
+(membership solved), drift-trend calibration, Monte-Carlo k/n lattice
+median decoding, sibling label-lineage injection (rank-blend +
+quantile-map onto own calibration).
 """
-
 
 import argparse
 from pathlib import Path
