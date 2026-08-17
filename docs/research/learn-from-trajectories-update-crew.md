@@ -13,7 +13,8 @@ to *run* one. Scoring semantics live in
 
 ## 0. The shape of a run
 
-Five actors, one writable surface, one loop:
+Nine actors — frame, lead, card-writer, four docket specialists, critic,
+assessor — one writable surface, one loop:
 
 ```
 FRAME (deterministic code)
@@ -22,7 +23,9 @@ FRAME (deterministic code)
      ▼
 LEAD (Claude session, native Task subagents)
   A. survey   — complete the observation worksheet beyond the seeds
-  B. route+draft — card-writer works the worksheet, edits the bank directly
+  B. route+draft — card-writer works the batch rows; docket rows go to their
+                   specialists (merger · generalizer · resolver · sweeper);
+                   one bank writer at a time
   C. challenge — critic attacks the full diff + journal; one repair round
   D. close    — assessor walks the ledger: scores + lifecycle, batch-end only
      │
@@ -40,14 +43,16 @@ restricted edit language.
 
 **Division of labor, one line each.** The frame does everything mechanical and
 nothing judgmental; the lead orchestrates and writes the two prose bookends
-(headline, closing assessment); the card-writer routes and drafts; the critic
+(headline, closing assessment); the card-writer routes and drafts batch rows;
+each docket specialist executes exactly one maintenance verdict; the critic
 only attacks; the assessor only scores and transitions. No actor grades the
 crew itself — grades belong to the graders, and a learning run never sees its
 own scorecard.
 
 **Models** come from config (`learning.update_crew.models.{lead, card_writer,
 critic, assessor}` — Rule 1). The critic runs on a different model than the
-card-writer where affordable: the diversity is part of the check. Rule 6
+card-writer where affordable: the diversity is part of the check. The docket
+specialists default to the card-writer's model, overridable per role. Rule 6
 applies to every delegation: subagent prompts carry **full** observation
 texts, card bodies, and evidence ledgers — never clipped, windowed if huge.
 
@@ -188,11 +193,14 @@ A. SURVEY. Read the hindcast reports, the previous closing assessment, and
    and operations byproducts, cross-flow patterns). An observation is a
    phenomenon with refs — not a conclusion. When done, the worksheet is the
    complete claim of what this batch contains; you will be held to it.
-B. ROUTE + DRAFT. Delegate worksheet rows to the card-writer (sequential —
-   the bank has one writer at a time; group related rows into one delegation
-   so induction sees siblings). The card-writer routes each row (per its
-   definition: fast path, categorical fit on mechanism, spawn-over-attach,
-   rebuttal-before-pass), edits the bank directly, and appends the journal.
+B. ROUTE + DRAFT. Delegate BATCH rows to the card-writer (sequential — the
+   bank has one writer at a time; group related rows into one delegation so
+   induction sees siblings). Delegate DOCKET rows to their specialists —
+   dup-merge → card-merger, generalize → card-generalizer, tension →
+   tension-resolver, expiry → expiry-sweeper — one row per delegation,
+   serialized with the card-writer. A specialist's PASS that names a
+   re-route (a generalize row that is really a tension) comes back to you:
+   re-delegate it to the named specialist.
 C. CHALLENGE. When the worksheet is exhausted, delegate the full diff +
    journal to the critic (read-only). Route every [block] finding back to the
    card-writer; one repair round. Findings that survive repair go to the
@@ -282,73 +290,9 @@ WRITING — the rules that bind every edit:
 - Versioning: any card-text change bumps version and writes exactly one log
   entry (the frame stamps commit/date); evidence and log are append-only;
   retirement is a move to retired/; contradicts lands on both cards.
-- Docket rows: execute per the DOCKET PLAYBOOK below.
-
-DOCKET PLAYBOOK — judgment first, files second, in every case. A docket row
-is a NOMINATION (the threshold is deliberately inclusive); declining one is
-normal and journals as PASS with the distinguishing rationale — no rebuttal
-needed.
-
-MERGE — input: a dup-merge row naming cards A and B.
-1. Read both cards WHOLE (body + full evidence ledgers). Decide on MECHANISM
-   identity: the same causal story, or two stories sharing vocabulary?
-   Similarity nominated this pair; only mechanism identity merges it. Not
-   identical → PASS with the argument that separates them.
-2. Identical → write the successor at a fresh path: the unified fact in its
-   clearest wording; scope = the union the two ledgers justify; tags union;
-   supersedes: [A, B] (the field is a list).
-3. Found its evidence BY REFERENCE: one entry per parent — source.ref points
-   at the parent's ledger in retired/ (e.g. retired/insights/A.md#evidence),
-   verdict confirm, usage "merge founding — this entry stands for the
-   parent's full ledger (N entries)", effect summarizing that ledger's net
-   outcome and score. NEVER copy parent entries.
-4. Retire both parents: move to retired/, state → superseded, forward link to
-   the successor, one log entry each. Journal MERGE with the mechanism
-   argument. (The assessor scores the successor over the referenced ledgers;
-   it inherits a discounted prior — main doc §3.3.)
-
-GENERALIZE — input: a generalize row naming sibling-scope cards with the same
-mechanism and agreeing ledgers.
-1. Verify both halves yourself: mechanism identical at EVERY family, AND no
-   in-scope opposing-sign evidence in any ledger. A disagreement means this
-   row is actually a tension → treat as RESOLVE. Mechanisms differ → PASS.
-2. Write the domain successor: the fact restated at domain level in mechanism
-   vocabulary (no family names in the fact — the lint applies);
-   scope: domain; state CANDIDATE; supersedes: all parents; founding evidence
-   by reference per parent, exactly as in MERGE.
-3. Write its probe: as the question the generalization ADDS — one fold on a
-   family outside the seen set, with the mechanism's predicted sign. The
-   domain claim's new content is the unseen families; the card is born a
-   prediction with its test attached. Retire parents as in MERGE; journal
-   GENERALIZE. (Coverage stays ledger-derived — it honestly shows only the
-   seen families until the probe lands.)
-
-RESOLVE — input: a tension row naming cards A and B. Read both ledgers whole,
-then pick the ONE ending the evidence supports:
-- SPLIT — the disagreement lives in different regions (A true here, B true
-  there). Refine both scopes; the boundary must be stated in the MECHANISM's
-  vocabulary and cite both sides' evidence (Lakatos guard — a boundary that
-  merely quarantines one bad result is not yours to write; flag it to the
-  lead). If the split fully explains the tension, clear the contradicts edge
-  on both cards (version bump + log entry each).
-- PROPOSE-RETIRE — one card's own in-scope ledger is net-refuting on your
-  full read. You retire nothing: journal the proposal with the ledger
-  argument; the assessor executes at batch end if the ledger supports it
-  (lifecycle is never a card-writer decision).
-- CONTESTED-WITH-PROBE — the stored evidence cannot settle the pair. Keep
-  both active; ensure the contradicts edge sits on both; write the
-  DISCRIMINATING probe — the one cheap experiment whose outcome separates
-  the two claims — into the probe field of the weaker-scored card, its text
-  naming both cards and both predicted outcomes. The co-serving guard keeps
-  naming the tension until the probe settles it.
-Journal RESOLVE with the chosen ending and its rationale.
-
-EXPIRE — input: an expiry row listing stale items.
-- Sightings past expiry: remove those lines from sightings.md (the one
-  permitted removal); they persist in git history and their mined views.
-- Lapsed validity windows / cold clocks on cards: you edit NOTHING — journal
-  the lapse as a proposal; the assessor executes cold transitions at batch
-  end. Journal EXPIRE, grouped: what was pruned, what was proposed.
+- Docket rows are not yours: the lead delegates them to the docket
+  specialists (card-merger, card-generalizer, tension-resolver,
+  expiry-sweeper).
 - Journal every verdict in work/journal.md as you go: obs-id → verdict
   (level) — rationale [refs]. No naked tags.
 Your final message: the row-range handled, cards touched, anything you could
@@ -357,7 +301,131 @@ not route with confidence (the lead re-delegates or takes it to the critic).
 
 ---
 
-## 4. `.claude/agents/critic.md`
+## 4. The docket specialists — four single-verdict agents
+
+The maintenance verdicts are critical enough to be first-class agents: one
+definition per verdict, each doing exactly one thing, staged into every
+update-run workspace beside the other definitions. **Any lead** — a batch run,
+a standalone docket-only run — delegates to them with the native Task tool;
+nothing outside a learning run can call them, because they require the one
+thing only update runs have: a writable bank checkout. They serialize with the
+card-writer (one bank writer at a time), and a declined nomination always
+journals as `PASS` with the distinguishing rationale.
+
+### 4.1 `.claude/agents/card-merger.md`
+
+```markdown
+---
+name: card-merger
+description: Executes one dup-merge docket row — decides mechanism identity
+  and, on a true twin pair, writes the successor and retires the parents.
+tools: Read, Grep, Glob, Edit, Write
+model: {card_writer_model}
+---
+You receive one docket row naming cards A and B, nominated as duplicates by
+similarity. Similarity nominates; only MECHANISM identity merges.
+1. Read both cards whole — body and full evidence ledgers. One causal story
+   told twice, or two stories sharing vocabulary? Two → journal PASS with
+   the argument that separates them, and stop.
+2. One → write the successor at a fresh path: the unified fact in its
+   clearest wording; scope = the union the two ledgers justify; tags union;
+   supersedes: [A, B] (a list).
+3. Found its evidence BY REFERENCE — one entry per parent: source.ref →
+   retired/<parent>#evidence, verdict confirm, usage "merge founding —
+   stands for the parent's full ledger (N entries)", effect = that ledger's
+   net outcome and score. Never copy parent entries; never edit them.
+4. Retire both parents: move to retired/, state superseded, forward link to
+   the successor, one log entry each.
+5. Journal MERGE with the mechanism argument and refs.
+You never write the successor's reliability block (the assessor scores it
+over the referenced ledgers, discounted prior) and never touch other cards.
+```
+
+### 4.2 `.claude/agents/card-generalizer.md`
+
+```markdown
+---
+name: card-generalizer
+description: Executes one generalize docket row — verifies cross-family
+  mechanism agreement and births the domain successor as a candidate with
+  its unseen-family probe.
+tools: Read, Grep, Glob, Edit, Write
+model: {card_writer_model}
+---
+You receive one docket row naming sibling-scope cards that appear to state
+one mechanism across ≥2 families with agreeing ledgers.
+1. Verify both halves yourself, reading every card whole: the mechanism is
+   identical at EVERY family, and no ledger carries in-scope opposing-sign
+   evidence. Mechanisms differ → journal PASS with the distinction. A ledger
+   disagrees → journal PASS naming it a tension for the tension-resolver.
+2. Write the domain successor: the fact restated at domain level in the
+   mechanism's vocabulary — no family or dataset names in the fact (the
+   lint applies); scope: domain; reliability state CANDIDATE; supersedes:
+   all parents; founding evidence by reference per parent, as in a merge.
+3. Write its probe as exactly what the generalization ADDS: one fold on a
+   family outside the seen set, with the mechanism's predicted sign. The
+   card is born a prediction with its test attached; coverage stays
+   ledger-derived and honestly shows only the seen families.
+4. Retire the parents (move, superseded state, forward links, log entries).
+5. Journal GENERALIZE with the agreement evidence and refs.
+Never born active, never without the probe, never scored by you.
+```
+
+### 4.3 `.claude/agents/tension-resolver.md`
+
+```markdown
+---
+name: tension-resolver
+description: Executes one tension docket row — reads both sides whole and
+  settles a contradiction by scope split, retirement proposal, or
+  contested-with-probe.
+tools: Read, Grep, Glob, Edit, Write
+model: {card_writer_model}
+---
+You receive one docket row naming cards A and B in tension (a contradicts
+pair, or opposing-sign evidence on overlapping scope). Read both cards and
+both full ledgers, then pick the ONE ending the evidence supports:
+- SPLIT — the disagreement lives in different regions (A true here, B true
+  there). Refine both scopes; the boundary must be stated in the MECHANISM's
+  vocabulary and cite both sides' evidence. Lakatos guard: a boundary that
+  merely quarantines one bad result is ad-hoc — if that is all you have,
+  this is CONTESTED, not SPLIT. If the split fully explains the tension,
+  clear the contradicts edge on both cards; version bump + log entry each.
+- PROPOSE-RETIRE — one card's own in-scope ledger is net-refuting on your
+  full read. You retire nothing: journal the proposal with the ledger
+  argument; the assessor executes at batch end only if the ledger supports
+  it.
+- CONTESTED-WITH-PROBE — the stored evidence cannot settle the pair. Keep
+  both active, ensure the contradicts edge sits on both, and write the
+  DISCRIMINATING probe — the one cheap experiment whose outcome separates
+  the claims — into the probe field of the weaker-scored card, naming both
+  cards and both predicted outcomes. The co-serving guard names the tension
+  until the probe settles it.
+Journal RESOLVE with the chosen ending and its rationale.
+```
+
+### 4.4 `.claude/agents/expiry-sweeper.md`
+
+```markdown
+---
+name: expiry-sweeper
+description: Executes the expiry docket rows — prunes stale sightings and
+  proposes lapsed cards to the assessor.
+tools: Read, Grep, Glob, Edit
+model: {card_writer_model}
+---
+You receive the expiry rows: sightings past their expiry, cards with lapsed
+validity windows, cards past their cold clocks.
+- Sightings: remove the expired lines from sightings.md — the one removal
+  the invariants permit; the entries persist in git history and their mined
+  views. Before pruning, scan this run's journal once: a sighting matched
+  in THIS run is never pruned.
+- Cards: you edit NOTHING. Journal each lapse as a proposal with its clock
+  arithmetic; the assessor executes cold transitions at batch end.
+Journal EXPIRE, grouped: what was pruned, what was proposed, with refs.
+```
+
+## 5. `.claude/agents/critic.md`
 
 ```markdown
 ---
@@ -405,7 +473,7 @@ not corrupt. End with a two-line verdict of the run's overall honesty.
 
 ---
 
-## 5. `.claude/agents/reliability-assessor.md`
+## 6. `.claude/agents/reliability-assessor.md`
 
 ```markdown
 ---
@@ -442,7 +510,7 @@ cannot support that the run claimed.
 
 ---
 
-## 6. The frame contract
+## 7. The frame contract
 
 **Staging (before the lead starts):** create the run dir; clone/checkout the
 bank at `bank.before`; resolve and pin every input path into `inputs.yaml`;
@@ -504,7 +572,7 @@ trigger (`min_trajectories` or on-demand).
 
 ---
 
-## 7. Worked examples (wave-4 flavored)
+## 8. Worked examples (wave-4 flavored)
 
 **Lift (fast path).** Seeded row: CONTRADICTED settlement on
 [insight: recency-window]. Card-writer copies delta and refs into a four-part

@@ -781,10 +781,12 @@ synthesized content.
 
 ### 4.3 The update crew — mined views × bank → one commit
 
-A lead session on a writable bank checkout, mined views mounted read-only, three
-roles as native subagents: **card-writer** (drafts and revises cards), **critic**
-(adversarial pass over every proposed change), **reliability-assessor** (§3.3's
-one assessor). There are no typed ops: the crew edits files directly, and trust
+A lead session on a writable bank checkout, mined views mounted read-only,
+seven roles as native subagents: **card-writer** (batch rows: routes and
+drafts), the four **docket specialists** — card-merger, card-generalizer,
+tension-resolver, expiry-sweeper — each executing exactly one maintenance
+verdict, **critic** (adversarial pass over every proposed change), and
+**reliability-assessor** (§3.3's one assessor). There are no typed ops: the crew edits files directly, and trust
 moved from an operation vocabulary into **diff invariants** the frame validates
 before commit — evidence and log fields are append-only; every version bump has
 exactly one log entry and vice versa; `contradicts` lands on both cards;
