@@ -95,9 +95,9 @@ All doubts resolved 2026-08-17 (user review). Resolutions are binding.
 
 | Plan | Status | Last commit |
 |---|---|---|
-| P1 trajectory store | code + tests done (store, importer, CLI, P1.G harvest); D1 corpus import running | 958a7cdb |
-| P2 mine corpus | frame + crew material + tests done; real mining runs await corpus + smoke-mine review | d64f7bfc |
-| P3 grader suite | code + tests done (hindcast, split checks, scorecard math, gauntlet harness, bank read model, push core, grading frame + crew prompts); split-v1 instance awaits imported corpus | 517f68d2 |
+| P1 trajectory store | GATE CLOSED — 19/21 imported (2 failed validation with named findings: item-churn archive lacks its work dir; one user-repeat tarball carries two work dirs); import report in learning/imports/ | 578c619d |
+| P2 mine corpus | smoke-mine v2 GREEN on wave-4 (19 flows, all 22 runs claimed, repair loop exercised; two crew fixes landed: foreground-only delegation, refs label collision); mined view awaiting human review, then batch mining | 1650aed2 |
+| P3 grader suite | code + tests done; split v1 committed (12 learn / 7 held-out, validated against the store) | 578c619d |
 | P4 bank + update crew | frame code + tests done (bank read/write model, diff invariants + evidence admission, update frame + crew instruction set, development driver, keep-best ledger); founding bank + real crew runs await mined corpus | fe767ac6 |
 | P5 serving | push core done early (P3, hindcast dependency); pull tools + evolve edits pending | 09b6954c |
 | P6 probes + arms | not started | — |
