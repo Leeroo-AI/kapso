@@ -246,3 +246,9 @@ benchmarks/posttrain/gcp/results_fetched/
 # (gs://leeroo-kapso-relbench-artifacts/runs/), so git carries the claim's
 # code + final_report.json and not the raw arrays.
 benchmarks/relbench/claims/**/*.npy
+
+# Learning: local trajectory store mirror + run-dir home (docs/plans/learning,
+# doubts D2/D6) — large, regenerable from GCS / operational output.
+# Root-anchored: src/kapso/learning (code) and docs/plans/learning stay tracked.
+/data/trajectories/
+/learning/

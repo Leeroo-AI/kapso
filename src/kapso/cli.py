@@ -6,14 +6,14 @@
 # Commands:
 #     evolve    - Build software from goals
 #     research  - Web research for objectives
-#     learn     - Learn from knowledge sources
+#     learn     - Trajectory learning (store, mining, updating, grading)
 #     deploy    - Deploy solutions
 #     index_kg  - Index knowledge graph
 #
 # Usage:
 #     kapso evolve --goal "Build a web scraper..."
 #     kapso research --objective "How to optimize transformers?"
-#     kapso learn --repo https://github.com/user/repo
+#     kapso learn import --subset docs/plans/learning/d1-subset.yaml
 #     kapso deploy --solution-path ./solution
 #     kapso index_kg --wiki-dir ./data/wikis --save-to ./data/indexes/ml.index
 
@@ -24,8 +24,11 @@ from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 
-from kapso.kapso import Kapso, Source, DeployStrategy
+from kapso.kapso import Kapso, Source, DeployStrategy, DEFAULT_CONFIG_PATH
+from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.learning.corpus_import import import_archive, import_subset
+from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.researcher import ResearchMode, ResearchDepth
 
 
@@ -173,45 +176,22 @@ def cmd_research(args) -> None:
 
 
 def cmd_learn(args) -> None:
-    """Handle the learn command - learn from knowledge sources."""
-    sources = []
-    
-    # Collect sources from arguments
-    if args.repo:
-        for repo_url in args.repo:
-            sources.append(Source.Repo(repo_url))
-    
-    if args.solution:
-        for solution_path in args.solution:
-            sources.append(Source.Solution(solution_path))
-    
-    if not sources:
-        print("Error: At least one source required (--repo or --solution)")
-        sys.exit(1)
-    
-    # Create Kapso instance with optional KG index
-    kapso = Kapso(kg_index=args.kg_index)
-    
-    # Run learning pipeline
-    result = kapso.learn(
-        *sources,
-        wiki_dir=args.wiki_dir,
-        skip_merge=args.skip_merge,
-        kg_index=args.kg_index,
-    )
-    
-    # Print summary
-    print("\n" + "=" * 60)
-    print("LEARN COMPLETE")
-    print("=" * 60)
-    print(f"Sources processed: {result.sources_processed}")
-    print(f"Pages extracted: {result.total_pages_extracted}")
-    print(f"Created: {result.created}")
-    print(f"Edited: {result.edited}")
-    if result.errors:
-        print(f"Errors: {len(result.errors)}")
-        for err in result.errors[:5]:  # Show first 5 errors
-            print(f"  - {err}")
+    """Handle the learn command group — the learn-from-trajectories system."""
+    config = load_config(args.config or DEFAULT_CONFIG_PATH)
+    if args.learn_command == "import":
+        store = TrajectoryStore.from_config(config)
+        upload = False if args.no_upload else None
+        if bool(args.subset) == bool(args.archive):
+            print("Error: exactly one of --subset or --archive is required")
+            sys.exit(1)
+        if args.subset:
+            report_path = import_subset(
+                store, args.subset, config["learning"]["import_report_dir"], upload
+            )
+            print(f"Import report: {report_path}")
+        else:
+            outcome = import_archive(store, args.archive, args.id, upload)
+            print(f"{outcome['id']}: {outcome['status']}")
 
 
 def cmd_deploy(args) -> None:
@@ -316,7 +296,7 @@ def main():
 Commands:
   evolve     Build software from goals using experimentation
   research   Web research for objectives
-  learn      Learn from knowledge sources (repos, solutions)
+  learn      Trajectory learning (store, mining, updating, grading)
   deploy     Deploy solutions as running software
   index_kg   Index knowledge graph from wiki or JSON data
 
@@ -328,7 +308,7 @@ Examples:
   kapso research --objective "How to optimize transformers?"
   
   # Learn from a repository
-  kapso learn --repo https://github.com/user/repo
+  kapso learn import --subset docs/plans/learning/d1-subset.yaml
   
   # Deploy a solution
   kapso deploy --solution-path ./solution --strategy local
@@ -434,28 +414,31 @@ Examples:
     research_parser.add_argument("-o", "--output", type=str, help="Output file for results (JSON)")
     
     # =========================================================================
-    # LEARN command
+    # LEARN command group — the learn-from-trajectories system
+    # (docs/research/learn-from-trajectories-design.md; supersedes the old
+    # wiki-source learner CLI per design §0 / Rule 7)
     # =========================================================================
     learn_parser = subparsers.add_parser(
         "learn",
-        help="Learn from knowledge sources",
+        help="Trajectory learning: store, mining, updating, grading, serving",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  kapso learn --repo https://github.com/user/repo
-  kapso learn --repo https://github.com/user/repo1 --repo https://github.com/user/repo2
-  kapso learn --solution ./my_solution --wiki-dir ./data/wikis
+  kapso learn import --subset docs/plans/learning/d1-subset.yaml
+  kapso learn import --archive gs://bucket/runs/rel-hm--user-churn/20260731T092629_lane-a2.tgz
 """
     )
-    
-    # Source options (can specify multiple)
-    learn_parser.add_argument("--repo", type=str, action="append", help="Repository URL (can specify multiple)")
-    learn_parser.add_argument("--solution", type=str, action="append", help="Solution path (can specify multiple)")
-    
-    # Learning options
-    learn_parser.add_argument("--wiki-dir", type=str, default="data/wikis", help="Wiki directory (default: data/wikis)")
-    learn_parser.add_argument("--skip-merge", action="store_true", help="Skip merging into KG backends")
-    learn_parser.add_argument("--kg-index", type=str, help="Path to KG index file")
+    learn_sub = learn_parser.add_subparsers(dest="learn_command", required=True)
+
+    learn_import = learn_sub.add_parser(
+        "import",
+        help="Import archived campaign tarballs into the trajectory store",
+    )
+    learn_import.add_argument("--subset", type=str, help="Subset YAML (trajectories: [{id, archive, role}])")
+    learn_import.add_argument("--archive", type=str, help="One archive URI/path (.tgz)")
+    learn_import.add_argument("--id", type=str, help="Trajectory id override for --archive")
+    learn_import.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+    learn_import.add_argument("--no-upload", action="store_true", help="Skip remote upload even if configured")
     
     # =========================================================================
     # DEPLOY command

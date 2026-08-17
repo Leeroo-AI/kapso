@@ -175,3 +175,21 @@ modes:
         auth_mode: "bedrock"
         aws_region: "us-east-1"
         timeout: 1800
+
+# =============================================================================
+# Learning — the learn-from-trajectories system
+# Design: docs/research/learn-from-trajectories-design.md; build plan:
+# docs/plans/learning/orchestrator.md. Keys land phase by phase; this file is
+# the single source for every learning knob (Rule 1).
+# =============================================================================
+learning:
+  trajectory_store:
+    # Identity-addressed campaign bundles (design §3.4). `local` is the
+    # cache-through mirror and, until `remote` is configured (P5 per doubt
+    # D2), the whole store. Relative paths resolve against the CWD; the
+    # shipped default assumes repo-root invocation.
+    local: data/trajectories
+    remote: null
+  # Import reports land under the run-dir home (doubt D6: repo-root
+  # `learning/`, gitignored, synced to the artifacts bucket).
+  import_report_dir: learning/imports

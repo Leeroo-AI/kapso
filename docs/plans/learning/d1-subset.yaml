@@ -1,0 +1,92 @@
+# D1 corpus subset — the curated related trajectory set (orchestrator doubt D1).
+#
+# Selection rule (resolved 2026-08-17): task families with the densest
+# multi-run history spanning >=2 datasets that share a task type — the
+# churn / entity-activity binary-classification cluster — plus one sibling
+# family on an unseen dataset reserved for held-out. Enumerated from the
+# artifacts bucket + benchmarks/relbench/RESULTS.md on 2026-08-17.
+#
+# Learn side (13): churn-mechanism tasks across four datasets, with real
+# same-task recurrence (rel-amazon/user-churn x3 stamps, rel-stack/
+# user-engagement x4, rel-ratebeer x2+2). Held-out side (8): rel-event —
+# a dataset absent from the learn side — user-repeat (all 5 stamps) and
+# user-ignore (latest 3), spanning 2026-07-30 -> 2026-08-12 for the time
+# axis. Excluded: rel-amazon--user-churn/20260811T203800_lane-c10-CRASH-
+# partial.tgz (infra death — quarantined telemetry, mined only for
+# pitfalls if ever needed). Easy extension if more learn density is
+# wanted: rel-stack--user-badge (4 stamps).
+#
+# `role` is advisory input to the P3 split manifest (family+time rule);
+# the split manifest, not this file, is the exam's authority.
+
+trajectories:
+  # --- learn: rel-amazon user-churn (3 stamps — the recurrence anchor; the
+  #     20260813 stamp is the wave-4 forensics bundle, also behavior-suite B7)
+  - {id: rel-amazon--user-churn/20260731T210811_lane-b2,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/20260731T210811_lane-b2.tgz,
+     role: learn}
+  - {id: rel-amazon--user-churn/20260812T091402_lane-c10,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/20260812T091402_lane-c10.tgz,
+     role: learn}
+  - {id: rel-amazon--user-churn/20260813T015420_lane-c10,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--user-churn/20260813T015420_lane-c10.tgz,
+     role: learn}
+  # --- learn: rel-amazon item-churn (entity-churn sibling, same dataset)
+  - {id: rel-amazon--item-churn/20260731T211833_lane-b3,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-amazon--item-churn/20260731T211833_lane-b3.tgz,
+     role: learn}
+  # --- learn: rel-hm user-churn (churn on a second dataset)
+  - {id: rel-hm--user-churn/20260731T092629_lane-a2,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-hm--user-churn/20260731T092629_lane-a2.tgz,
+     role: learn}
+  # --- learn: rel-ratebeer user-churn + beer-churn (third dataset, x2 each)
+  - {id: rel-ratebeer--user-churn/20260801T224425_lane-a1,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-churn/20260801T224425_lane-a1.tgz,
+     role: learn}
+  - {id: rel-ratebeer--user-churn/20260812T183402_lane-c13,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--user-churn/20260812T183402_lane-c13.tgz,
+     role: learn}
+  - {id: rel-ratebeer--beer-churn/20260801T211237_lane-b2,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--beer-churn/20260801T211237_lane-b2.tgz,
+     role: learn}
+  - {id: rel-ratebeer--beer-churn/20260801T214326_lane-b2,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-ratebeer--beer-churn/20260801T214326_lane-b2.tgz,
+     role: learn}
+  # --- learn: rel-stack user-engagement (activity sibling, fourth dataset, x4)
+  - {id: rel-stack--user-engagement/20260731T104428_lane-b3,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260731T104428_lane-b3.tgz,
+     role: learn}
+  - {id: rel-stack--user-engagement/20260810T011603_lane-c5,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260810T011603_lane-c5.tgz,
+     role: learn}
+  - {id: rel-stack--user-engagement/20260811T003120_lane-c4,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260811T003120_lane-c4.tgz,
+     role: learn}
+  - {id: rel-stack--user-engagement/20260811T191745_lane-c4,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-stack--user-engagement/20260811T191745_lane-c4.tgz,
+     role: learn}
+  # --- held-out: rel-event (unseen dataset; sibling binary user-activity tasks)
+  - {id: rel-event--user-repeat/20260730T063610_lane-a,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T063610_lane-a.tgz,
+     role: held_out}
+  - {id: rel-event--user-repeat/20260730T153525_lane-b1,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T153525_lane-b1.tgz,
+     role: held_out}
+  - {id: rel-event--user-repeat/20260730T223847_lane-a3,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260730T223847_lane-a3.tgz,
+     role: held_out}
+  - {id: rel-event--user-repeat/20260810T090457_lane-c8,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260810T090457_lane-c8.tgz,
+     role: held_out}
+  - {id: rel-event--user-repeat/20260810T160954_lane-c8,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-repeat/20260810T160954_lane-c8.tgz,
+     role: held_out}
+  - {id: rel-event--user-ignore/20260809T215615_lane-c2,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260809T215615_lane-c2.tgz,
+     role: held_out}
+  - {id: rel-event--user-ignore/20260810T214652_lane-c2,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260810T214652_lane-c2.tgz,
+     role: held_out}
+  - {id: rel-event--user-ignore/20260812T121029_lane-c11,
+     archive: gs://leeroo-kapso-relbench-artifacts/runs/rel-event--user-ignore/20260812T121029_lane-c11.tgz,
+     role: held_out}
