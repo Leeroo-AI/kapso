@@ -260,3 +260,10 @@ learning:
     dup_nominate_jaccard: 0.5
     sightings_expiry_batches: 6
     run_root: learning/runs
+  develop:
+    # The development regime (design §4.4): disposable banks, chronological
+    # exam-then-ingest replay of the learn set, keep-best banking of learner
+    # versions.
+    batch_size: 3
+    run_root: learning/develop
+    versions_ledger: learning/versions.yaml

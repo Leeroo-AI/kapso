@@ -30,6 +30,7 @@ from kapso.kapso import Kapso, Source, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
+from kapso.learning.develop import DevelopmentDriver
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.graders.split import assert_batch_disjoint, load_split, validate_split
 from kapso.learning.update_frame import UpdateFrame, init_bank
@@ -254,6 +255,18 @@ def cmd_learn(args) -> None:
     elif args.learn_command == "init-bank":
         init_bank(config["learning"]["bank"]["local_path"])
         print(f"Bank home created: {config['learning']['bank']['local_path']}")
+    elif args.learn_command == "develop":
+        store = TrajectoryStore.from_config(config)
+        split = load_split(args.split)
+        findings = validate_split(split, store.list_manifests())
+        if findings:
+            print("Split validation failed:")
+            for finding in findings:
+                print(f"  - {finding}")
+            sys.exit(1)
+        driver = DevelopmentDriver(store, config)
+        scorecard_dir = driver.run(split, args.learner_version)
+        print(f"Scorecard: {scorecard_dir / 'scorecard.yaml'}")
 
 
 def cmd_deploy(args) -> None:
@@ -536,6 +549,14 @@ Examples:
         "init-bank", help="Create the bank home (bare repo + founding skeleton)"
     )
     learn_init_bank.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_develop = learn_sub.add_parser(
+        "develop",
+        help="Run one learner version through the development regime (fresh bank, learn-set replay, held-out exam)",
+    )
+    learn_develop.add_argument("--split", type=str, required=True, help="Split manifest")
+    learn_develop.add_argument("--learner-version", type=str, required=True, help="Crew version identifier")
+    learn_develop.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     
     # =========================================================================
     # DEPLOY command
