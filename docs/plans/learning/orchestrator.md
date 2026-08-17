@@ -62,6 +62,13 @@ green** (`behavior-tests.md`): semantic production tests of the real
 machinery on known-truth fixtures, judged by an agentic reviewer — a FAIL
 blocks exactly as a gauntlet gate does.
 
+**Checkpoint waiver (user directive 2026-08-17):** the remaining human
+checkpoints (P4 first-bank-commits review, behavior truth.md sign-offs) are
+delegated to rigorous self-review — performed, documented in the run
+artifacts and ledger, and reported after the fact; the build continues
+without blocking on them. The P2 mined-view review was performed by the user
+(accepted).
+
 ## Standing rules (bind every implementer)
 
 CLAUDE.md Rules 1–11 verbatim — most-cited here: config-single-source (every
