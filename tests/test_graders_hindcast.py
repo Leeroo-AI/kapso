@@ -268,3 +268,19 @@ def test_batch_disjointness_twin_check(tmp_path):
         assert_batch_disjoint(
             split, ["rel-event--user-repeat/20260103T000000_lane-t3"]
         )
+
+
+def test_bare_bracket_refs_exclude_markdown_link_labels():
+    # Regression (first live mining run): a markdown link whose LABEL is
+    # slash-shaped (an HF model id) must not parse as a path ref — only the
+    # link target counts.
+    from kapso.learning.refs import extract_refs
+
+    text = ("Used [Qwen/Qwen2.5-7B](https://huggingface.co/Qwen/Qwen2.5-7B) "
+            "per [runs/run_0019/manifest.txt] and "
+            "[label](runs/run_0019/metrics.json).")
+    refs = extract_refs(text)
+    assert "runs/run_0019/manifest.txt" in refs
+    assert "runs/run_0019/metrics.json" in refs
+    assert "https://huggingface.co/Qwen/Qwen2.5-7B" in refs
+    assert "Qwen/Qwen2.5-7B" not in refs

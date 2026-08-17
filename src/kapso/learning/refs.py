@@ -11,7 +11,12 @@ import re
 from typing import List
 
 _MD_LINK = re.compile(r"\]\(([^)\s]+)\)")
-_BARE_BRACKET_REF = re.compile(r"\[([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+(?:#[^\[\]]*)?)\]")
+# The negative lookahead keeps markdown-link LABELS out: in
+# `[Qwen/Qwen2.5-7B](https://...)` the bracket is a label, not a ref —
+# only the (...) target is (matched by _MD_LINK above).
+_BARE_BRACKET_REF = re.compile(
+    r"\[([A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+(?:#[^\[\]]*)?)\](?!\()"
+)
 
 
 def extract_refs(text: str) -> List[str]:
