@@ -13,7 +13,9 @@ item, never the phase.
 
 **Plan hierarchy** (this dir): `p1-trajectory-store.md` → `p2-mine-corpus.md`
 → `p3-grader-suite.md` → `p4-bank-update-crew.md` → `p5-serving.md` →
-`p6-probes-arms.md` → `p7-codify.md`. Order is MD§8's forced build order —
+`p6-probes-arms.md` → `p7-codify.md`, plus the cross-phase
+`behavior-tests.md` (the semantic production suite — scenarios land with
+their phases per its mapping table). Order is MD§8's forced build order —
 *the graders exist before the thing they grade* — with two clarifications
 the phase texts carry: the retriever's **push core is P3 infrastructure**
 (the hindcast compiles would-have-been briefs with the real push path, GS§1;
@@ -55,6 +57,11 @@ named human checkpoint (if any) is signed off. Gates:
 | P6 | first probe served under budget; A/B runner executes a candidate-vs-incumbent pair end to end |
 | P7 | forward-gate-class procedure codified on a real card: green codify run, flip in transaction, freshness re-run green |
 
+From P3 onward a phase gate additionally requires **its behavior scenarios
+green** (`behavior-tests.md`): semantic production tests of the real
+machinery on known-truth fixtures, judged by an agentic reviewer — a FAIL
+blocks exactly as a gauntlet gate does.
+
 ## Standing rules (bind every implementer)
 
 CLAUDE.md Rules 1–11 verbatim — most-cited here: config-single-source (every
@@ -71,20 +78,18 @@ items P1.G and P5.2 exist for exactly this.
 
 ## Doubt register
 
-Every under-determined point, with the proposed default. OPEN doubts block
-only their own work item. Confirmed answers get recorded here (status →
-RESOLVED: answer) and are then binding.
+All doubts resolved 2026-08-17 (user review). Resolutions are binding.
 
-| # | Doubt | Proposed default | Status |
-|---|---|---|---|
-| D1 | **Corpus inventory.** RESULTS.md carries 64 per-run `.tgz` refs across waves. Import all that pass bundle validation, or curate (e.g., drop earliest-wave bundles with thin contracts)? | Import **all recoverable**; mining's explicit-gap policies (MP) absorb thin bundles | OPEN |
-| D2 | **Store location + duplicate storage.** MD§3.4 reuses the artifacts bucket. Propose store prefix `gs://leeroo-kapso-relbench-artifacts/trajectories/` (unpacked, manifest-last) while the original `.tgz` stay — storage duplicates. Alternative: local-only store during development, remote sync later. | **Local-first store** for P1–P4; remote prefix created at P5 | OPEN |
-| D3 | **Bank repo host.** MD§3.1: standalone private repo `kapso-bank-relbench`. Which org (Leeroo-AI?), and when — P4 can run on a local git repo, remote needed for multi-box serving at P5. | Local git repo at P4; private GitHub repo under the org at P5 | OPEN |
-| D4 | **Models per role** (user-owned decision, standing rule). Crews are Claude-led (UC§0); critic/verifier "second model where affordable". Which concrete models for lead / card-writer & report-writer / critic & verifier / assessors? | Placeholders in config, values set by you before P2's first mining run | OPEN |
-| D5 | **Framework-core approvals.** (a) P1.G: runner-capture additions — archive the selector pool, workspace `.kapso`, shared cache (MD§3.4.1). (b) P5.2: the §5.3 evolve edits — push brief replacing the two static context constants, gated-MCP preset entries, citation-contract paragraph, judge `cards_load_bearing` field, `bank_head` stamp. Approve implementing each when its phase arrives? | Yes at their phases, with diffs shown before merge | OPEN |
-| D6 | **Learning run dirs home.** UC§1/GS§6.1 use `learning/runs/<lr_id>/`, `learning/graders/<stamp>/`. Propose repo-root `learning/` (gitignored) with optional bucket sync of reports. | repo-root `learning/`, gitignored; reports synced to the artifacts bucket | OPEN |
-| D7 | **Curated hermetic suite.** New per-phase test modules join the curated gate list as each phase lands? | Yes, phase-by-phase | OPEN |
-| D8 | **Codify GCP provisioning** (CD§3): `gcp_ephemeral` target needs machine-type defaults + billing sign-off; only bites at P7. | Defer decision to P7 start; P7 begins `target: local` | OPEN |
+| # | Doubt | Resolution |
+|---|---|---|
+| D1 | Corpus inventory | **RESOLVED: curated related subset**, chosen to make the learning effect visible. Selection rule: 2–3 task families with the densest multi-run history spanning ≥2 datasets that share a task type (the churn / entity-classification cluster), plus one sibling family reserved for held-out; target 15–25 trajectories. The concrete list is enumerated from RESULTS.md at P1 import and posted for sign-off before download. |
+| D2 | Store location | **RESOLVED:** local-first store for P1–P4; remote prefix (`gs://leeroo-kapso-relbench-artifacts/trajectories/`) created at P5. |
+| D3 | Bank repo host | **RESOLVED:** local git repo at P4; private `kapso-bank-relbench` under **Leeroo-AI** at P5. |
+| D4 | Models per role | **RESOLVED, one structural constraint:** default intelligence = **codex CLI, GPT-5.6, xhigh** for worker and judgment roles (card-writer, the docket specialists, report-writer, assessors, the codify-run implementor), invoked by leads via `codex exec`. Crew **leads stay on Claude Code** — self-organization runs on the CLI's native subagents (UC§0), which codex lacks; critic/verifier run cross-model (Claude) so the diversity check holds. Per-role config is `{cli, model, effort}`, so the later switch to all-Claude/Fable is one config change. |
+| D5 | Framework-core approvals | **RESOLVED: approved** — P1.G (runner capture) and P5.2 (§5.3 evolve edits) proceed at their phases, diffs shown before merge. |
+| D6 | Run-dir home | **RESOLVED:** repo-root `learning/` (gitignored); reports synced to the artifacts bucket. |
+| D7 | Test gates | **RESOLVED:** phase tests join the curated hermetic suite as they land — **and** the behavior suite (`behavior-tests.md`) is part of the production gate: agentic review of semantic correctness (routing, abstraction, merging, generalization, resolution, reliability, hindcast, serving, codify/replay, end-to-end learning effect), FAIL blocks promotion. |
+| D8 | Codify placement | **RESOLVED:** implement `gcp_ephemeral` at P7 **from the start** — relbench work needs external machines and the dev box is not a run host; `target: local` retained for harness tests only; machine types from config (the campaign machine class). |
 
 ## Status ledger
 
@@ -97,6 +102,6 @@ RESOLVED: answer) and are then binding.
 | P5 serving | not started | — |
 | P6 probes + arms | not started | — |
 | P7 codify path | not started | — |
+| Behavior suite (cross-phase) | defined; fixtures land with phases | — |
 
-Update this table (and the doubt register) in the same commit as the work it
-describes.
+Update the status ledger in the same commit as the work it describes.

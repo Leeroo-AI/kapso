@@ -30,7 +30,10 @@ later phases, single-sourced per Rule 1); `kapso learn` CLI group with
 3. **Store read path** (MD§3.4): exactly three functions, "no other door" —
    `manifest`, `resolve`, `open_ref`; refs resolve only through them.
 4. **Corpus import**: enumerate the `.tgz` refs from
-   `benchmarks/relbench/RESULTS.md` + a bucket listing (D1 scope); download,
+   `benchmarks/relbench/RESULTS.md` + a bucket listing and apply D1's
+   selection rule (the curated related subset — densest multi-run families
+   sharing a task type + one held-out sibling family, 15–25 trajectories);
+   **post the concrete list for sign-off before downloading**; download,
    unpack, `save_trajectory` each (idempotency makes re-runs safe); write an
    import report (imported / failed-validation with named findings — Rule 2:
    a corrupt bundle raises per-item and is reported, not skipped silently).

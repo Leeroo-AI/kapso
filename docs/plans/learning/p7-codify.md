@@ -5,8 +5,8 @@ codify seeder, the codify run (evolve minus ideation), placement, freshness
 (CD in full; closes the path gated off since P4). **Design sources:** CD
 §1–§8, UC (docket integration), MD§3.2 (procedure card fields), MD§5.1
 (code staging into the shared workspace). **Depends on:** P4 (docket, bank),
-P5 (serving stages code), store archives (fixtures). **Doubts:** D8
-(gcp_ephemeral machine type + billing — P7 starts `target: local`).
+P5 (serving stages code), store archives (fixtures). **Doubts:** D8 RESOLVED —
+`gcp_ephemeral` implemented from the start; the dev box is not a run host.
 
 ## Work items
 
@@ -32,10 +32,11 @@ P5 (serving stages code), store archives (fixtures). **Doubts:** D8
    learning transaction holding a green run** (validator from P4.2 now
    exercised). Actually-invoked check: workspace staged with fixture inputs
    only, outputs must be freshly produced.
-4. **Placement** (CD§3): `target: local` first (preconditions-satisfying box,
-   sandboxed workspace, iteration timeout); `gcp_ephemeral` behind D8 —
-   machine type from `preconditions`, standard env bootstrap, staging from
-   the artifacts bucket, unconditional teardown, preemptible-safe.
+4. **Placement** (CD§3): `gcp_ephemeral` implemented from the start (D8:
+   relbench work needs external machines; the dev box is not a run host) —
+   machine type from `preconditions` + config, standard env bootstrap,
+   staging from the artifacts bucket, unconditional teardown,
+   preemptible-safe; `target: local` retained for harness tests only.
    Environment is always current (rot detection by design — never a
    historical env).
 5. **Freshness** (CD§4): `last_replayed` + `replay_max_age` via the expiry
