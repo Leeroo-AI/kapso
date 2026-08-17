@@ -522,6 +522,15 @@ campaigns; down-ranked, never hidden — cold ≠ wrong) → `retired` (contradi
 with ≥m visits, or replay breaks for code procedures, or superseded). Retirement moves the file
 to `retired/` with history; a superseding card links back and inherits a *discounted*
 prior (RoMeRL warm-start, with its rides-old-credibility caveat noted in provenance).
+Two consolidation moves ride this same machinery: **merge** — a successor
+stating the unified fact supersedes ≥2 twin parents, its founding evidence
+citing the parents' ledgers **by reference** (nothing copied, nothing
+rewritten; the retired files keep resolving); and **generalize** —
+cross-family ledger agreement meets the induction gate by construction, but
+the domain claim's *new* content is exactly the unseen families, so the
+successor is **born a candidate with the unseen-family probe queued** —
+upward moves are born as predictions with their test attached — coverage
+claiming only the seen families, parents superseded.
 Contradiction's first response is never deletion: it is **scope split** — the frame
 requires a contradicting event to carry its own citation, and the update crew proposes a
 narrowed scope citing both sides.
@@ -783,9 +792,13 @@ retirement is a move to `retired/`, never a delete; decoys untouched; every new
 evidence entry passes §5.2 admission; derived indexes recompiled. Any violated
 invariant rejects the whole transaction. **Batching is load-bearing** —
 induction needs siblings side by side, so the crew runs on everything since the
-last commit — and **consolidation is the same crew on an empty batch** (gbrain's
-dream cycle): the contradiction/near-duplicate shortlist, the staleness sweep,
-sightings pruning, index rebuild. No new machinery.
+last commit — and the **maintenance docket rides every run**: at staging the frame seeds,
+from the pre-run bank, dup-merge nominations (inclusive similarity threshold
+— nomination only, never decision), unresolved `contradicts` tensions,
+cross-family generalization candidates, and staleness/sightings expiries;
+batch `[]` makes a run docket-only (callable standalone — gbrain's dream
+cycle, now the default tail of every learning run). Twins born inside a run
+surface on the next run's docket (one-run lag, accepted). No new machinery.
 
 **Routing — which card does an observation belong to?** This is where clustering
 lives in this design (adopted from the uniforge M1 cluster design, which

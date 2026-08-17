@@ -96,7 +96,14 @@ the prospective label (flow↔spec match, critic-verified) or journal it
 unexercised. The lead adds `[lead]` rows for everything
 the hindcast cannot see because it only compares against the bank:
 difficulties, drift notes, strategy/operations byproducts, cross-flow
-patterns. The worksheet is the coverage denominator: **every row gets exactly
+patterns. **The maintenance docket is seeded on every run too**, from the
+pre-run bank via the derived index: `dup-merge` rows (embedding pairs above
+`learning.update_crew.dup_threshold` — inclusive; similarity nominates,
+mechanism decides), `tension` rows (`contradicts` pairs both active, or
+opposing-sign evidence on overlapping scopes), `generalize` rows
+(sibling-scope cards with same mechanism and agreeing ledgers), and
+`expiry` rows (validity windows, cold clocks, sightings past expiry). With
+`batch: []` the run is docket-only. The worksheet is the coverage denominator: **every row gets exactly
 one journal verdict, and the frame counts.**
 
 ### 1.2 `journal.md` — the routing journal
@@ -120,7 +127,11 @@ One entry per worksheet row, no naked tags:
 Verdicts: `ATTACH` (evidence onto an existing card; level `fast-path` or the
 ordinal fit `exact`/`strong`), `SPAWN` (new candidate card), `SIGHTING`
 (sightings.md entry), `PASS` (nothing — requires the critic's rebuttal
-recorded in the entry).
+recorded in the entry). Docket rows take: `MERGE` (successor supersedes ≥2
+twin parents, evidence by reference), `GENERALIZE` (domain successor born
+candidate + unseen-family probe queued), `RESOLVE` (a tension settled: scope
+split, a retirement proposed to the assessor, or kept-contested with a probe
+queued — the entry says which), `EXPIRE` (staleness/sightings pruning).
 
 ### 1.3 `critic-findings.md` — the challenge record
 
@@ -199,8 +210,9 @@ RULES THAT BIND YOU:
 - Every worksheet row ends with exactly one journal verdict. The validator
   counts; a missing or double verdict fails the run.
 - You never write a hindcast, a scorecard, or your own grade.
-- Batch may be empty (consolidation): the worksheet then holds the frame's
-  shortlist (merge candidates, staleness expiries, sightings pruning) and the
+- The worksheet always carries the maintenance docket too (dup-merge,
+  tension, generalize, expiry rows — seeded from the pre-run bank). Work it
+  after the batch rows. With an empty batch the run is docket-only and the
   same loop runs with no new-evidence stage.
 
 When done, verify your own claim: re-read observations.md against journal.md;
@@ -267,6 +279,11 @@ WRITING — the rules that bind every edit:
 - Versioning: any card-text change bumps version and writes exactly one log
   entry (the frame stamps commit/date); evidence and log are append-only;
   retirement is a move to retired/; contradicts lands on both cards.
+- Merge (docket): write a successor stating the unified fact; supersede both
+  parents; found its evidence as references into the parents' ledgers — never
+  copy entries. Generalize (docket): the domain successor is born candidate,
+  its probe asking exactly what the generalization adds (one fold on an
+  unseen family); parents superseded; coverage = seen families.
 - Journal every verdict in work/journal.md as you go: obs-id → verdict
   (level) — rationale [refs]. No naked tags.
 Your final message: the row-range handled, cards touched, anything you could
@@ -299,7 +316,9 @@ CHECK CLASSES, in order:
 2. ABSTRACTION. Bound identifiers in facts; cards that restate their
    instances (MDL); EBG cards whose mechanism you cannot endorse — argue why
    it fails, that argument blocks admission; scope broader than the cited
-   families justify; hero lines that oversell the fact.
+   families justify; hero lines that oversell the fact. A nominated MERGE is
+   decided on MECHANISM identity, never similarity — argue the two cards'
+   mechanisms apart; if you can, the merge is blocked.
 3. EVIDENCE. Re-grep every quoted number. Usage stories vs serving records
    (claimed citation, claimed probe, claimed independence — all checkable).
    Verdicts the numbers cannot earn (sub-threshold confirm). INDEPENDENCE:
@@ -366,10 +385,12 @@ serving-feedback row); place the three agent definitions; snapshot the
 then asserts batch ∩ held_out = ∅ (fail loud, before any session exists) and
 stages only the batch's own hindcast reports into `inputs.yaml` — held-out
 reports live in grader run dirs and are never staged here; live invocations
-omit `--split` (no exclusion exists in operation). Consolidation mode: seed the worksheet from the
-mechanical shortlist instead (opposing-sign evidence on overlapping scopes
-via the edge table, staleness expiries, sightings past
-`learning.update_crew.sightings_expiry_batches`).
+omit `--split` (no exclusion exists in operation). The maintenance docket is seeded on **every** run from the pre-run bank
+(dup pairs above `dup_threshold`, `contradicts` both-active tensions,
+sibling-scope agreement, validity/cold/sightings expiries past
+`learning.update_crew.sightings_expiry_batches`); with `batch: []` the run
+is docket-only (standalone consolidation). Docket state is read at staging
+from `bank.before` — twins born inside this run surface next run.
 
 **Validation (after the lead stops), in order, all mechanical:**
 
@@ -377,7 +398,11 @@ via the edge table, staleness expiries, sightings past
    inputs untouched (hash check).
 2. **Diff invariants** — evidence and log append-only; version ⇔ log-entry
    one-to-one; `contradicts` on both cards; retirement is a move; decoy cards
-   untouched; sightings edits are appends or expiry removals only.
+   untouched; sightings edits are appends or expiry removals only; a `MERGE`
+   successor supersedes ≥2 parents (both moved to `retired/`, links both ways,
+   founding evidence citing parent ledgers by reference — never copied); a
+   `GENERALIZE` successor is state candidate with its unseen-family probe
+   present and coverage claiming only seen families.
 3. **Evidence admission** — §5.2's three checks per new entry (source
    resolves + numbers re-grep; usage vs serving record; verdict earnable).
    Independence: entries citing identical run ids / eval outcomes are one
@@ -405,7 +430,8 @@ critic blocks with dispositions) + Assessor round-up (from journal) + Closing
 assessment (lead).
 
 Config (Rule 1, `learning.update_crew:`): `models.{lead,card_writer,critic,
-assessor}`, `repair_rounds` (v1: 1), `sightings_expiry_batches`, batch
+assessor}`, `repair_rounds` (v1: 1), `sightings_expiry_batches`, `dup_threshold`
+(inclusive — it nominates docket rows, never decides), batch
 trigger (`min_trajectories` or on-demand).
 
 ---
