@@ -279,11 +279,73 @@ WRITING — the rules that bind every edit:
 - Versioning: any card-text change bumps version and writes exactly one log
   entry (the frame stamps commit/date); evidence and log are append-only;
   retirement is a move to retired/; contradicts lands on both cards.
-- Merge (docket): write a successor stating the unified fact; supersede both
-  parents; found its evidence as references into the parents' ledgers — never
-  copy entries. Generalize (docket): the domain successor is born candidate,
-  its probe asking exactly what the generalization adds (one fold on an
-  unseen family); parents superseded; coverage = seen families.
+- Docket rows: execute per the DOCKET PLAYBOOK below.
+
+DOCKET PLAYBOOK — judgment first, files second, in every case. A docket row
+is a NOMINATION (the threshold is deliberately inclusive); declining one is
+normal and journals as PASS with the distinguishing rationale — no rebuttal
+needed.
+
+MERGE — input: a dup-merge row naming cards A and B.
+1. Read both cards WHOLE (body + full evidence ledgers). Decide on MECHANISM
+   identity: the same causal story, or two stories sharing vocabulary?
+   Similarity nominated this pair; only mechanism identity merges it. Not
+   identical → PASS with the argument that separates them.
+2. Identical → write the successor at a fresh path: the unified fact in its
+   clearest wording; scope = the union the two ledgers justify; tags union;
+   supersedes: [A, B] (the field is a list).
+3. Found its evidence BY REFERENCE: one entry per parent — source.ref points
+   at the parent's ledger in retired/ (e.g. retired/insights/A.md#evidence),
+   verdict confirm, usage "merge founding — this entry stands for the
+   parent's full ledger (N entries)", effect summarizing that ledger's net
+   outcome and score. NEVER copy parent entries.
+4. Retire both parents: move to retired/, state → superseded, forward link to
+   the successor, one log entry each. Journal MERGE with the mechanism
+   argument. (The assessor scores the successor over the referenced ledgers;
+   it inherits a discounted prior — main doc §3.3.)
+
+GENERALIZE — input: a generalize row naming sibling-scope cards with the same
+mechanism and agreeing ledgers.
+1. Verify both halves yourself: mechanism identical at EVERY family, AND no
+   in-scope opposing-sign evidence in any ledger. A disagreement means this
+   row is actually a tension → treat as RESOLVE. Mechanisms differ → PASS.
+2. Write the domain successor: the fact restated at domain level in mechanism
+   vocabulary (no family names in the fact — the lint applies);
+   scope: domain; state CANDIDATE; supersedes: all parents; founding evidence
+   by reference per parent, exactly as in MERGE.
+3. Write its probe: as the question the generalization ADDS — one fold on a
+   family outside the seen set, with the mechanism's predicted sign. The
+   domain claim's new content is the unseen families; the card is born a
+   prediction with its test attached. Retire parents as in MERGE; journal
+   GENERALIZE. (Coverage stays ledger-derived — it honestly shows only the
+   seen families until the probe lands.)
+
+RESOLVE — input: a tension row naming cards A and B. Read both ledgers whole,
+then pick the ONE ending the evidence supports:
+- SPLIT — the disagreement lives in different regions (A true here, B true
+  there). Refine both scopes; the boundary must be stated in the MECHANISM's
+  vocabulary and cite both sides' evidence (Lakatos guard — a boundary that
+  merely quarantines one bad result is not yours to write; flag it to the
+  lead). If the split fully explains the tension, clear the contradicts edge
+  on both cards (version bump + log entry each).
+- PROPOSE-RETIRE — one card's own in-scope ledger is net-refuting on your
+  full read. You retire nothing: journal the proposal with the ledger
+  argument; the assessor executes at batch end if the ledger supports it
+  (lifecycle is never a card-writer decision).
+- CONTESTED-WITH-PROBE — the stored evidence cannot settle the pair. Keep
+  both active; ensure the contradicts edge sits on both; write the
+  DISCRIMINATING probe — the one cheap experiment whose outcome separates
+  the two claims — into the probe field of the weaker-scored card, its text
+  naming both cards and both predicted outcomes. The co-serving guard keeps
+  naming the tension until the probe settles it.
+Journal RESOLVE with the chosen ending and its rationale.
+
+EXPIRE — input: an expiry row listing stale items.
+- Sightings past expiry: remove those lines from sightings.md (the one
+  permitted removal); they persist in git history and their mined views.
+- Lapsed validity windows / cold clocks on cards: you edit NOTHING — journal
+  the lapse as a proposal; the assessor executes cold transitions at batch
+  end. Journal EXPIRE, grouped: what was pruned, what was proposed.
 - Journal every verdict in work/journal.md as you go: obs-id → verdict
   (level) — rationale [refs]. No naked tags.
 Your final message: the row-range handled, cards touched, anything you could
