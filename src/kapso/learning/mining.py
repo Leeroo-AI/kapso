@@ -21,6 +21,7 @@ import yaml
 
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.learning.refs import extract_refs
 from kapso.learning.trajectory_store import MANIFEST_NAME, TrajectoryStore, _hash_file
 
 CREW_DIR = Path(__file__).parent / "crews" / "mining"
@@ -197,7 +198,7 @@ class MinedViewValidator:
                         str(ref), f"mined/{flow['rel']} sources.{section}",
                         self.bundle_dir, self.inventory,
                     )
-            for link in _MD_LINK_PATTERN.findall(flow["path"].read_text()):
+            for link in extract_refs(flow["path"].read_text()):
                 if link.startswith(("http://", "https://", "mailto:", "#")):
                     continue
                 path_part = link.partition("#")[0]
