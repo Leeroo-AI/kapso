@@ -272,6 +272,12 @@ learning:
     dup_nominate_jaccard: 0.5
     sightings_expiry_batches: 6
     run_root: learning/runs
+  ab:
+    # The A/B gate (grader-scoring §2.5): candidate-head vs incumbent-head
+    # arms on same-task pairs. Waivable — not-run is recorded as not-run,
+    # never as passed; when required, within-noise BLOCKS promotion.
+    required: false
+    pairs: 5
   develop:
     # The development regime (design §4.4): disposable banks, chronological
     # exam-then-ingest replay of the learn set, keep-best banking of learner
