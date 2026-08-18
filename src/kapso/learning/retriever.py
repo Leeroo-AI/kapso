@@ -1,4 +1,4 @@
-# Retriever — the serving component's push core (P3 slice).
+# Retriever — the serving component: push brief + pull tools over one core.
 #
 # Design: learn-from-trajectories-design.md §5.1. Push is a PURE FUNCTION of
 # (task, bank checkout, bank_head): eligibility is law (task ∈ scope,
@@ -7,8 +7,20 @@
 # with the gap analysis, and every serving event lands in the serving record —
 # the attribution ground truth. No agent, no clock, no randomness ever sits
 # inside push: the hindcast replays it at historical heads, byte-identical.
-# The pull tools and the probe rider wire in at P5/P6 on this same core.
+#
+# Pull (P5) is the same eligibility law exposed as session tools:
+# `pull_shortlist` returns the WHOLE eligible set as hero lines (the calling
+# agent is the reranker — the query is logged, never a filter; the census
+# line replaces padding), `pull_projections` renders full cards on request
+# and refuses quarantine by name (eligibility is law even on direct request).
+# Selection discounts have nothing to select in pull, so hero lines carry
+# `visited` instead. Every pull event appends to a JSONL log — the serving
+# record's second exposure level: `searched` (hero shown) vs `got` (full
+# card rendered); attribution binds to `got`.
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from kapso.learning.bank import Bank, Card
@@ -38,6 +50,19 @@ def _visited(card: Card, task_coords: Dict[str, str]) -> bool:
 
 def _rank_key(card: Card, effective_score: float) -> Tuple[float, str]:
     return (-effective_score, card.name)
+
+
+def _tension_pairs(cards: List[Card]) -> List[Tuple[str, str]]:
+    """Co-serving guard input: contradicts pairs inside one returned set —
+    always named, never silently side by side (§5.1). Runs in both modes."""
+    names = {card.name for card in cards}
+    pairs: List[Tuple[str, str]] = []
+    for card in cards:
+        for other in card.frontmatter.get("contradicts") or []:
+            pair = tuple(sorted((card.name, str(other))))
+            if str(other) in names and pair not in pairs:
+                pairs.append(pair)
+    return pairs
 
 
 def _render_card(card: Card) -> str:
@@ -108,16 +133,7 @@ def compile_brief(
     selected = (
         insights[:k_insights] + procedures[:k_procedures] + pitfalls[:k_pitfalls]
     )
-    selected_names = {card.name for card, _, _ in selected}
-
-    # Co-serving guard: a contradicts pair served together always names the
-    # tension — never silently side by side (§5.1).
-    tensions = []
-    for card, _, _ in selected:
-        for other in card.frontmatter.get("contradicts") or []:
-            pair = tuple(sorted((card.name, str(other))))
-            if str(other) in selected_names and pair not in tensions:
-                tensions.append(pair)
+    tensions = _tension_pairs([card for card, _, _ in selected])
 
     sections = []
     if insights[:k_insights]:
@@ -173,3 +189,111 @@ def compile_brief(
         "gaps": gaps,
     }
     return {"brief": "\n\n".join(sections), "record": record}
+
+
+# ------------------------------------------------------------------ pull
+
+def _card_row(card: Card, exposure: str) -> Dict[str, Any]:
+    return {
+        "card": card.name,
+        "version": (card.frontmatter.get("provenance") or {}).get("version"),
+        "state": card.state,
+        "score": card.score,
+        "exposure": exposure,
+    }
+
+
+def pull_shortlist(
+    bank: Bank, task_coords: Dict[str, str], query: str
+) -> Dict[str, Any]:
+    """bank_search: the whole eligible set as reliability-ordered hero lines.
+
+    The query is logged, never a filter — the calling agent is the reranker,
+    reading hero lines exactly as crews read index.md. The closing census
+    line is the thin-set honesty: the bank's whole answer is on screen, so
+    nothing can be padded in unmarked."""
+    eligible = [c for c in bank.servable() if c.eligible_for(task_coords)]
+    eligible.sort(key=lambda card: _rank_key(card, float(card.score or 0.0)))
+    lines = []
+    for card in eligible:
+        kind = card.type + (
+            ", pitfall" if PITFALL_TAG in (card.frontmatter.get("tags") or [])
+            else ""
+        )
+        visited = "yes" if _visited(card, task_coords) else "no"
+        lines.append(
+            f"- [card:{card.name}] ({kind}) state={card.state} "
+            f"score={card.score} visited-this-dataset={visited} — {card.hero}"
+        )
+    census = (
+        f"Eligible set: {len(eligible)} card(s) for this task's scope — "
+        f"this is the bank's whole answer; nothing else matches. Use "
+        f"bank_get with card names for full cards."
+    )
+    text = (
+        "\n".join(lines) + "\n\n" + census if lines
+        else "The bank holds NO eligible card for this task's scope. " + census
+    )
+    return {
+        "text": text,
+        "shown": [_card_row(card, "searched") for card in eligible],
+        "eligible": len(eligible),
+    }
+
+
+def pull_projections(
+    bank: Bank, task_coords: Dict[str, str], card_names: List[str]
+) -> Dict[str, Any]:
+    """bank_get: full served projections for the requested cards. Quarantine
+    and eligibility are law even on direct request — refusals are named, so
+    the agent learns the boundary instead of silence."""
+    decoys = bank.decoy_names
+    got: List[Card] = []
+    refused: List[Dict[str, str]] = []
+    for name in card_names:
+        card = bank.cards.get(name)
+        if card is None or name in decoys:
+            # Decoys refuse as unknown — naming the quarantine would mark
+            # the bait (§2.3: quarantine is frame-side knowledge).
+            refused.append({"card": name, "reason": "no such card"})
+        elif card.state not in ("candidate", "active"):
+            refused.append(
+                {"card": name, "reason": f"not servable (state={card.state})"}
+            )
+        elif not card.eligible_for(task_coords):
+            refused.append(
+                {"card": name,
+                 "reason": f"out of scope for this task ({card.scope})"}
+            )
+        else:
+            got.append(card)
+    tensions = _tension_pairs(got)
+    sections = [_render_card(card) for card in got]
+    for first, second in tensions:
+        sections.append(
+            f"**Contested:** [card:{first}] and [card:{second}] disagree on "
+            f"overlapping scope; the boundary is unresolved — treat as "
+            f"contested."
+        )
+    for refusal in refused:
+        sections.append(f"*not served:* {refusal['card']} — {refusal['reason']}")
+    return {
+        "text": "\n\n".join(sections) if sections else "nothing served",
+        "got": [_card_row(card, "got") for card in got],
+        "refused": refused,
+        "tensions": [list(pair) for pair in tensions],
+    }
+
+
+def append_pull_event(log_path: str, event: Dict[str, Any]) -> None:
+    """One serving event to the pull log — append-only JSONL beside the push
+    record; the harvester collects both. Timestamps are operational (pull is
+    live agent interaction, never replayed like push)."""
+    path = Path(log_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stamped = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        **event,
+    }
+    with open(path, "a") as handle:
+        handle.write(json.dumps(stamped) + "\n")

@@ -187,6 +187,18 @@ GATES: Dict[str, GateDefinition] = {
         ],
         default_params={},
     ),
+    # Knowledge-bank pull tools (learn-from-trajectories §5.1): ideation +
+    # implementation sessions only — the feedback judge never gets this gate.
+    "bank": GateDefinition(
+        tools=["bank_search", "bank_get"],
+        default_params={},
+        required_env=[
+            "KAPSO_BANK_DIR",
+            "KAPSO_BANK_HEAD",
+            "KAPSO_SERVING_PULL_LOG",
+            "KAPSO_TASK_FAMILY",
+        ],
+    ),
     # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
     # Runs as a separate process, not bundled in gated-knowledge
     "leeroopedia": GateDefinition(
