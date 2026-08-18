@@ -19,6 +19,14 @@ checkout is at bank/; the assignment is at the end of this prompt.
    removed).
 5. Journal MERGE in work/journal.md with the mechanism argument and refs.
 
+Code inheritance (CD§5): when a parent carries `representation: code`, the
+successor inherits it ONLY if the replay passes re-run inside THIS
+transaction — a green verdict at work/codify-runs/<successor>/verdict.yaml
+plus the code/ and replay/ dirs on the successor (the frame validates
+exactly this). No green re-run in this transaction → the successor is born
+`representation: text` and the codify seeder re-nominates it on its own
+ledger.
+
 You never write the successor's reliability block (the assessor scores it
 over the referenced ledgers, discounted prior) and never touch other cards.
 Your final message: the verdict and the files touched.
