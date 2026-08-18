@@ -289,6 +289,20 @@ learning:
     machine_type: g2-standard-8   # the gpu-class default for gpu preconditions
     replay_max_age_days: 60
     tolerance_z: 2
+    # The run's two sessions (D4: implementor on the default intelligence,
+    # the claims judge cross-model).
+    implementor: {cli: codex, model: "gpt-5.6-sol", effort: "xhigh"}
+    judge: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+    gcp:
+      project: trans-density-437811-p2
+      zone: us-central1-a
+      cpu_machine_type: e2-standard-8
+      accelerator: type=nvidia-l4,count=1
+      image_family: common-cu121-debian-11
+      image_project: deeplearning-platform-release
+      boot_disk_gb: "200"
+      # Prefixed to the evaluation command on the instance (env activation).
+      bootstrap: ""
   develop:
     # The development regime (design §4.4): disposable banks, chronological
     # exam-then-ingest replay of the learn set, keep-best banking of learner

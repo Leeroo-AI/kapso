@@ -34,6 +34,7 @@ from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
 from kapso.learning.behavior import BehaviorRunner
+from kapso.learning.codify_run import CodifyRunDriver
 from kapso.learning.develop import DevelopmentDriver
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.graders.gauntlet import GauntletRunner
@@ -273,6 +274,28 @@ def cmd_learn(args) -> None:
     elif args.learn_command == "init-bank":
         init_bank(config["learning"]["bank"]["local_path"])
         print(f"Bank home created: {config['learning']['bank']['local_path']}")
+    elif args.learn_command == "codify":
+        # One codify run (CD§2) from a specialist's request; the verdict
+        # lands beside the run for the next update transaction to fold (the
+        # flip only ever commits with a green verdict in-transaction).
+        store = TrajectoryStore.from_config(config)
+        request = yaml.safe_load(Path(args.request).read_text())
+        bank_home = Path(config["learning"]["bank"]["local_path"]).expanduser()
+        card_name = request["card"]
+        card_text = subprocess.run(
+            ["git", "--git-dir", str(bank_home), "show",
+             f"main:procedures/{card_name}/card.md"],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        run_dir = (
+            Path(config["learning"]["update_crew"]["run_root"]).expanduser()
+            / "codify" / f"{card_name}-{stamp}"
+        )
+        driver = CodifyRunDriver(store, config)
+        verdict = driver.run(request, card_text, str(run_dir))
+        print(f"Codify run: {run_dir / 'verdict.yaml'}")
+        print(f"Status: {verdict['status']} after {verdict['iterations']} iteration(s)")
     elif args.learn_command == "ingest":
         # Operating-regime chain (design §4.1 step 3): exam-before-lesson on
         # one arriving campaign — mine if needed, exam against the
@@ -641,6 +664,13 @@ Examples:
     learn_develop.add_argument("--split", type=str, required=True, help="Split manifest")
     learn_develop.add_argument("--learner-version", type=str, required=True, help="Crew version identifier")
     learn_develop.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_codify = learn_sub.add_parser(
+        "codify",
+        help="Run one codify request (evolve minus ideation) against the production bank",
+    )
+    learn_codify.add_argument("--request", type=str, required=True, help="Request YAML (card, fixture, materials, gates)")
+    learn_codify.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
 
     learn_ingest = learn_sub.add_parser(
         "ingest",
