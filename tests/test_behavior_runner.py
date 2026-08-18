@@ -131,3 +131,84 @@ def test_naked_verdict_rejected(tmp_path):
     )
     with pytest.raises(ValueError, match="no rationale"):
         runner.run_scenario(str(scenario_dir), config["learning"]["behavior"]["run_root"])
+
+
+def test_frozen_scenario_reviews_existing_artifacts(tmp_path):
+    # Regression (B10-class): frozen machinery stages the fixture's artifact
+    # slice verbatim - no fresh machinery - and still gates on the reviewer.
+    scenario_dir = tmp_path / "scenarios" / "b10-effect"
+    (scenario_dir / "fixture" / "artifacts").mkdir(parents=True)
+    (scenario_dir / "fixture" / "artifacts" / "training-curve.yaml").write_text(
+        "- {batch: 0, foresight: null}\n- {batch: 1, foresight: 0.82}\n"
+    )
+    (scenario_dir / "scenario.yaml").write_text(yaml.safe_dump({
+        "id": "b10-effect", "machinery": "frozen",
+        "description": "learning effect over the frozen crew_v1 slice",
+    }))
+    (scenario_dir / "truth.md").write_text("foresight must rise from null.\n")
+    (scenario_dir / "rubric.md").write_text("1. Did the curve rise?\n")
+    config = behavior_config(tmp_path, scenario_dir.parent)
+    reviewer = FakeReviewer("verdict: PASS\nrationale: the curve rises.\n")
+    runner = BehaviorRunner(
+        TrajectoryStore.from_config(config), config,
+        agent_factory=ReviewerFactory(reviewer),
+    )
+    result = runner.run_scenario(
+        str(scenario_dir), config["learning"]["behavior"]["run_root"]
+    )
+    assert result["verdict"] == "PASS"
+    staged = Path(result["run_dir"]) / "artifacts" / "training-curve.yaml"
+    assert "0.82" in staged.read_text()
+
+
+def test_grade_exam_scenario_threads_the_declared_learn_set(tmp_path):
+    # Regression: the runner passes the scenario's learn_set to grade_exam -
+    # planted truth owns the exam's allowed past (the caller-owned surface).
+    from tests.test_grading_frame import (
+        FakeRoleAgent,
+        RoleFactory,
+        make_graded_store,
+    )
+    from tests.test_trajectory_store import TRAJECTORY_ID
+
+    grading_config, store = make_graded_store(tmp_path)
+
+    scenario_dir = tmp_path / "scenarios" / "b7-hindcast"
+    scenario_dir.mkdir(parents=True)
+    build_bank(scenario_dir / "fixture", {"a-card": card_text("a-card")})
+    (scenario_dir / "scenario.yaml").write_text(yaml.safe_dump({
+        "id": "b7-hindcast", "machinery": "grade-exam",
+        "description": "exam honesty on a planted bank",
+        "trajectory": TRAJECTORY_ID,
+        "learn_set": [],
+    }))
+    (scenario_dir / "truth.md").write_text("empty past: no MISS-UNCARDED.\n")
+    (scenario_dir / "rubric.md").write_text("1. Classes correct?\n")
+
+    config = behavior_config(tmp_path, scenario_dir.parent)
+    config["learning"]["trajectory_store"] = (
+        grading_config["learning"]["trajectory_store"]
+    )
+    config["learning"]["graders"] = grading_config["learning"]["graders"]
+    reviewer = FakeReviewer("verdict: PASS\nrationale: classes match truth.\n")
+
+    class SplitFactory:
+        """Grading roles get the grading fake; the reviewer (distinct model
+        marker) gets the fake reviewer."""
+
+        def __init__(self):
+            self.role_agent = FakeRoleAgent([])
+
+        def create(self, agent_config):
+            return self.role_agent if agent_config.model == "m" else reviewer
+
+    config["learning"]["behavior"]["reviewer"]["model"] = "reviewer-m"
+    runner = BehaviorRunner(store, config, agent_factory=SplitFactory())
+    result = runner.run_scenario(
+        str(scenario_dir), config["learning"]["behavior"]["run_root"]
+    )
+    assert result["verdict"] == "PASS"
+    listing = list(
+        Path(result["run_dir"]).glob("artifacts/**/learn-set-mined-views.txt")
+    )
+    assert listing and listing[0].read_text() == ""

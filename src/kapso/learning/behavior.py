@@ -34,7 +34,7 @@ from kapso.learning.retriever import compile_brief
 from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.learning.update_frame import UpdateFrame
 
-MACHINERIES = ("serve", "grade-exam", "update")
+MACHINERIES = ("serve", "grade-exam", "update", "frozen")
 
 REVIEWER_PROMPT = """You review one behavior scenario of a learning system —
 semantic correctness, not mechanics. The fixture's truth.md states the known
@@ -95,8 +95,10 @@ class BehaviorRunner:
             self._run_serve(scenario, scenario_path, artifacts_dir)
         elif machinery == "grade-exam":
             self._run_grade_exam(scenario, scenario_path, artifacts_dir)
-        else:
+        elif machinery == "update":
             self._run_update(scenario, scenario_path, artifacts_dir)
+        else:
+            self._stage_frozen(scenario_path, artifacts_dir)
 
         verdict_path = run_dir / "verdict.yaml"
         prompt = REVIEWER_PROMPT.format(
@@ -162,7 +164,9 @@ class BehaviorRunner:
     def _run_grade_exam(
         self, scenario: Dict[str, Any], scenario_path: Path, artifacts_dir: Path
     ) -> None:
-        """B7-class: the real exam over a fixture bank + a real trajectory."""
+        """B7-class: the real exam over a fixture bank + a real trajectory.
+        The scenario declares the allowed source surface explicitly
+        (`learn_set`) — planted truth owns the exam's past."""
         grading = GradingFrame(self.store, self.config,
                                agent_factory=self.agent_factory)
         report_path = grading.grade_exam(
@@ -170,6 +174,7 @@ class BehaviorRunner:
             str(scenario_path / "fixture" / "bank"),
             scenario.get("bank_head", "fixture"),
             str(artifacts_dir),
+            list(scenario.get("learn_set", [])),
         )
         shutil.copy2(report_path, artifacts_dir / "report.md")
 
@@ -200,6 +205,16 @@ class BehaviorRunner:
             batch, str(artifacts_dir), scenario.get("learner_version", "behave")
         )
         shutil.copy2(run_dir / "report.md", artifacts_dir / "learner-report.md")
+
+    def _stage_frozen(self, scenario_path: Path, artifacts_dir: Path) -> None:
+        """B10-class: no fresh machinery — the artifacts are a frozen slice
+        of a real run (frozen-real sourcing); only the reviewer runs."""
+        frozen = scenario_path / "fixture" / "artifacts"
+        if not frozen.is_dir():
+            raise FileNotFoundError(
+                f"frozen scenario has no fixture/artifacts at {frozen}"
+            )
+        shutil.copytree(frozen, artifacts_dir, dirs_exist_ok=True)
 
     # ---------------------------------------------------------------- suite
 
