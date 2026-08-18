@@ -237,7 +237,20 @@ def cmd_learn(args) -> None:
             )
             print(f"Scorecard: {run_dir / 'scorecard.yaml'}")
         else:
-            result = grading.grade_exam(args.trajectory, args.bank, args.bank_head, run_root)
+            # Operating regime: the local store IS the bank's past, so the
+            # allowed surface is every other mined trajectory. Development
+            # replays never come through here — the driver passes the
+            # ingested-so-far surface itself.
+            learn_set_ids = [
+                manifest["id"]
+                for manifest in grading.store.list_manifests()
+                if manifest["id"] != args.trajectory
+                and (grading.store.local / manifest["id"] / "mined").is_dir()
+            ]
+            result = grading.grade_exam(
+                args.trajectory, args.bank, args.bank_head, run_root,
+                learn_set_ids,
+            )
             print(f"Exam report: {result}")
     elif args.learn_command == "update":
         store = TrajectoryStore.from_config(config)

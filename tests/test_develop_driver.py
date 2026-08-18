@@ -127,6 +127,10 @@ def test_development_regime_end_to_end(tmp_path):
     root = Path(config["learning"]["develop"]["run_root"]) / "crew_v1"
     curve = yaml.safe_load((root / "training-curve.yaml").read_text())
     assert [c["trajectory"] for c in curve] == [LEARN_ID]  # prequential order
+    # Split-leak regression: batch 0's exam surface is the bank's past —
+    # empty — never "everything else in the store" (which holds held-out).
+    listings = list((root / "exams").glob("*/*/learn-set-mined-views.txt"))
+    assert listings and all(l.read_text() == "" for l in listings)
     assert (root / "bank-home.git").is_dir()  # the disposable bank
     # the learn-set lesson landed in the disposable bank, not the prod bank
     assert list((root / "updates").glob("lr_*/report.md"))

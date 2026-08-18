@@ -80,6 +80,10 @@ class DevelopmentDriver:
 
         batches = _chronological_batches(split, self.develop_config["batch_size"])
         curve: List[Dict[str, Any]] = []
+        # The exam's allowed source surface is the bank's past: exactly the
+        # learn trajectories already ingested. The current batch is not past
+        # yet (exam-before-lesson), and held-out material never enters.
+        ingested: List[str] = []
         for index, batch_ids in enumerate(batches):
             assert_batch_disjoint(split, batch_ids)
             bank_head = self._bank_head(bank_home)
@@ -89,6 +93,7 @@ class DevelopmentDriver:
                 report_path = grading.grade_exam(
                     trajectory_id, str(checkout), bank_head,
                     str(root / "exams" / f"batch-{index:02d}"),
+                    list(ingested),
                 )
                 report = yaml.safe_load(
                     report_path.read_text().split("---")[1]
@@ -105,6 +110,7 @@ class DevelopmentDriver:
             update_frame.run_update(
                 batch, str(root / "updates"), learner_version
             )
+            ingested.extend(batch_ids)
         with open(root / "training-curve.yaml", "w") as handle:
             yaml.safe_dump(curve, handle, sort_keys=False)
 

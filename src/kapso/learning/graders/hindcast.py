@@ -195,7 +195,7 @@ class HindcastValidator:
                     if path and not self.ref_exists(path):
                         findings.append(
                             f"{section}: ref {link!r} does not resolve in the "
-                            f"trajectory"
+                            f"trajectory bundle or the allowed learn set"
                         )
                 for kind, name in entry["card_refs"]:
                     if name not in self.known_cards:

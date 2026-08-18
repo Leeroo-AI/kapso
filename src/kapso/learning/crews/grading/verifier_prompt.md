@@ -10,10 +10,19 @@ Brief + serving record: {{brief_path}} , {{record_path}}
 Learn-set mined views (re-run source searches here): {{learn_set_dir}}
 Write EXACTLY ONE file: {{findings_path}}
 
+The learn-set listing is the ONLY admissible cross-bundle surface — the
+bank's past, exactly. Search inside listed views only; a source you can
+reach on disk but that is not listed does NOT exist for this exam, neither
+for the writer's classifications nor for your attacks. If the listing is
+empty, the bank was offered nothing: verify every miss is MISS-NOVEL and
+foresight is null, and run no source searches.
+
 Check classes, in order:
 1. NOVEL-ATTESTATION. For every MISS-NOVEL, re-run the learn-corpus search
-   yourself, trying to FIND a source. Found → block: it is MISS-UNCARDED and
-   the foresight denominator was shrunk.
+   yourself inside the listed views, trying to FIND a source. Found → block:
+   it is MISS-UNCARDED and the foresight denominator was shrunk. A
+   MISS-UNCARDED citing an UNLISTED source is equally a block — the class
+   rests on inadmissible material.
 2. SETTLEMENT. Verdicts the significance standard cannot earn; out-of-scope
    results scored as in-scope; deltas that do not re-grep in the cited
    artifact.

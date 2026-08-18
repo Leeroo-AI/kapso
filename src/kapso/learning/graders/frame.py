@@ -130,13 +130,26 @@ class GradingFrame:
         verifier_prompt = _fill((CREW_DIR / "verifier_prompt.md").read_text(), values)
 
         inventory = manifest["inventory"]["sha256"]
+        # The listing is the allowed source surface (the bank's past). A ref
+        # outside the trajectory's own bundle must land inside a listed mined
+        # view — the split/chronology contract is enforced here, not trusted
+        # to the writers.
+        allowed_roots = [
+            Path(line).resolve()
+            for line in Path(learn_set_dir).read_text().splitlines()
+            if line.strip()
+        ]
+        bundle_root = bundle_dir.resolve()
 
         def ref_exists(path: str) -> bool:
-            return (
-                path in inventory
-                or path == "brief.md"
-                or (bundle_dir / path).exists()
-            )
+            if path in inventory or path == "brief.md":
+                return True
+            target = (bundle_dir / path).resolve()
+            if not target.exists():
+                return False
+            if target.is_relative_to(bundle_root):
+                return True
+            return any(target.is_relative_to(root) for root in allowed_roots)
 
         validator = HindcastValidator(
             self.graders_config, ref_exists, set(bank.cards)
@@ -287,25 +300,39 @@ class GradingFrame:
     # ------------------------------------------------------------ exam mode
 
     def grade_exam(
-        self, trajectory_id: str, bank_dir: str, bank_head: str, run_root: str
+        self,
+        trajectory_id: str,
+        bank_dir: str,
+        bank_head: str,
+        run_root: str,
+        learn_set_ids: List[str],
     ) -> Path:
-        """Exam-before-lesson (operating regime): one arriving trajectory,
-        writer + verifier only — no gauntlet, no scorecard. The grade half
-        joins the running curve; the content half is staged into the next
-        update run by the update frame. The source-search surface is every
-        OTHER locally mined trajectory (the bank's past)."""
+        """Exam-before-lesson: one arriving trajectory, writer + verifier only
+        — no gauntlet, no scorecard. The CALLER owns the allowed source
+        surface (the bank's past): the development driver passes the ids
+        already ingested (batch 0 passes none — an empty past is a valid
+        past, every miss is then MISS-NOVEL and foresight has no
+        denominator); the operating regime passes the whole local store minus
+        the arrival, because there local IS the past. Deriving the surface
+        from the store here would leak held-out and future material into a
+        development replay."""
+        if trajectory_id in learn_set_ids:
+            raise ValueError(
+                f"{trajectory_id} cannot be in its own learn-set surface"
+            )
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         run_dir = Path(run_root).expanduser() / f"exam-{stamp}"
         run_dir.mkdir(parents=True)
         lines = []
-        for manifest in self.store.list_manifests():
-            if manifest["id"] == trajectory_id:
-                continue
-            mined = self.store.local / manifest["id"] / "mined"
-            if mined.is_dir():
-                lines.append(str(mined))
+        for learn_id in learn_set_ids:
+            mined = self.store.local / learn_id / "mined"
+            if not mined.is_dir():
+                raise FileNotFoundError(
+                    f"learn-set id {learn_id} has no mined view at {mined}"
+                )
+            lines.append(str(mined))
         listing = run_dir / "learn-set-mined-views.txt"
-        listing.write_text("\n".join(lines) + "\n")
+        listing.write_text("\n".join(lines) + "\n" if lines else "")
         graded = self.grade_trajectory(
             trajectory_id, bank_dir, bank_head, run_dir, str(listing)
         )

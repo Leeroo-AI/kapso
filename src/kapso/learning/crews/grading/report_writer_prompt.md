@@ -45,6 +45,13 @@ Duties that carry the report's honesty:
   the resolving ref; not found → MISS-NOVEL with the search attested
   (families covered, terms tried). A verifier re-runs your searches; a lazy
   NOVEL is the one lie that inflates the grade.
+- THE LISTING IS THE PAST. The learn-set listing is the ONLY admissible
+  cross-bundle source surface — the bank's past, exactly. Never cite a
+  trajectory that is not listed, even if you can reach it on disk (the frame
+  rejects any out-of-bundle ref that is not under a listed view). An EMPTY
+  listing means the bank was offered nothing yet: no miss can be
+  MISS-UNCARDED, every miss is MISS-NOVEL with no search to attest, and
+  foresight is null (empty denominator) — say so in the rationale.
 - CLAIMS. Settle only what the campaign's registered, significance-judged
   numbers can settle; in scope only; THIN is a verdict, not a failure.
   AGREED/CONTRADICTED entries must carry the measured delta (a signed

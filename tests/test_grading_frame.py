@@ -152,7 +152,7 @@ def test_exam_mode_end_to_end(tmp_path):
     journal = []
     frame = GradingFrame(store, config, agent_factory=RoleFactory(FakeRoleAgent(journal)))
     report_path = frame.grade_exam(
-        TRAJECTORY_ID, str(bank_root), "lr_test", str(tmp_path / "runs")
+        TRAJECTORY_ID, str(bank_root), "lr_test", str(tmp_path / "runs"), []
     )
     assert report_path.is_file()
     slot = report_path.parent
@@ -177,7 +177,7 @@ def test_bad_report_gets_one_repair_then_fails(tmp_path):
     )
     with pytest.raises(RuntimeError, match="outside its corridor"):
         frame.grade_exam(TRAJECTORY_ID, str(bank_root), "lr_test",
-                         str(tmp_path / "runs"))
+                         str(tmp_path / "runs"), [])
     assert any("previous report was rejected" in p for p in journal)
 
 
@@ -195,7 +195,7 @@ def test_verifier_block_finding_forces_repair(tmp_path):
     )
     with pytest.raises(RuntimeError, match="verifier block finding"):
         frame.grade_exam(TRAJECTORY_ID, str(bank_root), "lr_test",
-                         str(tmp_path / "runs"))
+                         str(tmp_path / "runs"), [])
 
 
 def test_full_mode_assembles_scorecard(tmp_path):
@@ -231,4 +231,47 @@ def test_unmined_trajectory_refuses_grading(tmp_path):
     bank_root = build_bank(tmp_path, {"a-card": card_text("a-card")})
     frame = GradingFrame(store, config, agent_factory=RoleFactory(FakeRoleAgent([])))
     with pytest.raises(FileNotFoundError, match="no mined view"):
-        frame.grade_exam(other_id, str(bank_root), "lr_test", str(tmp_path / "runs"))
+        frame.grade_exam(other_id, str(bank_root), "lr_test",
+                         str(tmp_path / "runs"), [])
+
+
+def test_cross_bundle_ref_must_land_in_the_allowed_learn_set(tmp_path):
+    # Regression (live split leak): a report citing another trajectory that
+    # exists on disk but is NOT in the exam's learn-set listing is rejected —
+    # held-out and future material must not attest classifications. The same
+    # ref is admitted once its trajectory is listed.
+    config, store = make_graded_store(tmp_path)
+    other_id = "rel-hm--user-churn/20260105T000000_lane-z1"
+    seed_dir = tmp_path / "other"
+    work_dir, log = build_work_dir(seed_dir)
+    save_trajectory(store, other_id, work_dir=str(work_dir), campaign_log=str(log))
+    MiningFrame(store, MINING_CONFIG,
+                agent_factory=FakeFactory(FakeLead([write_valid_mined]))
+                ).mine(other_id)
+    bank_root = build_bank(tmp_path, {"a-card": card_text("a-card")})
+    leaky = GOOD_REPORT.replace(
+        "a learnable lesson never carded\n  [mined/it-1/flow-1.md]",
+        "a learnable lesson never carded\n"
+        "  [../../rel-hm--user-churn/20260105T000000_lane-z1/mined/index.md]",
+    )
+    frame = GradingFrame(
+        store, config,
+        agent_factory=RoleFactory(FakeRoleAgent([], report_text=leaky)),
+    )
+    with pytest.raises(RuntimeError, match="allowed learn set"):
+        frame.grade_exam(TRAJECTORY_ID, str(bank_root), "lr_test",
+                         str(tmp_path / "runs-leak"), [])
+    report_path = frame.grade_exam(
+        TRAJECTORY_ID, str(bank_root), "lr_test",
+        str(tmp_path / "runs-listed"), [other_id],
+    )
+    assert report_path.is_file()
+
+
+def test_exam_refuses_self_in_learn_set(tmp_path):
+    config, store = make_graded_store(tmp_path)
+    bank_root = build_bank(tmp_path, {"a-card": card_text("a-card")})
+    frame = GradingFrame(store, config, agent_factory=RoleFactory(FakeRoleAgent([])))
+    with pytest.raises(ValueError, match="own learn-set"):
+        frame.grade_exam(TRAJECTORY_ID, str(bank_root), "lr_test",
+                         str(tmp_path / "runs"), [TRAJECTORY_ID])
