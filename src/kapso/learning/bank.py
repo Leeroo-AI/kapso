@@ -200,6 +200,10 @@ class Bank:
         path = self.root / SIGHTINGS_NAME
         return path.read_text() if path.is_file() else ""
 
+    def log_text(self) -> str:
+        path = self.root / "log.md"
+        return path.read_text() if path.is_file() else ""
+
     def retired_by_founding_ref(self, ref: str) -> Card:
         """Resolve a merge/generalize founding reference (`retired/...`) to
         the retired parent card. A dangling founding reference is a corrupt

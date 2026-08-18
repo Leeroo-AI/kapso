@@ -180,3 +180,68 @@ def test_seeder_rows_fire_only_for_eligible_text_procedures(tmp_path):
                for l in codify_rows)
     assert not any("single-campaign" in l for l in codify_rows)
     assert not any("contested-proc" in l for l in codify_rows)
+
+
+def seed_worksheet_for(tmp_path, root):
+    config = make_config(tmp_path)
+    frame = UpdateFrame(TrajectoryStore.from_config(config), config)
+    run_dir = tmp_path / "run"
+    (run_dir / "work").mkdir(parents=True)
+    frame._seed_worksheet(run_dir, [], Bank(str(root)))
+    return (run_dir / "work" / "observations.md").read_text()
+
+
+def test_sighting_expiry_row_after_configured_batches(tmp_path):
+    # An aged sighting (enough log entries newer than it) seeds an expiry
+    # row; a fresh sighting stays quiet.
+    root = bare_bank(tmp_path)
+    (root / "sightings.md").write_text(
+        "# Sightings\n"
+        "- 2026-01-01 \u00b7 rel-a--t/20260101T000000_lane-a \u00b7 old lesson\n"
+        "- 2026-08-18 \u00b7 rel-b--t/20260818T000000_lane-b \u00b7 new lesson\n"
+    )
+    (root / "log.md").write_text(
+        "# Log\n" + "".join(
+            f"- lr_2026061{i}T000000 \u2014 batch {i}\n" for i in range(7)
+        )
+    )
+    worksheet = seed_worksheet_for(tmp_path, root)
+    assert "old lesson" in worksheet and "aged 7 batches" in worksheet
+    assert "new lesson" not in worksheet
+
+
+def test_code_freshness_rows(tmp_path):
+    # CD SS4: an unstamped code card and a stale one seed expiry rows; a
+    # freshly replayed one stays quiet.
+    root = bare_bank(tmp_path)
+    write_proc(root, "unstamped-code", [
+        entry("rel-a--t/20260101T000000_lane-a"),
+        entry("rel-b--t/20260102T000000_lane-b"),
+    ])
+    write_proc(root, "stale-code", [
+        entry("rel-a--t/20260101T000000_lane-a"),
+        entry("rel-b--t/20260102T000000_lane-b"),
+    ])
+    write_proc(root, "fresh-code", [
+        entry("rel-a--t/20260101T000000_lane-a"),
+        entry("rel-b--t/20260102T000000_lane-b"),
+    ])
+    for name, stamp in (("unstamped-code", None), ("stale-code", "2026-01-01"),
+                        ("fresh-code", "2026-08-17")):
+        path = root / "procedures" / name / "card.md"
+        text = path.read_text().replace(
+            "representation: text", "representation: code"
+        )
+        if stamp:
+            text = text.replace(
+                "entrypoint: null", f"entrypoint: run.py\nlast_replayed: {stamp}"
+            )
+        else:
+            text = text.replace("entrypoint: null", "entrypoint: run.py")
+        path.write_text(text)
+    worksheet = seed_worksheet_for(tmp_path, root)
+    assert "unstamped-code carries no last_replayed stamp" in worksheet
+    assert "stale-code last replayed" in worksheet
+    assert "fresh-code" not in "".join(
+        l for l in worksheet.splitlines() if "expiry" in l
+    )

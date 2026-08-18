@@ -15,7 +15,7 @@
 import re
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -206,6 +206,44 @@ class UpdateFrame:
                     add("dk", "tension",
                         f"cards {pair[0]} and {pair[1]} are both active with a "
                         f"standing contradicts edge")
+        # Expiry rows — lapsed clocks for the sweeper. (a) Sightings: age in
+        # batches = bank log.md entries newer than the sighting's date; at
+        # the configured age the sweeper resolves recurred-or-drop. (b) Code
+        # freshness (CD§4): representation:code cards whose last_replayed
+        # exceeds the max age (or was never stamped) re-earn their replay.
+        expiry_batches = self.crew_config["sightings_expiry_batches"]
+        log_dates = [
+            line.split()[1][3:11]
+            for line in bank.log_text().splitlines()
+            if line.startswith("- lr_")
+        ]
+        for line in bank.sightings_text().splitlines():
+            if not line.startswith("- ") or "·" not in line:
+                continue
+            sighting_date = line[2:].split("·")[0].strip().replace("-", "")
+            age = sum(1 for stamp in log_dates if stamp > sighting_date)
+            if age >= expiry_batches:
+                add("dk", "expiry",
+                    f"sighting aged {age} batches without recurrence: "
+                    f"{line[2:].strip()} — resolve (recurred -> spawn, else drop)")
+        max_age_days = self.codify_config["replay_max_age_days"]
+        today = datetime.now(timezone.utc).date()
+        for name in sorted(bank.cards):
+            card = bank.cards[name]
+            if card.representation != "code":
+                continue
+            last_replayed = card.frontmatter.get("last_replayed")
+            if last_replayed is None:
+                add("dk", "expiry",
+                    f"code card {name} carries no last_replayed stamp — "
+                    f"replay freshness unproven")
+                continue
+            age_days = (today - date.fromisoformat(str(last_replayed))).days
+            if age_days > max_age_days:
+                add("dk", "expiry",
+                    f"code card {name} last replayed {age_days} days ago "
+                    f"(max {max_age_days}) — freshness re-run due")
+
         # Codify nominations (CD§1, layer 1): pure ledger arithmetic —
         # executed-verdict entries only, closure through founding references,
         # recurrence as distinct source campaigns. The specialist's
