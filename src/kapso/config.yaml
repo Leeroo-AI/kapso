@@ -278,6 +278,17 @@ learning:
     # never as passed; when required, within-noise BLOCKS promotion.
     required: false
     pairs: 5
+  codify:
+    # The procedure code path (codify doc §7). min_recurrence gates the
+    # seeder's layer-1 nomination; the run knobs govern the codify driver
+    # (evolve minus ideation) and the freshness clock.
+    min_recurrence: 2
+    max_iterations: 3
+    iteration_timeout_minutes: 60
+    target: gcp_ephemeral   # D8: the dev box is not a run host; `local` for harness tests
+    machine_type: g2-standard-8   # the gpu-class default for gpu preconditions
+    replay_max_age_days: 60
+    tolerance_z: 2
   develop:
     # The development regime (design §4.4): disposable banks, chronological
     # exam-then-ingest replay of the learn set, keep-best banking of learner

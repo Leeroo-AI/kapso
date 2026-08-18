@@ -17,6 +17,13 @@ RELIABILITY_STATES = ("candidate", "active", "cold", "retired", "superseded")
 EVIDENCE_VERDICTS = ("confirm", "weaken", "refine", "refute", "spawn", "exercise")
 REPRESENTATIONS = ("text", "code")
 SERVABLE_STATES = ("candidate", "active")  # cold/retired/superseded never serve
+# Outcome/exercise verdicts imply execution (CD§1): admission demands effect
+# numbers that re-grep in a run where the method actually ran — a mere
+# mention can never earn one.
+EXECUTED_VERDICTS = ("confirm", "weaken", "refute", "refine", "exercise")
+# A failed codify attempt is recorded as a log entry carrying this marker;
+# the seeder skips the card until new executed evidence arrives (CD§1/§2).
+CODIFY_FAILED_MARKER = "codify attempt failed"
 
 _SCOPE_COORD_PATTERN = re.compile(r"^(family|dataset):(.+)$")
 DECOY_REGISTRY_NAME = ".decoys.yaml"
@@ -192,6 +199,71 @@ class Bank:
     def sightings_text(self) -> str:
         path = self.root / SIGHTINGS_NAME
         return path.read_text() if path.is_file() else ""
+
+    def retired_by_founding_ref(self, ref: str) -> Card:
+        """Resolve a merge/generalize founding reference (`retired/...`) to
+        the retired parent card. A dangling founding reference is a corrupt
+        bank — raise, never skip."""
+        parts = Path(ref.partition("#")[0]).parts
+        if len(parts) < 2 or parts[0] != "retired":
+            raise ValueError(f"{ref!r} is not a retired/ founding reference")
+        name = parts[2] if parts[1] == "procedures" else Path(parts[-1]).stem
+        card = self.retired_cards.get(name)
+        if card is None:
+            raise ValueError(
+                f"founding reference {ref!r} points at no retired card"
+            )
+        return card
+
+    def executed_closure(self, card: Card) -> List[Dict[str, Any]]:
+        """CD§1: the card's executed evidence entries, with merge/generalize
+        founding references expanded into the retired parents' ledgers,
+        recursively (supersedes only points backward — terminates)."""
+        entries: List[Dict[str, Any]] = []
+        seen: set = set()
+
+        def walk(current: Card) -> None:
+            if current.name in seen:
+                return
+            seen.add(current.name)
+            for entry in current.evidence:
+                ref = str((entry.get("source") or {}).get("ref") or "")
+                if ref.startswith("retired/"):
+                    walk(self.retired_by_founding_ref(ref))
+                    continue
+                if entry.get("verdict") in EXECUTED_VERDICTS:
+                    entries.append(entry)
+
+        walk(card)
+        return entries
+
+    def codify_recurrence(self, card: Card) -> int:
+        """Distinct source campaigns across the executed closure — set
+        semantics: same-campaign entries collapse, and the union across
+        merged parents dedups a shared source campaign."""
+        return len({
+            str((entry.get("source") or {}).get("trajectory"))
+            for entry in self.executed_closure(card)
+            if (entry.get("source") or {}).get("trajectory")
+        })
+
+    def codify_blocked_by_failed_attempt(self, card: Card) -> bool:
+        """A hopeless card is not retried until new evidence arrives: blocked
+        iff a codify-failure log entry is at least as recent (by lr_ id) as
+        the card's own latest executed evidence."""
+        failures = [
+            str(row.get("commit") or "")
+            for row in (card.frontmatter.get("log") or [])
+            if CODIFY_FAILED_MARKER in str(row.get("change") or "")
+        ]
+        if not failures:
+            return False
+        executed_runs = [
+            str((entry.get("source") or {}).get("learner_run") or "")
+            for entry in card.evidence
+            if entry.get("verdict") in EXECUTED_VERDICTS
+        ]
+        return max(failures) >= max(executed_runs or [""])
 
     def conformance_findings(self) -> List[str]:
         """Bank-level OKF conformance: per-card checks plus index coverage.

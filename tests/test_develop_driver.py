@@ -82,6 +82,7 @@ def develop_config(tmp_path):
                           "unvisited_discount": 0.5, "probe_budget": 1},
             "bank": {"local_path": str(tmp_path / "unused-prod-bank.git"),
                      "remote": None},
+            "codify": {"min_recurrence": 2},
             "update_crew": {
                 "lead": {"cli": "claude_code", "model": "m", "effort": "xhigh",
                          "auth_mode": "oauth"},

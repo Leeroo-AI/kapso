@@ -40,7 +40,7 @@ CREW_DIR = Path(__file__).parent / "crews" / "update"
 # card decision nor a PASS (whose rebuttal contract does not fit them).
 JOURNAL_VERDICTS = (
     "ATTACH", "SPAWN", "SIGHTING", "PASS", "NOTE",
-    "MERGE", "GENERALIZE", "RESOLVE", "EXPIRE",
+    "MERGE", "GENERALIZE", "RESOLVE", "EXPIRE", "CODIFY",
 )
 _ROW_PATTERN = re.compile(r"^- \*\*(obs-\d+|dk-\d+)\*\*", re.MULTILINE)
 _JOURNAL_PATTERN = re.compile(
@@ -103,6 +103,7 @@ class UpdateFrame:
         self.crew_config = self.learning_config["update_crew"]
         self.bank_config = self.learning_config["bank"]
         self.score_band = self.learning_config["graders"]["score_band"]
+        self.codify_config = self.learning_config["codify"]
         self.agent_factory = agent_factory
 
     # ------------------------------------------------------------------ run
@@ -205,6 +206,26 @@ class UpdateFrame:
                     add("dk", "tension",
                         f"cards {pair[0]} and {pair[1]} are both active with a "
                         f"standing contradicts edge")
+        # Codify nominations (CD§1, layer 1): pure ledger arithmetic —
+        # executed-verdict entries only, closure through founding references,
+        # recurrence as distinct source campaigns. The specialist's
+        # compatibility gate is layer 2; the frame never reads code.
+        min_recurrence = self.codify_config["min_recurrence"]
+        for name in sorted(bank.cards):
+            card = bank.cards[name]
+            if card.type != "procedure" or card.representation != "text":
+                continue
+            if card.state != "active" or card.frontmatter.get("contradicts"):
+                continue
+            if bank.codify_blocked_by_failed_attempt(card):
+                continue
+            recurrence = bank.codify_recurrence(card)
+            if recurrence >= min_recurrence:
+                add("dk", "codify",
+                    f"procedure {name} has {recurrence} executed source "
+                    f"campaigns in its closure — nominate for codification "
+                    f"(compatibility is the specialist's judgment)")
+
         nominate_threshold = self.crew_config["dup_nominate_jaccard"]
         names = sorted(bank.cards)
         for i, name_a in enumerate(names):
