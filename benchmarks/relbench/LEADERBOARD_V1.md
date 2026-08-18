@@ -18,7 +18,7 @@ all three — Classification (12 tasks), Regression (9), and Recommendation (10)
 
 **Headline:** Kapso ranks **1 of 28** on classification (mean AUROC 81.19,
 passing KumoRFM-ft's 81.1), **3 of 26** on regression (mean NMAE 0.2476, passing KumoRFM-ft),
-and **1 of 8** on recommendation (mean MAP@10 18.8 vs ID-GNN-4L's 14.0),
+and **1 of 8** on recommendation (mean MAP@10 18.4 vs ID-GNN-4L's 14.0),
 beating the single best published number on **2/12** classification,
 **6/9** regression, and **8/10** recommendation tasks. The classification
 #1 was sealed 2026-08-14 by study-outcome 82.08 (K=2 champion-seeded
@@ -141,7 +141,7 @@ in the best-known column below). Kapso cells from `RESULTS.md`.
 
 | # | Method | Regime | Mean | amazon/user-item-purchase | amazon/user-item-rate | amazon/user-item-review | avito/user-ad-visit | f1/driver-circuit-compete | hm/user-item-purchase | stack/user-post-comment | stack/post-post-related | trial/condition-sponsor-run | trial/site-sponsor-run |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | **Kapso (this work)** | agent | **18.8** | 2.54 | 2.31 | 2.95 | 4.2 | 87.9 | 3.26 | 13.1 | 26.1 | 12.3 | 33.3 |
+| 1 | **Kapso (this work)** | agent | **18.4** | 2.54 | 2.31 | 2.95 | 4.2 | 87.9 | 3.26 | 13.1 | 21.8 | 12.3 | 33.3 |
 | 2 | ID-GNN (4 layers) | task-specific | 14.0 | 0.1 | 0.1 | 0.1 | 3.9 | 76.2 | 2.9 | 13.8 | 12.5 | 11.3 | 19.0 |
 | 3 | ID-GNN (2 layers) | task-specific | 12.3 | 0.1 | 0.1 | 0.1 | 3.6 | 62.3 | 2.8 | 12.7 | 10.7 | 11.4 | 19.0 |
 | 4 | LightGBM (entity features + heuristic ranks) | task-specific | 7.3 | 0.1 | 0.2 | 0.1 | 0.1 | 57.8 | 0.4 | 0.0 | 1.9 | 4.5 | 8.2 |
@@ -161,7 +161,7 @@ in the best-known column below). Kapso cells from `RESULTS.md`.
 | rel-f1/driver-circuit-compete | 76.2 | ID-GNN (4 layers) | **87.9** | +11.7 ✅ |
 | rel-hm/user-item-purchase | 3.14 | KumoRFM-ft | **3.26** | +0.12 ✅ |
 | rel-stack/user-post-comment | 14.0 | RelGNN | **13.1** | -0.9  |
-| rel-stack/post-post-related | 12.5 | ID-GNN (4 layers) | **26.1** | +13.6 ✅ |
+| rel-stack/post-post-related | 12.5 | ID-GNN (4 layers) | **21.8** | +9.3 ✅ |
 | rel-trial/condition-sponsor-run | 11.7 | ContextGNN / KumoRFM-ft | **12.3** | +0.6 ✅ |
 | rel-trial/site-sponsor-run | 28.0 | ContextGNN / KumoRFM-ft | **33.3** | +5.3 ✅ |
 
@@ -181,8 +181,14 @@ in the best-known column below). Kapso cells from `RESULTS.md`.
   gates drove all choices and test was scored once per frozen config;
   predictions and code archived in GCS. Every other Kapso cell is a
   masked-loop campaign result.
+- **`rel-stack/post-post-related` (21.8)** is the artifact-backed 2026-08-17 re-run
+  (12h, lane-c14; predictions and code archived in GCS). The July campaign scored
+  26.1 but its prediction artifacts were lost pre-archive-era, so that figure is
+  no longer verifiable or submittable; the internal `RESULTS.md` ledger retains it
+  as the historical best.
 - **Compute is not matched.** The board imposes no compute limit and its entries range
-  from roughly an hour per task to 22-hour runs. Kapso used a fixed 4h budget per task.
+  from roughly an hour per task to 22-hour runs. Kapso used 4h budgets in the main
+  sweep and up to 12h on targeted re-runs.
 - **`rel-f1/driver-dnf` and `driver-top3`** are evaluated under the rolling seed-time
   regime (per-tick snapshots), which is the protocol the fine-tuned KumoRFM entries use.
   Most tasks are protocol-identical across regimes; these are not.
