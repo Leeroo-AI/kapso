@@ -1,0 +1,9 @@
+- from: censored-event-history-is-the-survival-spine
+  to: insights/direct-binary-companions-stabilize-survival.md
+  type: reference
+- from: deployment-matched-temporal-selection
+  to: insights/sub-noise-orderings-are-ties.md
+  type: reference
+- from: direct-binary-companions-stabilize-survival
+  to: insights/censored-event-history-is-the-survival-spine.md
+  type: reference

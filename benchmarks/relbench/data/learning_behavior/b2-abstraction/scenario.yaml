@@ -1,0 +1,7 @@
+id: b2-abstraction
+machinery: update
+description: 'Abstraction: three sibling observations induce one transferable card'
+batch:
+- trajectory: rel-amazon--user-churn/20260731T210811_lane-b2
+  report: report.md
+learner_version: behave

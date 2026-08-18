@@ -1,0 +1,3 @@
+# Log
+
+Fixture founding state.

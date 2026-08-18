@@ -1,0 +1,7 @@
+id: b1-routing
+machinery: update
+description: 'Routing: attach / spawn (lexical trap) / sighting / pass'
+batch:
+- trajectory: rel-amazon--user-churn/20260731T210811_lane-b2
+  report: report.md
+learner_version: behave

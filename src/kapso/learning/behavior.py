@@ -20,6 +20,7 @@
 # that need them land with their phases' fixtures).
 
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -32,7 +33,7 @@ from kapso.learning.bank import Bank
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.retriever import compile_brief
 from kapso.learning.trajectory_store import TrajectoryStore
-from kapso.learning.update_frame import UpdateFrame
+from kapso.learning.update_frame import UpdateFrame, init_bank
 
 MACHINERIES = ("serve", "grade-exam", "update", "frozen")
 
@@ -181,15 +182,34 @@ class BehaviorRunner:
     def _run_update(
         self, scenario: Dict[str, Any], scenario_path: Path, artifacts_dir: Path
     ) -> None:
-        """B1–B6-class: a real update run over a fixture bank home + batch."""
+        """B1–B6-class: a real update run over a fixture bank + batch. The
+        fixture keeps the bank as plain versioned files (fixture/bank/); the
+        runner stages a disposable home from them at run time — absent means
+        the empty founding skeleton (B2-class spawn-from-nothing)."""
+        home = artifacts_dir / "bank-home.git"
+        init_bank(str(home))
+        fixture_bank = scenario_path / "fixture" / "bank"
+        if fixture_bank.is_dir():
+            seed = artifacts_dir / "bank-seed"
+            subprocess.run(
+                ["git", "clone", str(home), str(seed)],
+                check=True, capture_output=True,
+            )
+            shutil.copytree(fixture_bank, seed, dirs_exist_ok=True)
+            subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
+            subprocess.run(
+                ["git", "-C", str(seed), "commit", "-m", "fixture bank"],
+                check=True, capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(seed), "push", "origin", "main"],
+                check=True, capture_output=True,
+            )
         fixture_config = {
             **self.config,
             "learning": {
                 **self.config["learning"],
-                "bank": {
-                    "local_path": str(scenario_path / "fixture" / "bank-home.git"),
-                    "remote": None,
-                },
+                "bank": {"local_path": str(home), "remote": None},
             },
         }
         frame = UpdateFrame(self.store, fixture_config,
