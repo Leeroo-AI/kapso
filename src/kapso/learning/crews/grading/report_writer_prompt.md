@@ -44,7 +44,11 @@ Duties that carry the report's honesty:
   miss, SEARCH the learn-set views for a source: found → MISS-UNCARDED with
   the resolving ref; not found → MISS-NOVEL with the search attested
   (families covered, terms tried). A verifier re-runs your searches; a lazy
-  NOVEL is the one lie that inflates the grade.
+  NOVEL is the one lie that inflates the grade. And never BIN AWAY a miss:
+  when one campaign event supports two candidate lessons, enumerate both —
+  collapsing an event into the reading that shrinks the miss (a noise
+  tie-break where the learn set holds the stronger operational lesson) is
+  the same lie by another route.
 - THE LISTING IS THE PAST. The learn-set listing is the ONLY admissible
   cross-bundle source surface — the bank's past, exactly. Never cite a
   trajectory that is not listed, even if you can reach it on disk (the frame

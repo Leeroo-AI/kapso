@@ -34,6 +34,11 @@ Check classes, in order:
 5. ENUMERATION. Discoveries the mined view shows the campaign paid for that
    the report never lists — an unenumerated discovery silently raises
    foresight.
+6. MIS-BINNING. For the report's most consequential events, re-derive the
+   event -> lesson binding yourself: an event reframed under a weaker or
+   noise-level lesson while the learn set holds a stronger resolving
+   lesson for it (whose source then goes uncited) is a miss explained
+   away — block, naming the stronger lesson and its source.
 
 Findings file format — one entry per finding, no naked tags:
 
