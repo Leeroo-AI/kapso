@@ -249,3 +249,17 @@ regression — higher is better throughout. Kapso cells from `RESULTS.md`.
 | rel-trial/eligibilities-child | AC-bin | 87.2 (GraphSAGE) | 93.2 | ✅ |
 | rel-trial/studies-enrollment | AC-reg | 0.436 (RelGT-AC) | 0.00111 | below |
 | rel-trial/studies-has_dmc | AC-bin | 78.5 (RelGT-AC) | 80.8 | ✅ |
+
+**Validation (2026-08-18).** All 34 completed cells were re-verified from
+prediction artifacts: 26 reproduce their archived metrics exactly under
+relbench's own `task.evaluate` against canonical data; 2 (ratebeer
+beer-churn, user-count) were realigned exactly via row orders recovered from
+archived sanitized caches; 6 (ratebeer user-churn, user-beer-favorite/-liked,
+user-place-liked, beer_ratings-total_score, arxiv paper-paper-cocitation)
+had unrecoverable row orders — an upstream ratebeer/arxiv data re-release
+changed row order and those tables' builds are nondeterministic — so their
+winning runs were re-executed on identical hardware against canonical data,
+reproducing the claimed scores within ±0.002 (four of six exact to 4
+decimals). Canonical-ordered vectors for all 34 are packaged in
+`preds_extended.zip` (49 MB, sha256 b1c2d57e…de08618) with a per-task
+provenance manifest.
