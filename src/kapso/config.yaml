@@ -248,6 +248,13 @@ learning:
     # clones this home, edits, and pushes back — single writer per bank.
     local_path: data/kapso-bank-relbench.git
     remote: null
+  serving:
+    # Serving live (design §5.3): when enabled, campaign launches pin the
+    # bank, the push brief replaces the static context notes, and
+    # ideation/implementation sessions get the bank pull tools (the
+    # feedback judge never does). Per-benchmark off-switch — flip for the
+    # P5 acceptance experiment and production campaigns.
+    enabled: false
   update_crew:
     # The update crew (design §4.3; update-crew doc): Claude lead (structural
     # — self-organization + native critic subagent), codex GPT-5.6 xhigh

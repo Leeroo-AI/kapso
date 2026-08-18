@@ -368,6 +368,7 @@ def get_mcp_config(
     include_base_tools: bool = True,
     gate_failure_policy: str = "warn",
     command_resolver: Optional[Callable[[str], Optional[str]]] = None,
+    bank_serving: Optional[Dict[str, str]] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
@@ -385,11 +386,15 @@ def get_mcp_config(
                                     SDK credentials must be able to serve it,
                                     else the tool call fails loud and the
                                     agent falls back to top/recent).
-        repo_root: Path to repo root for repo_memory gate. Falls back to 
+        repo_root: Path to repo root for repo_memory gate. Falls back to
                    REPO_MEMORY_ROOT env var or CWD.
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
         gate_failure_policy: Missing-capability policy: skip, warn, or error.
         command_resolver: Optional command lookup override for testing.
+        bank_serving: Campaign parameters for the "bank" gate, keyed by its
+                      KAPSO_* env names (KAPSO_BANK_DIR, KAPSO_BANK_HEAD,
+                      KAPSO_SERVING_PULL_LOG, KAPSO_TASK_FAMILY, optional
+                      KAPSO_TASK_DATASET). Required for the gate to resolve.
     
     Returns:
         Tuple of (mcp_servers dict, allowed_tools list)
@@ -410,6 +415,7 @@ def get_mcp_config(
         "EXPERIMENT_HISTORY_PATH": experiment_history_path,
         "EXPERIMENT_EMBEDDING_MODEL": experiment_embedding_model,
         "REPO_MEMORY_ROOT": repo_root,
+        **(bank_serving or {}),
     }
     effective_env.update(
         {key: str(value) for key, value in explicit_env.items() if value}
@@ -459,6 +465,8 @@ def get_mcp_config(
         ]
     if "repo_memory" in internal_gates and effective_env.get("REPO_MEMORY_ROOT"):
         mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
+    if "bank" in internal_gates and effective_env.get("KAPSO_TASK_DATASET"):
+        mcp_env["KAPSO_TASK_DATASET"] = effective_env["KAPSO_TASK_DATASET"]
     
     # Build MCP servers config (gated-knowledge for internal gates)
     mcp_servers: Dict[str, Any] = {}

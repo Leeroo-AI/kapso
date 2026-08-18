@@ -144,23 +144,10 @@ class RelBenchHandler(ProblemHandler):
         extra_knowledge = ""
         if extra_knowledge_file and os.path.exists(extra_knowledge_file):
             extra_knowledge = Path(extra_knowledge_file).read_text()
+        self._extra_knowledge = extra_knowledge
+        self._champion = champion
 
-        self.problem_context = build_problem_context(
-            task=self.task,
-            dataset=self.dataset,
-            spec=self.spec,
-            db=self.dataset.get_db(),
-            train_df=self._train_table.df,
-            val_df=self._val_table.df,
-            n_test=self.n_test,
-            has_gpu=self._detect_gpu(),
-            gpu_name=self._detect_gpu_name(),
-            num_cpus=os.cpu_count() or 8,
-            mem_gb=self._detect_mem_gb(),
-            extra_knowledge=extra_knowledge,
-            rolling=self.rolling,
-            champion=champion,
-        )
+        self.problem_context = self._compose_problem_context(bank_brief=None)
 
         # Harden the whole process tree: coding agents (e.g. claude_code) can
         # execute code during development sessions, and those subprocesses
@@ -213,6 +200,31 @@ class RelBenchHandler(ProblemHandler):
     # ======================================================================
     # Handler contract
     # ======================================================================
+
+    def _compose_problem_context(self, bank_brief: Optional[str]) -> str:
+        return build_problem_context(
+            task=self.task,
+            dataset=self.dataset,
+            spec=self.spec,
+            db=self.dataset.get_db(),
+            train_df=self._train_table.df,
+            val_df=self._val_table.df,
+            n_test=self.n_test,
+            has_gpu=self._detect_gpu(),
+            gpu_name=self._detect_gpu_name(),
+            num_cpus=os.cpu_count() or 8,
+            mem_gb=self._detect_mem_gb(),
+            extra_knowledge=self._extra_knowledge,
+            rolling=self.rolling,
+            champion=self._champion,
+            bank_brief=bank_brief,
+        )
+
+    def apply_bank_brief(self, bank_brief: str) -> None:
+        """Serving live (learn-from-trajectories §5.3): the compiled push
+        brief replaces the static context notes. The runner calls this after
+        staging serving, before the orchestrator reads problem_context."""
+        self.problem_context = self._compose_problem_context(bank_brief)
 
     def get_problem_context(self, budget_progress: float = 0, **kwargs) -> str:
         return self.problem_context

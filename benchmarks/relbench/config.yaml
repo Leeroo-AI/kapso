@@ -145,8 +145,11 @@ modes:
         # session: cap must cover both. Sized to contain a 4h full-eval cap
         # (RELBENCH_FULL_TIMEOUT=14400) plus the implement phase (~1h).
         implementation_timeout: 18000
-        ideation_gates: ["experiment_history", "repo_memory"]
-        implementation_gates: ["repo_memory"]
+        # "bank" resolves only when the runner stages serving (config-gated
+        # KAPSO_* env); with serving off it is skipped quietly. The feedback
+        # judge mounts no gates at all (§5.1: never the judge).
+        ideation_gates: ["experiment_history", "repo_memory", "bank"]
+        implementation_gates: ["repo_memory", "bank"]
         # Bash-tool clock policy (finding 14): without these the CLI
         # auto-backgrounds any foreground command at 120s, making a
         # blocking registered evaluation structurally impossible. Max sized

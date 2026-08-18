@@ -322,6 +322,21 @@ Experimentation notes for this search:
 # Top-level assembly
 # ---------------------------------------------------------------------------
 
+def knowledge_section(bank_brief: "Optional[str]") -> str:
+    """The context's knowledge slot. Serving live (learn-from-trajectories
+    §5.3): the compiled push brief REPLACES the two hand-maintained notes —
+    same slot, now scoped, cited, and reliability-graded. With serving off
+    the static notes stand (the per-benchmark off-switch, not a legacy
+    path)."""
+    if bank_brief:
+        return ("\n## Knowledge bank brief (measured practice — suggestion)\n"
+                + bank_brief)
+    return ("\n## Feature engineering (high-value direction — suggestion)\n"
+            + FEATURE_ENGINEERING_NOTE
+            + "\n\n## Modelling practices (measured — suggestion)\n"
+            + MODELLING_PRACTICE_NOTE)
+
+
 FEATURE_ENGINEERING_NOTE = (
     "Feature engineering has been the highest-value direction on these "
     "tasks. Representation work over the relational database — new joins "
@@ -731,6 +746,7 @@ def build_problem_context(
     gpu_name: str = "",
     rolling: bool = False,
     champion: Optional[dict] = None,
+    bank_brief: Optional[str] = None,
 ) -> str:
     sections = [
         "# RelBench task",
@@ -747,10 +763,7 @@ def build_problem_context(
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         ("\n## ROLLING EVALUATION — read carefully\n" + ROLLING_CONTRACT_NOTE) if rolling else "",
         "\n## Data access rules\n" + _data_access_rules(spec),
-        "\n## Feature engineering (high-value direction — suggestion)\n"
-        + FEATURE_ENGINEERING_NOTE,
-        "\n## Modelling practices (measured — suggestion)\n"
-        + MODELLING_PRACTICE_NOTE,
+        knowledge_section(bank_brief),
         ("\n## Prior champion (provided — reproduce it, then beat it)\n"
          + CHAMPION_NOTE_TEMPLATE.format(metric=spec.primary_metric, val=champion["val"]))
         if champion else "",

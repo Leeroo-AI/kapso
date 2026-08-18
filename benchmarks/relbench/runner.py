@@ -34,6 +34,10 @@ import sys
 import yaml
 from dotenv import load_dotenv
 
+from kapso.core.config import load_config
+from kapso.kapso import DEFAULT_CONFIG_PATH
+from kapso.learning.serving_launch import prepare_campaign_serving
+
 load_dotenv()
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -56,16 +60,19 @@ def list_tasks() -> None:
 
 
 def _write_runtime_config(
-    mode: str, shared_cache_dir: str, work_dir, time_budget_hours=None
+    mode: str, shared_cache_dir: str, work_dir, time_budget_hours=None,
+    bank_serving=None,
 ) -> str:
     """Write a per-run config injecting the task-scoped shared_cache_dir (and,
-    when given, the wall-clock budget override) into the mode's config, and
-    return its path. The orchestrator reloads config from disk, so a runtime
-    value must live in a file."""
+    when given, the wall-clock budget override and the bank-serving env
+    mapping) into the mode's config, and return its path. The orchestrator
+    reloads config from disk, so a runtime value must live in a file."""
     with open(CONFIG_PATH) as f:
         config = yaml.safe_load(f)
     params = config["modes"][mode]["search_strategy"]["params"]
     params["shared_cache_dir"] = os.path.abspath(shared_cache_dir)
+    if bank_serving is not None:
+        params["bank_serving"] = bank_serving
     if time_budget_hours is not None:
         config["modes"][mode]["budget"]["time_budget_minutes"] = time_budget_hours * 60
     runtime_dir = os.path.join(str(work_dir), ".kapso_runtime")
@@ -107,6 +114,24 @@ def solve_task(args) -> dict:
     #   construction (the sanitized cache holds no test labels).
     generic = args.strategy == "generic"
     mode = args.mode or ("RELBENCH_GENERIC" if generic else None)
+
+    # Serving live (learn-from-trajectories §5.3, config-gated): pin the
+    # bank, compile the push brief into the problem context, stage the
+    # pull-tool env for ideation/implementation sessions. The feedback judge
+    # never receives the tools; the learner runs after campaigns, never
+    # inside them.
+    serving = None
+    if generic:
+        learning_config = load_config(DEFAULT_CONFIG_PATH)
+        serving = prepare_campaign_serving(
+            learning_config,
+            {"family": handler.spec.family, "dataset": args.dataset},
+            handler.work_dir,
+        )
+        if serving:
+            handler.apply_bank_brief(serving["brief"])
+            print(f"  Knowledge bank: serving at head {serving['bank_head']}")
+
     initial_repo = args.initial_repo
     # Never auto-seed on --resume: the workspace already exists with its git
     # history, and seeded init demands an empty directory.
@@ -134,6 +159,7 @@ def solve_task(args) -> dict:
         config_path = _write_runtime_config(
             mode, str(handler.shared_cache_dir), handler.work_dir,
             time_budget_hours=args.time_budget_hours,
+            bank_serving=serving["bank_serving"] if serving else None,
         )
     elif args.time_budget_hours is not None:
         raise ValueError("--time-budget-hours requires --strategy generic")

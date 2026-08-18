@@ -621,6 +621,11 @@ class GenericSearch(SearchStrategy):
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
+        # Knowledge-bank pull tools (learn-from-trajectories §5.1): the
+        # campaign runner passes the KAPSO_* env mapping when serving is on;
+        # None leaves the "bank" gate unresolvable (skip). Ideation +
+        # implementation only — the feedback judge never mounts gates.
+        self.bank_serving = self.params.get("bank_serving")
         self.parent_policy = parent_policy
         
         # Experiment history path (set by orchestrator)
@@ -992,6 +997,7 @@ class GenericSearch(SearchStrategy):
                 repo_root=ideation_dir,
                 include_base_tools=False,
                 gate_failure_policy=self.gate_failure_policy,
+                bank_serving=self.bank_serving,
             )
 
             # 3. Build restricted tool set (read-only for ideation).
@@ -1878,6 +1884,7 @@ Problem: {problem}"""
             repo_root=session.session_folder,
             include_base_tools=False,
             gate_failure_policy=self.gate_failure_policy,
+            bank_serving=self.bank_serving,
         )
         
         # 3. Build full tool set for implementation (includes Write, Edit)

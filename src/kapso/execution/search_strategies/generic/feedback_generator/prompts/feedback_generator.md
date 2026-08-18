@@ -103,12 +103,21 @@ You MUST respond with your results using these XML tags:
 
 <feedback>your feedback message</feedback>
 
+<cards_load_bearing>comma-separated card names, or none</cards_load_bearing>
+
 ### Field Definitions:
 
 - **stop**: Set to `true` ONLY if the goal is fully achieved. Set to `false` otherwise.
 - **evaluation_valid**: Set to `true` if the evaluation is fair and correctly tests the goal. Set to `false` if the evaluation is flawed, hardcoded, or doesn't actually test what it claims.
 - **score**: Extract the numeric score from the evaluation result. Look for values like "score: 0.85", "accuracy: 95%", etc. Convert percentages to decimals (95% → 0.95). Set to `null` if no score found.
 - **feedback**: If stopping, provide a success message. If not stopping, provide specific, actionable feedback on what to improve. If evaluation is invalid, explain what's wrong with it.
+- **cards_load_bearing**: If the problem context carried a "Knowledge bank
+  brief" (cards tagged `[card:<name>]`) or the session pulled cards via bank
+  tools, name the cards whose guidance the workspace evidence shows was
+  load-bearing for THIS iteration's result — the spec cites it, the code
+  implements its move, or the run measured its claim. Comma-separated names;
+  `none` when no served card mattered (always `none` when no cards were
+  served). Never name a card on vibes — attribution binds to evidence.
 
 ## Evaluation governance
 

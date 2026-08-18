@@ -15,8 +15,8 @@
 import os
 import subprocess
 import time
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.coding_agents.base import CodingAgentConfig
@@ -30,6 +30,10 @@ class FeedbackResult:
     evaluation_valid: bool          # Whether evaluation is fair/correct
     feedback: str                   # Actionable feedback for next iteration
     score: Optional[float] = None   # Extracted evaluation score (if any)
+    # Served knowledge-bank cards whose guidance was load-bearing for this
+    # iteration's result (the citation contract's attribution substrate —
+    # learn-from-trajectories §5.1); empty when none or when serving is off.
+    cards_load_bearing: List[str] = field(default_factory=list)
     # Budget telemetry for the feedback agent call itself.
     cost_usd: float = 0.0
     duration_seconds: Optional[float] = None
@@ -41,6 +45,7 @@ class FeedbackResult:
             "evaluation_valid": self.evaluation_valid,
             "feedback": self.feedback,
             "score": self.score,
+            "cards_load_bearing": self.cards_load_bearing,
             "cost_usd": self.cost_usd,
             "duration_seconds": self.duration_seconds,
         }
@@ -70,9 +75,9 @@ class FeedbackGenerator:
 
     RETRY_PROMPT = (
         "Your previous response did not contain the required tags. Respond "
-        "now with ONLY the four tags — <stop>, <evaluation_valid>, <score>, "
-        "<feedback> — filled in for the iteration you just analyzed. No "
-        "other text."
+        "now with ONLY the five tags — <stop>, <evaluation_valid>, <score>, "
+        "<feedback>, <cards_load_bearing> — filled in for the iteration you "
+        "just analyzed. No other text."
     )
     
     def __init__(
@@ -289,13 +294,14 @@ class FeedbackGenerator:
         eval_valid_str = extract_tag("evaluation_valid", response)
         score_str = extract_tag("score", response)
         feedback_str = extract_tag("feedback", response)
-        
+        cards_str = extract_tag("cards_load_bearing", response)
+
         # If we found at least some tags, use them
         if any([stop_str, eval_valid_str, score_str, feedback_str]):
             # Parse boolean values
             stop = stop_str.lower() == "true" if stop_str else False
             evaluation_valid = eval_valid_str.lower() != "false" if eval_valid_str else True
-            
+
             # Parse score
             score = None
             if score_str and score_str.lower() != "null":
@@ -303,14 +309,26 @@ class FeedbackGenerator:
                     score = float(score_str)
                 except ValueError:
                     pass
-            
+
             feedback = feedback_str or ""
-            
+
+            # Citation contract: comma-separated card names; "none"/absent
+            # mean no served card was load-bearing (also the case whenever
+            # serving is off and the tag never appears).
+            cards_load_bearing = []
+            if cards_str and cards_str.lower() != "none":
+                cards_load_bearing = [
+                    name.strip().strip("[]").removeprefix("card:")
+                    for name in cards_str.split(",")
+                    if name.strip()
+                ]
+
             return FeedbackResult(
                 stop=stop,
                 evaluation_valid=evaluation_valid,
                 feedback=feedback,
                 score=score,
+                cards_load_bearing=cards_load_bearing,
             )
-        
+
         return None

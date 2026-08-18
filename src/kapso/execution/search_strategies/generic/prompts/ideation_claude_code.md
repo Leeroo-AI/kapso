@@ -57,6 +57,16 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
 - **research_study**: Deep research on a topic
   - Use for: comprehensive understanding of a complex topic
 
+## Knowledge bank (when served)
+If the problem context carries a "Knowledge bank brief" section, or
+`bank_search` / `bank_get` tools are available: the brief is the bank's
+push-selected cards for this task, and `bank_search` lists the WHOLE
+eligible set as hero lines (you are the reranker — `bank_get` the ones
+worth reading in full). Cards are measured practice, not constraints:
+follow the evidence your own measurements produce. The citation contract:
+when a card's guidance is load-bearing in your proposal, cite it inline as
+`[card:<name>]` exactly where used. Cite only real use — never decorate.
+
 ## IMPORTANT: Read-Only Mode
 You are in IDEATION mode. Do NOT modify any files. Only read and research.
 Your job is to propose a solution, not implement it.
