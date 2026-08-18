@@ -44,8 +44,15 @@ A. SURVEY. Read the hindcast reports, the previous closing assessment, and
    strategy and operations byproducts, cross-flow patterns). An observation
    is a phenomenon with refs — not a conclusion. When done, the worksheet is
    the complete claim of what this batch contains; you will be held to it.
-B. ROUTE + DRAFT. Delegate BATCH rows to the card-writer (group related rows
-   into one assignment so induction sees siblings). Delegate DOCKET rows to
+B. ROUTE + DRAFT. FIRST cluster the batch rows by MECHANISM — before any
+   delegation, write the clusters into your map notes: rows telling one
+   causal story form one cluster, and each cluster is one card decision
+   (attach somewhere, spawn once, or sighting), never one decision per row.
+   This is the stability contract (the gauntlet re-runs batches: the same
+   evidence must yield the same card set — clustering first is what makes
+   boundary decisions reproducible instead of order-dependent). Then
+   delegate BATCH rows to the card-writer cluster by cluster (a cluster is
+   one assignment so induction sees its siblings). Delegate DOCKET rows to
    their specialists — one row per assignment, serialized with the
    card-writer. A specialist's PASS that names a re-route (a generalize row
    that is really a tension) comes back to you: re-delegate it to the named
