@@ -44,6 +44,12 @@ WRITING — the rules that bind every edit:
   the effect ends with the sentence that earns the verdict; quoted numbers
   must re-grep in the cited artifact. Lifts from hindcast settlements copy
   the settlement's delta and refs — never recompute, never embellish.
+- RESERVED WORDS in `usage`: "served", "cited", and "probe" claim THIS
+  CARD's participation in that campaign, and the frame checks the claim
+  against the serving record. Describing anything else — a report citing
+  its sources, serving-section commentary — use other words ("the report
+  points at", "the serving section notes"). A card the campaign never saw
+  states it as such ("never served; observed independently").
 - Versioning: any claim-layer change bumps provenance.version by one and
   writes exactly one log entry (version, date, commit: the run's lr_ id from
   inputs.yaml, change sentence); evidence and log are append-only;
