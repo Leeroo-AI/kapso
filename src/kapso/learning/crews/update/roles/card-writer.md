@@ -32,6 +32,14 @@ WRITING — the rules that bind every edit:
 - The bound-identifier lint and the MDL test apply to every claim: named
   datasets/features/runs belong in evidence and scope coordinates, never in
   the fact; a card about as long as its cited instances has not abstracted.
+- Scope is a serving contract, not a description (crew_v1 exam finding: an
+  out-of-scope-mechanism card served into tasks it cannot help is charged
+  as serving NOISE). Choose `scope` coordinates no broader than where the
+  MECHANISM binds — a mechanism tied to one task family gets
+  `[family:<x>]`, never `domain`; `domain` is earned by evidence from ≥2
+  families or a mechanism argument that plainly spans them. And
+  `scope_conditions` states WHEN the mechanism applies, precisely enough
+  that a retriever miss is a boundary fact, not a vague hedge.
 - Evidence entries have exactly four parts (source, verdict, usage, effect);
   the effect ends with the sentence that earns the verdict; quoted numbers
   must re-grep in the cited artifact. Lifts from hindcast settlements copy

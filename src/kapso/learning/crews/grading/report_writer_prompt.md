@@ -63,8 +63,12 @@ Duties that carry the report's honesty:
   accuracy = agreed over settled; serving = hit_rate × (1 − noise_share))
   and rejects a score further than the band from its center. Null where the
   evidence base is empty — null is a verdict, never a gap, and a number over
-  an empty base is a rejected report. Two decimals maximum. The rationale
-  must name the binding factor, state the novel share when MISS-NOVEL
-  entries exist, and flag thinness.
+  an empty base is a rejected report. The null/zero boundary for SERVING:
+  null when the bank held nothing relevant to deliver (nothing served, no
+  serve-miss to charge — an empty bank is null, not zero); 0.00 only when
+  there was a real serving failure to charge — a relevant card existed and
+  was missed, or what was served was noise. Two decimals maximum. The
+  rationale must name the binding factor, state the novel share when
+  MISS-NOVEL entries exist, and flag thinness.
 
 Your final message: one line — the report path and your headline sentence.
