@@ -343,9 +343,48 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
         findings += self._check_coverage(run_dir)
         findings += self._check_evidence(before, after, batch)
         findings += self._check_score_bounds(after)
+        findings += self._check_codify_flips(run_dir, before, after)
         for name in ("headline.md", "closing.md"):
             if not (run_dir / "work" / name).is_file():
                 findings.append(f"work/{name} was not written")
+        return findings
+
+    def _check_codify_flips(
+        self, run_dir: Path, before: Bank, after: Bank
+    ) -> List[str]:
+        """CD§2's transaction rule: a representation flip (text -> code)
+        commits only inside a transaction holding a GREEN codify run, and
+        the flipped card carries its artifacts — code/, replay/, entrypoint.
+        No green run, no flip."""
+        findings: List[str] = []
+        for name, card in after.cards.items():
+            previous = before.cards.get(name)
+            flipped = card.representation == "code" and (
+                previous is None or previous.representation != "code"
+            )
+            if not flipped:
+                continue
+            verdict_path = run_dir / "work" / "codify-runs" / name / "verdict.yaml"
+            if not verdict_path.is_file():
+                findings.append(
+                    f"{name}: representation flip without a codify-run "
+                    f"verdict in this transaction — no green run, no flip"
+                )
+            else:
+                verdict = yaml.safe_load(verdict_path.read_text())
+                if not isinstance(verdict, dict) or verdict.get("status") != "green":
+                    findings.append(
+                        f"{name}: representation flip on a non-green codify "
+                        f"run ({(verdict or {}).get('status')!r})"
+                    )
+            card_dir = run_dir / "bank" / "procedures" / name
+            for required in ("code", "replay"):
+                if not (card_dir / required).is_dir():
+                    findings.append(
+                        f"{name}: representation code without {required}/"
+                    )
+            if not str(card.frontmatter.get("entrypoint") or "").strip():
+                findings.append(f"{name}: representation code without an entrypoint")
         return findings
 
     def _check_coverage(self, run_dir: Path) -> List[str]:

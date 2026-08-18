@@ -2,6 +2,7 @@
 # transaction pipeline (validate -> repair -> commit -> report), against a
 # fake lead at the provider boundary (Rule 9).
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -321,3 +322,97 @@ def test_previous_report_chains_within_the_invoked_run_root(tmp_path):
     run_dir = frame.run_update(batch, str(scoped_root), "crew_v1")
     inputs = yaml.safe_load((run_dir / "inputs.yaml").read_text())
     assert inputs["previous_report"] == str(prior / "report.md")
+
+
+def test_representation_flip_requires_a_green_run_in_transaction(tmp_path):
+    # CD SS2 transaction rule: a text -> code flip without a green codify-run
+    # verdict in the SAME transaction is rejected; with the green verdict and
+    # the card artifacts (code/, replay/, entrypoint) it passes.
+    from tests.test_codify_seeder import bare_bank, entry, log_row, write_proc
+
+    def flipping_lead(workspace):
+        run_dir = Path(workspace)
+        good_lead(workspace)
+        # journal the seeded codify docket row (coverage counts every row)
+        worksheet = (run_dir / "work" / "observations.md").read_text()
+        journal_path = run_dir / "work" / "journal.md"
+        journal = journal_path.read_text()
+        for line in worksheet.splitlines():
+            if line.startswith("- **dk-") and "[codify]" in line:
+                row_id = line.split("**")[1]
+                journal += (f"- **{row_id} → CODIFY** — compatible; run "
+                            f"folded this transaction. [flip-proc]\n")
+        journal_path.write_text(journal)
+        proc_dir = run_dir / "bank" / "procedures" / "flip-proc"
+        text = (proc_dir / "card.md").read_text()
+        text = text.replace("representation: text", "representation: code")
+        text = text.replace("entrypoint: null", "entrypoint: run.py")
+        text = text.replace("provenance: {version: 1}", "provenance: {version: 2}")
+        # log stays append-only: the codify entry goes AFTER the founding one
+        text = text.replace(
+            "supersedes: null",
+            "  - version: 2\n    date: 2026-08-18\n"
+            "    commit: lr_flip\n    change: Codified.\nsupersedes: null",
+            1,
+        )
+        (proc_dir / "card.md").write_text(text)
+        (proc_dir / "code").mkdir(exist_ok=True)
+        (proc_dir / "code" / "run.py").write_text("print('gate')\n")
+        (proc_dir / "replay").mkdir(exist_ok=True)
+        (proc_dir / "replay" / "eval.py").write_text("assert True\n")
+
+    def seed_flip_bank(tmp_path):
+        root = bare_bank(tmp_path / "fixture")
+        write_proc(root, "flip-proc", [
+            entry("rel-a--t/20260101T000000_lane-a"),
+            entry("rel-b--t/20260102T000000_lane-b"),
+        ])
+        (root / "procedures" / "index.md").write_text(
+            "# Procedures\n- [flip-proc](flip-proc/card.md) - fixture\n"
+        )
+        (root / "insights" / "a-card.md").write_text(card_text("a-card"))
+        (root / "insights" / "index.md").write_text(
+            "# Insights\n- [a-card](a-card.md) — hero\n"
+        )
+        home = tmp_path / "bank-home.git"
+        init_bank(str(home))
+        seed = tmp_path / "seed-flip"
+        subprocess.run(["git", "clone", str(home), str(seed)],
+                       check=True, capture_output=True)
+        shutil.copytree(root, seed, dirs_exist_ok=True)
+        subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(seed), "commit", "-m", "seed"],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(seed), "push", "origin", "main"],
+                       check=True, capture_output=True)
+
+    # without a green verdict: the flip is rejected after repair
+    config = make_config(tmp_path)
+    store = TrajectoryStore.from_config(config)
+    seed_flip_bank(tmp_path)
+    batch = make_batch(tmp_path, store)
+    frame = UpdateFrame(store, config,
+                        agent_factory=FakeFactory(FakeLead(
+                            [flipping_lead, flipping_lead])))
+    with pytest.raises(RuntimeError, match="no green run, no flip"):
+        frame.run_update(batch, str(tmp_path / "runs-red"), "crew_v1")
+
+    # with the green verdict in the transaction: the flip commits
+    def green_flipping_lead(workspace):
+        flipping_lead(workspace)
+        run_dir = Path(workspace)
+        verdict_dir = run_dir / "work" / "codify-runs" / "flip-proc"
+        verdict_dir.mkdir(parents=True)
+        (verdict_dir / "verdict.yaml").write_text(
+            "status: green\niterations: 1\n"
+        )
+
+    config2 = make_config(tmp_path / "b")
+    store2 = TrajectoryStore.from_config(config2)
+    seed_flip_bank(tmp_path / "b")
+    batch2 = make_batch(tmp_path / "b", store2)
+    frame2 = UpdateFrame(store2, config2,
+                         agent_factory=FakeFactory(FakeLead([green_flipping_lead])))
+    run_dir = frame2.run_update(batch2, str(tmp_path / "runs-green"), "crew_v1")
+    flipped = (run_dir / "bank" / "procedures" / "flip-proc" / "card.md").read_text()
+    assert "representation: code" in flipped

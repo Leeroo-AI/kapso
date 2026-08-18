@@ -23,7 +23,7 @@ representation: text
 entrypoint: null
 evidence:
 {evidence}reliability:
-  validity: 0.7
+  validity: 0.85
   boundary: 0.5
   coverage: 0.4
   score: 0.65
