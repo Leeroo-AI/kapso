@@ -121,13 +121,30 @@ class SpawningLeadFake:
                     f"a-card. [mined/it-1/flow-1.md]"
                 )
                 card_path = run_dir / "bank" / "insights" / "a-card.md"
-                card_path.write_text(card_path.read_text().replace(
+                text = card_path.read_text().replace(
                     "reliability:",
                     EVIDENCE_APPEND.format(
                         lr_id=inputs["lr_id"], trajectory=trajectory
                     ) + "reliability:",
                     1,
-                ))
+                )
+                text = text.replace(
+                    "Validity from two confirmations; boundary untested; "
+                    "coverage thin.",
+                    "Reassessed after the lifted settlement: in-scope "
+                    "confirm holds validity; boundary still untested.",
+                )
+                text = text.replace("provenance: {version: 1}",
+                                    "provenance: {version: 2}")
+                text = text.replace(
+                    "supersedes: null",
+                    "  - version: 2\n    date: 2026-08-18\n"
+                    f"    commit: {inputs['lr_id']}\n"
+                    "    change: Reassessed after the lifted settlement.\n"
+                    "supersedes: null",
+                    1,
+                )
+                card_path.write_text(text)
             elif "[seed: card-candidate]" in line:
                 journal.append(
                     f"- **{row_id} → SPAWN** — carded as b-card. "

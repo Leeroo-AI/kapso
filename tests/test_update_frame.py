@@ -128,9 +128,28 @@ def good_lead(workspace):
                 lr_id=inputs["lr_id"],
                 trajectory=inputs["batch"][0]["trajectory"],
             )
-            card_path.write_text(
-                text.replace("reliability:", append + "reliability:", 1)
+            text = text.replace("reliability:", append + "reliability:", 1)
+            # Step D: an outcome verdict demands reassessment — rationale
+            # rewritten citing the new entry, version bump + log entry (the
+            # frame enforces it; reliability is claim-layer).
+            text = text.replace(
+                "Validity from two confirmations; boundary untested; "
+                "coverage thin.",
+                "Reassessed after the lifted settlement: in-scope confirm "
+                "holds validity; boundary still untested — a boundary probe "
+                "is the next mover.",
             )
+            text = text.replace("provenance: {version: 1}",
+                                "provenance: {version: 2}")
+            text = text.replace(
+                "supersedes: null",
+                "  - version: 2\n    date: 2026-08-18\n"
+                f"    commit: {inputs['lr_id']}\n"
+                "    change: Reassessed after the lifted settlement.\n"
+                "supersedes: null",
+                1,
+            )
+            card_path.write_text(text)
         elif "[seed: card-candidate]" in line:
             journal.append(
                 f"- **{row_id} → SIGHTING** — single observation, no endorsed "
@@ -416,3 +435,54 @@ def test_representation_flip_requires_a_green_run_in_transaction(tmp_path):
     run_dir = frame2.run_update(batch2, str(tmp_path / "runs-green"), "crew_v1")
     flipped = (run_dir / "bank" / "procedures" / "flip-proc" / "card.md").read_text()
     assert "representation: code" in flipped
+
+
+def test_outcome_verdict_without_reassessment_is_rejected(tmp_path):
+    # B6 live regression: an ATTACH that lands a confirm but freezes the
+    # reliability block (no version bump) fails validation — settlements
+    # must move or re-affirm the scores, never freeze them.
+    def frozen_lead(workspace):
+        run_dir = Path(workspace)
+        worksheet = (run_dir / "work" / "observations.md").read_text()
+        inputs = yaml.safe_load((run_dir / "inputs.yaml").read_text())
+        journal = ["# Routing journal", ""]
+        for line in worksheet.splitlines():
+            if not line.startswith("- **"):
+                continue
+            row_id = line.split("**")[1]
+            if "[seed: lift" in line:
+                journal.append(
+                    f"- **{row_id} \u2192 ATTACH** (fast-path) \u2014 lifted; "
+                    f"delta copied. [mined/it-1/flow-1.md]"
+                )
+                card_path = run_dir / "bank" / "insights" / "a-card.md"
+                text = card_path.read_text()
+                append = EVIDENCE_APPEND.format(
+                    lr_id=inputs["lr_id"],
+                    trajectory=inputs["batch"][0]["trajectory"],
+                )
+                # evidence appended, reliability FROZEN - no bump, no log
+                card_path.write_text(
+                    text.replace("reliability:", append + "reliability:", 1)
+                )
+            elif "[seed: card-candidate]" in line:
+                journal.append(
+                    f"- **{row_id} \u2192 SIGHTING** \u2014 single observation. "
+                    f"[mined/it-1/flow-1.md]"
+                )
+                sightings = run_dir / "bank" / "sightings.md"
+                sightings.write_text(
+                    sightings.read_text() + "- 2026-08-18 \u00b7 t \u00b7 x\n"
+                )
+            elif "[seed: serving-feedback]" in line:
+                journal.append(f"- **{row_id} \u2192 NOTE** \u2014 serving-side.")
+        (run_dir / "work" / "journal.md").write_text("\n".join(journal) + "\n")
+        (run_dir / "work" / "headline.md").write_text("Frozen run.\n")
+        (run_dir / "work" / "closing.md").write_text("n/a\n")
+        (run_dir / "work" / "critic-findings.md").write_text(
+            "- **F-01** [warn] [class: routing] none. Required: n/a\n"
+        )
+
+    frame, config, batch, _ = make_frame(tmp_path, [frozen_lead, frozen_lead, frozen_lead])
+    with pytest.raises(RuntimeError, match="never reassessed"):
+        frame.run_update(batch, str(tmp_path / "runs-frozen"), "crew_v2")

@@ -382,9 +382,39 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
         findings += self._check_evidence(before, after, batch)
         findings += self._check_score_bounds(after)
         findings += self._check_codify_flips(run_dir, before, after)
+        findings += self._check_reassessment(before, after)
         for name in ("headline.md", "closing.md"):
             if not (run_dir / "work" / name).is_file():
                 findings.append(f"work/{name} was not written")
+        return findings
+
+    def _check_reassessment(self, before: Bank, after: Bank) -> List[str]:
+        """Step D is not optional (B6 live finding): a card that takes a new
+        OUTCOME verdict (confirm/weaken/refute) changes the ledger its
+        scores rest on — the transaction must show the reassessment as a
+        claim-layer event (version bump; the rationale citing the ledger),
+        even when the score lands unchanged."""
+        findings: List[str] = []
+        for name, card in after.cards.items():
+            previous = before.cards.get(name)
+            if previous is None:
+                continue  # new cards are born assessed (conformance owns shape)
+            new_entries = card.evidence[len(previous.evidence):]
+            outcome_entries = [
+                entry for entry in new_entries
+                if entry.get("verdict") in ("confirm", "weaken", "refute")
+            ]
+            if not outcome_entries:
+                continue
+            before_version = (previous.frontmatter.get("provenance") or {}).get("version")
+            after_version = (card.frontmatter.get("provenance") or {}).get("version")
+            if before_version == after_version:
+                findings.append(
+                    f"{name}: took {len(outcome_entries)} outcome verdict(s) "
+                    f"but reliability was never reassessed (version "
+                    f"{after_version} unchanged) — settlements must move or "
+                    f"re-affirm the scores, never freeze them"
+                )
         return findings
 
     def _check_codify_flips(

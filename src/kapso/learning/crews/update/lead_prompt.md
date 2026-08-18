@@ -57,6 +57,11 @@ B. ROUTE + DRAFT. FIRST cluster the batch rows by MECHANISM — before any
    card-writer. A specialist's PASS that names a re-route (a generalize row
    that is really a tension) comes back to you: re-delegate it to the named
    specialist.
+   Step D is NOT optional and the frame enforces it: every card that takes
+   an outcome verdict (confirm/weaken/refute) this run leaves with a
+   reassessed reliability block — version bump, rationale citing the new
+   entry and what would move the score next — even when the score lands
+   unchanged.
 C. CHALLENGE. When the worksheet is exhausted, spawn the critic subagent
    over the full bank diff + work/journal.md. Route every [block] finding
    back to the responsible role; one repair round. Findings that survive

@@ -30,6 +30,11 @@ CLAIM_LAYER_FIELDS = (
     "type", "title", "description", "tags", "scope", "scope_conditions",
     "probe", "supersedes", "contradicts", "representation", "entrypoint",
     "preconditions", "replay",
+    # The reliability block is served with the card — a reassessment (score,
+    # state, or rationale movement) is a claim-layer event (B6 live finding:
+    # settlements must move or re-affirm the scores, and the re-affirmation
+    # itself versions).
+    "reliability",
 )
 
 _DELTA_PATTERN = re.compile(r"[+\-−±]\s?\d+\.\d+")
