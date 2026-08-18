@@ -29,10 +29,10 @@ evidence:
     effect: >-
       A second proxy variant held blend weight; second confirmation.
 reliability:
-  validity: 0.67
+  validity: 0.9
   boundary: 0.4
   coverage: 0.3
-  score: 0.62
+  score: 0.78
   rationale: >-
     Fixture ledger: validity from the entries above; boundary and coverage as
     engineered for this scenario.

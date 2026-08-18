@@ -7,13 +7,14 @@ are REAL and re-grep in rel-amazon--user-churn/20260731T210811_lane-b2):
   batch adds an AGREED settlement (+0.002158 gate clear, real). Correct
   movement: validity/score hold or rise modestly; state stays active; the
   rationale cites three consistent outcomes.
-- `proxy-graph-features-pay`: two prior confirms, validity 0.67, active.
+- `proxy-graph-features-pay`: two prior confirms, validity 0.9, active.
   This batch adds a CONTRADICTED settlement (-0.0016166385721199 blend
-  delta, real). Correct movement: validity moves DOWN sensibly (one refute
-  among three outcomes — roughly toward 2/3, within the frame's ledger
-  corridor), boundary tightens or the rationale narrows the claim; the
-  card is NOT retired outright on a single refute, and the score does not
-  collapse to near zero.
+  delta, real). Correct movement: validity moves DOWN sensibly — one
+  refute among three outcomes puts the ledger corridor near 2/3, and 0.9
+  frozen is illegal both mechanically and semantically; the rationale is
+  rewritten citing the refute; version bumps. The card is NOT retired
+  outright on a single refute, and the score does not collapse to near
+  zero.
 - `control-card-untouched`: no settlement touches it. Correct: its ledger,
   score, and state are byte-identical after the run.
 
