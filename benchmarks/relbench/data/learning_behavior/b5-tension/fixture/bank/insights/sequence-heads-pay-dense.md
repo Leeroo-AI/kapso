@@ -15,9 +15,9 @@ evidence:
       card_version: null
     verdict: confirm
     usage: >-
-      Served nowhere (fixture ledger); DOCTORED per truth.md — the dense-slice win is implanted for this scenario.
+      Never served; the campaign compared the standalone sequence head against the tabular fallback on its densest-history slice independently.
     effect: >-
-      Fixture-implanted dense-slice comparison favoring the sequence head; the cited flow anchors the surface, not the number.
+      On rows with long event streams the sequence head overtook the fallback in the campaign's dense-slice comparison; the sparse-slice deficit did not reproduce there.
 reliability:
   validity: 0.6
   boundary: 0.4

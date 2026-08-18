@@ -6,9 +6,11 @@ PAIR A (region split — the correct resolution is SPLIT):
 `sequence-heads-lose-sparse` holds REAL evidence — the rel-amazon--user-churn/20260731T210811_lane-b2 campaign's GRU
 median forward AUC 0.685774 vs compact fallback 0.691137, rejected (numbers
 re-grep in mined/it-1/flow-1.md). `sequence-heads-pay-dense` is
-DOCTORED-REAL: its dense-slice win is implanted (disclosed in its own
-ledger's usage line) — the doctoring gives the pair a genuine
-region-of-validity structure: sparse-history vs dense-history regimes.
+DOCTORED-REAL: its dense-slice win is implanted (this disclosure lives HERE
+only — the card's own ledger reads as ordinary evidence, so the crew judges
+the tension on its structure, not on a leaked answer sheet). The doctoring
+gives the pair a genuine region-of-validity structure: sparse-history vs
+dense-history regimes.
 Correct: SPLIT with a mechanism-vocabulary boundary (history density /
 events-per-entity), each side's scope narrowed to its region, both ledgers
 cited — not an ad-hoc quarantine and not a winner-takes-all retirement.

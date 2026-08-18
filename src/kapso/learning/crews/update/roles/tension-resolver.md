@@ -20,5 +20,12 @@ both full ledgers, then pick the ONE ending the evidence supports:
   cards and both predicted outcomes. The co-serving guard names the tension
   until the probe settles it.
 
+These three are the ONLY endings. In particular, never MERGE a tension
+pair: collapsing two thin opposing results into a "no distinguishable
+effect" card destroys the open question the contradicts edge exists to
+hold — absence of evidence is not measured equivalence. A null-effect
+claim would itself need powered, replicated equivalence evidence; two
+sub-noise results below the bar are exactly CONTESTED-WITH-PROBE.
+
 Journal RESOLVE in work/journal.md with the chosen ending and its rationale.
 Your final message: the ending chosen and the files touched.
