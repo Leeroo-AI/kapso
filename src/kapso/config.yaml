@@ -250,7 +250,11 @@ learning:
     # private GitHub remote under Leeroo-AI arrives at P5). Every update run
     # clones this home, edits, and pushes back — single writer per bank.
     local_path: data/kapso-bank-relbench.git
-    remote: null
+    # D3: the private bank remote under Leeroo-AI (created 2026-08-18; main
+    # + lr_founding_20260818 pushed). The local home stays the serving and
+    # writing source; the single writer syncs home -> remote after learning
+    # runs, boxes pull at campaign start (P5.3).
+    remote: https://github.com/Leeroo-AI/kapso-bank-relbench.git
   serving:
     # Serving live (design §5.3): when enabled, campaign launches pin the
     # bank, the push brief replaces the static context notes, and
