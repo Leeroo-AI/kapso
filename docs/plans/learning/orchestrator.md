@@ -103,8 +103,8 @@ All doubts resolved 2026-08-17 (user review). Resolutions are binding.
 | Plan | Status | Last commit |
 |---|---|---|
 | P1 trajectory store | GATE CLOSED — 19/21 imported (2 failed validation with named findings: item-churn archive lacks its work dir; one user-repeat tarball carries two work dirs); import report in learning/imports/ | 578c619d |
-| P2 mine corpus | mined view ACCEPTED (user review 2026-08-17: quality bar + batch spend + crew version); batch mining the remaining 18 in flight — health-check bundle first, then --all, periodic monitor on | 1650aed2 |
-| P3 grader suite | code + tests done; split v1 committed (12 learn / 7 held-out, validated against the store) | 578c619d |
+| P2 mine corpus | GATE CLOSED at the 8h deadline (user directive): 11/19 views mined, 0 validation failures — all heavies included (both big rel-amazons + wave-4); 8 unmined bundles parked at data/trajectories-parked/ (re-adoptable); dual-account budget switching proved live (one auto-switch executed) | 1650aed2 |
+| P3 grader suite | code + tests done; split v2 committed after the 8h deadline (5 learn / 6 held-out over the mined corpus; v1 superseded) | 578c619d |
 | P4 bank + update crew | frame code + tests done (bank read/write model, diff invariants + evidence admission, update frame + crew instruction set, development driver, keep-best ledger); founding bank + real crew runs await mined corpus | fe767ac6 |
 | P5 serving | push core done early (P3, hindcast dependency); pull tools + evolve edits pending | 09b6954c |
 | P6 probes + arms | not started | — |
