@@ -303,3 +303,20 @@ def test_init_bank_refuses_second_run(tmp_path):
     init_bank(str(tmp_path / "home.git"))
     with pytest.raises(FileExistsError):
         init_bank(str(tmp_path / "home.git"))
+
+
+def test_previous_report_chains_within_the_invoked_run_root(tmp_path):
+    # Regression (develop-run seam): batch N's staged previous_report must be
+    # the latest report under the run root THIS run was invoked with (a
+    # development run's own updates/ root), never the global config run_root.
+    frame, config, batch, _ = make_frame(tmp_path, [good_lead])
+    global_root = Path(config["learning"]["update_crew"]["run_root"])
+    (global_root / "lr_99991231T235959").mkdir(parents=True)
+    (global_root / "lr_99991231T235959" / "report.md").write_text("decoy")
+    scoped_root = tmp_path / "develop" / "updates"
+    prior = scoped_root / "lr_00000101T000000"
+    prior.mkdir(parents=True)
+    (prior / "report.md").write_text("batch-1 report")
+    run_dir = frame.run_update(batch, str(scoped_root), "crew_v1")
+    inputs = yaml.safe_load((run_dir / "inputs.yaml").read_text())
+    assert inputs["previous_report"] == str(prior / "report.md")

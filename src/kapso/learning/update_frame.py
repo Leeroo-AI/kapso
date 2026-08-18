@@ -276,13 +276,16 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
                 }
                 for item in batch
             ],
-            "previous_report": self._previous_report_path(),
+            "previous_report": self._previous_report_path(run_dir.parent),
         }
         with open(run_dir / "inputs.yaml", "w") as handle:
             yaml.safe_dump(inputs, handle, sort_keys=False)
 
-    def _previous_report_path(self) -> Optional[str]:
-        run_root = Path(self.crew_config["run_root"]).expanduser()
+    def _previous_report_path(self, run_root: Path) -> Optional[str]:
+        """Latest prior report under the run root THIS run was invoked with —
+        a development run's batches chain within their own `updates/` root,
+        never through the global production run dir (the current run's own
+        dir has no report.md yet, so the glob naturally excludes it)."""
         if not run_root.is_dir():
             return None
         reports = sorted(run_root.glob("lr_*/report.md"))
