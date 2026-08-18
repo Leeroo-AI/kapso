@@ -18,7 +18,10 @@
 #     kapso index_kg --wiki-dir ./data/wikis --save-to ./data/indexes/ml.index
 
 import argparse
+import subprocess
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -270,6 +273,52 @@ def cmd_learn(args) -> None:
     elif args.learn_command == "init-bank":
         init_bank(config["learning"]["bank"]["local_path"])
         print(f"Bank home created: {config['learning']['bank']['local_path']}")
+    elif args.learn_command == "ingest":
+        # Operating-regime chain (design §4.1 step 3): exam-before-lesson on
+        # one arriving campaign — mine if needed, exam against the
+        # production bank head, then the lesson (a one-trajectory update
+        # run). The local store IS the past here; development replays use
+        # the driver, never this path.
+        store = TrajectoryStore.from_config(config)
+        trajectory_id = args.trajectory
+        manifest = store.manifest(trajectory_id)
+        if not manifest.get("derived", {}).get("mined"):
+            mined_dir = MiningFrame.from_config(config).mine(trajectory_id)
+            print(f"Mined view: {mined_dir}")
+        bank_home = Path(config["learning"]["bank"]["local_path"]).expanduser()
+        graders_root = Path(config["learning"]["graders"]["run_root"]).expanduser()
+        checkout = (
+            graders_root / "ingest-serving"
+            / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        )
+        checkout.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "clone", "--quiet", str(bank_home), str(checkout)],
+            check=True,
+        )
+        bank_head = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        grading = GradingFrame(store, config)
+        learn_set_ids = [
+            manifest_row["id"]
+            for manifest_row in store.list_manifests()
+            if manifest_row["id"] != trajectory_id
+            and (store.local / manifest_row["id"] / "mined").is_dir()
+        ]
+        report_path = grading.grade_exam(
+            trajectory_id, str(checkout), bank_head,
+            str(graders_root), learn_set_ids,
+        )
+        print(f"Exam report: {report_path}")
+        frame = UpdateFrame(store, config)
+        run_dir = frame.run_update(
+            [{"trajectory": trajectory_id, "hindcast_report": str(report_path)}],
+            config["learning"]["update_crew"]["run_root"],
+            args.learner_version,
+        )
+        print(f"Learner report: {run_dir / 'report.md'}")
     elif args.learn_command == "gauntlet":
         runner = GauntletRunner(TrajectoryStore.from_config(config), config)
         verdict = runner.run(args.learner_version)
@@ -592,6 +641,14 @@ Examples:
     learn_develop.add_argument("--split", type=str, required=True, help="Split manifest")
     learn_develop.add_argument("--learner-version", type=str, required=True, help="Crew version identifier")
     learn_develop.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_ingest = learn_sub.add_parser(
+        "ingest",
+        help="Operating-regime chain for one arriving campaign: mine -> exam -> lesson",
+    )
+    learn_ingest.add_argument("--trajectory", type=str, required=True, help="Trajectory id in the store")
+    learn_ingest.add_argument("--learner-version", type=str, required=True, help="Crew version doing the lesson")
+    learn_ingest.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
 
     learn_gauntlet = learn_sub.add_parser(
         "gauntlet",
