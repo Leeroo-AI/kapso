@@ -3,36 +3,172 @@
   "task": "item-churn",
   "family": "entity_binary_classification",
   "primary_metric": "roc_auc",
-  "selected_by": "best recomputed validation roc_auc among registered-final runs",
-  "run": "run_0013",
+  "selected_by": "max rescored validation roc_auc among head-stamped final runs (evaluator 780dbdd86869)",
+  "run": "run_0004",
+  "head_evaluator_id": "780dbdd868696ce8d27062b97a01e241acd1a6dac3ea9a490a042a41c1e7056d",
+  "scored": {
+    "run_0002": 0.8265686206612787,
+    "run_0003": 0.8233825243537525,
+    "run_0004": 0.82727547348668,
+    "run_0005": 0.8268229304791299,
+    "run_0006": 0.82727547348668,
+    "run_0007": 0.82727547348668
+  },
+  "excluded": {},
   "val_metrics": {
-    "average_precision": 0.7349837526899664,
-    "accuracy": 0.7437489096117373,
-    "f1": 0.6726058226737707,
-    "roc_auc": 0.8254761246597055
+    "average_precision": 0.7375567621550938,
+    "accuracy": 0.745110839725588,
+    "f1": 0.6746499816819557,
+    "roc_auc": 0.82727547348668
   },
   "test_metrics": {
-    "average_precision": 0.7103336416021134,
-    "accuracy": 0.7539828100837919,
-    "f1": 0.679483375240118,
-    "roc_auc": 0.8306398112715694
+    "average_precision": 0.7114262700241664,
+    "accuracy": 0.7557749247791323,
+    "f1": 0.6608684072542051,
+    "roc_auc": 0.8312954987414322
   },
   "audit": {
-    "clean": true,
+    "clean": false,
     "findings": [
       {
-        "file": "semantic_pipeline.py",
-        "line": 354,
+        "file": "main.py",
+        "line": 267,
+        "pattern": "RELBENCH_CACHE_DIR",
+        "concern": "tampers with the data cache location",
+        "snippet": "base_path = Path(os.environ[\"RELBENCH_CACHE_DIR\"]) / context.dataset_name / \"db\""
+      },
+      {
+        "file": "main.py",
+        "line": 130,
         "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
         "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
-        "snippet": "frame = pd.concat([train, val, test], axis=0, ignore_index=True)"
+        "snippet": "source = pd.concat((train_frame, val_frame), ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 131,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "source_labels = np.concatenate((labels_train, labels_val))"
+      },
+      {
+        "file": "main.py",
+        "line": 132,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "source_core = np.concatenate((train_core[:, :73], val_core[:, :73]), axis=0)"
+      },
+      {
+        "file": "main.py",
+        "line": 287,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "source_frame = pd.concat((train_frame, val_frame), ignore_index=True)"
+      },
+      {
+        "file": "main.py",
+        "line": 288,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "source_labels = np.concatenate((train_labels, val_labels))"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 175,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "matrix = np.concatenate((matrix_train, matrix_val), axis=0)"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 176,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "labels = np.concatenate((labels_train, labels_val), axis=0)"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 177,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "days = np.concatenate((days_train, days_val), axis=0)"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 192,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_matrix = np.concatenate((text_train, text_val), axis=0)"
+      },
+      {
+        "file": "model_pipeline.py",
+        "line": 193,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_labels = np.concatenate((labels_train, labels_val), axis=0)"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 465,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_matrix = np.concatenate((train_matrix, val_matrix), axis=0)"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 466,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_labels = np.concatenate((train_labels, val_labels))"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 467,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_days = np.concatenate((train_days, val_days))"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 468,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_products = np.concatenate((train_products, val_products))"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 475,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_covariates = np.concatenate((train_covariates, val_covariates), axis=0)"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 496,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_matrix = np.concatenate((train_matrix, val_matrix), axis=0)"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 497,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_labels = np.concatenate((train_labels, val_labels))"
+      },
+      {
+        "file": "selection_pipeline.py",
+        "line": 498,
+        "pattern": "(concatenate|concat|hstack|vstack|np\\.r_)[^\\n]{0,80}(train[^\\n]{0,30}val|val[^\\n]{0,30}train)|train_?val_?(idx|index|indices|rows)",
+        "concern": "verify: train+val mixing \u2014 confirm the validation-prediction chain is pre-refit (OOS contract)",
+        "snippet": "combined_days = np.concatenate((train_days, val_days))"
       }
     ],
     "note": "static scan; manually review flagged lines before publishing results. 'verify:' findings are advisory OOS-contract review hooks (legal patterns that warrant tracing), not violations."
   },
-  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-churn/runs/run_0013/code",
+  "code_path": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-churn/runs/run_0004/code",
   "predictions": {
-    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-churn/runs/run_0013/val_predictions.npy",
-    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-churn/runs/run_0013/test_predictions.npy"
+    "val": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-churn/runs/run_0004/val_predictions.npy",
+    "test": "/home/ubuntu/kapso/tmp/relbench/rel-amazon--item-churn/runs/run_0004/test_predictions.npy"
   }
 }
