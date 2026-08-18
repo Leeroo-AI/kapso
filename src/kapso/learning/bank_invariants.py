@@ -311,10 +311,17 @@ def evidence_admission_findings(
 
             record = serving_records.get(str(trajectory)) or {}
             served_names = {row["card"] for row in record.get("served", [])}
-            claims_use = any(
-                word in usage.lower() for word in ("served", "cited", "probe")
+            usage_lower = usage.lower()
+            # Negated serving ("never served", "served nowhere", "not in any
+            # brief") is an independence statement, not a participation claim
+            # (founding-bank self-review finding).
+            negations = ("never served", "served nowhere", "not served",
+                         "no brief", "not in any brief", "pre-bank")
+            negated = any(phrase in usage_lower for phrase in negations)
+            claims_use = not negated and any(
+                word in usage_lower for word in ("served", "cited", "probe")
             )
-            claims_independence = "independen" in usage.lower()
+            claims_independence = negated or "independen" in usage_lower
             if claims_use and card.name not in served_names:
                 findings.append(
                     f"{label}: usage claims serving/citation but the serving "

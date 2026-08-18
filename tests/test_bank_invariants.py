@@ -305,3 +305,24 @@ def test_retired_cards_are_frozen_history(tmp_path):
         Bank(str(before_root)), Bank(str(after_root))
     ).validate()
     assert any("modified after retirement" in f for f in findings)
+
+
+def test_negated_serving_is_independence_not_a_claim(tmp_path):
+    # Regression (founding-bank self-review): "never served" / "served
+    # nowhere" prose must read as independence, not as a serving claim — and
+    # it trips when the record shows the card WAS served.
+    store = make_store_with_trajectory(tmp_path)
+    bank_root = build_bank(tmp_path, {"a-card": card_text("a-card")})
+    card = Bank(str(bank_root)).cards["a-card"]
+    findings = evidence_admission_findings(
+        card, [entry(usage="Served nowhere (pre-bank campaign); the lane "
+                           "applied the move independently.")],
+        store, {},
+    )
+    assert findings == []
+    served_record = {TRAJECTORY_ID: {"served": [{"card": "a-card"}]}}
+    findings = evidence_admission_findings(
+        card, [entry(usage="Never served in that campaign.")],
+        store, served_record,
+    )
+    assert any("claims independence but" in f for f in findings)

@@ -194,9 +194,17 @@ class Bank:
         return path.read_text() if path.is_file() else ""
 
     def conformance_findings(self) -> List[str]:
-        """Bank-level OKF conformance: per-card checks plus index coverage."""
+        """Bank-level OKF conformance: per-card checks plus index coverage.
+
+        Decoy-registry cards are skipped: they are frame-owned instruments,
+        evidence-free by construction (the gauntlet's standing bait), and the
+        registry — not the schema — is their contract.
+        """
         findings: List[str] = []
+        decoys = self.decoy_names
         for card in self.cards.values():
+            if card.name in decoys:
+                continue
             findings += card.conformance_findings()
         for section in ("insights", "procedures"):
             section_dir = self.root / section
