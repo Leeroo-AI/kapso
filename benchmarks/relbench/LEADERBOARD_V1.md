@@ -194,3 +194,58 @@ in the best-known column below). Kapso cells from `RESULTS.md`.
   Most tasks are protocol-identical across regimes; these are not.
 - **No test feedback.** Test labels are masked inside the sandbox, so no in-loop signal
   could come from them; model selection used validation only.
+
+---
+
+## Appendix — extended-sweep tasks (not on the official board)
+
+The submission board validates exactly the 31 tasks above
+(`relbench.leaderboard.LEADERBOARD_TASKS`); there is **no submission channel
+for any other task** — the packager rejects unregistered CSVs and each
+category requires all of its registered tasks. The v2 sweep additionally
+covered the 35 tasks below: the autocomplete (AC) task family plus the
+v2-only databases rel-arxiv / rel-salt / rel-ratebeer / rel-mimic. Their
+comparison numbers come from published papers (RelBench 2.0, RelGT-AC,
+RelAgent), so the only venue for these results is a paper or tech report,
+not the leaderboard. Kapso beats the best published number on **29 of 34
+completed tasks** (one task is blocked on credentialed data). Values are in
+the best-known number's units — AUROC/accuracy/MAP in %, R² for v2
+regression — higher is better throughout. Kapso cells from `RESULTS.md`.
+
+| Task | Type | Best published (method) | Kapso | vs best |
+|---|---|---|---|---|
+| rel-amazon/review-rating | AC-reg | -0.356 (GraphSAGE) | 0.163 | ✅ |
+| rel-arxiv/author-category | multiclass | 50.7 (GraphSAGE) | 52.5 | ✅ |
+| rel-arxiv/author-publication | reg | 0.249 (GraphSAGE) | 0.525 | ✅ |
+| rel-arxiv/paper-citation | clf | 82.6 (RelAgent) | 83.2 | ✅ |
+| rel-arxiv/paper-paper-cocitation | rec | 35.4 (ID-GNN) | 32.0 | below |
+| rel-avito/searchinfo-isuserloggedon | AC-bin | 73.0 (GraphSAGE) | 91.9 | ✅ |
+| rel-avito/searchstream-click | AC-bin | 55.9 (GraphSAGE) | 86.0 | ✅ |
+| rel-event/event_interest-interested | AC-bin | 49.6 (LightGBM) | 74.6 | ✅ |
+| rel-event/event_interest-not_interested | AC-bin | 60.4 (GraphSAGE) | 97.8 | ✅ |
+| rel-event/users-birthyear | AC-reg | -0.03 (GraphSAGE) | 0.219 | ✅ |
+| rel-f1/results-position | AC-reg | 0.528 (RelGT-AC) | 0.927 | ✅ |
+| rel-f1/qualifying-position | AC-reg | 0.239 (RelGT-AC) | 0.607 | ✅ |
+| rel-hm/transactions-price | AC-reg | 0.736 (GraphSAGE) | 0.960 | ✅ |
+| rel-mimic/patient-iculengthofstay | clf | 55.0 (GraphSAGE) | — | ⛔ credentialed data |
+| rel-ratebeer/beer-churn | clf | 84.7 (RelAgent) | 82.3 | below |
+| rel-ratebeer/beer_ratings-total_score | AC-reg | 0.394 (GraphSAGE) | 0.405 | ✅ |
+| rel-ratebeer/brewer-dormant | clf | 83.3 (RelAgent) | 81.7 | below |
+| rel-ratebeer/user-beer-favorite | rec | 1.89 (ID-GNN) | 5.36 | ✅ |
+| rel-ratebeer/user-beer-liked | rec | 1.46 (ID-GNN) | 2.81 | ✅ |
+| rel-ratebeer/user-churn | clf | 98.6 (RelAgent) | 93.3 | below |
+| rel-ratebeer/user-count | reg | 0.625 (GraphSAGE) | 0.793 | ✅ |
+| rel-ratebeer/user-place-liked | rec | 1.85 (ID-GNN) | 6.10 | ✅ |
+| rel-salt/item-incoterms | AC-mul | 69.4 (GraphSAGE) | 77.6 | ✅ |
+| rel-salt/item-plant | AC-mul | 99.5 (GraphSAGE) | 99.8 | ✅ |
+| rel-salt/item-shippoint | AC-mul | 98.4 (GraphSAGE) | 99.6 | ✅ |
+| rel-salt/sales-group | AC-mul | 15.8 (GraphSAGE) | 91.5 | ✅ |
+| rel-salt/sales-incoterms | AC-mul | 62.2 (GraphSAGE) | 83.3 | ✅ |
+| rel-salt/sales-office | AC-mul | 99.9 (either baseline) | 100 | ✅ |
+| rel-salt/sales-payterms | AC-mul | 37.5 (GraphSAGE) | 92.4 | ✅ |
+| rel-salt/sales-shipcond | AC-mul | 56.9 (GraphSAGE) | 80.1 | ✅ |
+| rel-stack/badges-class | AC-mul | 82.8 (GraphSAGE) | 89.2 | ✅ |
+| rel-trial/eligibilities-adult | AC-bin | 93.7 (GraphSAGE) | 98.5 | ✅ |
+| rel-trial/eligibilities-child | AC-bin | 87.2 (GraphSAGE) | 93.2 | ✅ |
+| rel-trial/studies-enrollment | AC-reg | 0.436 (RelGT-AC) | 0.00111 | below |
+| rel-trial/studies-has_dmc | AC-bin | 78.5 (RelGT-AC) | 80.8 | ✅ |
