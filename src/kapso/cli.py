@@ -33,6 +33,7 @@ from kapso.learning.corpus_import import import_archive, import_subset
 from kapso.learning.behavior import BehaviorRunner
 from kapso.learning.develop import DevelopmentDriver
 from kapso.learning.graders.frame import GradingFrame
+from kapso.learning.graders.gauntlet import GauntletRunner
 from kapso.learning.graders.split import assert_batch_disjoint, load_split, validate_split
 from kapso.learning.update_frame import UpdateFrame, init_bank
 from kapso.learning.mining import MiningFrame
@@ -269,6 +270,12 @@ def cmd_learn(args) -> None:
     elif args.learn_command == "init-bank":
         init_bank(config["learning"]["bank"]["local_path"])
         print(f"Bank home created: {config['learning']['bank']['local_path']}")
+    elif args.learn_command == "gauntlet":
+        runner = GauntletRunner(TrajectoryStore.from_config(config), config)
+        verdict = runner.run(args.learner_version)
+        root = Path(config["learning"]["develop"]["run_root"]).expanduser()
+        print(f"Gauntlet: {root / args.learner_version / 'gauntlet.md'}")
+        print(f"Rolled verdict: {verdict}")
     elif args.learn_command == "develop":
         store = TrajectoryStore.from_config(config)
         split = load_split(args.split)
@@ -585,6 +592,13 @@ Examples:
     learn_develop.add_argument("--split", type=str, required=True, help="Split manifest")
     learn_develop.add_argument("--learner-version", type=str, required=True, help="Crew version identifier")
     learn_develop.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+
+    learn_gauntlet = learn_sub.add_parser(
+        "gauntlet",
+        help="Run the duplicate + stability traps against a completed development run",
+    )
+    learn_gauntlet.add_argument("--learner-version", type=str, required=True, help="Completed development run to trap")
+    learn_gauntlet.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
 
     learn_behave = learn_sub.add_parser(
         "behave",

@@ -69,6 +69,7 @@ def develop_config(tmp_path):
             "graders": {
                 "score_band": 0.20, "min_settlements": 2,
                 "calibration_min": 20, "calibration_buckets": [0.4, 0.7],
+                "gauntlet": {"stability_tolerance": 0.10},
                 "crew": {
                     "report_writer": {"cli": "codex", "model": "m", "effort": "xhigh"},
                     "verifier": {"cli": "claude_code", "model": "m",
@@ -123,6 +124,7 @@ def test_development_regime_end_to_end(tmp_path):
     scorecard = yaml.safe_load((scorecard_dir / "scorecard.yaml").read_text())
     assert scorecard["learner_version"] == "crew_v1"
     assert scorecard["n_reports"] == 1  # exactly the held-out set
+    assert scorecard["gauntlet"] == "PASS"  # traps ran before the exam
 
     root = Path(config["learning"]["develop"]["run_root"]) / "crew_v1"
     curve = yaml.safe_load((root / "training-curve.yaml").read_text())
@@ -131,6 +133,10 @@ def test_development_regime_end_to_end(tmp_path):
     # empty — never "everything else in the store" (which holds held-out).
     listings = list((root / "exams").glob("*/*/learn-set-mined-views.txt"))
     assert listings and all(l.read_text() == "" for l in listings)
+    # The traps ran the crew on sandbox homes and left their proof.
+    gauntlet = yaml.safe_load((root / "gauntlet.md").read_text().split("---")[1])
+    assert gauntlet["verdict"] == "PASS"
+    assert set(gauntlet["gauntlet"]) == {"duplicate", "stability"}
     assert (root / "bank-home.git").is_dir()  # the disposable bank
     # the learn-set lesson landed in the disposable bank, not the prod bank
     assert list((root / "updates").glob("lr_*/report.md"))

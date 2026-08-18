@@ -20,6 +20,7 @@ import yaml
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.graders.frame import GradingFrame
+from kapso.learning.graders.gauntlet import GauntletRunner
 from kapso.learning.graders.split import assert_batch_disjoint
 from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.learning.update_frame import UpdateFrame, init_bank
@@ -114,11 +115,17 @@ class DevelopmentDriver:
         with open(root / "training-curve.yaml", "w") as handle:
             yaml.safe_dump(curve, handle, sort_keys=False)
 
+        # The traps run the finished crew on sandbox homes before the exam;
+        # a FAIL rolls into the scorecard and forces the reject (§2.3).
+        gauntlet_rollup = GauntletRunner(
+            self.store, self.config, agent_factory=self.agent_factory
+        ).run(learner_version)
+
         bank_head = self._bank_head(bank_home)
         exam_checkout = self._serving_checkout(root, bank_home, len(batches))
         scorecard_dir = grading.grade_full(
             split, str(exam_checkout), bank_head, learner_version,
-            str(root / "graders"),
+            str(root / "graders"), gauntlet_rollup=gauntlet_rollup,
         )
         self._ledger_row(learner_version, scorecard_dir)
         return scorecard_dir
