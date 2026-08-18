@@ -14,7 +14,7 @@ RETRIEVER_CONFIG = {
     "k_insights": 2,
     "k_procedures": 1,
     "k_pitfalls": 1,
-    "unvisited_discount": 0.5,
+    "unvisited_discount": 0.5, "probe_budget": 1,
 }
 
 TASK = {"family": "entity_binary_classification", "dataset": "rel-hm"}
@@ -69,6 +69,8 @@ log:
     change: Created from two independent instances.
 supersedes: null
 contradicts: {contradicts_yaml}
+probe: >-
+  Ablate the grouped-rank block on one forward fold; keep the clustered delta.
 ---
 {body}
 """
@@ -218,3 +220,72 @@ def test_version_log_one_to_one(tmp_path):
     root = build_bank(tmp_path, {"v-card": text})
     findings = Bank(str(root)).conformance_findings()
     assert any("version ⇔ log-entry" in f for f in findings)
+
+
+def test_probe_queue_ranks_by_voi_tiers(tmp_path):
+    # P6 regression: the queue is ledger-derived - heavily-served thinly-
+    # verified first (uncertainty x exposure), contradicts pairs as boundary
+    # rows, zero-outcome candidates as blocked; decoys and probe-less cards
+    # never appear.
+    from kapso.learning.retriever import compile_probe_queue
+
+    served_thin = card_text("served-thin", score=0.5)
+    served_thin = served_thin.replace("validity: 0.8", "validity: 0.3")
+    served_thin = served_thin.replace(
+        "usage: independent evidence.", "usage: served and cited by the spec."
+    )
+    root = build_bank(tmp_path, {
+        "served-thin": served_thin,
+        "tension-a": card_text("tension-a", contradicts=("tension-b",)),
+        "tension-b": card_text("tension-b", contradicts=("tension-a",)),
+        "blocked-card": card_text("blocked-card", state="candidate").replace(
+            "verdict: confirm", "verdict: exercise"
+        ),
+        "probeless": card_text("probeless").replace(
+            "probe: >-\n  Ablate the grouped-rank block on one forward fold; "
+            "keep the clustered delta.",
+            "probe: null",
+        ),
+        "decoy-card": card_text("decoy-card"),
+    })
+    (root / ".decoys.yaml").write_text("- decoy-card\n")
+    queue = compile_probe_queue(Bank(str(root)))
+    lines = [l for l in queue.splitlines() if l and l[0].isdigit()]
+    assert "[card:served-thin]" in lines[0] and "served-unverified" in lines[0]
+    assert "voi=0.70" in lines[0]  # (1-0.3) x 1 exposure
+    boundary = [l for l in lines if "boundary" in l]
+    assert any("tension-a" in l for l in boundary)
+    blocked = [l for l in lines if "blocked" in l]
+    assert any("blocked-card" in l for l in blocked)
+    assert "decoy-card" not in queue
+    assert "probeless" not in " ".join(lines)
+
+
+def test_probe_rider_attaches_at_most_the_budget(tmp_path):
+    # P6 regression: one probe slot rides the brief (a second never
+    # attaches), only eligible servable cards, recorded in the record.
+    from kapso.learning.retriever import compile_brief, compile_probe_queue
+
+    root = build_bank(tmp_path, {
+        "strong-card": card_text("strong-card", score=0.8),
+        "weak-card": card_text("weak-card", score=0.4),
+        "avito-card": card_text("avito-card", scope=["dataset:rel-avito"]),
+    })
+    bank = Bank(str(root))
+    (root / "index").mkdir(exist_ok=True)
+    (root / "index" / "probe-queue.md").write_text(compile_probe_queue(bank))
+    config = dict(RETRIEVER_CONFIG)
+    result = compile_brief(
+        bank, {"family": "entity_binary_classification", "dataset": "rel-hm"},
+        "head", config,
+    )
+    assert len(result["record"]["probes"]) == 1
+    assert result["record"]["probes"][0]["card"] != "avito-card"
+    assert "unverified on this family; probe:" in result["brief"]
+    config["probe_budget"] = 0
+    result = compile_brief(
+        bank, {"family": "entity_binary_classification", "dataset": "rel-hm"},
+        "head", config,
+    )
+    assert result["record"]["probes"] == []
+    assert "unverified on this family" not in result["brief"]

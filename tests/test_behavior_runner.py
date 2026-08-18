@@ -49,7 +49,7 @@ def behavior_config(tmp_path, scenarios_dir):
         "learning": {
             "trajectory_store": {"local": str(tmp_path / "store"), "remote": None},
             "retriever": {"k_insights": 2, "k_procedures": 1, "k_pitfalls": 1,
-                          "unvisited_discount": 0.5},
+                          "unvisited_discount": 0.5, "probe_budget": 1},
             "behavior": {
                 "scenarios_dir": str(scenarios_dir),
                 "reviewer": {"cli": "claude_code", "model": "m",

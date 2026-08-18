@@ -187,6 +187,11 @@ def test_generalize_born_candidate_with_probe(tmp_path):
     # trips — upward moves are born as predictions with their test attached.
     def generalize(root):
         successor = card_text("general-card", scope="domain", state="active")
+        successor = successor.replace(
+            "probe: >-\n  Ablate the grouped-rank block on one forward fold; "
+            "keep the clustered delta.",
+            "probe: null",
+        )
         successor = successor.replace("supersedes: null", "supersedes: [a-card]")
         write_card(root, "general-card", successor)
         (root / "retired" / "insights").mkdir(parents=True)

@@ -35,6 +35,27 @@ CLAIM_LAYER_FIELDS = (
 _DELTA_PATTERN = re.compile(r"[+\-−±]\s?\d+\.\d+")
 _NUMBER_PATTERN = re.compile(r"\d+\.\d{2,}")
 
+# Negated serving ("never served", "served nowhere", "not in any brief") is
+# an independence statement, not a participation claim (founding-bank
+# self-review finding). Shared by evidence admission and the probe queue's
+# exposure count.
+NEGATED_SERVING_PHRASES = ("never served", "served nowhere", "not served",
+                           "no brief", "not in any brief", "pre-bank")
+
+
+def usage_negates_serving(usage: str) -> bool:
+    lower = usage.lower()
+    return any(phrase in lower for phrase in NEGATED_SERVING_PHRASES)
+
+
+def usage_claims_serving(usage: str) -> bool:
+    """Does this usage prose claim the card participated (served, cited, or
+    probe-tested)? Negation-aware."""
+    if usage_negates_serving(usage):
+        return False
+    lower = usage.lower()
+    return any(word in lower for word in ("served", "cited", "probe"))
+
 
 def _claim_signature(card: Card) -> Dict[str, Any]:
     signature = {field: card.frontmatter.get(field) for field in CLAIM_LAYER_FIELDS}
@@ -311,17 +332,10 @@ def evidence_admission_findings(
 
             record = serving_records.get(str(trajectory)) or {}
             served_names = {row["card"] for row in record.get("served", [])}
-            usage_lower = usage.lower()
-            # Negated serving ("never served", "served nowhere", "not in any
-            # brief") is an independence statement, not a participation claim
-            # (founding-bank self-review finding).
-            negations = ("never served", "served nowhere", "not served",
-                         "no brief", "not in any brief", "pre-bank")
-            negated = any(phrase in usage_lower for phrase in negations)
-            claims_use = not negated and any(
-                word in usage_lower for word in ("served", "cited", "probe")
+            claims_use = usage_claims_serving(usage)
+            claims_independence = (
+                usage_negates_serving(usage) or "independen" in usage.lower()
             )
-            claims_independence = negated or "independen" in usage_lower
             if claims_use and card.name not in served_names:
                 findings.append(
                     f"{label}: usage claims serving/citation but the serving "

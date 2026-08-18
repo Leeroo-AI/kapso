@@ -34,7 +34,7 @@ def serving_config(tmp_path, enabled=True):
             "bank": {"local_path": str(tmp_path / "bank-home.git"),
                      "remote": None},
             "retriever": {"k_insights": 2, "k_procedures": 1, "k_pitfalls": 1,
-                          "unvisited_discount": 0.5},
+                          "unvisited_discount": 0.5, "probe_budget": 1},
         }
     }
 

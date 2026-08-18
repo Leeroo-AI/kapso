@@ -219,6 +219,9 @@ learning:
     k_procedures: 2
     k_pitfalls: 2
     unvisited_discount: 0.5
+    # Probe rider slots per campaign (§5.1) — a hard cap, so learning never
+    # cannibalizes doing.
+    probe_budget: 1
   graders:
     # Scoring semantics (grader-scoring doc §5): corridor half-width, the
     # accuracy settlement floor, calibration pooling minimum and buckets.

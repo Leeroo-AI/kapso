@@ -79,7 +79,7 @@ def develop_config(tmp_path):
                 },
             },
             "retriever": {"k_insights": 2, "k_procedures": 1, "k_pitfalls": 1,
-                          "unvisited_discount": 0.5},
+                          "unvisited_discount": 0.5, "probe_budget": 1},
             "bank": {"local_path": str(tmp_path / "unused-prod-bank.git"),
                      "remote": None},
             "update_crew": {

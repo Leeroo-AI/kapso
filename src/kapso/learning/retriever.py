@@ -19,13 +19,20 @@
 # card rendered); attribution binds to `got`.
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from kapso.learning.bank import Bank, Card
+from kapso.learning.bank_invariants import usage_claims_serving
 
 PITFALL_TAG = "pitfall"
+
+# Probe-queue row grammar (§5.1): the derived index is one file, readable by
+# crews and parsed by the push rider — structural constant, not a knob.
+PROBE_QUEUE_RELPATH = "index/probe-queue.md"
+_PROBE_ROW_PATTERN = re.compile(r"^\d+\. \[card:([a-z0-9][a-z0-9-]*)\] \(([^)]*)\) — (.+)$")
 
 
 def _dataset_of_trajectory(trajectory_id: str) -> str:
@@ -169,6 +176,38 @@ def compile_brief(
            else "- no gaps flagged for this task's scope")
     )
 
+    # Probe rider (§5.1): at most probe_budget probes from the derived queue
+    # ride the brief — a hard cap, so learning never cannibalizes doing.
+    # Eligibility and quarantine are re-checked at serve time; uptake is
+    # voluntary and an ignored probe stays queued.
+    probe_budget = retriever_config["probe_budget"]
+    probes = []
+    queue_path = bank.root / PROBE_QUEUE_RELPATH
+    if probe_budget and queue_path.is_file():
+        servable_names = {card.name for card in bank.servable()}
+        for line in queue_path.read_text().splitlines():
+            match = _PROBE_ROW_PATTERN.match(line)
+            if not match:
+                continue
+            name, tier, probe_text = match.groups()
+            card = bank.cards.get(name)
+            if (
+                card is None or name not in servable_names
+                or not card.eligible_for(task_coords)
+            ):
+                continue
+            probes.append({"card": name, "tier": tier, "probe": probe_text})
+            if len(probes) >= probe_budget:
+                break
+    if probes:
+        sections.append(
+            "## Probe (pre-registered, budgeted — one fold)\n\n" + "\n".join(
+                f"- [card:{row['card']}] unverified on this family; probe: "
+                f"{row['probe']}"
+                for row in probes
+            )
+        )
+
     record = {
         "mode": "push",
         "task": dict(task_coords),
@@ -187,8 +226,86 @@ def compile_brief(
         ],
         "tensions": [list(pair) for pair in tensions],
         "gaps": gaps,
+        "probes": probes,
     }
     return {"brief": "\n\n".join(sections), "record": record}
+
+
+# ----------------------------------------------------------- probe queue
+
+def compile_probe_queue(bank: Bank) -> str:
+    """The VoI-ranked open-probe queue (§5.1) — recompiled by the frame each
+    update run, every input ledger-derived, no agent in the ranking.
+
+    Rows are servable, non-decoy cards with an open `probe:` field, in three
+    tiers: (1) served-unverified — voi = uncertainty (1 − validity; missing
+    counts as 1) × serving exposure (evidence entries whose usage claims
+    participation), heavily-served-thinly-verified first; (2) boundary —
+    cards in a contradicts pair, whose probe would carve a scope; (3)
+    blocked — candidates with zero outcome verdicts, promotion pending
+    measurement. Remaining open probes tail the queue by name."""
+    decoys = bank.decoy_names
+    open_probes = [
+        card for card in bank.servable()
+        if card.name not in decoys
+        and str(card.frontmatter.get("probe") or "").strip()
+    ]
+    contested = {
+        card.name for card in open_probes
+        if card.frontmatter.get("contradicts")
+    }
+
+    def uncertainty(card: Card) -> float:
+        validity = card.reliability.get("validity")
+        return 1.0 - float(validity) if isinstance(validity, (int, float)) else 1.0
+
+    def exposure(card: Card) -> int:
+        return sum(
+            1 for entry in card.evidence
+            if usage_claims_serving(str(entry.get("usage") or ""))
+        )
+
+    def outcomes(card: Card) -> int:
+        return sum(
+            1 for entry in card.evidence
+            if entry.get("verdict") in ("confirm", "weaken", "refute")
+        )
+
+    tier1 = sorted(
+        (card for card in open_probes if exposure(card) > 0),
+        key=lambda c: (-(uncertainty(c) * exposure(c)), c.name),
+    )
+    listed = {card.name for card in tier1}
+    tier2 = sorted(
+        (c for c in open_probes if c.name in contested and c.name not in listed),
+        key=lambda c: c.name,
+    )
+    listed |= {card.name for card in tier2}
+    tier3 = sorted(
+        (c for c in open_probes
+         if c.state == "candidate" and outcomes(c) == 0 and c.name not in listed),
+        key=lambda c: c.name,
+    )
+    listed |= {card.name for card in tier3}
+    tail = sorted(
+        (c for c in open_probes if c.name not in listed), key=lambda c: c.name
+    )
+
+    rows = []
+    for card in tier1:
+        voi = uncertainty(card) * exposure(card)
+        rows.append((card, f"served-unverified voi={voi:.2f}"))
+    rows += [(card, "boundary: contradicts unresolved") for card in tier2]
+    rows += [(card, "blocked: candidate with no outcome verdict") for card in tier3]
+    rows += [(card, "queued") for card in tail]
+
+    lines = ["# Probe queue — value-of-information ranked (derived; frame-compiled)", ""]
+    for index, (card, tier) in enumerate(rows, start=1):
+        probe = " ".join(str(card.frontmatter["probe"]).split())
+        lines.append(f"{index}. [card:{card.name}] ({tier}) — {probe}")
+    if not rows:
+        lines.append("(no open probes)")
+    return "\n".join(lines) + "\n"
 
 
 # ------------------------------------------------------------------ pull

@@ -30,6 +30,7 @@ from kapso.learning.bank_invariants import (
 )
 from kapso.learning.graders.hindcast import HindcastReport
 from kapso.learning.refs import extract_refs
+from kapso.learning.retriever import compile_probe_queue
 from kapso.learning.trajectory_store import TrajectoryStore
 
 CREW_DIR = Path(__file__).parent / "crews" / "update"
@@ -433,6 +434,9 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
         index_dir.mkdir(exist_ok=True)
         with open(index_dir / "edges.yaml", "w") as handle:
             yaml.safe_dump(edges, handle, sort_keys=False)
+        # The probe queue (§5.1): VoI-ranked open probes, recompiled each
+        # batch — the push rider serves from it under the probe budget.
+        (index_dir / "probe-queue.md").write_text(compile_probe_queue(bank))
 
         headline_path = run_dir / "work" / "headline.md"
         headline = headline_path.read_text().strip().splitlines()
