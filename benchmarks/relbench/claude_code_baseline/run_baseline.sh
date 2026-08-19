@@ -66,8 +66,12 @@ run|harvest)
     ssh_box "set -e
       W=~/cc_baseline/$DIR/$STAMP; mkdir -p \$W; cd ~/kapso
       if [ ! -d ~/cc_baseline/cache_$DIR/$DS/tasks/$TN ]; then
+        $PY_REMOTE -c 'from relbench.datasets import get_dataset; from relbench.tasks import get_task
+get_dataset(\"$DS\", download=True).get_db(); get_task(\"$DS\", \"$TN\", download=True)
+print(\"pristine cache ready\")' > \$W/download.log 2>&1
         PYTHONPATH=src:. $PY_REMOTE -m benchmarks.relbench.sandbox --dataset $DS --task $TN \
           --dest ~/cc_baseline/cache_$DIR --source ~/.cache/relbench > \$W/sandbox.log 2>&1
+        test -d ~/cc_baseline/cache_$DIR/$DS/tasks/$TN || { echo SANDBOX-FAILED; tail -3 \$W/sandbox.log; exit 1; }
       fi
       cp -r ~/kapso/benchmarks/relbench/data/starter_kit \$W/kapso_datasets
       rm -rf \$W/kapso_datasets/__pycache__; mkdir -p \$W/kapso_output
