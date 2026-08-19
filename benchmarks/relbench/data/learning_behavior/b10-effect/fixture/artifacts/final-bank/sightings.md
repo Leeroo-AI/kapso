@@ -1,0 +1,4 @@
+# Sightings — pre-card observations
+- 2026-08-18 · rel-amazon--user-churn/20260731T210811_lane-b2/mined/index.md#outcome · A single campaign shipped a valid paid result below its external target, an outcome without a transferable mechanism yet.
+- 2026-08-18 · rel-amazon--user-churn/20260731T210811_lane-b2/mined/it-1/flow-2.md#implementation · A dense text-embedding block cleared its behavioral-widening admission gate only marginally and the standalone semantic MLP lost to the compact tabular folds — a below-noise interaction not yet card-worthy.
+- 2026-08-18 · rel-amazon--user-churn/20260812T091402_lane-c10/mined/index.md#outcome + rel-amazon--user-churn/20260813T015420_lane-c10/mined/it-2/flow-3.md#judgment · Two further campaigns on the same task shipped valid paid results below the same external target despite structurally different re-aims, recurring as an outcome without a distinct transferable mechanism.

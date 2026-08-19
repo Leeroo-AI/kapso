@@ -1,0 +1,63 @@
+learner_version: crew_v1
+split_version: 2
+bank_head: 6718942f5a826927110a7ceb9310b2c1571c53be
+n_reports: 6
+aggregation:
+  foresight:
+    values:
+    - 0.73
+    - 0.89
+    - 0.92
+    - 0.91
+    - 0.86
+    - 0.92
+    n: 6
+    nulls: 0
+    mean: 0.8717
+    se: 0.0298
+  accuracy:
+    values:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    n: 5
+    nulls: 1
+    mean: 1.0
+    se: 0.0
+  serving:
+    values:
+    - 0.43
+    - 0.27
+    - 0.38
+    - 0.42
+    - 0.31
+    - 0.43
+    n: 6
+    nulls: 0
+    mean: 0.3733
+    se: 0.0279
+deltas: null
+calibration: null
+calibration_pooled: 7
+gauntlet: not-run
+verdict:
+  decision: reject
+  rationale: 'This is a first-generation assessment with no incumbent or paired deltas,
+    so the decision is accept or reject on the absolute picture, not within-noise.
+    The bank shows broad foresight, and the small set of registered claims that could
+    actually be settled contains no contradiction, but that accuracy is repeatedly
+    described as thin because most claims were out of scope or lacked controlled,
+    significance-judged evidence. Serving binds the decision across the admitted reports:
+    relevant guidance was repeatedly omitted, especially the warnings that reweighting
+    cannot replace representation, confirmations should be gated by decision value,
+    routed state needs event-time guards, and compact tabular fallbacks deserve protection.
+    Even when preventive guidance was served, boundary preflight and temporal-selection
+    advice was often taken up only partially or reactively, after leakage, schema,
+    cache, evaluator, or budget failures had already consumed work. At the same time,
+    the survival-companion card was repeatedly served into tasks where its mechanism
+    was out of scope, adding noise. With no gauntlet verdict present and no usable
+    calibration table, neither supplies a separate gate or adjustment; the persistent
+    delivery and uptake failures in the absolute evidence are enough to reject despite
+    strong coverage and no observed settled contradiction.'

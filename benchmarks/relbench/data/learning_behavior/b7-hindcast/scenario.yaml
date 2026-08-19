@@ -1,0 +1,9 @@
+id: b7-hindcast
+machinery: grade-exam
+description: 'Hindcast honesty: planted hits, a planted uncarded miss, verified novel
+  attestation'
+trajectory: rel-amazon--user-churn/20260813T015420_lane-c10
+learn_set:
+- rel-amazon--user-churn/20260731T210811_lane-b2
+- rel-ratebeer--user-churn/20260801T224425_lane-a1
+bank_head: fixture

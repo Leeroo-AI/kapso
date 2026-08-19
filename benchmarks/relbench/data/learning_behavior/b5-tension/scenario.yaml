@@ -1,0 +1,5 @@
+id: b5-tension
+machinery: update
+description: 'Tension: one pair supports a region split; one is undecidable'
+batch: []
+learner_version: behave
