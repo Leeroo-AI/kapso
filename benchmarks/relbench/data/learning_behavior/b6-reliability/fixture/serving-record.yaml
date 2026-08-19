@@ -1,6 +1,0 @@
-bank_head: fixture
-served:
-- card: gated-text-blocks-pay
-  score: 0.6
-- card: proxy-graph-features-pay
-  score: 0.6

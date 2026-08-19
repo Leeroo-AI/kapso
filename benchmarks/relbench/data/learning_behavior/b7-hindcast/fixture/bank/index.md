@@ -1,3 +1,0 @@
-# Bank
-
-Fixture bank.

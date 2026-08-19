@@ -1,7 +1,0 @@
-id: b6-reliability
-machinery: update
-description: 'Reliability: settlements move scores sensibly, not catastrophically'
-batch:
-- trajectory: rel-amazon--user-churn/20260731T210811_lane-b2
-  report: report.md
-learner_version: behave
