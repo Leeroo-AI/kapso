@@ -73,6 +73,9 @@ print(\"pristine cache ready\")' > \$W/download.log 2>&1
           --dest ~/cc_baseline/cache_$DIR --source ~/.cache/relbench > \$W/sandbox.log 2>&1
         test -d ~/cc_baseline/cache_$DIR/$DS/tasks/$TN || { echo SANDBOX-FAILED; tail -3 \$W/sandbox.log; exit 1; }
       fi
+      # Leak hardening: with the sanitized cache built, remove the pristine
+      # test labels from the box entirely (the launcher re-downloads on demand).
+      rm -f ~/.cache/relbench/*/tasks/*/test.parquet
       cp -r ~/kapso/benchmarks/relbench/data/starter_kit \$W/kapso_datasets
       rm -rf \$W/kapso_datasets/__pycache__; mkdir -p \$W/kapso_output
       cat > \$W/session.sh <<EOF
