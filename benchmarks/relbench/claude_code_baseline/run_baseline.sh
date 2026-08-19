@@ -98,7 +98,7 @@ EOF
   W=$(ssh_box "cat ~/cc_baseline/current_$DIR")
   LOCAL=$HARVEST_ROOT/$DIR/$(basename "$W"); mkdir -p "$LOCAL"
   rsync -az --exclude shared_cache -e "ssh $SSHOPTS" "ubuntu@$IP:$W/" "$LOCAL/"
-  $PY_LOCAL "$HERE/score_baseline.py" "$TASK" "$LOCAL" | tee -a "$LOCAL/score.txt"
+  (cd "$RB" && PYTHONPATH=src:. $PY_LOCAL "$HERE/score_baseline.py" "$TASK" "$LOCAL") | tee -a "$LOCAL/score.txt"
   tar czf "$LOCAL.tgz" -C "$HARVEST_ROOT/$DIR" "$(basename "$W")" && \
     gsutil -q cp "$LOCAL.tgz" "$ARCHIVE_BUCKET/$DIR/$(basename "$W").tgz" && echo "archived -> $ARCHIVE_BUCKET/$DIR/$(basename "$W").tgz"
   ;;

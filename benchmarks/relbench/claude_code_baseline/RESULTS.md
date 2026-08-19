@@ -7,7 +7,7 @@ best-published columns from `../RESULTS.md` / `../LEADERBOARD_V1.md`.
 
 | Task | Fam | Metric | Claude Code | Kapso | Best published | Run |
 |---|---|---|---|---|---|---|
-| rel-trial/study-outcome | clf | AUROC | — | 82.1 | 72.0 (KumoRFM-2) | pending |
+| rel-trial/study-outcome | clf | AUROC | **75.16** (val 71.87; self-terminated at 81 min) | 82.1 | 72.0 (KumoRFM-2) | `20260819T135603` |
 | rel-event/user-repeat | clf | AUROC | — | 81.2 | 81.7 (KumoRFM-2) | pending |
 | rel-trial/study-adverse | reg | NMAE | — | 0.0872 | 0.1277 (KumoRFM-2) | pending |
 | rel-event/user-attendance | reg | NMAE | — | 0.315 | 0.3071 (KumoRFM-2) | pending |
