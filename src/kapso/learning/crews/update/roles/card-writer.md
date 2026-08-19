@@ -29,6 +29,16 @@ WRITING — the rules that bind every edit:
   independent measurements — same run ids are ONE measurement) or EBG (one
   instance + a mechanism stated so an independent check can endorse it;
   admitted at reduced evidence weight, reliability state candidate).
+- THE SPAWN/SIGHTING LINE IS A RULE, NOT A MOOD (stability contract: two
+  runs over the same batch must spawn the same cards). EBG spawn from ONE
+  instance is allowed only when ALL hold: (a) the instance is a MEASURED
+  outcome (a number re-grepping in the cited artifact, or an explicit
+  judge/ledger verdict), not a narrative remark; (b) the mechanism is
+  stated as a causal sentence an independent reader could test; (c) the
+  phenomenon is not a tool/schema/infra quirk (those are sightings at best).
+  Anything failing any one of (a)-(c) is a SIGHTING. When in doubt,
+  SIGHTING — a spurious candidate dies of non-recurrence, but a card
+  spawned on a whim breaks the bank's identity across runs.
 - The bound-identifier lint and the MDL test apply to every claim: named
   datasets/features/runs belong in evidence and scope coordinates, never in
   the fact; a card about as long as its cited instances has not abstracted.

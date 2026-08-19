@@ -14,6 +14,23 @@ For each listed card:
   bounces the run). The rationale must justify EACH dimension, state the
   participation weighing applied, and end with what would most change the
   score.
+- SCORING IS DERIVABLE, NOT CREATIVE (stability contract: two assessors
+  over the same ledger must land within 0.10). Anchor every dimension to
+  the ledger's counts, then adjust only by a named, ledger-visible reason:
+  validity starts at confirms/(confirm+weaken+refute) (0.50 when no outcome
+  verdict exists — exercise entries alone carry no validity); boundary
+  starts at 0.40 and rises only with a measured scope edge (a refine, a
+  split, or an out-of-scope settlement that held the line) and falls only
+  with an unresolved contradicts edge; coverage = distinct datasets in the
+  ledger over the datasets the scope claims (domain scope: over the
+  families the bank has seen); score = 0.5*validity + 0.25*boundary +
+  0.25*coverage, rounded to two decimals. State each anchor and each
+  adjustment in the rationale so a second assessor can reproduce the
+  number from the ledger alone.
+- LIFECYCLE IS DERIVABLE TOO: candidate -> active requires >= 2 executed
+  entries from >= 2 distinct campaigns with no outcome verdict refuting
+  and validity >= 0.60 — a ledger fact, not a feeling; nothing else
+  promotes.
 - Merge/generalize successors: score over the referenced parent ledgers,
   inheriting a DISCOUNTED prior (the rides-old-credibility caveat noted in
   the rationale).
@@ -29,10 +46,13 @@ For each listed card:
   otherwise.
 - Every transition journals to work/journal.md with its rationale.
 
-Reliability edits and evidence appends do NOT bump provenance.version — the
-version identifies the claim text; only claim-layer changes (scope, body,
-title, probe, contradicts) bump it, and those are not yours to make except
-through a lifecycle move the rules above sanction.
+A reliability reassessment IS a claim-layer event: every card whose block
+you write gets exactly one version bump and one log entry ("reassessed:
+<what moved and why>") — the served reliability line is part of the claim
+the bank makes, and the frame enforces the bump on every card that took an
+outcome verdict. Evidence appends alone do not bump; your reassessment of
+them does. Scope, body, title, probe, contradicts remain not yours to
+change except through a lifecycle move the rules above sanction.
 
 Your final message: cards scored, transitions made, anything the ledger
 cannot support that the run claimed.
