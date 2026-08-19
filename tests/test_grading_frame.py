@@ -275,3 +275,40 @@ def test_exam_refuses_self_in_learn_set(tmp_path):
     with pytest.raises(ValueError, match="own learn-set"):
         frame.grade_exam(TRAJECTORY_ID, str(bank_root), "lr_test",
                          str(tmp_path / "runs"), [TRAJECTORY_ID])
+
+
+def test_store_rooted_refs_resolve_only_inside_allowed_roots(tmp_path):
+    # Live finding (crew_v2 full exam): writers copy allowed-view paths from
+    # the learn-set listing and write them store-rooted
+    # (data/trajectories/<id>/...). Those are unambiguous - accepted when
+    # they land inside an allowed root, still rejected when unlisted.
+    config, store = make_graded_store(tmp_path)
+    other_id = "rel-hm--user-churn/20260105T000000_lane-z1"
+    work_dir, log = build_work_dir(tmp_path / "other")
+    save_trajectory(store, other_id, work_dir=str(work_dir), campaign_log=str(log))
+    MiningFrame(store, MINING_CONFIG,
+                agent_factory=FakeFactory(FakeLead([write_valid_mined]))
+                ).mine(other_id)
+    bank_root = build_bank(tmp_path, {"a-card": card_text("a-card")})
+    store_rooted = GOOD_REPORT.replace(
+        "a learnable lesson never carded\n  [mined/it-1/flow-1.md]",
+        "a learnable lesson never carded\n"
+        "  [data/trajectories/rel-hm--user-churn/20260105T000000_lane-z1"
+        "/mined/index.md]",
+    )
+    frame = GradingFrame(
+        store, config,
+        agent_factory=RoleFactory(FakeRoleAgent([], report_text=store_rooted)),
+    )
+    report_path = frame.grade_exam(
+        TRAJECTORY_ID, str(bank_root), "lr_test",
+        str(tmp_path / "runs-listed"), [other_id],
+    )
+    assert report_path.is_file()
+    frame = GradingFrame(
+        store, config,
+        agent_factory=RoleFactory(FakeRoleAgent([], report_text=store_rooted)),
+    )
+    with pytest.raises(RuntimeError, match="allowed learn set"):
+        frame.grade_exam(TRAJECTORY_ID, str(bank_root), "lr_test",
+                         str(tmp_path / "runs-unlisted"), [])

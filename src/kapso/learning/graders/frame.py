@@ -145,6 +145,13 @@ class GradingFrame:
             if path in inventory or path == "brief.md":
                 return True
             target = (bundle_dir / path).resolve()
+            if not target.exists() and "trajectories/" in path:
+                # Store-rooted refs (data/trajectories/<id>/...) are
+                # unambiguous and auditable — writers copy them straight
+                # from the learn-set listing. Map the store tail and hold
+                # them to the same allowed-roots law.
+                tail = path.split("trajectories/", 1)[1]
+                target = (self.store.local / tail).resolve()
             if not target.exists():
                 return False
             if target.is_relative_to(bundle_root):
