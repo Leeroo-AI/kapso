@@ -1,14 +1,19 @@
-# Split manifest v2 — the exam's authority (grader-scoring doc §3).
-# v1 superseded after the 8h mining deadline; see rationale.
-version: 2
+# Split manifest v3 — the exam's authority (grader-scoring doc §3).
+# v1 superseded after the 8h mining deadline; v2 superseded when the first
+# arm campaign joined the store; see rationale.
+version: 3
 rule: 'split by (family, time), never by task: the grouping key is the dataset; no
   dataset appears on both sides'
-rationale: 'v2 after the 8h mining deadline (user directive 2026-08-18): the batch
-  stopped at 11/19 mined views; the 8 unmined bundles are parked at data/trajectories-parked/
-  (re-adoptable by moving back and mining). Sides keep their D1 roles: learn = rel-amazon
-  user-churn x3 + rel-ratebeer x2; held-out = rel-event (user-repeat x4, user-ignore
-  x2).'
+rationale: 'v3 (2026-08-19): the neutrality control arm rel-hm--user-churn joined
+  the store (harvested live, bank_head null) — the learn side grows to the churn
+  cluster x6 (rel-amazon x3, rel-ratebeer x2, rel-hm x1); rel-hm is a churn
+  dataset, never held-out material. The held-out side is UNCHANGED from v2
+  (rel-event x6), so scorecards remain comparable across crew_v1/v2/v3. v2
+  history: post-deadline sides at 11/19 mined; 8 bundles parked.'
 learn:
+- id: rel-hm--user-churn/20260818T225216_arm-c
+  family: rel-hm
+  date: '2026-08-18'
 - id: rel-amazon--user-churn/20260731T210811_lane-b2
   family: rel-amazon
   date: '2026-07-31'
