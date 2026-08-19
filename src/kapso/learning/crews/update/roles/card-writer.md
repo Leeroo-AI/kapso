@@ -32,6 +32,12 @@ WRITING — the rules that bind every edit:
 - The bound-identifier lint and the MDL test apply to every claim: named
   datasets/features/runs belong in evidence and scope coordinates, never in
   the fact; a card about as long as its cited instances has not abstracted.
+- NAMING is identity, so it must be derivable, not creative (stability
+  contract: two runs over the same evidence must mint the SAME name).
+  Derive the slug mechanically from the fact: subject noun, then the
+  mechanism verb, then the binding condition — each chosen as the fact's
+  own words with the highest evidence support, dropping every optional
+  qualifier. Shortest derivable name wins; synonyms are not a choice.
 - Scope is a serving contract, not a description (crew_v1 exam finding: an
   out-of-scope-mechanism card served into tasks it cannot help is charged
   as serving NOISE). Choose `scope` coordinates no broader than where the
