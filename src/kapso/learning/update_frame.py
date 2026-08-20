@@ -129,6 +129,7 @@ class UpdateFrame:
         shutil.copytree(run_dir / "bank", before_dir)
         before = Bank(str(run_dir / "bank"))
 
+        self._stage_codify_runs(run_dir, before)
         self._seed_worksheet(run_dir, batch, before)
         self._stage_crew(run_dir, lr_id, batch, learner_version)
 
@@ -162,6 +163,35 @@ class UpdateFrame:
         return run_dir
 
     # ------------------------------------------------------------- staging
+
+    def _stage_codify_runs(self, run_dir: Path, bank: Bank) -> None:
+        """CD§2: a green codify verdict is folded by the NEXT transaction.
+        Stage each still-text card's newest green run — verdict plus the
+        workspace artifacts — into work/codify-runs/<card>/ so the crew can
+        commit the representation flip with the verdict in-transaction."""
+        codify_root = Path(self.crew_config["run_root"]).expanduser() / "codify"
+        if not codify_root.is_dir():
+            return
+        for run in sorted(codify_root.iterdir()):  # sorted: newest last wins
+            verdict_path = run / "verdict.yaml"
+            if not run.is_dir() or not verdict_path.is_file():
+                continue
+            card_name = run.name.rsplit("-", 1)[0]
+            card = bank.cards.get(card_name)
+            if card is None or card.representation == "code":
+                continue
+            verdict = yaml.safe_load(verdict_path.read_text())
+            if not isinstance(verdict, dict) or verdict.get("status") != "green":
+                continue
+            target = run_dir / "work" / "codify-runs" / card_name
+            if target.exists():
+                shutil.rmtree(target)
+            target.mkdir(parents=True)
+            shutil.copy2(verdict_path, target / "verdict.yaml")
+            for artifact in ("code", "replay"):
+                source = run / "workspace" / artifact
+                if source.is_dir():
+                    shutil.copytree(source, target / artifact)
 
     def _seed_worksheet(
         self, run_dir: Path, batch: List[Dict[str, str]], bank: Bank
@@ -255,6 +285,8 @@ class UpdateFrame:
                 continue
             if card.state != "active" or card.frontmatter.get("contradicts"):
                 continue
+            if (run_dir / "work" / "codify-runs" / name).is_dir():
+                continue  # green run staged — the flip row below owns it
             if bank.codify_blocked_by_failed_attempt(card):
                 continue
             recurrence = bank.codify_recurrence(card)
@@ -263,6 +295,15 @@ class UpdateFrame:
                     f"procedure {name} has {recurrence} executed source "
                     f"campaigns in its closure — nominate for codification "
                     f"(compatibility is the specialist's judgment)")
+        staged_flips = run_dir / "work" / "codify-runs"
+        if staged_flips.is_dir():
+            for flip_dir in sorted(staged_flips.iterdir()):
+                add("dk", "codify",
+                    f"procedure {flip_dir.name} holds a GREEN codify run in "
+                    f"this transaction (work/codify-runs/{flip_dir.name}) — "
+                    f"commit the representation flip: move its code/ and "
+                    f"replay/ into the card directory, set representation: "
+                    f"code, an entrypoint, and last_replayed to the run date")
 
         nominate_threshold = self.crew_config["dup_nominate_jaccard"]
         names = sorted(bank.cards)

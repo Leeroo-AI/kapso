@@ -245,3 +245,44 @@ def test_code_freshness_rows(tmp_path):
     assert "fresh-code" not in "".join(
         l for l in worksheet.splitlines() if "expiry" in l
     )
+
+
+def test_green_codify_run_stages_flip_and_suppresses_renomination(tmp_path):
+    # CD§2 plumbing: the newest green run's verdict + artifacts land in
+    # work/codify-runs/<card>/, the seeder emits the flip row instead of
+    # re-nominating, and non-green runs stage nothing.
+    root = bare_bank(tmp_path)
+    write_proc(root, "ready-proc", [
+        entry("rel-a--t/20260101T000000_lane-a"),
+        entry("rel-b--t/20260102T000000_lane-b"),
+    ])
+    config = make_config(tmp_path)
+    codify_root = Path(config["learning"]["update_crew"]["run_root"]) / "codify"
+    green = codify_root / "ready-proc-20260820T000000"
+    (green / "workspace" / "code").mkdir(parents=True)
+    (green / "workspace" / "code" / "main.py").write_text("x = 1\n")
+    (green / "workspace" / "replay").mkdir()
+    (green / "workspace" / "replay" / "eval.py").write_text("ok = True\n")
+    (green / "verdict.yaml").write_text("status: green\niterations: 1\n")
+    red = codify_root / "other-proc-20260820T000000"
+    red.mkdir(parents=True)
+    (red / "verdict.yaml").write_text("status: failed\niterations: 3\n")
+
+    frame = UpdateFrame(TrajectoryStore.from_config(config), config)
+    run_dir = tmp_path / "run"
+    (run_dir / "work").mkdir(parents=True)
+    bank = Bank(str(root))
+    frame._stage_codify_runs(run_dir, bank)
+    frame._seed_worksheet(run_dir, [], bank)
+
+    staged = run_dir / "work" / "codify-runs" / "ready-proc"
+    assert (staged / "verdict.yaml").is_file()
+    assert (staged / "code" / "main.py").is_file()
+    assert (staged / "replay" / "eval.py").is_file()
+    assert not (run_dir / "work" / "codify-runs" / "other-proc").exists()
+    worksheet = (run_dir / "work" / "observations.md").read_text()
+    assert "commit the representation flip" in worksheet
+    assert not any(
+        "executed source campaigns" in line
+        for line in worksheet.splitlines() if "ready-proc" in line
+    )
