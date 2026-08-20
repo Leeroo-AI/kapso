@@ -1,6 +1,6 @@
 # Platform Unification: one task-agnostic platform, N benchmark packs
 
-Status: ALL DECISIONS RATIFIED (§0) — ready for execution sign-off.
+Status: EXECUTED 2026-08-20 — shipped to main as a fast-forward push of `unify/platform` (§11).
 Scope: merge `feat/relbench-benchmark` (main+373) and `worktree-ioai-2025` (main+157) into `main`,
 and land the end-state: **each benchmark = a handler + a knowledge bank (+ declarations + a thin
 harness adapter); `src/kapso` = a fully task-agnostic evolve platform.**
@@ -348,3 +348,24 @@ Mechanics notes:
   checkouts are the orchestrator's), and receive this doc + their stage row as the charter.
 - The relbench worktree's branch is restored to `feat/relbench-benchmark` after S7 (or left on
   `unify/platform` if the user prefers — it's merged either way).
+
+## 11. Execution log (2026-08-20)
+
+| stage | commits | gate |
+|---|---|---|
+| S0 prep | doc `2f3d9587`; branch cut | baseline 431 green |
+| S1 mechanical merge | `923cbdc3` + test-contract fix `487d7c4f` | 454 green; ownership identities verified; expected-red list empty |
+| S2 grafts | `730af492` (llm web-search strip), `89d0762e` (strategy: fallback retry, selector hardening, transcript naming, +2 found features), `157380ea` (INDEX.md convention + prompt-union repair) | 456 green |
+| S3 decomposition | `89f599ba` `ab31db02` `35868dac` `96900a78` `bc3951ce` `d50f756e` — six pure moves; strategy.py 3203→1362; AST symbol-purity audit clean | 456 green after every commit |
+| S4 knobs | `59499ef9` (implementation_web, both CLI vectors), `532f32dc` (research-gate default pin), `609e9d6c` (ensemble_time_split) | 475 green; per-mode effective timing unchanged |
+| S5 hygiene | `4fc3d290` (#16 contest_economics retired), `8087c864` (#17: .pyc purge, +tiktoken, dead key; weaviate-client kept — KG search imports it) | 475 green; fresh-venv dep resolution clean |
+| S6 final gate | — | 475 green + construct smokes: all six benchmark modes build from real configs with correct knob values (GENERIC/MINIMAL env-blocked on absent bedrock creds — pre-existing) |
+| S6.5 config layering | `d59f6033` (deep-merge mechanism + defaults layer), `a98efb6e` (pure-dedup trims) | 487 green; 18-mode resolution diff = exactly the two intended gap-fills (request_timeout_seconds, models.embedding), zero defects, zero runner repoints |
+| S7 ship | this commit; `git push origin unify/platform:main` (fast-forward) | — |
+
+Deviation from §7 as written: the merge-to-main landed as a **fast-forward push** rather than a
+`--no-ff` merge commit — the session's git is worktree-pinned away from the primary checkout,
+and the branch strictly descends from `origin/main`, so the pushed tree is identical and the
+history linear. Post-ship manual step (needs the primary checkout): remove the stray
+`ioai2025` worktree and its one-commit branch — its `.gitignore` rule was folded into the S1
+merge, so nothing there is unique.
