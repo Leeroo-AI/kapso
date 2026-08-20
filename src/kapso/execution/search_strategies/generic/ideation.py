@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 # no consumable plan; the explicit fallback is more honest than salvage.
 MIN_IDEATION_SALVAGE_CHARS = 200
 
-# Ensemble ideation: members run in parallel, so the member share is
-# wall-clock for the whole fan-out; the selector gets the remainder with a
-# floor below which a read-verify-choose session cannot do useful work.
-ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
-ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
-ENSEMBLE_SELECTOR_MIN_SECONDS = 240
+# Default only — the live value is the optional selector_min_seconds key
+# of search_strategy.params ensemble_time_split (normalize_ensemble_time_split).
+# The floor exists because below it a read-verify-choose selector session
+# cannot do useful work; it applies ONLY while a split is active — the
+# no-split default gives each role the full ideation clamp, floor-free.
+ENSEMBLE_SPLIT_SELECTOR_MIN_SECONDS = 240
 # Default only — the live value is search_strategy.params
 # ideation_candidates_per_member (see GenericSearch.__init__). A wider pool
 # gives the selector more to choose from and keeps K-way expansion alive
@@ -155,6 +155,66 @@ def normalize_ideation_ensemble(value: Any) -> Optional[List[Dict[str, str]]]:
         normalize_ensemble_member(member, role=f"ideation_ensemble[{i}]")
         for i, member in enumerate(value)
     ]
+
+
+_ENSEMBLE_TIME_SPLIT_KEYS = frozenset(
+    {"member_fraction", "selector_fraction", "selector_min_seconds"}
+)
+
+
+def normalize_ensemble_time_split(value: Any) -> Optional[Dict[str, float]]:
+    """Validate the optional member/selector ideation time split (design #5).
+
+    None — the platform default — means NO split: members and the selector
+    each take the full clamped ideation timeout, and the selector's clamp
+    is recomputed after the members finish so time they did not spend
+    flows to it. A mapping like {member_fraction: 0.7,
+    selector_fraction: 0.3} restores the fractional split of the
+    pre-fan-out clamp; its selector floor (selector_min_seconds, default
+    ENSEMBLE_SPLIT_SELECTOR_MIN_SECONDS) applies only while the split is
+    active.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(
+            "ensemble_time_split must be a mapping, got "
+            f"{type(value).__name__}"
+        )
+    unknown = sorted(set(value) - _ENSEMBLE_TIME_SPLIT_KEYS)
+    if unknown:
+        raise ValueError(
+            f"ensemble_time_split has unknown keys: {unknown}"
+        )
+    normalized = {}
+    for key in ("member_fraction", "selector_fraction"):
+        if key not in value:
+            raise ValueError(f"ensemble_time_split requires {key}")
+        fraction = value[key]
+        if (
+            isinstance(fraction, bool)
+            or not isinstance(fraction, (int, float))
+            or not 0 < fraction <= 1
+        ):
+            raise ValueError(
+                f"ensemble_time_split.{key} must be a fraction in (0, 1], "
+                f"got {fraction!r}"
+            )
+        normalized[key] = float(fraction)
+    floor = value.get(
+        "selector_min_seconds", ENSEMBLE_SPLIT_SELECTOR_MIN_SECONDS
+    )
+    if (
+        isinstance(floor, bool)
+        or not isinstance(floor, (int, float))
+        or floor < 0
+    ):
+        raise ValueError(
+            "ensemble_time_split.selector_min_seconds must be a "
+            f"non-negative number, got {floor!r}"
+        )
+    normalized["selector_min_seconds"] = float(floor)
+    return normalized
 
 
 def generate_solution(
@@ -332,6 +392,7 @@ def generate_solution_ensemble(
     ideation_allowed_tools: List[str],
     ideation_ensemble: List[Dict[str, str]],
     ideation_candidates_per_member: int,
+    ensemble_time_split: Optional[Dict[str, float]],
     ideation_web_search: bool,
     claude_auth_settings: Dict[str, Any],
     env_strip: List[str],
@@ -368,10 +429,16 @@ def generate_solution_ensemble(
 
     # Deadlines are computed AFTER the planner session so its wall time
     # squeezes this iteration's members instead of overflowing the phase.
+    # Default (no ensemble_time_split): each role takes the FULL ideation
+    # clamp — the campaign budget, not a fraction, is the limit; the
+    # selector's clamp is recomputed after the members finish so time they
+    # did not spend flows to it instead of being forfeited. An explicit
+    # split restores the fractional carve-up of this pre-fan-out clamp.
     clamp = clamped_timeout(ideation_timeout)
-    member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
-    selector_deadline = max(
-        ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
+    member_deadline = (
+        clamp
+        if ensemble_time_split is None
+        else max(60.0, clamp * ensemble_time_split["member_fraction"])
     )
 
     def run_member(member: Dict[str, str], lens: str) -> Dict[str, Any]:
@@ -583,6 +650,14 @@ def generate_solution_ensemble(
         print("[GenericSearch] Single candidate — selector skipped")
         return [pool[0]["text"]], sections, telemetry
 
+    selector_deadline = (
+        clamped_timeout(ideation_timeout)
+        if ensemble_time_split is None
+        else max(
+            ensemble_time_split["selector_min_seconds"],
+            clamp * ensemble_time_split["selector_fraction"],
+        )
+    )
     chosen = select_candidates(
         problem=problem,
         repo_memory_brief=repo_memory_brief,

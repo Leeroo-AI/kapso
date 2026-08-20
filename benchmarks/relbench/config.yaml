@@ -189,6 +189,10 @@ modes:
           cli: "codex"
           model: "gpt-5.6-sol"
           effort: "xhigh"
+        # Member/selector carve-up of the ideation clamp, tuned under the
+        # split model (the campaign's proven timing; platform default is
+        # no split — each role would get the full clamp).
+        ensemble_time_split: {member_fraction: 0.7, selector_fraction: 0.3}
         # Design axes for the anti-freeze contract: the lens replanner must
         # status each axis (ACTIVE / SATURATED-with-evidence / DEFERRED)
         # every iteration, and the feedback generator reports the per-axis

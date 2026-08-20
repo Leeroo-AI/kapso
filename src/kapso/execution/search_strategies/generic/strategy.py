@@ -49,6 +49,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     generate_solution,
     generate_solution_ensemble,
     normalize_ensemble_member,
+    normalize_ensemble_time_split,
     normalize_ideation_ensemble,
     salvage_ideation_output,
     select_from_candidates,
@@ -140,6 +141,11 @@ class GenericSearch(SearchStrategy):
           (default)
         - ideation_selector: Required with ideation_ensemble — the
           selector-critic session {cli: claude_code|codex, model, effort?}
+        - ensemble_time_split: Optional {member_fraction, selector_fraction,
+          selector_min_seconds?} carving the ensemble's ideation clamp
+          between the member fan-out and the selector. Default absent = NO
+          split — each role gets the full clamped ideation timeout, the
+          selector's clamp recomputed after the members finish.
         - parent_policy: Parent branch selection: best or baseline (default: best).
           Under `best`, before any validly evaluated node exists, the latest
           committed non-error, non-tampered node is used so in-progress work
@@ -225,6 +231,11 @@ class GenericSearch(SearchStrategy):
                 "ideation_selector.cli must be claude_code or codex (the "
                 "selector reads the worktree to verify candidates)"
             )
+        # Optional member/selector ideation time split (design #5). Default
+        # None = NO split: each role gets the full clamped ideation timeout.
+        self.ensemble_time_split = normalize_ensemble_time_split(
+            self.params.get("ensemble_time_split")
+        )
         # Optional task-aware lens planning: a web-enabled Claude session
         # designs the member lenses for THIS task at iteration 1, then a
         # keep-or-revise session re-judges the plan against the campaign
@@ -689,6 +700,7 @@ class GenericSearch(SearchStrategy):
             ideation_allowed_tools=ideation_allowed_tools,
             ideation_ensemble=self.ideation_ensemble,
             ideation_candidates_per_member=self.ideation_candidates_per_member,
+            ensemble_time_split=self.ensemble_time_split,
             ideation_web_search=self.ideation_web_search,
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,

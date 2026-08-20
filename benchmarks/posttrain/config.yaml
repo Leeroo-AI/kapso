@@ -86,6 +86,10 @@ modes:
           cli: "claude_code"
           model: "claude-fable-5"
           effort: "xhigh"
+        # Member/selector carve-up of the ideation clamp, tuned under the
+        # split model (the campaign's proven timing; platform default is
+        # no split — each role would get the full clamp).
+        ensemble_time_split: {member_fraction: 0.7, selector_fraction: 0.3}
 
     # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
     # kapso core): per-session deadlines scale with the run size so a fixed
