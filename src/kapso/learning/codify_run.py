@@ -185,28 +185,26 @@ class CodifyRunDriver:
         trajectory = request["fixture"]["trajectory"]
         bundle = self.store.resolve(trajectory)
         staged: List[str] = []
-        materials_dir = workspace / "materials"
-        materials_dir.mkdir()
-        for ref in request.get("materials", []):
-            source = bundle / str(ref).partition("#")[0]
-            if not source.is_file():
-                raise FileNotFoundError(
-                    f"material {ref} does not resolve in {trajectory}"
-                )
-            target = materials_dir / source.name
-            shutil.copy2(source, target)
-            staged.append(str(target.relative_to(workspace)))
-        inputs_dir = workspace / "inputs"
-        inputs_dir.mkdir()
-        for ref in request["fixture"].get("inputs", []):
-            source = bundle / str(ref).partition("#")[0]
-            if not source.is_file():
-                raise FileNotFoundError(
-                    f"fixture input {ref} does not resolve in {trajectory}"
-                )
-            target = inputs_dir / source.name
-            shutil.copy2(source, target)
-            staged.append(str(target.relative_to(workspace)))
+        # Bundle-relative paths are preserved under materials/ and inputs/ —
+        # flat staging by basename would silently overwrite when a fixture
+        # stages the same filename from several runs (val_predictions.npy).
+        for dirname, refs in (
+            ("materials", request.get("materials", [])),
+            ("inputs", request["fixture"].get("inputs", [])),
+        ):
+            stage_dir = workspace / dirname
+            stage_dir.mkdir()
+            for ref in refs:
+                relative = str(ref).partition("#")[0]
+                source = bundle / relative
+                if not source.is_file():
+                    raise FileNotFoundError(
+                        f"{dirname} ref {ref} does not resolve in {trajectory}"
+                    )
+                target = stage_dir / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                staged.append(str(target.relative_to(workspace)))
         return staged
 
     # ------------------------------------------------------------- sessions

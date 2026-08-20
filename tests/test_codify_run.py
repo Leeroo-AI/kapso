@@ -187,8 +187,30 @@ def test_staged_output_leak_refuses_to_run(tmp_path):
     leaky = dict(REQUEST)
     leaky["gates"] = dict(REQUEST["gates"])
     leaky["gates"]["artifacts"] = {
-        "leak": {"path": "inputs/metrics.json"}
+        "leak": {"path": "inputs/runs/run_0001/metrics.json"}
     }
     driver, _ = make_driver(tmp_path, [implementor_writer()], [ENDORSE])
     with pytest.raises(ValueError, match="leaked fixture outputs"):
         driver.run(leaky, CARD, str(tmp_path / "run"))
+
+
+def test_staging_preserves_run_relative_paths(tmp_path):
+    # Two runs staging the same basename must land side by side — flat
+    # staging silently overwrote one with the other.
+    request = dict(REQUEST)
+    request["fixture"] = dict(REQUEST["fixture"])
+    request["fixture"]["inputs"] = [
+        "runs/run_0001/metrics.json",
+        "runs/run_0002/metrics.json",
+    ]
+    driver, _ = make_driver(tmp_path, [implementor_writer()], [ENDORSE])
+    second = driver.store.resolve(TRAJECTORY_ID) / "runs" / "run_0002"
+    second.mkdir(parents=True)
+    (second / "metrics.json").write_text('{"delta": 0.9}')
+    verdict = driver.run(request, CARD, str(tmp_path / "run"))
+    assert verdict["status"] == "green"
+    workspace = tmp_path / "run" / "workspace"
+    assert (workspace / "inputs/runs/run_0001/metrics.json").is_file()
+    assert (workspace / "inputs/runs/run_0002/metrics.json").is_file()
+    inventory = (tmp_path / "run" / "staged-inventory.txt").read_text()
+    assert "inputs/runs/run_0002/metrics.json" in inventory
