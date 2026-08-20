@@ -89,7 +89,7 @@ class KaggleNotebookHandler(ProblemHandler):
 # Shared knowledge bank — first search priority
 
 `{self.task_dir}/knowledge_bank/` is a curated book of IOAI-style problems, each
-carrying its best-known solution: open `book_index.md` first — its router
+carrying its best-known solution: open `INDEX.md` first — its router
 maps a task's TWIST to a section, and every line reads
 `problem → winning solution (score)` with tier marks (`✓` proof-grade,
 `~` author-claimed max, `●` under review). Each problem dir holds
@@ -98,7 +98,7 @@ verification), and `solution/` (runnable code).
 
 This applies to EVERY module — ideation, selection, implementation,
 feedback: when you search for ideas, methods, or code, the bank is the
-FIRST priority; the open web is second. Route via the book, read the
+FIRST priority; the open web is second. Route via `INDEX.md`, read the
 matched problems' idea.md and solution/, then take your web search
 wherever you judge best.
 

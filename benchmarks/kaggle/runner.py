@@ -595,6 +595,16 @@ def main():
         if os.path.isdir(bank_dst):
             shutil.rmtree(bank_dst)
         shutil.copytree(bank_src, bank_dst)
+        # INDEX.md is the platform-wide bank entry point (design decision
+        # #13): every prompt hook and the handler context route through it.
+        # A staged bank without it is a stale pre-rename local copy — rename
+        # its book_index.md to INDEX.md; running blind is not an option.
+        if not os.path.isfile(os.path.join(bank_dst, "INDEX.md")):
+            raise FileNotFoundError(
+                f"staged knowledge bank {bank_dst} has no INDEX.md — the "
+                "bank convention requires INDEX.md as the single entry "
+                "point; rename the bank's book_index.md to INDEX.md"
+            )
 
     # Stage the slot ticket office + its limits. Lanes run in isolated session
     # clones, so this has to be reachable by path rather than by import; a stale

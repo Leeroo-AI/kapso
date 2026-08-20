@@ -78,8 +78,12 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert "PRIVATE leaderboard" in context
     assert "public-split quirks" in context
     # Shared knowledge bank: defined for every module, first search priority,
-    # web second (full web search stays allowed, just lower priority).
-    assert "knowledge_bank" in context and "book_index.md" in context
+    # web second (full web search stays allowed, just lower priority). The
+    # handler context owns the bank's layout; the router is the platform-wide
+    # INDEX.md (design decision #13).
+    assert "knowledge_bank" in context and "INDEX.md" in context
+    assert "book_index.md" not in context
+    assert "problem.md" in context and "idea.md" in context
     assert "FIRST priority" in context and "the open web is second" in context
     assert "EVERY module" in context
     # The protocol/economics sermons must stay gone.
@@ -516,28 +520,45 @@ def test_classify_submit_output_reads_text_not_exit_codes():
 def test_runner_stages_knowledge_bank_and_fails_loud(tmp_path):
     # Configured-but-missing bank dir is a launch defect (a box that never
     # received the gitignored bank must die at launch); a present bank is
-    # staged whole into the task dir.
+    # staged whole into the task dir. The staged bank must carry INDEX.md —
+    # the platform-wide entry point (design decision #13) — so a stale
+    # pre-rename local bank (book_index.md only) dies at launch too.
     import benchmarks.kaggle.runner as runner_mod
     src = tmp_path / "bank"
     (src / "some-problem").mkdir(parents=True)
-    (src / "book_index.md").write_text("# book")
+    (src / "INDEX.md").write_text("# book")
     (src / "some-problem" / "idea.md").write_text("idea")
+    stale = tmp_path / "stale-bank"
+    stale.mkdir()
+    (stale / "book_index.md").write_text("# pre-rename book")
     task = tmp_path / "task"; task.mkdir()
 
     def stage(bank_rel):
+        # Mirrors the runner's staging semantics (copy, then INDEX.md gate).
         bank_src = os.path.join(str(tmp_path), bank_rel)
         if not os.path.isdir(bank_src):
             raise FileNotFoundError(bank_rel)
         dst = os.path.join(str(task), "knowledge_bank")
+        if os.path.isdir(dst):
+            shutil.rmtree(dst)
         shutil.copytree(bank_src, dst)
+        if not os.path.isfile(os.path.join(dst, "INDEX.md")):
+            raise FileNotFoundError(
+                f"staged knowledge bank {dst} has no INDEX.md — rename the "
+                "bank's book_index.md to INDEX.md"
+            )
         return dst
 
     with pytest.raises(FileNotFoundError):
         stage("no-such-bank")
+    with pytest.raises(FileNotFoundError, match="INDEX.md"):
+        stage("stale-bank")
     dst = stage("bank")
-    assert os.path.isfile(os.path.join(dst, "book_index.md"))
+    assert os.path.isfile(os.path.join(dst, "INDEX.md"))
     assert os.path.isfile(os.path.join(dst, "some-problem", "idea.md"))
     # and the real runner module wires the same semantics from config
+    runner_source = open(runner_mod.__file__).read()
+    assert "INDEX.md" in runner_source and "book_index.md to INDEX.md" in runner_source
     cfg = yaml.safe_load(open(runner_mod.CONFIG_PATH))["modes"]["KAGGLE"]
     assert cfg["knowledge_bank_dir"] == "benchmarks/kaggle/knowledge_bank"
     # Deliberately no isdir() on the bank itself: the bank is gitignored,

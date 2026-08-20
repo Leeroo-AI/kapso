@@ -54,10 +54,19 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
   - Use for: concrete code patterns, implementation details
   - Example: "QLoRA implementation", "mixed precision training code"
 
+- **research_idea**: Research ideas from the web (use when curated knowledge is insufficient)
+  - Use for: cutting-edge techniques, recent papers, novel approaches
+
+- **research_implementation**: Research implementations from the web
+  - Use for: finding open-source implementations, library usage examples
+
+- **research_study**: Deep research on a topic
+  - Use for: comprehensive understanding of a complex topic
+
 ### Web Search (native tools)
-- FIRST search priority: if the problem context names a knowledge bank, route
-  through its `book_index.md` and read the matched problems' `idea.md` +
-  `solution/` before going to the web.
+- FIRST search priority: if the problem context names a knowledge bank, start
+  from its `INDEX.md` and follow it as the problem context directs, before
+  going to the web.
 - **WebSearch** / **WebFetch**: research the web directly — recent papers,
   winning solutions to similar problems, reference implementations, library
   usage. Kaggle and GitHub are good starting points; search wherever you
