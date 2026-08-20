@@ -9,10 +9,8 @@ workspace.
 import os
 import time
 
-from kapso.execution.search_strategies.generic.strategy import (
-    GenericSearch,
-    MANIFEST_MARKER,
-)
+from kapso.execution.evaluation_maintainer.maintainer import MANIFEST_MARKER
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 
 def make_stub(tmp_path, archive_glob):

@@ -13,7 +13,7 @@ import pytest
 
 import kapso.execution.evaluation_maintainer.maintainer as maintainer_module
 import kapso.execution.orchestrator as orchestrator_module
-import kapso.execution.search_strategies.generic.strategy as strategy_module
+import kapso.execution.search_strategies.generic.registered_evaluation as registered_evaluation_module
 from kapso.execution.budget import BudgetSpec
 from kapso.execution.fidelity import (
     EvaluationAttempt,
@@ -372,7 +372,7 @@ def test_validate_grant_short_circuits_and_appends_a_full_attempt(
         "score": 0.41,
     }
     monkeypatch.setattr(
-        strategy_module, "subprocess", fake_eval_subprocess(payload)
+        registered_evaluation_module, "subprocess", fake_eval_subprocess(payload)
     )
 
     from kapso.execution.fidelity import FidelityDecision
@@ -567,7 +567,7 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
 
     kills = []
     monkeypatch.setattr(
-        strategy_module,
+        registered_evaluation_module,
         "subprocess",
         SimpleNamespace(
             PIPE=-1,
@@ -575,12 +575,12 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
         ),
     )
     monkeypatch.setattr(
-        strategy_module.os,
+        registered_evaluation_module.os,
         "killpg",
         lambda pgid, sig: kills.append((pgid, sig)),
     )
     monkeypatch.setattr(
-        strategy_module, "_FRAME_RUN_KILL_GRACE_SECONDS", 0.05
+        registered_evaluation_module, "_FRAME_RUN_KILL_GRACE_SECONDS", 0.05
     )
 
     score = strategy._execute_registered_evaluation(
@@ -591,8 +591,8 @@ def test_frame_run_overrun_is_a_failed_attempt_not_a_crash(
     assert not any(
         a.fidelity == "full" for a in target.evaluation_attempts
     )
-    assert kills[0] == (424242, strategy_module.signal.SIGTERM)
-    assert kills[-1] == (424242, strategy_module.signal.SIGKILL)
+    assert kills[0] == (424242, registered_evaluation_module.signal.SIGTERM)
+    assert kills[-1] == (424242, registered_evaluation_module.signal.SIGKILL)
 
 
 
@@ -617,6 +617,7 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
     strategy.registered_evaluator_id = "ev-1"
     strategy.registered_subsample_seed = 1337
     strategy.registered_data_manifest = build_data_manifest(honest, ["data"])
+    strategy.record_eval_duration = None
     workspace_root = tmp_path / "workspace_root"
     (workspace_root / "kapso_evaluation").mkdir(parents=True)
     (workspace_root / "kapso_evaluation" / "kapso_eval.py").write_text(
@@ -643,7 +644,7 @@ def test_frame_run_refuses_tampered_data(tmp_path, monkeypatch):
         raise AssertionError("subprocess must not spawn on tampered data")
 
     monkeypatch.setattr(
-        strategy_module,
+        registered_evaluation_module,
         "subprocess",
         SimpleNamespace(PIPE=-1, Popen=refuse_spawn),
     )
@@ -827,7 +828,7 @@ def test_frame_run_reports_its_duration_to_the_recorder(
         "score": 0.41,
     }
     monkeypatch.setattr(
-        strategy_module, "subprocess", fake_eval_subprocess(payload)
+        registered_evaluation_module, "subprocess", fake_eval_subprocess(payload)
     )
     score = strategy._execute_registered_evaluation(
         target, fidelity="full", fraction=1.0, deadline_seconds=None
@@ -839,7 +840,7 @@ def test_frame_run_reports_its_duration_to_the_recorder(
 
     # A failed run reports nothing.
     monkeypatch.setattr(
-        strategy_module,
+        registered_evaluation_module,
         "subprocess",
         fake_eval_subprocess(payload, returncode=1),
     )

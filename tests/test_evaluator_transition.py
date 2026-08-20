@@ -15,7 +15,7 @@ import pytest
 
 import kapso.execution.evaluation_maintainer.maintainer as maintainer_module
 import kapso.execution.orchestrator as orchestrator_module
-import kapso.execution.search_strategies.generic.strategy as strategy_module
+import kapso.execution.search_strategies.generic.registered_evaluation as registered_evaluation_module
 from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
@@ -104,7 +104,7 @@ class FakeEvalPopen:
 
 
 def fake_eval_subprocess(payload, returncode: int = 0):
-    """A strategy_module.subprocess stand-in emitting one manifest line.
+    """A registered_evaluation.subprocess stand-in emitting one manifest line.
 
     Mirrors the live contract: the strategy hands Popen spooled FILES
     (never PIPE — an undrained pipe deadlocked a chatty evaluator live),
@@ -178,7 +178,7 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
         "score": 0.37,
     }
     monkeypatch.setattr(
-        strategy_module, "subprocess", fake_eval_subprocess(payload)
+        registered_evaluation_module, "subprocess", fake_eval_subprocess(payload)
     )
     # The live requester arrived with evaluation_valid=False (the feedback
     # generator had voided its measurement under the defective evaluator);
