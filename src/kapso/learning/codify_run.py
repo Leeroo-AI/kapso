@@ -34,6 +34,10 @@ bindings (dataset names, paths, thresholds — observed values as defaults);
 do not invent an alternative method even if you believe it better —
 fidelity is the acceptance criterion.
 
+card.md and gates.yaml are the IMMUTABLE contract: never edit them, and
+outcome.yaml must report EXACTLY the decision and metric names gates.yaml
+states — renamed, added, or "improved" schemas fail the run mechanically.
+
 Workspace layout (you are in it):
 - card.md        the spec: fact, method body, declared preconditions
 - materials/     the cited archived implementations — adapt, don't author
@@ -148,16 +152,34 @@ class CodifyRunDriver:
         gpu = "gpu" in str(front.get("preconditions") or "").lower()
 
         max_iterations = self.codify_config["max_iterations"]
+        canonical_gates = (workspace / "gates.yaml").read_text()
         feedback = ""
         verdict: Dict[str, Any] = {"status": "failed", "iterations": 0}
         for iteration in range(1, max_iterations + 1):
             self._implementor_session(workspace, feedback)
+            # The contract files are immutable: an implementor that edits
+            # them is arguing with the request, not implementing it. Restore
+            # before the evaluation and the judge see the workspace, and
+            # name the violation so the next iteration fixes the code.
+            tampered = (
+                (workspace / "gates.yaml").read_text() != canonical_gates
+                or (workspace / "card.md").read_text() != card_text
+            )
+            (workspace / "gates.yaml").write_text(canonical_gates)
+            (workspace / "card.md").write_text(card_text)
             outcome_path = self.executor.run_evaluation(workspace, gpu=gpu)
             outcome = yaml.safe_load(Path(outcome_path).read_text()) or {}
             mechanical = reproduction_findings(
                 gates, outcome, str(workspace),
                 self.codify_config["tolerance_z"],
             )
+            if tampered:
+                mechanical.append(
+                    "contract violation: gates.yaml/card.md were modified "
+                    "by the implementor — the request's gates are immutable "
+                    "and outcome.yaml must report exactly the contracted "
+                    "names (the files have been restored)"
+                )
             replay_eval = workspace / "replay" / "eval.py"
             if replay_eval.is_file():
                 mechanical += weak_assertion_findings(

@@ -205,6 +205,27 @@ def test_request_notes_land_in_workspace(tmp_path):
     assert notes.read_text() == "SE = clustered bootstrap, ddof 1."
 
 
+def test_gate_tampering_is_restored_and_named(tmp_path):
+    # An implementor that edits the contract files gets them restored and
+    # a named mechanical finding — a forged schema must never reach the
+    # judge or convert to green (seen live: dk-27 attempt 3).
+    good_writer = implementor_writer()
+
+    def tampering_implementor(workspace):
+        good_writer(workspace)
+        (Path(workspace) / "gates.yaml").write_text("decisions: {renamed: true}")
+
+    driver, _ = make_driver(
+        tmp_path, [tampering_implementor], [ENDORSE], max_iterations=1
+    )
+    verdict = driver.run(REQUEST, CARD, str(tmp_path / "run"))
+    assert verdict["status"] == "failed"
+    assert any("contract violation" in f for f in verdict["mechanical_findings"])
+    gates_on_disk = (tmp_path / "run" / "workspace" / "gates.yaml").read_text()
+    assert "renamed" not in gates_on_disk
+    assert "gate_cleared" in gates_on_disk
+
+
 def test_staging_preserves_run_relative_paths(tmp_path):
     # Two runs staging the same basename must land side by side — flat
     # staging silently overwrote one with the other.
