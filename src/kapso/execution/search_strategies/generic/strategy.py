@@ -10,6 +10,7 @@
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via MCP tools
 
+import copy
 import glob
 import json
 import logging
@@ -84,6 +85,10 @@ MIN_IDEATION_SALVAGE_CHARS = 200
 ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
 ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
 ENSEMBLE_SELECTOR_MIN_SECONDS = 240
+# Default only — the live value is search_strategy.params
+# ideation_candidates_per_member (see GenericSearch.__init__). A wider pool
+# gives the selector more to choose from and keeps K-way expansion alive
+# when one member under-delivers.
 ENSEMBLE_CANDIDATES_PER_MEMBER = 3
 
 # Extraction artifacts (prompt echoes, stream duplicates) are shorter than
@@ -192,34 +197,48 @@ def render_lane_brief(
     )
 
 
+# A selected solution is a full implementation spec (2,000-4,400 chars across
+# runs). Contest 5 (2026-08-06) accepted 3-char bodies ("and") as solutions
+# 1-2, so the empty-pool fallback never fired and the round ran 2 lanes
+# instead of 8 — six lanes of search lost in silence. Anything under this
+# floor is a malformed emission, not a plan.
+MIN_SELECTED_SOLUTION_CHARS = 200
+
+
 def parse_selected_solutions(output: str, expansion_count: int) -> List[str]:
     """Extract the selector's ranked solutions.
 
     K=1 keeps today's single <solution> contract. K>1 reads <solution_N>
-    tags in rank order, skipping empty/missing slots (a short list degrades
-    the round to fewer lanes — loud, never fatal); if no numbered tag
-    parsed, a single legacy <solution> tag still yields one lane.
+    tags in rank order. A slot that is missing, empty, or shorter than
+    MIN_SELECTED_SOLUTION_CHARS is rejected loudly — the caller retries the
+    selector and tops up from the candidate pool rather than shrinking K.
     """
     text = output or ""
     if expansion_count <= 1:
         match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
-        return [match.group(1).strip()] if match and match.group(1).strip() else []
+        body = match.group(1).strip() if match else ""
+        return [body] if len(body) >= MIN_SELECTED_SOLUTION_CHARS else []
     solutions = []
     for i in range(1, expansion_count + 1):
         match = re.search(
             rf"<solution_{i}>(.*?)</solution_{i}>", text, re.DOTALL
         )
-        if match and match.group(1).strip():
-            solutions.append(match.group(1).strip())
-        else:
+        body = match.group(1).strip() if match else ""
+        if len(body) >= MIN_SELECTED_SOLUTION_CHARS:
+            solutions.append(body)
+        elif body:
             logger.warning(
-                f"[GenericSearch] Selector omitted <solution_{i}> — "
-                "round degrades to fewer lanes"
+                f"[GenericSearch] Selector <solution_{i}> is {len(body)} "
+                f"chars (< {MIN_SELECTED_SOLUTION_CHARS}) — rejected as "
+                "malformed"
             )
+        else:
+            logger.warning(f"[GenericSearch] Selector omitted <solution_{i}>")
     if not solutions:
         match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
-        if match and match.group(1).strip():
-            solutions.append(match.group(1).strip())
+        body = match.group(1).strip() if match else ""
+        if len(body) >= MIN_SELECTED_SOLUTION_CHARS:
+            solutions.append(body)
     return solutions
 
 _LENS_PLANNER_KEYS = frozenset({"cli", "model", "effort", "timeout"})
@@ -610,6 +629,14 @@ class GenericSearch(SearchStrategy):
         )
         # Which CLI runs implementation sessions. Both mount the gate MCP
         # servers; codex reports no cost telemetry (ledger undercounts).
+        # A crashed implementation session (provider safety classifier, CLI
+        # abort) leaves the lane's remaining time unused. When set, a crash
+        # retries ONCE on this model — contest 5 (2026-08-06) lost both lanes
+        # to codex's "flagged for possible cybersecurity risk" kill on an
+        # adversarial-robustness task.
+        self.implementation_fallback_model = self.params.get(
+            "implementation_fallback_model"
+        )
         self.implementation_cli = str(
             self.params.get("implementation_cli", "claude_code")
         )
@@ -617,6 +644,16 @@ class GenericSearch(SearchStrategy):
             raise ValueError(
                 "implementation_cli must be claude_code or codex, got "
                 f"{self.implementation_cli!r}"
+            )
+        self.ideation_candidates_per_member = int(
+            self.params.get(
+                "ideation_candidates_per_member", ENSEMBLE_CANDIDATES_PER_MEMBER
+            )
+        )
+        if self.ideation_candidates_per_member < 1:
+            raise ValueError(
+                "ideation_candidates_per_member must be >= 1, got "
+                f"{self.ideation_candidates_per_member}"
             )
         self.implementation_timeout = self.params.get("implementation_timeout", 600)
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
@@ -994,9 +1031,13 @@ class GenericSearch(SearchStrategy):
                 gate_failure_policy=self.gate_failure_policy,
             )
 
-            # 3. Build restricted tool set (read-only for ideation).
+            # 3. Build restricted tool set (read-only for ideation). Claude
+            # CLIs research with their NATIVE web tools — so WebSearch/
+            # WebFetch join the whitelist whenever ideation web access is on
+            # (the research_* gate proxies coexist; gates decide availability).
             ideation_allowed_tools = [
                 "Read",
+                *(["WebSearch", "WebFetch"] if self.ideation_web_search else []),
                 *[t for t in mcp_tools if t.startswith("mcp__")],
             ]
 
@@ -1125,6 +1166,10 @@ class GenericSearch(SearchStrategy):
                 "streaming": True,
                 "planning_mode": False,
                 "effort": planner.get("effort", self.session_effort),
+                "stream_artifact_path": codex_ideation.ideation_stream_path(
+                    self._ideation_artifacts_dir(), "lens_planner",
+                    planner["model"],
+                ),
             },
         )
         agent = ClaudeCodeCodingAgent(config)
@@ -1359,16 +1404,17 @@ class GenericSearch(SearchStrategy):
                 addendum_template,
                 {
                     "lens": lens,
-                    "candidate_count": str(ENSEMBLE_CANDIDATES_PER_MEMBER),
+                    "candidate_count": str(self.ideation_candidates_per_member),
                 },
             )
             label = f"{member['cli']}:{member['model']}"
             print(f"[GenericSearch] Ensemble ideation member starting: {label}")
+            # Every member persists its transcript here, not just codex: the
+            # claude-driven members used to stream to the console only, so
+            # their reasoning survived just in whatever wrapper happened to
+            # capture stdout.
+            artifacts_dir = self._ideation_artifacts_dir()
             if member["cli"] == "codex":
-                artifacts_dir = os.path.join(
-                    self.workspace_dir, ".kapso", "ideation",
-                    f"iter{self.iteration_count}",
-                )
 
                 def run_codex_once(attempt_deadline: float) -> tuple:
                     return codex_ideation.run_codex_ideation(
@@ -1437,17 +1483,28 @@ class GenericSearch(SearchStrategy):
             from kapso.execution.coding_agents.adapters.oss_claude_code_agent import OssClaudeCodeCodingAgent
 
             is_oss = member["cli"] == "oss_claude_code"
+            # WebSearch is an Anthropic SERVER-side tool an OSS endpoint
+            # cannot serve (Fireworks 400s the request envelope — verified
+            # live on kimi-k3-fast, 2026-08-03), so any oss member keeps
+            # client-side WebFetch only.
+            member_allowed_tools = (
+                [t for t in ideation_allowed_tools if t != "WebSearch"]
+                if is_oss else ideation_allowed_tools
+            )
             agent_specific = {
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
                 "mcp_servers": mcp_servers,
-                "allowed_tools": ideation_allowed_tools,
+                "allowed_tools": member_allowed_tools,
                 "disallowed_tools": self._web_disallowed_tools,
                 "timeout": member_deadline,
                 "streaming": True,
                 "planning_mode": False,
                 "effort": member.get("effort", self.session_effort),
+                "stream_artifact_path": codex_ideation.ideation_stream_path(
+                    artifacts_dir, member["cli"], member["model"]
+                ),
             }
             if is_oss:
                 # Endpoint wiring replaces first-party auth entirely.
@@ -1527,15 +1584,15 @@ class GenericSearch(SearchStrategy):
             timing = f", {duration:.0f}s" if duration is not None else ""
             print(
                 f"[GenericSearch] member {member_result['label']}: "
-                f"candidates={kept}/{ENSEMBLE_CANDIDATES_PER_MEMBER} "
+                f"candidates={kept}/{self.ideation_candidates_per_member} "
                 f"(dropped {dropped}){timing}, "
                 f"timed_out={member_result.get('timed_out', False)}, {detail}"
             )
-            if kept < ENSEMBLE_CANDIDATES_PER_MEMBER:
+            if kept < self.ideation_candidates_per_member:
                 logger.warning(
                     f"[GenericSearch] member {member_result['label']} "
                     f"under-delivered: {kept} of "
-                    f"{ENSEMBLE_CANDIDATES_PER_MEMBER} candidates"
+                    f"{self.ideation_candidates_per_member} candidates"
                 )
 
         telemetry = {
@@ -1647,31 +1704,39 @@ class GenericSearch(SearchStrategy):
                 {"expansion_count": str(expansion)},
             )
         selector = self.ideation_selector
-        if selector["cli"] == "codex":
-            from kapso.execution.search_strategies.generic.codex_ideation import (
-                run_codex_ideation,
-            )
-            from kapso.execution.coding_agents.base import CodingResult
 
-            # web on: selection verifies candidate claims — a cited repo,
-            # pretrained model, or dataset must exist and plausibly do what
-            # the candidate says before it can win selection.
-            output, timed_out, _duration, _meta = run_codex_ideation(
-                prompt=prompt,
-                model=selector["model"],
-                cwd=ideation_dir,
-                timeout_seconds=selector_deadline,
-                effort=selector.get("effort"),
-                artifacts_dir=os.path.join(ideation_dir, ".kapso", "selector"),
-                web_search=True,
-            )
-            result = CodingResult(
-                success=not timed_out and bool(output.strip()),
-                output=output,
-                error="selector session timed out" if timed_out else None,
-            )
-            cost = 0.0
-        else:
+        def run_selector_session(session_prompt: str):
+            """One selector invocation -> (CodingResult, cost_usd).
+
+            A closure so the malformed-emission retry re-runs the identical
+            session with an added corrective instruction.
+            """
+            if selector["cli"] == "codex":
+                from kapso.execution.search_strategies.generic.codex_ideation import (
+                    run_codex_ideation,
+                )
+                from kapso.execution.coding_agents.base import CodingResult
+
+                # web on: selection verifies candidate claims — a cited repo,
+                # pretrained model, or dataset must exist and plausibly do what
+                # the candidate says before it can win selection.
+                # Artifacts go to the WORKSPACE, not ideation_dir: the latter is
+                # a materialized ref released after the phase, which silently
+                # discarded every selector transcript.
+                output, timed_out, _duration, _meta = run_codex_ideation(
+                    prompt=session_prompt,
+                    model=selector["model"],
+                    cwd=ideation_dir,
+                    timeout_seconds=selector_deadline,
+                    effort=selector.get("effort"),
+                    artifacts_dir=self._ideation_artifacts_dir(),
+                    web_search=True,
+                )
+                return CodingResult(
+                    success=not timed_out and bool(output.strip()),
+                    output=output,
+                    error="selector session timed out" if timed_out else None,
+                ), 0.0
             config = CodingAgentConfig(
                 agent_type="claude_code",
                 model=selector["model"],
@@ -1686,13 +1751,20 @@ class GenericSearch(SearchStrategy):
                     "streaming": True,
                     "planning_mode": False,
                     "effort": selector.get("effort", self.session_effort),
+                    "stream_artifact_path": codex_ideation.ideation_stream_path(
+                        self._ideation_artifacts_dir(), "selector",
+                        selector["model"],
+                    ),
                 },
             )
             agent = ClaudeCodeCodingAgent(config)
             agent.initialize(ideation_dir)
-            result = agent.generate_code(prompt)
-            cost = agent.get_cumulative_cost()
+            session_result = agent.generate_code(session_prompt)
+            session_cost = agent.get_cumulative_cost()
             agent.cleanup()
+            return session_result, session_cost
+
+        result, cost = run_selector_session(prompt)
 
         reasoning = re.search(
             r"<selection_reasoning>(.*?)</selection_reasoning>",
@@ -1709,23 +1781,44 @@ class GenericSearch(SearchStrategy):
             if result.success
             else []
         )
-        if solutions:
-            return {"solutions": solutions, "cost_usd": cost}
-
-        # Fail-soft: the pooled work must not die with the selector. Fill
-        # rank order from the pool (claude candidates first), up to K.
-        logger.warning(
-            "[GenericSearch] Selector failed "
-            f"({result.error or 'no solution tags'}); falling back to the "
-            "pooled candidates"
-        )
-        ordered = [c for c in pool if c["cli"] == "claude_code"] + [
-            c for c in pool if c["cli"] != "claude_code"
-        ]
-        return {
-            "solutions": [c["text"] for c in ordered[:expansion]],
-            "cost_usd": cost,
-        }
+        if len(solutions) < expansion:
+            # One retry before topping up: a malformed emission is usually a
+            # one-off, and a re-ranked full set beats raw pool order.
+            logger.warning(
+                f"[GenericSearch] Selector returned {len(solutions)}/"
+                f"{expansion} usable solutions — retrying once"
+            )
+            retry_result, retry_cost = run_selector_session(
+                prompt
+                + f"\n\nYour previous response did not emit {expansion} "
+                f"complete <solution_N> blocks. Emit ALL {expansion}, each a "
+                "full implementation spec of its own — never a placeholder, "
+                "a fragment, or a few words."
+            )
+            cost += retry_cost
+            retry_solutions = (
+                parse_selected_solutions(retry_result.output, expansion)
+                if retry_result.success
+                else []
+            )
+            if len(retry_solutions) > len(solutions):
+                solutions = retry_solutions
+        if len(solutions) < expansion:
+            # Never shrink the round: the pooled candidates are full specs, so
+            # top up rank order (claude first) with texts not already selected.
+            logger.warning(
+                f"[GenericSearch] Selector still short ({len(solutions)}/"
+                f"{expansion}) — topping up from the pooled candidates"
+            )
+            ordered = [c for c in pool if c["cli"] == "claude_code"] + [
+                c for c in pool if c["cli"] != "claude_code"
+            ]
+            for candidate in ordered:
+                if len(solutions) >= expansion:
+                    break
+                if candidate["text"] not in solutions:
+                    solutions.append(candidate["text"])
+        return {"solutions": solutions, "cost_usd": cost}
 
     def _build_ideation_prompt(
         self,
@@ -2015,6 +2108,51 @@ Problem: {problem}"""
             if not result.success:
                 logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
                 agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
+                # A crash is not the deadline: the lane still owns its time.
+                # Retry once on the fallback model (different model family or
+                # version answers a provider-side content kill; the deadline
+                # clamp keeps the retry inside the campaign budget).
+                deadline_kill = bool((result.metadata or {}).get(
+                    "deadline_exceeded"
+                ))
+                if self.implementation_fallback_model and not deadline_kill:
+                    logger.warning(
+                        "[GenericSearch] Retrying the implementation on "
+                        f"fallback model {self.implementation_fallback_model}"
+                    )
+                    fallback_config = copy.deepcopy(config)
+                    fallback_config.model = self.implementation_fallback_model
+                    fallback_config.debug_model = (
+                        self.implementation_fallback_model
+                    )
+                    fallback_config.agent_specific["timeout"] = (
+                        self._clamped_timeout(self.implementation_timeout)
+                    )
+                    agent.cleanup()
+                    if self.implementation_cli == "codex":
+                        from kapso.execution.coding_agents.factory import (
+                            CodingAgentFactory,
+                        )
+                        agent = CodingAgentFactory.create(fallback_config)
+                    else:
+                        agent = ClaudeCodeCodingAgent(fallback_config)
+                    agent.initialize(session.session_folder)
+                    self._last_session_started_ts = time.time()
+                    fallback_result = agent.generate_code(
+                        prompt
+                        + "\n\nNOTE: a previous session on this lane ended "
+                        f"prematurely ({result.error}). Its partial work is in "
+                        "the branch; continue from there and finish the "
+                        "implementation and evaluation."
+                    )
+                    phase_cost += agent.get_cumulative_cost()
+                    if fallback_result.output:
+                        agent_output = fallback_result.output
+                        result = fallback_result
+                        self._pending_session_end_facts = (
+                            "implementation session crashed and was retried on "
+                            f"fallback model {self.implementation_fallback_model}"
+                        )
         finally:
             agent.cleanup()
         telemetry = {
@@ -2547,6 +2685,15 @@ Problem: {problem}"""
             )
             return line
         return None
+
+    def _ideation_artifacts_dir(self) -> str:
+        """Where this iteration's ideation transcripts live (lens planner,
+        every ensemble member, selector). Under the workspace, so they survive
+        the materialized ref the phase runs in."""
+        return os.path.join(
+            self.workspace_dir, ".kapso", "ideation",
+            f"iter{self.iteration_count}",
+        )
 
     def _session_stream_path(self, branch_name: str) -> str:
         """Per-session stream artifact location (survives session kills)."""
