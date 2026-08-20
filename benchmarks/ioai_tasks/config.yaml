@@ -85,7 +85,6 @@ modes:
         reasoning_effort: "xhigh"
       web_search:
         model: "gpt-5.6-luna"
-      embedding: "text-embedding-3-small"
     retry:
       max_attempts: 5
       initial_delay_seconds: 5
