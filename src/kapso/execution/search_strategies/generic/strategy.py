@@ -10,7 +10,6 @@
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via MCP tools
 
-import copy
 import logging
 import os
 import re
@@ -46,6 +45,11 @@ from kapso.execution.search_strategies.generic.feedback_flow import (
     extract_agent_result,
     generate_feedback,
 )
+from kapso.execution.search_strategies.generic.implementation import (
+    build_implementation_prompt,
+    ensure_technical_difficulties,
+    run_implementation,
+)
 from kapso.execution.search_strategies.generic.lens_planning import (
     design_axes_brief,
     normalize_design_axes,
@@ -69,9 +73,6 @@ from kapso.execution.search_strategies.generic.shared_cache import (
 )
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.prompt_loader import load_prompt, render_prompt
-from kapso.execution.search_strategies.generic.difficulties_generator import (
-    generate_technical_difficulties,
-)
 
 
 logger = logging.getLogger(__name__)
@@ -80,11 +81,6 @@ PARENT_POLICIES = frozenset({"best", "baseline"})
 
 # A deadline-killed ideation whose streamed text is shorter than this holds
 # no consumable plan; the explicit fallback is more honest than salvage.
-# The implementation output contract's terminal tags: a result event
-# carrying ALL of these means the session declared itself complete (drives
-# the adapter's linger-reap and truthful end-mode classification).
-IMPLEMENTATION_COMPLETION_MARKERS = ["</score>", "</technical_difficulties>"]
-
 MIN_IDEATION_SALVAGE_CHARS = 200
 
 # Ensemble ideation: members run in parallel, so the member share is
@@ -1474,276 +1470,57 @@ Problem: {problem}"""
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
         lane_index: int = 0,
     ) -> Tuple[str, Dict[str, float], Optional[str]]:
-        """
-        Implementation using Claude Code with MCP gates (code, research).
-        
-        Overrides base class to use Claude Code with Bedrock and MCP gates
-        instead of the default coding agent from config.
-        
-        Args:
-            solution: Solution description to implement
-            problem: Problem description
-            branch_name: Git branch for this experiment
-            parent_branch_name: Parent branch to inherit code from
-            ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
-
-        Returns:
-            Tuple of (agent output string, phase telemetry with cost/duration)
-        """
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from kapso.gated_mcp import get_mcp_config
-        from kapso.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
-        
-        # Create experiment session (handles git branching)
-        session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
-
-        # A maintainer-registered evaluation is versioned on the workspace
-        # root, but sessions inherit their parent branch's tree — which may
-        # predate a re-registration. Frame-sync the registered tree in so
-        # every candidate runs (and is integrity-checked against) the head.
-        if self.registered_evaluation_manifest:
-            self._sync_registered_evaluation(session.session_folder)
-        
-        # 1. Load RepoMemory
-        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
-        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
-        
-        # 2. Get MCP config for code + research + repo_memory gates (not idea)
-        mcp_servers, mcp_tools = get_mcp_config(
-            gates=self.implementation_gates,
-            repo_root=session.session_folder,
-            include_base_tools=False,
-            gate_failure_policy=self.gate_failure_policy,
-        )
-        
-        # 3. Build full tool set for implementation (includes Write, Edit)
-        # Bash is kept for running evaluation scripts, not for repo_memory access
-        implementation_allowed_tools = [
-            "Read", "Write", "Edit", "Bash",
-            *[t for t in mcp_tools if t.startswith("mcp__")],
-        ]
-        
-        logger.info(f"[GenericSearch] Implementation tools: {implementation_allowed_tools}")
-        
-        # 4. Configure Claude Code for implementation
+        """Implementation session with MCP gates; returns (agent output,
+        phase telemetry, recovered manifest line)."""
         lane_env = lane_env_overlay(self.expansion_lane_env, lane_index)
-        if self.implementation_cli == "codex":
-            config = CodingAgentConfig(
-                agent_type="codex",
-                model=self.implementation_model,
-                debug_model=self.implementation_model,
-                agent_specific={
-                    **({"env_overrides": lane_env} if lane_env else {}),
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "mcp_servers": mcp_servers,
-                    "timeout": self._clamped_timeout(self.implementation_timeout),
-                    # Lane 0 tees the live transcript to the console, same
-                    # policy as the claude path.
-                    "streaming": lane_index == 0,
-                    "effort": self.session_effort,
-                    # Transcript stream persisted for the difficulties
-                    # fallback's forensics, same as the claude path.
-                    "stream_artifact_path": self._session_stream_path(branch_name),
-                },
-            )
-        else:
-            config = CodingAgentConfig(
-                agent_type="claude_code",
-                model=self.implementation_model,
-                debug_model=self.implementation_model,
-                agent_specific={
-                    **self._claude_auth_settings,
-                    **({"env_overrides": lane_env} if lane_env else {}),
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "mcp_servers": mcp_servers,
-                    "allowed_tools": implementation_allowed_tools,
-                    "timeout": self._clamped_timeout(self.implementation_timeout),
-                    # Under node expansion only lane 0 streams to the console;
-                    # other lanes stay buffered (their raw streams still land in
-                    # per-branch stream_artifact_path files).
-                    "streaming": lane_index == 0,
-                    "effort": self.session_effort,
-                    # Per-session process record: raw stream-json events land
-                    # here as they arrive, so a killed session still leaves its
-                    # forensics behind (feeds the difficulties fallback).
-                    "stream_artifact_path": self._session_stream_path(branch_name),
-                    # Declared-completion contract: lets the adapter reap a CLI
-                    # that delivered its full final report but lingers alive.
-                    "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
-                }
-            )
-
-        # 5. Build implementation prompt
-        repo_memory_detail_access_instructions = (
-            "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-            "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
-            "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
-            "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
-        )
-        
-        prompt = self._build_implementation_prompt(
+        return run_implementation(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
-            repo_memory_brief=repo_memory_brief,
-            repo_memory_detail_access_instructions=repo_memory_detail_access_instructions,
-            previous_errors="\n".join(str(e) for e in self.previous_errors[-self.recent_error_count:]),
+            parent_branch_name=parent_branch_name,
+            ideation_repo_memory_sections_consulted=(
+                ideation_repo_memory_sections_consulted
+            ),
+            lane_index=lane_index,
+            workspace=self.workspace,
+            llm=self.llm,
+            registered_evaluation_manifest=self.registered_evaluation_manifest,
+            sync_registered_evaluation=self._sync_registered_evaluation,
+            implementation_gates=self.implementation_gates,
+            gate_failure_policy=self.gate_failure_policy,
+            implementation_cli=self.implementation_cli,
+            implementation_model=self.implementation_model,
+            implementation_fallback_model=self.implementation_fallback_model,
+            claude_auth_settings=self._claude_auth_settings,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            aws_region=self.aws_region,
+            lane_env=lane_env,
+            session_effort=self.session_effort,
+            clamped_timeout=self._clamped_timeout,
+            implementation_timeout=self.implementation_timeout,
+            session_stream_path=self._session_stream_path,
+            build_prompt=self._build_implementation_prompt,
+            previous_errors_text="\n".join(
+                str(e)
+                for e in self.previous_errors[-self.recent_error_count:]
+            ),
             lane_brief=render_lane_brief(
                 lane_index, self.node_expansion_value, lane_env
             ),
-        )
-        
-        # 6. Run the implementation session
-        print(f"[GenericSearch] Running {self.implementation_cli} implementation...")
-        if self.implementation_cli == "codex":
-            from kapso.execution.coding_agents.factory import CodingAgentFactory
-
-            agent = CodingAgentFactory.create(config)
-        else:
-            agent = ClaudeCodeCodingAgent(config)
-        agent.initialize(session.session_folder)
-
-        phase_started = time.monotonic()
-        phase_cost = 0.0
-        try:
-            self._last_session_started_ts = time.time()
-            result = agent.generate_code(prompt)
-            phase_cost = agent.get_cumulative_cost()
-            agent_output = result.output if result.output else ""
-
-            # Ground truth about HOW the session ended, for the feedback
-            # judge (run #8: a self-inflicted SIGTERM was misdiagnosed as
-            # the time limit, so the footgun was never named).
-            meta = result.metadata or {}
-            if meta.get("completed_reaped"):
-                end_facts = (
-                    "implementation session COMPLETED its final report; the "
-                    "CLI process lingered and was reaped after a short grace "
-                    "— this was a successful session, not a failure"
+            note_session_started=(
+                lambda: setattr(
+                    self, "_last_session_started_ts", time.time()
                 )
-            elif meta.get("deadline_exceeded") and meta.get(
-                "completed_before_kill"
-            ):
-                end_facts = (
-                    "implementation session COMPLETED its final report "
-                    "before the deadline kill — the kill reflects a lingering "
-                    "process, not unfinished work"
+            ),
+            note_session_end_facts=(
+                lambda facts: setattr(
+                    self, "_pending_session_end_facts", facts
                 )
-            elif result.success:
-                end_facts = "implementation session ended naturally"
-            elif meta.get("deadline_exceeded"):
-                end_facts = (
-                    "implementation session was KILLED BY ITS OWN DEADLINE "
-                    f"after {meta.get('elapsed_seconds', 0):.0f}s"
-                )
-            else:
-                end_facts = (
-                    f"implementation session died prematurely ({result.error}); "
-                    "the deadline was NOT reached — suspect an external or "
-                    "self-inflicted kill"
-                )
-            if meta.get("last_tool"):
-                end_facts += f"; last tool call before end: {meta['last_tool']}"
-            self._pending_session_end_facts = end_facts
-
-            if not result.success:
-                logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
-                agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
-                # A crash is not the deadline: the lane still owns its time.
-                # Retry once on the fallback model (different model family or
-                # version answers a provider-side content kill; the deadline
-                # clamp keeps the retry inside the campaign budget).
-                deadline_kill = bool((result.metadata or {}).get(
-                    "deadline_exceeded"
-                ))
-                if self.implementation_fallback_model and not deadline_kill:
-                    logger.warning(
-                        "[GenericSearch] Retrying the implementation on "
-                        f"fallback model {self.implementation_fallback_model}"
-                    )
-                    fallback_config = copy.deepcopy(config)
-                    fallback_config.model = self.implementation_fallback_model
-                    fallback_config.debug_model = (
-                        self.implementation_fallback_model
-                    )
-                    fallback_config.agent_specific["timeout"] = (
-                        self._clamped_timeout(self.implementation_timeout)
-                    )
-                    agent.cleanup()
-                    if self.implementation_cli == "codex":
-                        from kapso.execution.coding_agents.factory import (
-                            CodingAgentFactory,
-                        )
-                        agent = CodingAgentFactory.create(fallback_config)
-                    else:
-                        agent = ClaudeCodeCodingAgent(fallback_config)
-                    agent.initialize(session.session_folder)
-                    self._last_session_started_ts = time.time()
-                    fallback_result = agent.generate_code(
-                        prompt
-                        + "\n\nNOTE: a previous session on this lane ended "
-                        f"prematurely ({result.error}). Its partial work is in "
-                        "the branch; continue from there and finish the "
-                        "implementation and evaluation."
-                    )
-                    phase_cost += agent.get_cumulative_cost()
-                    if fallback_result.output:
-                        agent_output = fallback_result.output
-                        result = fallback_result
-                        self._pending_session_end_facts = (
-                            "implementation session crashed and was retried on "
-                            f"fallback model {self.implementation_fallback_model}"
-                        )
-        finally:
-            agent.cleanup()
-        telemetry = {
-            "cost_usd": phase_cost,
-            "duration_seconds": time.monotonic() - phase_started,
-        }
-        
-        # 7. Update RepoMemory for this experiment branch
-        run_result_payload = {
-            "score": 0,
-            "run_had_error": False,
-            "error_message": "",
-            "error_details": "",
-            "feedbacks": "",
-            "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted or [],
-        }
-        
-        # Extract sections consulted from changes.log
-        sections_consulted = []
-        try:
-            changes_log_path = os.path.join(session.session_folder, "changes.log")
-            if os.path.exists(changes_log_path):
-                with open(changes_log_path, "r", encoding="utf-8", errors="replace") as f:
-                    sections_consulted = extract_repo_memory_sections_consulted(f.read())
-        except Exception:
-            sections_consulted = []
-        run_result_payload["repo_memory_sections_consulted"] = sections_consulted
-        
-        # Schedule RepoMemory update for session close
-        session.schedule_repo_memory_update(
-            solution_spec=solution,
-            run_result=run_result_payload,
-        )
-        
-        # 8. Registered-evaluation teardown guard: wait for a live grader
-        # and stash any durable-archive recovery BEFORE finalize's rmtree.
-        recovered_manifest_line = self._await_registered_evaluation(
-            agent_output
+            ),
+            await_registered_evaluation=self._await_registered_evaluation,
         )
 
-        # 9. Finalize session (commits changes; push serialized by the
-        # workspace repo_lock — lane-safe under node expansion)
-        self.workspace.finalize_session(session)
-
-        return agent_output, telemetry, recovered_manifest_line
-    
     def _build_implementation_prompt(
         self,
         solution: str,
@@ -1755,21 +1532,19 @@ Problem: {problem}"""
         lane_brief: str = "",
     ) -> str:
         """Build the implementation prompt for Claude Code."""
-        template = load_prompt("execution/search_strategies/generic/prompts/implementation_claude_code.md")
-        return render_prompt(
-            template,
-            {
-                "solution": solution or "(No solution provided)",
-                "problem": problem or "(No problem description provided)",
-                "branch_name": branch_name,
-                "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
-                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
-                "previous_errors": previous_errors or "(No previous errors)",
-                "budget_status": self._render_budget_status(),
-                "evaluation_instructions": self._evaluation_instructions(),
-                "shared_artifacts_brief": self.shared_artifacts_brief,
-                "lane_brief": lane_brief,
-            },
+        return build_implementation_prompt(
+            solution=solution,
+            problem=problem,
+            branch_name=branch_name,
+            repo_memory_brief=repo_memory_brief,
+            repo_memory_detail_access_instructions=(
+                repo_memory_detail_access_instructions
+            ),
+            previous_errors=previous_errors,
+            budget_status=self._render_budget_status(),
+            evaluation_instructions=self._evaluation_instructions(),
+            shared_artifacts_brief=self.shared_artifacts_brief,
+            lane_brief=lane_brief,
         )
 
     def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:
@@ -1912,24 +1687,21 @@ Problem: {problem}"""
 
     def _ensure_technical_difficulties(self, node) -> None:
         """Run the fallback reconstruction when the implementor's
-        technical_difficulties tag is missing (crashed or deadline-killed
-        session, or simply omitted)."""
+        technical_difficulties tag is missing (purely mechanical trigger —
+        never score/outcome-based)."""
         if (node.technical_difficulties or "").strip():
             return
-        print(
-            "[GenericSearch] technical_difficulties missing — "
-            "running fallback reconstruction"
-        )
-        node.technical_difficulties = generate_technical_difficulties(
-            model=self.implementation_model,
+        ensure_technical_difficulties(
+            node,
+            implementation_model=self.implementation_model,
             claude_auth_settings=self._claude_auth_settings,
             aws_region=self.aws_region,
             env_strip=self.env_strip,
-            effort=self.session_effort,
-            timeout_seconds=self._clamped_timeout(self.ideation_timeout),
-            workspace_dir=node.workspace_dir or self.workspace_dir,
-            solution=node.solution,
-            stream_artifact_path=self._session_stream_path(node.branch_name),
+            session_effort=self.session_effort,
+            clamped_timeout=self._clamped_timeout,
+            ideation_timeout=self.ideation_timeout,
+            workspace_dir=self.workspace_dir,
+            session_stream_path=self._session_stream_path,
         )
 
     def _await_registered_evaluation(self, output_text: str):

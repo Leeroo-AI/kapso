@@ -77,5 +77,8 @@ def test_short_parse_retries_then_tops_up_from_the_pool():
 def test_crash_retries_on_a_fallback_model():
     # Contest 5: the provider's safety classifier killed both lanes' codex
     # sessions; a crashed session must retry on the configured fallback.
-    assert "implementation_fallback_model" in _SOURCE
-    assert "Retrying the implementation on " in _SOURCE
+    implementation_source = (
+        _STRATEGY.parent / "implementation.py"
+    ).read_text()
+    assert "implementation_fallback_model" in implementation_source
+    assert "Retrying the implementation on " in implementation_source
