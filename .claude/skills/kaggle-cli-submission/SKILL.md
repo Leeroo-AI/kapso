@@ -2,9 +2,11 @@
 name: kaggle-cli-submission
 description: >
   Run a full end-to-end Kaggle competition workflow with the Kaggle CLI (kaggle):
-  read competition pages/rules, download data, develop a portable .py script kernel,
-  push with competition_sources (twice), poll kernels status, verify submission.csv
-  output, submit a kernel version to a code competition, and poll publicScore.
+  read competition pages/rules, download data, tell a code competition from a
+  file-upload one, and submit either way — upload a prediction file directly, or
+  develop a portable .py script kernel, push with competition_sources, poll
+  kernels status, verify submission.csv output, submit a kernel version — then
+  poll publicScore.
   Use when submitting to Kaggle, automating kaggle kernels push/submit, working on
   code competitions, or when the user mentions Kaggle CLI submission flow.
 compatibility: Requires the kaggle CLI installed and authenticated via KAGGLE_API_TOKEN or ~/.kaggle/access_token; network access to kaggle.com
@@ -34,12 +36,19 @@ recover from each failure.
 
 ## 0. The whole flow in one glance
 
+**First settle the modality (§2.1).** Not every competition is a code
+competition. If the task is scored from a prediction file you upload, the whole
+flow is four steps — read the pages, download the data, develop locally, then
+`kaggle competitions submit <C> -f submission.csv -m "msg"` and poll the score
+(§7). Skip §4–§6; there is no kernel, no push, no `-k/-v`. The rest of this
+guide is the **code-competition** path:
+
 ```
 read rules/description   ->  kaggle competitions pages <C> --page-name <p> --content
 list data files          ->  kaggle competitions files <C>
 download data            ->  kaggle competitions download <C> -p data/    (then unzip)
 [develop + test locally using downloaded data]
-push .py script + data   ->  kaggle kernels push -p kernel/     (PUSH TWICE)
+push .py script + data   ->  kaggle kernels push -p kernel/     (ONCE; see 4.2)
 wait for run             ->  kaggle kernels status <owner>/<slug>   (poll until COMPLETE)
 inspect output/logs      ->  kaggle kernels output <owner>/<slug> -p out/
 submit the script        ->  kaggle competitions submit <C> -k <owner>/<slug> -v <ver> -f submission.csv -m "msg"
@@ -206,23 +215,80 @@ Field notes (the ones that matter):
   and the data is mounted locally anyway.
 - **`is_private`**: keep `"true"`. Making a notebook public requires phone
   verification and is unnecessary for submitting.
-- **`machine_shape`**: leave `""` for CPU. For a GPU, use e.g. `"NvidiaTeslaT4"` or
-  `"NvidiaTeslaP100"`; for TPU `"Tpu1VmV38"`. (You can also pass `--accelerator` on
-  push.)
+- **`machine_shape`**: leave `""` for CPU. For a GPU, pin `"NvidiaTeslaT4"` —
+  **never `"NvidiaTeslaP100"`**: P100 provisions but cannot train (known Kaggle
+  bug), and leaving the shape unpinned can allocate one. For TPU `"Tpu1VmV38"`.
+  (You can also pass `--accelerator` on push.)
 
-### 4.2 Push — and push TWICE
+### 4.2 Push ONCE — re-push only if the data was not mounted
 
 ```bash
 kaggle kernels push -p kernel/
-kaggle kernels push -p kernel/        # push again
 ```
 
-**Why twice:** when a competition source is newly attached to a kernel, the *first*
-run frequently starts before the data is mounted, so it fails with
-`FileNotFoundError` on the data. Pushing the identical folder a second time triggers
-a fresh run that has the data mounted. Always push twice on first creation. (On later
-updates to an existing, already-attached kernel, a single push is usually enough — but
-a second push is a cheap safety net.)
+If the task statement states a per-kernel-run time cap, enforce it on every
+push with `--timeout <seconds>` (e.g. `kaggle kernels push -p kernel/
+--timeout 600`): the run is stopped at the cap instead of overrunning the
+task's limit. The statement's cap is binding; if it states none, omit the flag.
+
+#### Running in parallel? Claim a slot first
+
+Kaggle's concurrency limits are **per account**, not per agent: at most **2 GPU**
+and **5 CPU** notebook sessions running at once. If several of you share an
+account, you are all drawing on the same two GPU slots, and pushing without
+coordinating means you race — everyone retries blind and the winner is whoever
+happens to poll when a slot frees.
+
+**If `kernel_slots.py` is staged in your task directory, use it for pushes.**
+It is a shared ticket office; holding a ticket means Kaggle is actually
+running your kernel:
+
+```bash
+TASK=/path/to/task                       # the directory holding kernel_slots.py
+T=$(python3 $TASK/kernel_slots.py acquire gpu push --ref <owner>/<slug> --lane <you>)
+kaggle kernels push -p kernel/           # poll until the run is terminal
+python3 $TASK/kernel_slots.py release "$T"
+```
+
+**Submissions need NO ticket.** `competitions submit -k -v` scores on
+Kaggle's backend scoring infrastructure, not in your interactive session
+pool — it does not consume a slot and is never queued behind pushes. When a
+version's run completes with valid output, **submit it promptly** (each
+version at most once where the task caps that); a submission never blocks a
+sibling's push, and delaying it only delays your feedback.
+
+- One **priority queue per pool** (gpu, cpu); tiers `ship` > `run` >
+  `reroll` — mark debug re-pushes `reroll`. Run the script with no arguments
+  for the protocol.
+- `acquire` **blocks** until granted. A wait is normal and is not an error —
+  it prints the queue state to stderr and the ticket to stdout.
+- **Release as soon as the kernel goes terminal.** Stale tickets are
+  reclaimed only after Kaggle confirms the run is over, so a crash cannot
+  park a slot forever — but do not rely on that.
+- `python3 $TASK/kernel_slots.py status --task-dir $TASK` shows both pools.
+
+**The CPU pool is separate and usually idle.** If your kernel does not truly
+need a GPU (cached embeddings, a linear probe, calibration), push it with
+`"enable_gpu": false` and queue on the CPU pool — five slots instead of two.
+
+If you still see `Maximum batch GPU session count of 2 reached`, that is
+**backpressure, not failure**: keep the recipe, wait, and retry. Never respond by
+weakening the solution.
+
+**A second push is not free, so do not make it a habit.** Kaggle allows only
+**2 concurrent GPU sessions per account**. A reflexive double-push makes one
+experiment occupy both slots, cutting the number of solutions you can have in
+flight from two to one — on top of the extra GPU quota it burns.
+
+**When a second push IS warranted:** the *first* run after a competition source
+is newly attached to a *new* kernel sometimes starts before Kaggle finishes
+mounting the data, and dies with `FileNotFoundError`. That failure is
+unmistakable and cheap — it crashes at file-lookup time in seconds, long before
+training. So: push once, check the run, and re-push only if you actually see
+that failure. Once the data mounts cleanly you usually never need it again.
+
+Each push is an independent run; a kernel version does **not** have to execute
+twice to be eligible.
 
 Each push prints the new version number:
 `Kernel version N successfully pushed.` **Record `N` — you need it to submit.**
@@ -250,6 +316,7 @@ for i in $(seq 1 40); do
   case "$s" in
     *COMPLETE*) break ;;
     *ERROR*)    echo "RUN FAILED"; break ;;
+    *CANCEL*)   echo "RUN STOPPED (usually the --timeout cap)"; break ;;
   esac
   sleep 20
 done
@@ -267,6 +334,16 @@ ls out/                       # expect submission.csv (+ a .log)
 - If status was `ERROR`, open the `.log` in `out/` — it contains the full stderr
   traceback. The most common failure is the data-not-mounted `FileNotFoundError`
   (fix: push again per §4.2). Fix the code or re-push, then repeat §5.
+- **Timeout-stopped runs end as `CANCEL_ACKNOWLEDGED`, not `ERROR`, and their
+  log simply truncates — no traceback.** So instrument EVERY kernel to answer
+  "did my solution fit the time limit, and by how much" from its log alone:
+  print stage-elapsed progress lines as you go (e.g.
+  `stage=train seed=2 elapsed=112s`) and a final
+  `TOTAL_ELAPSED=<seconds>s (cap <N>s)` line before writing the submission.
+  A COMPLETE log then reports your runtime margin against the task's cap; a
+  truncated log tells you exactly which stage blew the budget and by how
+  much — a measurement, not a mystery. A cancelled version still spends one
+  where the task counts versions: diagnose from the log before re-pushing.
 
 **What `submission.csv` actually is:** it is the file your notebook **writes on
 Kaggle** during the run (`/kaggle/working/submission.csv`). It is NOT uploaded from
@@ -295,7 +372,16 @@ kaggle competitions submit <C> \
 - Do **not** use `--sandbox` (that's for competition hosts/admins only).
 
 A successful submit prints a confirmation (or nothing). Errors are printed to
-stderr — capture and inspect them.
+stderr — capture and inspect them; **the CLI exits 0 even on a rejected
+submission**, so the text is the only signal (a rejected code submission prints
+`403 Client Error ... CreateCodeSubmission`).
+
+> **Submitting re-runs the kernel — on Kaggle's backend.** A code submission
+> re-executes that kernel version to score it on Kaggle's scoring
+> infrastructure: it does NOT occupy one of your interactive GPU sessions,
+> and many submissions can score concurrently. Resubmitting the same version
+> is a fresh training run that can land a slightly different score (a
+> deliberate late-game re-roll tactic, where the task's rules allow it).
 
 > **Regular (non-code) competition:** upload a local file instead:
 > `kaggle competitions submit <C> -f path/to/local_submission.csv -m "msg"`.
@@ -393,7 +479,7 @@ mkdir -p data && kaggle competitions download "$C" -p data/ && (cd data && unzip
 #     "is_private": "true", "enable_internet": "false",
 #     "competition_sources": ["'"$C"'"]
 
-# 4) Push (twice) so the data mounts; note the version number it prints
+# 4) Push once; note the version number it prints (re-push only on a mount failure)
 kaggle kernels push -p kernel/
 kaggle kernels push -p kernel/
 

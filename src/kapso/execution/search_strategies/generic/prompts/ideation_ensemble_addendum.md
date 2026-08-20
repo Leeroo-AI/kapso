@@ -7,7 +7,13 @@ all candidates. Your assigned lens:
 **{{lens}}**
 
 Bias your exploration and your solutions toward this lens; deviate only when
-you find something clearly superior.
+you find something clearly superior. Before designing candidates, a few
+searches into how similar problems were won pay for themselves: if the
+problem context names a knowledge bank, that is your FIRST search priority
+(route via its book_index.md, read the matched problems' idea.md and
+solution/); the open web is second — Kaggle and GitHub are good starting
+points, any source is fine. Read the winners through your lens and carry
+across what did the work.
 
 Produce exactly {{candidate_count}} candidate solutions. Each candidate must:
 - be fully self-contained (no references to your other candidate or to

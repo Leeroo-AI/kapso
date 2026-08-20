@@ -13,57 +13,148 @@ default_mode: KAGGLE
 
 modes:
   KAGGLE:
+    # Launch defaults (CLI --hours / --node-expansion override these). k=8
+    # fans out 8 implementation lanes per round; the runner pins one GPU per
+    # lane (CUDA_VISIBLE_DEVICES 0..7), so k=8 assumes an 8-GPU box — the
+    # hardware/lane strategy is tuned at launch, not here.
+    run_defaults:
+      hours: 2.0
+      node_expansion: 8
+
+    # Curated best-solutions book (repo-root-relative; gitignored, shipped to
+    # boxes by the launch protocol). Staged into <task>/knowledge_bank/ at
+    # runner startup; every module is told it is the FIRST search priority.
+    knowledge_bank_dir: benchmarks/kaggle/knowledge_bank
+
     search_strategy:
       type: "generic"
       params:
         idea_generation_model: "claude-opus-4-8"
-        implementation_model: "claude-opus-4-8"
+        # Implementation runs on the codex CLI (gpt-5.6-sol), matching the
+        # relbench RELBENCH_GENERIC codex-primary lineup. OpenAI's reasoning
+        # ceiling is xhigh (no "max" tier), so the codex roles pin xhigh.
+        implementation_model: "gpt-5.6-sol"
+        # A crashed lane session retries ONCE on this model. Contest 5
+        # (2026-08-06, adversarial-robustness task): the provider's safety
+        # classifier killed BOTH lanes' codex sessions mid-work ("flagged for
+        # possible cybersecurity risk"), and their remaining lane time was
+        # lost. A different model version answers a content-policy kill.
+        implementation_fallback_model: "gpt-5.5"
+        implementation_cli: "codex"
         auth_mode: "oauth"
         gate_failure_policy: "skip"
         parent_policy: "best"
-        effort: "max"
-        ideation_timeout: 1500
-        implementation_timeout: 7200
+        effort: "xhigh"
+        # Session ceilings, deliberately >= any run we launch: the real limit
+        # is the run's own searchable budget (the strategy clamps every agent
+        # deadline against what remains), not a per-phase slice.
+        ideation_timeout: 14400
+        implementation_timeout: 14400
+        # Candidates each ensemble member is asked for (2 members x 5 = 10).
+        ideation_candidates_per_member: 5
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # Two model families generate ideas in parallel; 2 members x 5
+        # candidates pools 10, so the selector can still emit 8 ranked
+        # solutions for K=8 when one member under-delivers.
         ideation_ensemble:
           - cli: "codex"
             model: "gpt-5.6-sol"
             effort: "xhigh"
           - cli: "claude_code"
             model: "claude-fable-5"
-            effort: "xhigh"
+            effort: "max"
         ideation_lens_planner:
           cli: "claude_code"
           model: "claude-fable-5"
-          effort: "max"
+          effort: "high"
           timeout: 600
         ideation_selector:
-          cli: "claude_code"
-          model: "claude-opus-4-8"
+          cli: "codex"
+          model: "gpt-5.6-sol"
           effort: "xhigh"
         session_env_defaults:
           BASH_DEFAULT_TIMEOUT_MS: "900000"
           BASH_MAX_TIMEOUT_MS: "7200000"
 
+    # No per-phase fractions, and NO finalization reserve: every run to date
+    # banked a public score long before any wall, while the reserve killed
+    # lanes mid-round (5 of 8 in run 5) and starved the feedback sessions to
+    # the 60s floor three runs straight. Lanes own their own endgame margin —
+    # the handler's loop contract makes the last submission leave room for its
+    # scoring — and the post-campaign harvest remains the safety net for
+    # pushed-but-unsubmitted kernels. insured_reserve is inert at reserve 0;
+    # it stays because the handler still takes the argument.
     session_budget:
-      ideation_fraction: 0.15
-      ideation_min_seconds: 300
-      implementation_fraction: 0.75
-      implementation_min_seconds: 1800
-      finalization_reserve_fraction: 0.10
-      finalization_reserve_min_minutes: 5
-      finalization_reserve_max_minutes: 15
-      guard_minutes: 5
+      finalization_reserve_minutes: 0
+      insured_reserve_minutes: 5
+      # Zero harvest carve-out (user-set 2026-08-05): the campaign runs to
+      # the window end, and lanes own shipping every completed version
+      # in-window themselves — slot-free submits plus the cross-lane
+      # SKIP/STEAL/COMPLEMENT/ENSEMBLE protocol make prompt submission the
+      # lanes' job, not a sweeper's. (Contest 2 ran a 15-min in-window
+      # reserve; retired with this change.)
+      guard_minutes: 0
+      harvest_window_minutes: 0
+      # Refuse to start a campaign with less than this left after preflight —
+      # below one submission round trip nothing scoreable can finish.
+      min_campaign_minutes: 25
+      # Kaggle's per-ACCOUNT concurrent INTERACTIVE session limits, which
+      # every lane shares — consumed by kernel pushes ONLY. A code
+      # submission's scoring re-run executes on Kaggle's backend scoring
+      # infrastructure and holds no interactive session (contest 1,
+      # 2026-08-04: five submissions scoring concurrently, zero rejections),
+      # so submits are never ticketed. ttl_seconds is when a ticket becomes
+      # eligible for truth-verification against Kaggle (NOT a blind reclaim —
+      # a dead lane's kernel keeps running); reap_interval rate-limits those
+      # checks; verify_timeout bounds each kaggle CLI verification call.
+      kernel_slots:
+        gpu: 2
+        cpu: 5
+        ttl_seconds: 600
+        reap_interval_seconds: 60
+        verify_timeout_seconds: 120
+        # Queue ordering ages a waiting request one tier step per this many
+        # seconds (never into ship), so evidence-based ordering cannot starve
+        # a weak-scored lane behind a stream of stronger arrivals.
+        aging_seconds: 900
 
 
     # Admission floor: don't start an iteration that can't finish.
     budget:
       min_iteration_seconds: 900
 
-    # Post-campaign scoring = polling the Kaggle submissions list.
+    # Post-campaign scoring = harvest, then poll the Kaggle submissions list.
+    # The harvest submits every COMPLETE kernel the run pushed but never
+    # submitted; `-v` is mandatory and the CLI exposes no version, so it probes
+    # downward from harvest_max_kernel_version to find the newest that takes.
     final_eval:
       timeout_seconds: 900
+      harvest_unsubmitted: true
+      # The competition's own sample file in dataset/, used to check a
+      # harvested kernel's output has the right ids before submitting it.
+      submission_template: "submission.csv"
+      harvest_max_kernel_version: 12
+      harvest_kernel_list_size: 50
+      # 0 (user-set 2026-08-05): the post-campaign harvest is a no-op —
+      # candidates are enumerated and reported as skipped, nothing is
+      # submitted after the window closes.
+      harvest_budget_seconds: 0
+      harvest_poll_seconds: 30
+      # One re-probe of a kernel whose every version was rejected — a
+      # transient rejection (foreign session, blip) is not a dead kernel.
+      harvest_retry_seconds: 60
+
+    # URL->run-root preflight: one session that downloads the competition
+    # (authenticated kaggle CLI) and authors dataset/statement.md per
+    # benchmarks/kaggle/preflight_spec.md. cli is codex or claude_code; a
+    # claude_code preflight additionally needs an auth_mode key.
+    preflight:
+      cli: "codex"
+      model: "gpt-5.6-sol"
+      effort: "high"
+      timeout: 1800
+      web_search: true
 
     models:
       utility:
@@ -74,7 +165,6 @@ modes:
         reasoning_effort: "xhigh"
       web_search:
         model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
       embedding: "text-embedding-3-small"
     retry:
       max_attempts: 5
@@ -84,21 +174,21 @@ modes:
       jitter: true
 
     coding_agent:
-      type: "claude_code"
-      model: "claude-opus-4-8"
-      debug_model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
+        # codex authenticates via ~/.codex/auth.json (not oauth); OPENAI_API_KEY
+        # is stripped from the child env by the adapter.
         effort: "xhigh"
         streaming: true
         timeout: 7200
 
     feedback_generator:
-      type: "claude_code"
-      model: "claude-opus-4-8"
-      debug_model: "claude-opus-4-8"
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
       agent_specific:
-        auth_mode: "oauth"
         effort: "xhigh"
         streaming: true
         timeout: 900

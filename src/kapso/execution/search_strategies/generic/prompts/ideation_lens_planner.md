@@ -29,10 +29,15 @@ and never let the lens set collapse onto a single axis by default.
 ## How to work
 
 1. **Research before you write.** Use WebSearch/WebFetch to survey how this
-   problem's FAMILY is attacked: the algorithmic literature, analogous
-   competition tasks and writeups, known failure modes and measurement
-   quirks. Ground your lenses in what you find — a lens may cite the family
-   it draws on. Budget a handful of searches; depth beats breadth.
+   problem's FAMILY is attacked: the algorithmic literature, known failure
+   modes and measurement quirks, and — especially — **how SIMILAR problems
+   were actually won**. Kaggle competitions on the same problem family are the
+   richest source: read the winning solutions, the top public notebooks, and
+   the discussion forum, and carry across the technique that did the work
+   rather than the surface recipe. What beat a leaderboard on an analogous
+   task is stronger evidence than what a paper reports. Ground your lenses in
+   what you find — a lens may cite the competition or family it draws on.
+   Budget a handful of searches; depth beats breadth.
 2. **Design {{lens_count}} one-line lenses**, mutually orthogonal, that
    collectively cover at least: (a) the dominant known approach done
    excellently, (b) its strongest structurally-different alternative, and

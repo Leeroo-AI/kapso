@@ -349,24 +349,35 @@ def test_web_search_uses_shared_transient_retry_policy(monkeypatch):
     assert sleeps == [3]
 
 
-def test_parallel_web_search_uses_individual_efforts(monkeypatch):
+def test_web_search_calls_never_carry_reasoning_effort(monkeypatch):
+    # The web_search_options route is the provider's search endpoint — a
+    # non-reasoning surface. OpenAI 400s on reasoning_effort there
+    # ("Unrecognized request argument") and drop_params does not drop it, so
+    # every research-gate result silently came back empty (found 2026-08-03).
     calls = []
 
     async def fake_acompletion(**kwargs):
         calls.append(kwargs)
         return response(kwargs["model"])
 
+    def fake_completion(**kwargs):
+        calls.append(kwargs)
+        return response("ok")
+
     monkeypatch.setattr(llm_module, "acompletion", fake_acompletion)
+    monkeypatch.setattr(llm_module, "completion", fake_completion)
     backend = LLMBackend(models={"web_search": "vendor/search"})
 
     results = backend.llm_multiple_completions_with_web_search(
         ["web_search", "vendor/other-search"],
         [{"role": "user", "content": "latest"}],
-        reasoning_efforts=["low", "high"],
+    )
+    backend.llm_completion_with_web_search(
+        model="web_search", messages=[{"role": "user", "content": "latest"}]
     )
 
     assert results == ["vendor/search", "vendor/other-search"]
-    assert [call["reasoning_effort"] for call in calls] == ["low", "high"]
+    assert all("reasoning_effort" not in call for call in calls)
 
 
 def test_internal_optional_enrichment_uses_utility_role():
@@ -451,8 +462,10 @@ def test_researcher_routes_web_search_through_shared_backend():
     call = backend.calls[0]
     assert call["model"] == "web_search"
     assert call["search_context_size"] == "high"
-    assert call["reasoning_effort"] == "high"
-    assert call["max_tokens"] == 32000
+    assert "reasoning_effort" not in call
+    # No max_tokens either: 32000 exceeded search-preview's 16384 completion
+    # cap — the second silent emptier of every research result.
+    assert "max_tokens" not in call
     assert "test query" in call["messages"][0]["content"]
 
 
@@ -476,7 +489,7 @@ def test_researcher_preserves_explicit_model_and_light_depth():
     assert report == Source.ResearchReport(query="test query", content="Report")
     assert backend.call["model"] == "vendor/custom-search"
     assert backend.call["search_context_size"] == "medium"
-    assert backend.call["reasoning_effort"] == "medium"
+    assert "reasoning_effort" not in backend.call
 
 
 def test_researcher_failure_returns_typed_empty_report():

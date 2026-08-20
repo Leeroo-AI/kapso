@@ -39,8 +39,13 @@ dependencies = [
     "litellm==1.75.0",
     "PyYAML",
     "python-dotenv",
-    # MCP SDK — required by kapso.gated_mcp (gate server + all gates)
-    "mcp>=1.0.0",
+    # MCP SDK — required by kapso.gated_mcp (gate server + all gates).
+    # <2 is load-bearing: mcp 2.0 removed the 1.x low-level Server decorator
+    # API (Server.list_tools et al.), and an unpinned box install pulled 2.0.0
+    # — the gate server then crashed at startup in EVERY box session while
+    # dev (1.26.0) kept passing. Found 2026-08-03; migrate server.py to the
+    # 2.x API before lifting the ceiling.
+    "mcp>=1.9,<2",
     "neo4j",
     # Vector database for semantic search
     "weaviate-client>=4.0.0",

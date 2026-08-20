@@ -107,8 +107,6 @@ class Researcher:
         # Normalize mode to list
         modes = self._normalize_modes(mode)
         
-        # Map depth to reasoning effort
-        reasoning_effort = self._get_reasoning_effort(depth)
         search_context_size = self._get_search_context_size(depth)
         
         # Single mode - return direct type
@@ -118,7 +116,6 @@ class Researcher:
                 query=query,
                 mode=modes[0],
                 top_k=top_k,
-                reasoning_effort=reasoning_effort,
                 search_context_size=search_context_size,
             )
         
@@ -131,7 +128,6 @@ class Researcher:
                 query=query,
                 mode=m,
                 top_k=top_k,
-                reasoning_effort=reasoning_effort,
                 search_context_size=search_context_size,
             )
             
@@ -158,15 +154,6 @@ class Researcher:
         else:
             raise ValueError(f"mode must be a string or list (got {type(mode)})")
 
-    def _get_reasoning_effort(self, depth: ResearchDepth) -> str:
-        """Map depth to OpenAI reasoning effort."""
-        if depth == "light":
-            return "medium"
-        elif depth == "deep":
-            return "high"
-        else:
-            raise ValueError(f"depth must be 'light' or 'deep' (got {depth!r})")
-
     def _get_search_context_size(self, depth: ResearchDepth) -> str:
         """Map research depth to the provider's web-search context size."""
         if depth == "light":
@@ -180,7 +167,6 @@ class Researcher:
         query: str,
         mode: ResearchMode,
         top_k: int,
-        reasoning_effort: str,
         search_context_size: str,
     ) -> ResearchResultSingle:
         """
@@ -190,7 +176,6 @@ class Researcher:
             query: The research query
             mode: The mode to run
             top_k: Max results (for idea/implementation modes)
-            reasoning_effort: OpenAI reasoning effort level
             search_context_size: Provider web-search context size
             
         Returns:
@@ -204,8 +189,6 @@ class Researcher:
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 search_context_size=search_context_size,
-                reasoning_effort=reasoning_effort,
-                max_tokens=32000,
             )
         except Exception as e:
             logger.exception(f"Research failed for mode '{mode}': {e}")

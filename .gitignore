@@ -246,3 +246,16 @@ benchmarks/posttrain/gcp/results_fetched/
 # (gs://leeroo-kapso-relbench-artifacts/runs/), so git carries the claim's
 # code + final_report.json and not the raw arrays.
 benchmarks/relbench/claims/**/*.npy
+
+# Private IOAI organizer Discord transcript — not ours to redistribute
+benchmarks/kaggle/discussions.md
+
+# IOAI problem catalog + curated knowledge bank (local research material, never committed)
+benchmarks/kaggle/ioai_problem_master_catalog_bundle.zip
+benchmarks/kaggle/knowledge_bank/
+benchmarks/kaggle/knowledge_bank_reserve/
+benchmarks/kaggle/starter_prompts/
+
+# Third-party IOAI evidence extractor and the account data it fetches — not ours
+# to redistribute, and its output tree carries full kernel source + submissions.
+benchmarks/kaggle/data_extraction/
