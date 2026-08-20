@@ -209,6 +209,11 @@ modes:
       time_budget_minutes: 600
       finalization_reserve_minutes: 15
       min_iteration_seconds: 1800
+      # Durable-clock heartbeat: generic-strategy iterations span hours, so
+      # boundary-only checkpoints let a SPOT preemption rewind the budget
+      # clock on resume (seen live: an A/B arm nearly doubled its budget).
+      # The heartbeat patches elapsed_seconds mid-iteration.
+      checkpoint_heartbeat_seconds: 300
 
     evaluation_maintainer:
       type: "codex"

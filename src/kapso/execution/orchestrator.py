@@ -12,6 +12,7 @@
 
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -215,6 +216,8 @@ class OrchestratorAgent:
         self._workspace_dir = workspace_dir
 
         self.checkpoint_store: Optional[RunCheckpointStore] = None
+        self._checkpoint_lock = threading.Lock()
+        self._heartbeat_stop = threading.Event()
         self._resume_checkpoint: Optional[RunCheckpoint] = None
         self.completed_iterations = 0
         self._prior_cost = 0.0
@@ -941,7 +944,19 @@ class OrchestratorAgent:
             cost_by_component=self.budget_ledger.cost_by_component(),
             last_stop=last_stop,
         )
-        self.checkpoint_store.save(checkpoint)
+        with self._checkpoint_lock:
+            self.checkpoint_store.save(checkpoint)
+
+    def _run_checkpoint_heartbeat(self, interval_seconds: float) -> None:
+        """Daemon loop: keep the durable clock fresh between boundary
+        checkpoints so a preemption cannot rewind the budget on resume."""
+        while not self._heartbeat_stop.wait(interval_seconds):
+            if self.checkpoint_store is None:
+                continue
+            with self._checkpoint_lock:
+                self.checkpoint_store.heartbeat_elapsed(
+                    self.get_elapsed_seconds()
+                )
 
     def _validate_restored_branch_refs(self) -> None:
         """Ensure successful checkpoint nodes still point to Git refs."""
@@ -1134,6 +1149,14 @@ class OrchestratorAgent:
         # durable work — a crash at any later point must resume instead of
         # restarting the campaign (and re-buying the maintainer setup).
         self._save_run_checkpoint(status="running")
+        heartbeat_seconds = self._config_budget.get("checkpoint_heartbeat_seconds")
+        if heartbeat_seconds and self.checkpoint_store is not None:
+            threading.Thread(
+                target=self._run_checkpoint_heartbeat,
+                args=(float(heartbeat_seconds),),
+                name="run-checkpoint-heartbeat",
+                daemon=True,
+            ).start()
 
         # Get problem context once (experiment history is accessed via MCP)
         problem = self.problem_handler.get_problem_context()
@@ -1471,6 +1494,7 @@ class OrchestratorAgent:
                 # Persist even a zero-iteration slice so it can be resumed.
                 self._save_run_checkpoint(status="running")
         finally:
+            self._heartbeat_stop.set()
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
 
             # Close knowledge search only if the orchestrator created it.

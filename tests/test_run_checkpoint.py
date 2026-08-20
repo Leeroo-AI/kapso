@@ -266,6 +266,25 @@ def test_checkpoint_round_trip(tmp_path: Path) -> None:
     assert store.load() == expected
 
 
+def test_heartbeat_patches_only_the_durable_clock(tmp_path: Path) -> None:
+    # Mid-iteration preemption must not rewind the budget on resume: the
+    # heartbeat refreshes elapsed_seconds while leaving every other field
+    # (notably strategy_state) exactly as the boundary checkpoint wrote it.
+    store = RunCheckpointStore(str(tmp_path))
+    store.heartbeat_elapsed(123.0)  # pre-bootstrap: no file, no write
+    assert not store.exists()
+
+    boundary = _checkpoint()
+    store.save(boundary)
+    store.heartbeat_elapsed(boundary.elapsed_seconds + 4321.0)
+
+    patched = store.load()
+    assert patched.elapsed_seconds == boundary.elapsed_seconds + 4321.0
+    assert patched.strategy_state == boundary.strategy_state
+    assert patched.completed_iterations == boundary.completed_iterations
+    assert patched.cumulative_cost == boundary.cumulative_cost
+
+
 def test_missing_and_corrupt_checkpoints_fail_clearly(tmp_path: Path) -> None:
     store = RunCheckpointStore(str(tmp_path))
     with pytest.raises(RunCheckpointMissingError, match="run_state.json"):

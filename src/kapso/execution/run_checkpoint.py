@@ -305,6 +305,21 @@ class RunCheckpointStore:
             ) from exc
         return RunCheckpoint.from_dict(data)
 
+    def heartbeat_elapsed(self, elapsed_seconds: float) -> None:
+        """Patch ONLY the durable clock on the stored checkpoint.
+
+        Generic-strategy iterations span hours and full checkpoints save at
+        iteration boundaries, so a preemption mid-iteration would rewind
+        the budget clock on resume. The heartbeat keeps elapsed_seconds
+        fresh without touching strategy_state (which the strategy may be
+        mutating). No file yet — nothing to patch; the bootstrap save owns
+        first write."""
+        if not self.exists():
+            return
+        checkpoint = self.load()
+        checkpoint.elapsed_seconds = float(elapsed_seconds)
+        self.save(checkpoint)
+
     def save(self, checkpoint: RunCheckpoint) -> None:
         checkpoint.validate_structure()
         self.path.parent.mkdir(parents=True, exist_ok=True)
