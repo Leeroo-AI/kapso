@@ -8,6 +8,7 @@
 # codify iteration is short and idempotent.
 
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict
@@ -59,12 +60,26 @@ class GcpEphemeralExecutor:
         # From here on, every path — success or failure — reaches teardown
         # before any raise (sequential rc capture, no exception guards).
         failure = ""
-        pushed = self._gcloud([
-            "compute", "scp", "--recurse", "--zone", zone,
-            str(workspace), f"{name}:/tmp/codify-workspace",
-        ], timeout=900)
-        if pushed.returncode != 0:
-            failure = f"workspace push failed: {pushed.stderr}"
+        # A freshly created instance takes tens of seconds to accept ssh —
+        # pushing immediately gets Connection refused.
+        ssh_up = False
+        for _ in range(30):
+            probe = self._gcloud([
+                "compute", "ssh", name, "--zone", zone, "--command", "true",
+            ], timeout=60)
+            if probe.returncode == 0:
+                ssh_up = True
+                break
+            time.sleep(10)
+        if not ssh_up:
+            failure = "ssh never became available on the fresh instance"
+        if not failure:
+            pushed = self._gcloud([
+                "compute", "scp", "--recurse", "--zone", zone,
+                str(workspace), f"{name}:/tmp/codify-workspace",
+            ], timeout=900)
+            if pushed.returncode != 0:
+                failure = f"workspace push failed: {pushed.stderr}"
         if not failure:
             ran = self._gcloud([
                 "compute", "ssh", name, "--zone", zone, "--command",
