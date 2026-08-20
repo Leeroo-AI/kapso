@@ -21,7 +21,7 @@ import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
@@ -49,6 +49,13 @@ import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from kapso.execution.search_strategies.generic import codex_ideation
+from kapso.execution.search_strategies.generic.expansion_lanes import (
+    lane_env_overlay,
+    normalize_node_expansion,
+    pick_representative,
+    render_lane_brief,
+    validate_node_expansion_config,
+)
 from kapso.execution.search_strategies.generic.lens_planning import (
     design_axes_brief,
     normalize_design_axes,
@@ -119,90 +126,6 @@ def is_degenerate_ensemble_candidate(text: str) -> bool:
     return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
 
 DEFAULT_MEMBER_LENS = "no specific lens — judge freely"
-
-MAX_NODE_EXPANSION = 8
-
-
-def normalize_node_expansion(params: Mapping[str, Any]) -> Tuple[int, Optional[List[Dict[str, str]]]]:
-    """Validate node_expansion_value and the optional per-lane env overlays."""
-    raw = params.get("node_expansion_value", 1)
-    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_NODE_EXPANSION:
-        raise ValueError(
-            f"node_expansion_value must be an int in [1, {MAX_NODE_EXPANSION}]"
-        )
-    lane_env = params.get("expansion_lane_env")
-    if lane_env is not None:
-        if not isinstance(lane_env, list) or not all(
-            isinstance(e, dict) and all(
-                isinstance(k, str) and isinstance(v, str) for k, v in e.items()
-            )
-            for e in lane_env
-        ):
-            raise ValueError(
-                "expansion_lane_env must be a list of {str: str} mappings "
-                "(one per lane, e.g. CUDA_VISIBLE_DEVICES pins)"
-            )
-    return raw, lane_env
-
-
-def validate_node_expansion_config(
-    expansion: int,
-    ensemble: Optional[List[Dict[str, str]]],
-    selector: Optional[Dict[str, str]],
-) -> None:
-    """K>1 requires the ensemble+selector flow (the selector emits the K)."""
-    if expansion > 1 and (not ensemble or selector is None):
-        raise ValueError(
-            "node_expansion_value > 1 requires ideation_ensemble and "
-            "ideation_selector (the selector emits the top-K solutions)"
-        )
-
-
-def render_lane_brief(
-    lane_index: int,
-    lane_count: int,
-    lane_env: Optional[Mapping[str, str]],
-) -> str:
-    """Prompt block announcing this lane's env assignment.
-
-    An env pin is a fence the agent cannot see: the session inherits it,
-    but hardware probes (nvidia-smi) ignore it and per-command exports
-    silently override it — the first K=2 flight had a lane discover the
-    "idle" sibling GPU that way. Empty/absent lane env renders nothing.
-    """
-    if not lane_env:
-        return ""
-    pins = "\n".join(f"- `{key}={value}`" for key, value in lane_env.items())
-    if lane_count > 1:
-        return (
-            "## Parallel Lane Assignment (read first)\n\n"
-            f"You are implementation lane {lane_index} of {lane_count} — "
-            f"{lane_count - 1} sibling lane(s) are running CONCURRENTLY on "
-            "this machine, implementing different solutions on their own "
-            "branches.\n\n"
-            "Your session environment carries these lane-exclusive "
-            "overrides:\n"
-            f"{pins}\n\n"
-            "Each sibling lane received DIFFERENT values for the same "
-            "variables — they partition this machine's resources between "
-            "lanes. Treat yours as an exclusive assignment:\n"
-            "- Do NOT override, unset, or widen these variables in your own "
-            "commands; plain commands already inherit them.\n"
-            "- Do NOT claim resources outside your assignment even if they "
-            "look idle — hardware probes (e.g. `nvidia-smi`) list ALL "
-            "physical devices, including your siblings'.\n"
-            "- Task-level shared directories (artifacts, submission) are "
-            "visible to every lane: namespace the files you create and "
-            "follow the task's promotion protocol exactly."
-        )
-    return (
-        "## Session Environment Pins\n\n"
-        "The orchestrator set these run-level environment overrides for "
-        "this session:\n"
-        f"{pins}\n\n"
-        "Do not override or unset them in your commands; plain commands "
-        "already inherit them."
-    )
 
 
 # A selected solution is a full implementation spec (2,000-4,400 chars across
@@ -818,7 +741,9 @@ class GenericSearch(SearchStrategy):
                 f"score={node.score}, should_stop={node.should_stop}"
             )
 
-        representative = self._pick_representative(nodes)
+        representative = pick_representative(
+            nodes, self.problem_handler.maximize_scoring
+        )
         if lane_count > 1:
             representative.should_stop = any(n.should_stop for n in nodes)
             print(
@@ -827,22 +752,6 @@ class GenericSearch(SearchStrategy):
                 f"stop={representative.should_stop}"
             )
         return representative
-
-    def _pick_representative(self, nodes: List[SearchNode]) -> SearchNode:
-        """Best-scoring node of the round; scoreless nodes rank last."""
-        if len(nodes) == 1:
-            return nodes[0]
-
-        def sort_key(node: SearchNode):
-            if node.score is None:
-                return (0, 0.0)
-            return (
-                1,
-                node.score
-                if self.problem_handler.maximize_scoring
-                else -node.score,
-            )
-        return max(nodes, key=sort_key)
 
     def _generate_solution(
         self, problem: str, parent_branch: str
@@ -1640,12 +1549,7 @@ Problem: {problem}"""
         logger.info(f"[GenericSearch] Implementation tools: {implementation_allowed_tools}")
         
         # 4. Configure Claude Code for implementation
-        lane_env = (
-            self.expansion_lane_env[lane_index]
-            if self.expansion_lane_env
-            and lane_index < len(self.expansion_lane_env)
-            else None
-        )
+        lane_env = lane_env_overlay(self.expansion_lane_env, lane_index)
         if self.implementation_cli == "codex":
             config = CodingAgentConfig(
                 agent_type="codex",

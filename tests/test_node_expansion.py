@@ -13,12 +13,14 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.core.prompt_loader import load_prompt
-from kapso.execution.search_strategies.generic.strategy import (
-    GenericSearch,
+from kapso.execution.search_strategies.generic.expansion_lanes import (
     normalize_node_expansion,
-    parse_selected_solutions,
     render_lane_brief,
     validate_node_expansion_config,
+)
+from kapso.execution.search_strategies.generic.strategy import (
+    GenericSearch,
+    parse_selected_solutions,
 )
 
 MEMBERS = [
