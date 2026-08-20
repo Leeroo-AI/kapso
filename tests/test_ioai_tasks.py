@@ -111,21 +111,28 @@ def test_claude_adapter_bans_websearch_via_disallowed_tools():
 def test_strategy_web_off_sets_disallowed_websearch():
     import inspect
 
-    from kapso.execution.search_strategies.generic import lens_planning, strategy
+    from kapso.execution.search_strategies.generic import (
+        ideation,
+        lens_planning,
+        strategy,
+    )
 
     src = inspect.getsource(strategy)
     # web-off computes the WebSearch/WebFetch disallow set...
     assert 'self._web_disallowed_tools = (' in src
     assert '["WebSearch", "WebFetch"]' in src
-    # ...and threads it into ideation Claude sessions (member/single/lens).
+    # ...threads it into every ideation delegation (single/ensemble/lens)...
+    assert src.count('web_disallowed_tools=self._web_disallowed_tools') >= 3
+    # ...and the session configs wire it in (member/single/lens).
     wired = (
-        src.count('"disallowed_tools": self._web_disallowed_tools')
+        inspect.getsource(ideation).count(
+            '"disallowed_tools": web_disallowed_tools'
+        )
         + inspect.getsource(lens_planning).count(
             '"disallowed_tools": web_disallowed_tools'
         )
     )
     assert wired >= 3
-    assert 'web_disallowed_tools=self._web_disallowed_tools' in src
 
 
 def test_bobai_acquire_manifests_sequester_answers():

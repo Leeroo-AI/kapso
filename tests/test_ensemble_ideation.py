@@ -16,12 +16,12 @@ import kapso.execution.coding_agents.adapters.oss_claude_code_agent as oss_modul
 import kapso.execution.search_strategies.generic.codex_ideation as codex_module
 import kapso.gated_mcp as gated_mcp_module
 from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.execution.search_strategies.generic.strategy import (
+from kapso.execution.search_strategies.generic.ideation import (
     ENSEMBLE_CANDIDATES_PER_MEMBER,
-    GenericSearch,
     normalize_ensemble_member,
     normalize_ideation_ensemble,
 )
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 CODEX_MEMBER = {"cli": "codex", "model": "gpt-5.6-sol", "effort": "xhigh", "lens": "data"}
 CLAUDE_MEMBER = {"cli": "claude_code", "model": "claude-fable-5", "effort": "xhigh", "lens": "recipe"}
@@ -494,7 +494,7 @@ def test_prompt_echo_candidates_are_dropped(tmp_path, monkeypatch):
 
 
 def test_skeleton_candidates_never_reach_selector(tmp_path, monkeypatch):
-    from kapso.execution.search_strategies.generic.strategy import (
+    from kapso.execution.search_strategies.generic.ideation import (
         is_degenerate_ensemble_candidate,
     )
     skeleton = (

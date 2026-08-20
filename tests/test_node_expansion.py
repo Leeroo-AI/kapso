@@ -18,10 +18,10 @@ from kapso.execution.search_strategies.generic.expansion_lanes import (
     render_lane_brief,
     validate_node_expansion_config,
 )
-from kapso.execution.search_strategies.generic.strategy import (
-    GenericSearch,
+from kapso.execution.search_strategies.generic.ideation import (
     parse_selected_solutions,
 )
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 MEMBERS = [
     {"cli": "codex", "model": "gpt-5.6-sol"},
