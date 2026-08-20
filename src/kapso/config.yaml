@@ -305,7 +305,9 @@ learning:
       zone: us-central1-a
       cpu_machine_type: e2-standard-8
       accelerator: type=nvidia-l4,count=1
-      image_family: common-cu121-debian-11
+      # The DLVM CPU families were retired; the cu129 ubuntu family boots
+      # fine on CPU-only machines and carries /opt/conda.
+      image_family: common-cu129-ubuntu-2204-nvidia-580
       image_project: deeplearning-platform-release
       boot_disk_gb: "200"
       # Prefixed to the evaluation command on the instance (env activation
