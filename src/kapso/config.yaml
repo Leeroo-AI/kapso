@@ -22,6 +22,24 @@
 default_mode: GENERIC
 
 # =============================================================================
+# Platform defaults — the base layer under every mode of every config file
+# =============================================================================
+# load_mode_config() resolves a mode as deep_merge(defaults, modes[<mode>]):
+# nested dicts merge key-by-key; scalars and lists replace wholesale. A key
+# here is inherited by any mode (platform or benchmark) that does not
+# override it — keep this layer to values that are correct for every
+# deployment; anything modes legitimately differ on stays per-mode.
+defaults:
+  models:
+    # Embeddings route (experiment-store semantic search, knowledge search).
+    embedding: "text-embedding-3-small"
+  retry:
+    # Hard per-request wall clock handed to the provider client. Without it
+    # a connection the server abandons mid-stream blocks the calling thread
+    # forever (first live wedge: rel-event/user-ignore re-run, 2026-08-09).
+    request_timeout_seconds: 600
+
+# =============================================================================
 # Available configuration modes
 # =============================================================================
 modes:
