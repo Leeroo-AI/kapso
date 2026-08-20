@@ -18,8 +18,11 @@ aider-chat>=0.35.0
 # Knowledge graph database client
 neo4j
 
-# Vector database for semantic search
+# Vector database for the knowledge-base KG search (kg_graph_search)
 weaviate-client>=4.0.0
+
+# Token-count cap for embedding inputs (core/llm.py create_embedding)
+tiktoken
 
 # OpenAI embeddings API
 openai>=1.0.0

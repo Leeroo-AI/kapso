@@ -259,7 +259,6 @@ modes:
         reasoning_effort: "xhigh"
       web_search:
         model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
       embedding: "text-embedding-3-small"
 
     retry:

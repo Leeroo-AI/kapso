@@ -47,8 +47,11 @@ dependencies = [
     # 2.x API before lifting the ceiling.
     "mcp>=1.9,<2",
     "neo4j",
-    # Vector database for semantic search
+    # Vector database for the knowledge-base KG search (kg_graph_search); the
+    # experiment store no longer uses it (embeddings live in its JSON store).
     "weaviate-client>=4.0.0",
+    # Token-count cap for embedding inputs (core/llm.py create_embedding)
+    "tiktoken",
     # OpenAI embeddings API
     "openai>=1.0.0",
     # Pin cryptography to avoid cffi>=2.0.0 requirement (conflicts with aider-chat)
