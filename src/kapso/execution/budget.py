@@ -29,6 +29,9 @@ _BUDGET_BLOCK_KEYS = {
     # (insurance already paid): late, short iterations become admissible.
     "min_iteration_seconds_insured",
     "min_agent_timeout_seconds",
+    # Durable-clock heartbeat interval (consumed by the orchestrator, not
+    # BudgetSpec): keeps elapsed_seconds fresh between boundary checkpoints.
+    "checkpoint_heartbeat_seconds",
     # Validated separately by FidelitySpec.resolve.
     "fidelity",
 }
