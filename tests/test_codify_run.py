@@ -194,6 +194,17 @@ def test_staged_output_leak_refuses_to_run(tmp_path):
         driver.run(leaky, CARD, str(tmp_path / "run"))
 
 
+def test_request_notes_land_in_workspace(tmp_path):
+    # Gate names underdetermine replay definitions; the request's notes
+    # prose must reach the implementor (YAML comments die in the dump).
+    request = dict(REQUEST)
+    request["notes"] = "SE = clustered bootstrap, ddof 1."
+    driver, _ = make_driver(tmp_path, [implementor_writer()], [ENDORSE])
+    driver.run(request, CARD, str(tmp_path / "run"))
+    notes = tmp_path / "run" / "workspace" / "replay-notes.md"
+    assert notes.read_text() == "SE = clustered bootstrap, ddof 1."
+
+
 def test_staging_preserves_run_relative_paths(tmp_path):
     # Two runs staging the same basename must land side by side — flat
     # staging silently overwrote one with the other.

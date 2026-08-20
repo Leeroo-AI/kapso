@@ -39,6 +39,9 @@ Workspace layout (you are in it):
 - materials/     the cited archived implementations — adapt, don't author
 - inputs/        the fixture run's inputs (read-only)
 - gates.yaml     the reproduction gates your evaluation must assert
+- replay-notes.md (when present) the request's replay definitions — exact
+  meanings for the gate names (resample recipe, dedup rules, banding
+  anchors); follow them precisely
 - replay/eval.py YOU write this: the registered evaluation — it runs your
   code on inputs/, asserts the gates' recorded values (decision outcomes
   exactly; numeric within the stated band; artifacts produced), and writes
@@ -125,6 +128,11 @@ class CodifyRunDriver:
         gates = request["gates"]
         with open(workspace / "gates.yaml", "w") as handle:
             yaml.safe_dump(gates, handle, sort_keys=False)
+        # Replay definitions the gate names alone underdetermine (resample
+        # recipes, dedup semantics, banding anchors) — YAML comments do not
+        # survive the dump, so the request carries them as prose.
+        if request.get("notes"):
+            (workspace / "replay-notes.md").write_text(str(request["notes"]))
 
         staged = self._stage(request, workspace)
         leak_findings = actually_invoked_findings(staged, gates)

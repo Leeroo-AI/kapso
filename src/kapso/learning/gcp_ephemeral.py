@@ -83,6 +83,15 @@ class GcpEphemeralExecutor:
                     # The evaluation may have died before writing it — the
                     # gates will name every miss on the empty outcome.
                     (workspace / "outcome.yaml").write_text("{}\n")
+            # Gate artifacts are produced on the instance under outputs/ —
+            # pull them back so the artifact gates judge real files. A
+            # missing directory is not an error here: the gates name every
+            # absent artifact.
+            self._gcloud([
+                "compute", "scp", "--recurse", "--zone", zone,
+                f"{name}:/tmp/codify-workspace/outputs",
+                str(workspace),
+            ], timeout=600)
 
         deleted = self._gcloud([
             "compute", "instances", "delete", name, "--zone", zone, "--quiet",
