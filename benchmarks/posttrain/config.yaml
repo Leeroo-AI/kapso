@@ -51,6 +51,9 @@ modes:
         ideation_timeout: 1800
         # One experiment = write pipeline + train + evaluate. Multi-hour.
         implementation_timeout: 18000
+        # No web in implementation sessions (preserves the campaign's no-web
+        # behavior; benchmark-rules sensitivity).
+        implementation_web: false
         # Only local, dependency-free gates. `research` and `leeroopedia`
         # need external backends we don't ship in the container. The coding
         # agent still has Claude Code's built-in WebSearch/WebFetch, which is

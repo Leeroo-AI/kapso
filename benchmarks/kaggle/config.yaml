@@ -41,6 +41,10 @@ modes:
         # lost. A different model version answers a content-policy kill.
         implementation_fallback_model: "gpt-5.5"
         implementation_cli: "codex"
+        # Web in implementation sessions (platform default true; explicit to
+        # document intent): the handler's three-round loop has lanes web-
+        # research how similar problems were pushed further between submits.
+        implementation_web: true
         auth_mode: "oauth"
         gate_failure_policy: "skip"
         parent_policy: "best"

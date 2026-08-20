@@ -45,6 +45,7 @@ def run_implementation(
     implementation_cli: str,
     implementation_model: str,
     implementation_fallback_model: Optional[str],
+    implementation_web: bool,
     claude_auth_settings: Dict[str, Any],
     env_strip: List[str],
     env_defaults: Dict[str, str],
@@ -106,9 +107,13 @@ def run_implementation(
     )
     
     # 3. Build full tool set for implementation (includes Write, Edit)
-    # Bash is kept for running evaluation scripts, not for repo_memory access
+    # Bash is kept for running evaluation scripts, not for repo_memory access.
+    # implementation_web gates the session's live-web access on BOTH CLIs:
+    # here the claude whitelist's WebSearch/WebFetch, below the codex
+    # --search flag — one knob, no web side-door on either path.
     implementation_allowed_tools = [
         "Read", "Write", "Edit", "Bash",
+        *(["WebSearch", "WebFetch"] if implementation_web else []),
         *[t for t in mcp_tools if t.startswith("mcp__")],
     ]
     
@@ -125,6 +130,9 @@ def run_implementation(
                 "env_strip": env_strip,
                 "env_defaults": env_defaults,
                 "mcp_servers": mcp_servers,
+                # Same implementation_web knob as the claude whitelist:
+                # gates the codex CLI's native --search tool.
+                "web_search": implementation_web,
                 "timeout": clamped_timeout(implementation_timeout),
                 # Lane 0 tees the live transcript to the console, same
                 # policy as the claude path.

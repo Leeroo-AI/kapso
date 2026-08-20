@@ -38,6 +38,8 @@ modes:
         # these past-contest solutions in pretraining; web-off removes active
         # retrieval, not latent recall.
         web_search: false
+        # Leakage-safe harvest: implementation sessions stay web-free too.
+        implementation_web: false
         ideation_ensemble:
           - cli: "codex"
             model: "gpt-5.6-sol"

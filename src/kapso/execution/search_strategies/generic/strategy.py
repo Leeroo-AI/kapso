@@ -146,6 +146,9 @@ class GenericSearch(SearchStrategy):
           continues in place; `main` only when no committed work exists.
         - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
         - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
+        - implementation_web: Live-web access in implementation sessions —
+          claude WebSearch/WebFetch and codex --search (default: True).
+          Independent of the ideation `web_search` knob.
     """
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
@@ -278,6 +281,12 @@ class GenericSearch(SearchStrategy):
                 "implementation_cli must be claude_code or codex, got "
                 f"{self.implementation_cli!r}"
             )
+        # Web access in implementation sessions (independent of the ideation
+        # `web_search` knob): gates the claude whitelist's WebSearch/WebFetch
+        # AND the codex --search flag. Default True; benchmarks whose
+        # protocol forbids live web during implementation (e.g. relbench's
+        # temporal-leakage rules) set false in their mode config.
+        self.implementation_web = self.params.get("implementation_web", True)
         self.ideation_candidates_per_member = int(
             self.params.get(
                 "ideation_candidates_per_member", ENSEMBLE_CANDIDATES_PER_MEMBER
@@ -775,6 +784,7 @@ class GenericSearch(SearchStrategy):
             implementation_cli=self.implementation_cli,
             implementation_model=self.implementation_model,
             implementation_fallback_model=self.implementation_fallback_model,
+            implementation_web=self.implementation_web,
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,

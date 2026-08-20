@@ -30,6 +30,8 @@ modes:
         implementation_timeout: 7200
         ideation_gates: ["experiment_history", "repo_memory"]
         implementation_gates: ["repo_memory"]
+        # No web in implementation sessions (current behavior preserved).
+        implementation_web: false
         # Ensemble ideation (PostTrainBench pattern): two idea-generators of
         # DIFFERENT models run in parallel over the same read-only worktree —
         # a GPT member (codex CLI) and a Claude member — each emitting
