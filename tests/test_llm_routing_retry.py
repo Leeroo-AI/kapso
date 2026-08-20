@@ -354,6 +354,8 @@ def test_web_search_calls_never_carry_reasoning_effort(monkeypatch):
     # non-reasoning surface. OpenAI 400s on reasoning_effort there
     # ("Unrecognized request argument") and drop_params does not drop it, so
     # every research-gate result silently came back empty (found 2026-08-03).
+    # The live leak came from a rich web_search route with a configured
+    # effort, so that is exactly the shape pinned here.
     calls = []
 
     async def fake_acompletion(**kwargs):
@@ -366,7 +368,11 @@ def test_web_search_calls_never_carry_reasoning_effort(monkeypatch):
 
     monkeypatch.setattr(llm_module, "acompletion", fake_acompletion)
     monkeypatch.setattr(llm_module, "completion", fake_completion)
-    backend = LLMBackend(models={"web_search": "vendor/search"})
+    backend = LLMBackend(
+        models={
+            "web_search": {"model": "vendor/search", "reasoning_effort": "high"}
+        }
+    )
 
     results = backend.llm_multiple_completions_with_web_search(
         ["web_search", "vendor/other-search"],
@@ -378,6 +384,7 @@ def test_web_search_calls_never_carry_reasoning_effort(monkeypatch):
 
     assert results == ["vendor/search", "vendor/other-search"]
     assert all("reasoning_effort" not in call for call in calls)
+    assert all("allowed_openai_params" not in call for call in calls)
 
 
 def test_internal_optional_enrichment_uses_utility_role():
