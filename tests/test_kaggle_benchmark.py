@@ -540,7 +540,10 @@ def test_runner_stages_knowledge_bank_and_fails_loud(tmp_path):
     # and the real runner module wires the same semantics from config
     cfg = yaml.safe_load(open(runner_mod.CONFIG_PATH))["modes"]["KAGGLE"]
     assert cfg["knowledge_bank_dir"] == "benchmarks/kaggle/knowledge_bank"
-    assert os.path.isdir(os.path.join(runner_mod.REPO_ROOT, cfg["knowledge_bank_dir"]))
+    # Deliberately no isdir() on the bank itself: the bank is gitignored,
+    # launch-shipped material — its presence is a box-provisioning fact, not a
+    # repo contract. The fail-loud staging path above pins the actual behavior
+    # when it is missing.
 
 
 def test_kernels_run_since_treats_not_found_as_empty(tmp_path):
