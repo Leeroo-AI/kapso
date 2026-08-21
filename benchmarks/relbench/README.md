@@ -2,7 +2,7 @@
 
 Every company's most valuable data has the same shape: customers, orders, events, and records
 spread across linked tables. [RelBench](https://relbench.stanford.edu) (Stanford/Kumo,
-[v2 paper](https://arxiv.org/abs/2602.12606)) turns that shape into a benchmark — 11 real
+[v2 paper](https://arxiv.org/abs/2602.12606)) turns that shape into a benchmark: 11 real
 relational databases (SAP sales orders, H&M retail transactions, clinical trials, e-commerce
 reviews, classified ads, ICU records, …) and 66 prediction tasks: who churns, what sells,
 which trial succeeds, what to recommend next.
@@ -10,13 +10,13 @@ which trial succeeds, what to recommend next.
 Kapso attacks each task the way a research team would: an experimentation loop of
 **ideation → implementation → judged feedback**, every iteration scored on the official
 validation metric, every lesson compounding into the next round. Ideas are grounded in two
-knowledge sources: a **knowledge bank** learned from its own past campaigns — what worked,
-measured — and **Leeroopedia**, Leeroo's curated ML knowledge base.
+knowledge sources: a **knowledge bank** of measured lessons from its own past campaigns,
+and **Leeroopedia**, Leeroo's curated ML knowledge base.
 
 ## Results
 
-Kapso beats the best published results across the three task families — and the same solutions,
-re-measured under an identical budget, beat a frontier coding agent working alone:
+Kapso beats the best published results across the three task families. The same solutions,
+re-measured under an identical budget, also beat a frontier coding agent working alone:
 
 ![Kapso vs best published](assets/kapso_vs_best_published.png)
 
@@ -28,16 +28,16 @@ same hardware, same 4-hour budget, one generic prompt) is fully reproducible fro
 
 ## How it stays honest
 
-1. **Sanitized cache** — `sandbox.py` builds a per-task database copy with everything
+1. **Sanitized cache**: `sandbox.py` builds a per-task database copy with everything
    test-derivable physically removed; the agent-visible test table carries only
    (entity, seed-time) rows.
-2. **Search** — the Kapso platform iterates ideation → implementation → judged feedback
+2. **Search**: the Kapso platform iterates ideation → implementation → judged feedback
    against official *validation* scores: `--strategy generic` (the campaign standard, with
    the provided immutable grader) or `--strategy tree` (handler-scored).
-3. **Selection** — the best run is chosen on validation and scored **once** on test by the
+3. **Selection**: the best run is chosen on validation and scored **once** on test by the
    handler, followed by a code audit for leakage patterns.
 
-Temporal-regime details — including the rolling per-tick harness for windowed tasks — live in
+Temporal-regime details, including the rolling per-tick harness for windowed tasks, live in
 [`EVALUATION_PROTOCOL.md`](EVALUATION_PROTOCOL.md).
 
 ## Quickstart
