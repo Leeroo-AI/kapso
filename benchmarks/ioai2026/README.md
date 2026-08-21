@@ -70,4 +70,4 @@ PYTHONPATH=src:. python -m benchmarks.ioai2026.runner --root tmp/ioai/task1 --ho
 | `kernel_slots.py` | ticket office over the submission platform's per account session limits |
 | `config.yaml` | campaign mode (models, lanes, budgets, knowledge bank staging) |
 | `past_learning/` | the harvest factory: runs on past olympiad tasks that feed the knowledge bank |
-| `RULES.md` / `CAMPAIGN_NOTES.md` | organizer rules staged into every run / campaign engineering notes |
+| `RULES.md` | organizer rules staged into every run |
