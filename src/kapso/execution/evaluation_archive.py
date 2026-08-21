@@ -2,7 +2,7 @@
 
 Framework owns HOW measurements are recorded, labeled, versioned, and
 selected; a benchmark owns WHAT a measurement is. This module is the
-selection side of that split (EVALUATION_GOVERNANCE.md): it reads the archive
+selection side of that split (docs/research/evaluation-governance.md): it reads the archive
 a suite's grader wrote through ``evaluation_archive_sandbox`` and produces
 the campaign's shipped pick under the MOST RECENT evaluator version, with the
 same doctrine the in-loop search applies to ``node.score``:
