@@ -85,6 +85,9 @@ def test_handler_context_is_statement_plus_minimal_contract(tmp_path):
     assert "book_index.md" not in context
     assert "problem.md" in context and "idea.md" in context
     assert "FIRST priority" in context and "the open web is second" in context
+    # The winning-solutions-corpus advice lives HERE, not in the generic
+    # prompts (platform de-scent: benchmark-related sources -> handler).
+    assert "winning solutions, top public notebooks" in context
     assert "EVERY module" in context
     # The protocol/economics sermons must stay gone.
     for banned in ("SUBMISSION BUDGET", "INSURANCE", "flock",

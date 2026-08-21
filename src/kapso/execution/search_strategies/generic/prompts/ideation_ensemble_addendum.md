@@ -11,9 +11,8 @@ you find something clearly superior. Before designing candidates, a few
 searches into how similar problems were won pay for themselves: if the
 problem context names a knowledge bank, that is your FIRST search priority
 (start from its INDEX.md and follow it as the problem context directs); the
-open web is second — Kaggle and GitHub are good starting points, any source
-is fine. Read the winners through your lens and carry across what did the
-work.
+open web is second — any source is fine. Read the winners through your lens
+and carry across what did the work.
 
 Produce exactly {{candidate_count}} candidate solutions. Each candidate must:
 - be fully self-contained (no references to your other candidate or to

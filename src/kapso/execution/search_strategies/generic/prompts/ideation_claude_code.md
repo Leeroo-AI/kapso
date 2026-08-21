@@ -5,10 +5,10 @@ Generate a novel, implementable solution to improve the repository for the given
 You should explore the codebase, understand its architecture, and propose improvements.
 
 When you research, look at how SIMILAR problems were solved and take
-inspiration from the best of it — Kaggle competitions on the same problem
-family and GitHub (past contest solutions, reference implementations) are
-good starting points, though you are free to search wherever you judge best.
-Carry across the technique that did the work, not the surface recipe.
+inspiration from the best of it — public write-ups of winning solutions and
+open-source reference implementations are good starting points, though you
+are free to search wherever you judge best. Carry across the technique that
+did the work, not the surface recipe.
 
 ## Available Tools
 
@@ -69,8 +69,7 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
   going to the web.
 - **WebSearch** / **WebFetch**: research the web directly — recent papers,
   winning solutions to similar problems, reference implementations, library
-  usage. Kaggle and GitHub are good starting points; search wherever you
-  judge best.
+  usage; search wherever you judge best.
 
 ## IMPORTANT: Read-Only Mode
 You are in IDEATION mode. Do NOT modify any files. Only read and research.

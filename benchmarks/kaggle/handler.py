@@ -98,7 +98,9 @@ verification), and `solution/` (runnable code).
 
 This applies to EVERY module — ideation, selection, implementation,
 feedback: when you search for ideas, methods, or code, the bank is the
-FIRST priority; the open web is second. Route via `INDEX.md`, read the
+FIRST priority; the open web is second: Kaggle competitions on the same
+problem family (winning solutions, top public notebooks, discussion
+forums) and GitHub are the richest sources. Route via `INDEX.md`, read the
 matched problems' idea.md and solution/, then take your web search
 wherever you judge best.
 
