@@ -40,15 +40,14 @@ REPO_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", ".."))
 RULES_PATH = os.path.join(os.path.dirname(__file__), "RULES.md")
 SLOTS_PATH = os.path.join(os.path.dirname(__file__), "kernel_slots.py")
-# The repo's kaggle-cli-submission skill doubles as the lanes' submission
+# The benchmark's KAGGLE_CLI.md playbook doubles as the lanes' submission
 # playbook. Claude CLIs only discover it natively when cwd is this repo, and
 # codex has no skill loader at all — while lanes run in isolated session
 # clones on whichever CLI the config picks. So it is staged into the task dir
 # and every coding-agent CLI gets the same absolute path from the handler
 # context (the RULES.md pattern).
 SKILL_PATH = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "..",
-    ".claude", "skills", "kaggle-cli-submission", "SKILL.md"))
+    os.path.dirname(__file__), "KAGGLE_CLI.md"))
 
 # Source patterns that indicate the kernel pulls external pretrained
 # resources or data. Matches are reported, not silently fatal — a human
