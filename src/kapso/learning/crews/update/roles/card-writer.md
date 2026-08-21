@@ -72,8 +72,25 @@ WRITING — the rules that bind every edit:
   ABOVE the `---` machine ledger. Exact shape, in order:
     `# <title>` — the rule as one plain sentence (this heading is the
       card's title everywhere; there is no title field in the ledger).
-    `**Rule:**` — 1-2 imperative sentences in common ML vocabulary,
-      payoff included: what to do/skip and what that buys.
+    `**Rule:**` — one prose paragraph: the card in miniature. An
+      engineer who reads ONLY this paragraph must be able to act
+      correctly. Woven as natural prose — never as labels — it carries:
+      (1) the trigger: the situation where the rule fires, in common ML
+      vocabulary; (2) the action: what to do, including the other
+      branch whenever the lesson forks ("build it only when ...;
+      otherwise ...") and where the output goes; (3) the reason: the
+      one-clause why that makes the action credible.
+      THE ABSTRACTION LAW binds hardest here: the Rule states the
+      mechanism class, never our instances — no dataset or benchmark
+      names, no run ids, no measured values; every noun generalizes
+      ("a mature boosted tree", "event history" — never a named dataset
+      or campaign artifact). Procedural constants that ARE the method
+      (a significance threshold, a correlation ceiling) stay; observed
+      magnitudes go to the episode in Why-believe. Portability test: an
+      engineer at a different company, on a different dataset, applies
+      the paragraph unchanged. Completeness self-test: cover everything
+      below the Rule — if you can no longer act, it is incomplete; if
+      it merely restates the title, it is a slogan.
     `## Is this your situation?` — 3-4 bullets, each a condition the
       reader can recognize in under a minute, in engineering terms
       (models, features, task shapes — never our campaign vocabulary).

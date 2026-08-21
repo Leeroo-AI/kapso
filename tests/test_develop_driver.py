@@ -91,7 +91,7 @@ def develop_config(tmp_path):
                 "repair_rounds": 1, "timeout_minutes": 1,
                 "dup_nominate_jaccard": 0.5, "sightings_expiry_batches": 6,
                 "rewrite_rows_per_run": 2,
-                "body_floors": {"rule": 12, "section": 25, "confidence": 8},
+                "body_floors": {"rule": 35, "section": 25, "confidence": 8},
                 "run_root": str(tmp_path / "prod-runs"),
             },
             "develop": {

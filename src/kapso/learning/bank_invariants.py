@@ -73,7 +73,12 @@ BODY_SECTIONS = ("## Is this your situation?", "## What to do",
                  "## Why believe this")
 _CONFIDENCE_PATTERN = re.compile(r"\*\*Confidence:\*\*\s*(.+)\Z", re.S)
 _RULE_TEXT_PATTERN = re.compile(r"\*\*Rule:\*\*\s*(.+?)(?:\n\s*\n|\n#|\Z)", re.S)
-_ARTIFACT_REF_PATTERN = re.compile(r"\[E\d|mined/|\bflow-\d")
+# Abstraction leaks: evidence pointers AND our namespace tokens (dataset
+# slugs, learner-run ids, archived-run ids) never appear in a body — the
+# card states the mechanism class; instances live in the ledger.
+_ARTIFACT_REF_PATTERN = re.compile(
+    r"\[E\d|mined/|\bflow-\d|\brel-[a-z]|\blr_\d|\brun_\d"
+)
 
 
 def body_confidence_text(body: str) -> Optional[str]:

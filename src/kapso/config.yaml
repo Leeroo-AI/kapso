@@ -285,7 +285,7 @@ learning:
     # count as non-conforming and re-queue for rewrite (user feedback
     # 2026-08-21: a length cap produced unusably thin bodies; floors, not
     # caps).
-    body_floors: {rule: 12, section: 25, confidence: 8}
+    body_floors: {rule: 35, section: 25, confidence: 8}
     sightings_expiry_batches: 6
     run_root: learning/runs
   ab:

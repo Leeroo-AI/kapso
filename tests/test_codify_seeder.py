@@ -16,8 +16,11 @@ PROC_PLAIN = ("promising — executed in 2 campaigns on 2 datasets; no "
 PROC_TMPL = """# {title}: decide candidates on paired deltas
 
 **Rule:** Never accept or reject a fresh candidate on its raw validation
-score; decide on the paired, cluster-resampled delta against the incumbent
-so shared fold noise cancels out of the decision.
+score when it sits within noise of the incumbent; score both models on
+identical folds and decide on the paired, cluster-resampled delta and its
+standard error instead, because pairing cancels the shared fold variance
+that raw comparisons read as model difference; only a delta clearing the
+significance gate ships the candidate, otherwise the incumbent stays.
 
 ## Is this your situation?
 
