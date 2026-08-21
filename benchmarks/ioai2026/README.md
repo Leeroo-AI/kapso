@@ -27,12 +27,12 @@ Per task:
 
 | # | Task | Score |
 |---|---|---|
-| 1 | Find the Order | 75.97 |
-| 2 | Robot Chasing | 98.83 |
-| 3 | Potato | 92.03 |
-| 4 | Double Agent Dilemma | 98.84 |
-| 5 | Ghost of the Machine | 97.17 |
-| 6 | IOAI Field | 73.23 |
+| 1 | Speech understanding: reconstruct the chronological order of a shuffled spoken conversation from raw audio | 75.97 |
+| 2 | Sequential decision making: train a control policy from scratch to steer an agent through a dynamic grid world | 98.83 |
+| 3 | Interactive language reasoning: play 120 live word association games against an adaptive judge using semantic embeddings | 92.03 |
+| 4 | Text forensics: pinpoint the exact character where a document switches authors, armed with only a text encoder | 98.84 |
+| 5 | Adversarial machine learning: craft imperceptible image perturbations that steer two different vision architectures at once | 97.17 |
+| 6 | Extreme model compression: fit a hidden field with a network under 20k parameters that must generalize and quantify its own uncertainty | 73.23 |
 |   | **Total** | **536.07** |
 
 ## How it works
