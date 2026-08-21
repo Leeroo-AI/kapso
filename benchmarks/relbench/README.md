@@ -1,14 +1,17 @@
 # RelBench Integration
 
-Kapso on [RelBench](https://relbench.stanford.edu) — Stanford/Kumo's benchmark for predictive
-modelling on relational enterprise data ([v2 paper](https://arxiv.org/abs/2602.12606)): 11
-databases (SAP sales orders, clinical trials, e-commerce, fashion retail, classified ads,
-healthcare records, …) and 66 tasks across entity classification (AUROC), entity regression
-(MAE/NMAE), recommendation (MAP@K), and autocomplete.
+Every company's most valuable data has the same shape: customers, orders, events, and records
+spread across linked tables. [RelBench](https://relbench.stanford.edu) (Stanford/Kumo,
+[v2 paper](https://arxiv.org/abs/2602.12606)) turns that shape into a benchmark — 11 real
+relational databases (SAP sales orders, H&M retail transactions, clinical trials, e-commerce
+reviews, classified ads, ICU records, …) and 66 prediction tasks: who churns, what sells,
+which trial succeeds, what to recommend next.
 
-A model receives a temporal relational database plus seed rows (entity id, seed time) and must
-predict future outcomes, missing attributes, or ranked future links — with every feature and
-sampled neighborhood censored at each row's seed time.
+Kapso attacks each task the way a research team would: an experimentation loop of
+**ideation → implementation → judged feedback**, every iteration scored on the official
+validation metric, every lesson compounding into the next round. Ideas are grounded in two
+knowledge sources: a **knowledge bank** learned from its own past campaigns — what worked,
+measured — and **Leeroopedia**, Leeroo's curated ML knowledge base.
 
 ## Results
 
