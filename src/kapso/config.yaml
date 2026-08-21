@@ -205,11 +205,11 @@ learning:
     # inside the lead session, so their models are Claude models.
     lead:
       cli: claude_code
-      model: "claude-opus-4-8"
+      model: "claude-fable-5"
       effort: "xhigh"
       auth_mode: "oauth"
-    flow_writer_model: "claude-opus-4-8"
-    critic_model: "claude-opus-4-8"
+    flow_writer_model: "claude-fable-5"
+    critic_model: "claude-fable-5"
     timeout_minutes: 240
     repair_rounds: 1
   retriever:
@@ -237,7 +237,7 @@ learning:
     # switch is one config change.
     crew:
       report_writer: {cli: codex, model: "gpt-5.6-sol", effort: "xhigh"}
-      verifier: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+      verifier: {cli: claude_code, model: "claude-fable-5", effort: "xhigh", auth_mode: "oauth"}
       assessor: {cli: codex, model: "gpt-5.6-sol", effort: "xhigh"}
       # Three rounds: one mechanical fix + one semantic fix + one for the
       # recomputation cascade a semantic reclassification forces (arm-T's
@@ -267,9 +267,9 @@ learning:
     # The update crew (design §4.3; update-crew doc): Claude lead (structural
     # — self-organization + native critic subagent), codex GPT-5.6 xhigh
     # workers driven via run-role.sh (doubt D4), cross-model critic.
-    lead: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+    lead: {cli: claude_code, model: "claude-fable-5", effort: "xhigh", auth_mode: "oauth"}
     worker: {cli: codex, model: "gpt-5.6-sol", effort: "xhigh"}
-    critic: {cli: claude_code, model: "claude-opus-4-8"}
+    critic: {cli: claude_code, model: "claude-fable-5"}
     # Two rounds: a transaction can need one mechanical-class and one
     # semantic-class fix — one shared round proved too tight live (B1).
     repair_rounds: 2
@@ -308,7 +308,7 @@ learning:
     # The run's two sessions (D4: implementor on the default intelligence,
     # the claims judge cross-model).
     implementor: {cli: codex, model: "gpt-5.6-sol", effort: "xhigh"}
-    judge: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+    judge: {cli: claude_code, model: "claude-fable-5", effort: "xhigh", auth_mode: "oauth"}
     gcp:
       project: trans-density-437811-p2
       zone: us-central1-a
@@ -335,6 +335,6 @@ learning:
     # known-truth fixtures, judged by a cross-model reviewer; FAIL gates
     # promotion like a gauntlet trap. Fixtures land with their phases.
     scenarios_dir: benchmarks/relbench/data/learning_behavior
-    reviewer: {cli: claude_code, model: "claude-opus-4-8", effort: "xhigh", auth_mode: "oauth"}
+    reviewer: {cli: claude_code, model: "claude-fable-5", effort: "xhigh", auth_mode: "oauth"}
     timeout_minutes: 60
     run_root: learning/behavior
