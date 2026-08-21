@@ -37,6 +37,13 @@ bundle-relative paths (`[mined/it-2/flow-3.md#evaluation]`,
 Markers: Extraction — HIT-SERVED | HIT-UNSERVED | MISS-UNCARDED | MISS-NOVEL.
 Claims settlement — AGREED | CONTRADICTED | OUT-OF-SCOPE | THIN.
 Serving — SERVED-USED | UPTAKE-FAIL | SERVE-MISS | SERVE-NOISE.
+Every SERVED-USED entry must also GRADE THE PAYOFF of following the card:
+name the decision the campaign took because of it and the measured effect
+(delta and ref), or state plainly "followed, no measurable benefit". A
+served card that changed a decision is only a success if the decision paid —
+uptake without payoff is a finding, not a win. UPTAKE-FAIL entries state
+what the campaign did instead and what that cost or saved (the counter-
+factual the card failed to move).
 
 Duties that carry the report's honesty:
 - EXTRACTION. Enumerate the discoveries the campaign PAID for (ledger

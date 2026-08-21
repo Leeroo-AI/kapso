@@ -29,8 +29,10 @@ def card_text(
     tags=(),
     contradicts=(),
     evidence_trajectory="rel-amazon--user-churn/20260101T000000_lane-t1",
-    body="Group-relative signals beat absolute values [E1]. The mechanism is "
-         "competition within a shared pool.",
+    body="## When you're here\nRanking rows that compete in a shared pool.\n"
+         "## Do this\nUse group-relative signals, not absolute values [E1].\n"
+         "## What you gain\nOrdering signal the absolute view hides; the "
+         "mechanism is competition within a shared pool.",
 ):
     tags_yaml = "[" + ", ".join(tags) + "]"
     contradicts_yaml = "[" + ", ".join(contradicts) + "]"

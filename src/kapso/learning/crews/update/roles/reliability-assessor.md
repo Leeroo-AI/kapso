@@ -27,6 +27,15 @@ For each listed card:
   0.25*coverage, rounded to two decimals. State each anchor and each
   adjustment in the rationale so a second assessor can reproduce the
   number from the ledger alone.
+- SERVING OUTCOMES COUNT. Evidence entries born from serving feedback
+  (followed-and-paid confirm, followed-no-benefit weaken, recurring
+  uptake-fail weaken) sit in the same validity arithmetic as any other
+  outcome verdict — a card's usefulness claim is part of its claim. Two
+  guards: (i) a founding entry that merely restates the loss the card was
+  minted from is participation-discounted (it cannot self-confirm the
+  card into existence); (ii) a card serviced >= 2 campaigns with zero
+  confirm-grade uptake cannot hold validity above 0.60 — say so in the
+  rationale and name what serving outcome would move it.
 - LIFECYCLE IS DERIVABLE TOO: candidate -> active requires >= 2 executed
   entries from >= 2 distinct campaigns with no outcome verdict refuting
   and validity >= 0.60 — a ledger fact, not a feeling; nothing else

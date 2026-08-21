@@ -39,6 +39,21 @@ def test_clean_transaction_has_no_findings(tmp_path):
     assert BankTransactionValidator(before, after).validate() == []
 
 
+def test_body_contract_names_missing_reader_sections(tmp_path):
+    # The reader contract (2026-08-21): a body without the three engineer-
+    # facing intents is an unfinished card and must trip by name.
+    def mutate(root):
+        text = read_card(root, "a-card")
+        head, _, _ = text.partition("## When you're here")
+        write_card(root, "a-card", head + "A mechanism paragraph only.")
+
+    before, after = clone_bank(tmp_path, {"a-card": card_text("a-card")}, mutate)
+    findings = BankTransactionValidator(before, after).validate()
+    assert any(
+        "reader-contract" in f and "When you're here" in f for f in findings
+    )
+
+
 def test_evidence_append_only(tmp_path):
     # Regression: rewriting an existing evidence entry must trip.
     def mutate(root):

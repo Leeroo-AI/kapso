@@ -41,6 +41,15 @@ hindcast:
   [mined/it-1/flow-1.md].
 """
 
+# Serving section extended with a payoff-graded used entry and a noise
+# entry — used by the seeding test only (scripted-fake tests keep the
+# minimal report so their turn counts stay stable).
+SERVING_OUTCOME_LINES = """- **SERVED-USED** — [insight: a-card]: followed, decision paid +0.001
+  [mined/it-1/flow-1.md].
+- **SERVE-NOISE** — [insight: b-card]: served, irrelevant here
+  [mined/it-1/flow-1.md].
+"""
+
 EVIDENCE_APPEND = """  - source:
       learner_run: {lr_id}
       trajectory: {trajectory}
@@ -245,6 +254,9 @@ def test_worksheet_seeding_classes(tmp_path):
         return good_lead(workspace)
 
     frame, config, batch, _ = make_frame(tmp_path, [snoop, snoop], cards=cards)
+    # extend the report's serving section for this test only
+    report_path = Path(batch[0]["hindcast_report"])
+    report_path.write_text(report_path.read_text() + SERVING_OUTCOME_LINES)
     # the run will fail validation later (docket rows unhandled by good_lead)
     # — seeding is what this test asserts.
     with pytest.raises(RuntimeError):
@@ -254,7 +266,11 @@ def test_worksheet_seeding_classes(tmp_path):
     worksheet = captured["worksheet"]
     assert "[seed: lift → a-card]" in worksheet
     assert "[seed: card-candidate]" in worksheet
-    assert "[seed: serving-feedback]" in worksheet
+    # Both the uptake failure AND the payoff-graded used entry seed rows —
+    # serving outcomes are claim evidence now; SERVE-NOISE stays out.
+    assert worksheet.count("[seed: serving-feedback]") == 2
+    assert "decision paid" in worksheet
+    assert "irrelevant here" not in worksheet
     assert "[tension]" in worksheet and "a-card and b-card" in worksheet
     assert "[dup-merge]" in worksheet and "similarity nominates" in worksheet
 

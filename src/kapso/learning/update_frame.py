@@ -223,7 +223,11 @@ class UpdateFrame:
                     add("obs", "seed: card-candidate",
                         f"({trajectory}) {entry['text']}")
             for entry in report.sections["serving"]:
-                if entry["marker"] == "UPTAKE-FAIL":
+                # Serving outcomes are card evidence, not commentary: a used
+                # card's payoff (or its absence) and an ignored card's
+                # uptake failure both reach the writer as rows, so the
+                # card's usefulness claim gets settled like any other claim.
+                if entry["marker"] in ("UPTAKE-FAIL", "SERVED-USED"):
                     add("obs", "seed: serving-feedback",
                         f"({trajectory}) {entry['text']}")
 

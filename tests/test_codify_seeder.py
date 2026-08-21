@@ -38,7 +38,12 @@ probe: >-
   Re-run the gate on one fold.
 ---
 
+## When you're here
+Accepting or rejecting a candidate against a champion.
+## Do this
 Run the gated acceptance procedure end to end [E1].
+## What you gain
+Noise-proof accept/reject decisions.
 """
 
 

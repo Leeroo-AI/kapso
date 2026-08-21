@@ -43,11 +43,17 @@ hindcast:
   [mined/it-1/flow-1.md].
 """
 
-TWIN_BODY = ("Group-relative signals beat absolute values [E1]. The mechanism "
-             "is competition within a shared pool.")
+# TWIN_BODY lexically twins card_text's default body (the duplicate trap's
+# Jaccard bait); both bodies carry the reader-contract sections.
+TWIN_BODY = ("## When you're here\nRanking rows that compete in a shared "
+             "pool.\n## Do this\nUse group-relative signals, not absolute "
+             "values [E1].\n## What you gain\nOrdering signal the absolute "
+             "view hides; the mechanism is competition within a shared pool.")
 TWIN_HERO = "A hero line for a-card."
-FRESH_BODY = ("Cache the feature matrix between iterations and version it by "
-              "schema; rebuild only when the schema changes.")
+FRESH_BODY = ("## When you're here\nRebuilding features every iteration.\n"
+              "## Do this\nCache the feature matrix between iterations and "
+              "version it by schema; rebuild only when the schema changes.\n"
+              "## What you gain\nIteration time back without staleness.")
 FRESH_HERO = "Rebuild cadence for feature caches."
 
 SPAWN_CARD = """---

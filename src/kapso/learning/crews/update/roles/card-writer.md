@@ -35,10 +35,21 @@ WRITING — the rules that bind every edit:
   outcome (a number re-grepping in the cited artifact, or an explicit
   judge/ledger verdict), not a narrative remark; (b) the mechanism is
   stated as a causal sentence an independent reader could test; (c) the
-  phenomenon is not a tool/schema/infra quirk (those are sightings at best).
-  Anything failing any one of (a)-(c) is a SIGHTING. When in doubt,
+  phenomenon is not a tool/schema/infra quirk (those are sightings at best);
+  (d) THE USEFULNESS GATE (applies to EVERY spawn, induction included): you
+  can name a decision a competent future searcher would otherwise get
+  wrong, and what getting it wrong costs. A lesson a competent
+  practitioner already carries is a SIGHTING, not a card — cards are
+  bought with campaign budget and must pay it back.
+  Anything failing any one of (a)-(d) is a SIGHTING. When in doubt,
   SIGHTING — a spurious candidate dies of non-recurrence, but a card
   spawned on a whim breaks the bank's identity across runs.
+- NEGATIVE RESULTS card as DIRECTION, not prohibition. When the evidence
+  shows X losing, find what the same evidence shows paying and make THAT
+  the claim ("signal S pays via Y, not Z"), with the loss folded into the
+  do-this fork. A pure "don't do X" card is admissible only when the
+  evidence holds no paying alternative — and then it must still say what
+  to do with the freed budget.
 - The bound-identifier lint and the MDL test apply to every claim: named
   datasets/features/runs belong in evidence and scope coordinates, never in
   the fact; a card about as long as its cited instances has not abstracted.
@@ -56,10 +67,32 @@ WRITING — the rules that bind every edit:
   families or a mechanism argument that plainly spans them. And
   `scope_conditions` states WHEN the mechanism applies, precisely enough
   that a retriever miss is a boundary fact, not a vague hedge.
+- THE BODY CONTRACT — every card body is written for an ML engineer
+  mid-task who has never seen this bank, in exactly three sections
+  (loose prose inside, ~15 lines total):
+    `## When you're here` — the task situation in engineering terms (what
+      they're building, what they already have, what they're about to
+      try); a reader answers "is this me?" in five seconds.
+    `## Do this` — imperative and executable today: the check to run, the
+      thing to build or skip, the fork if there is one. Actionable without
+      reading anything else.
+    `## What you gain` — the benefit in ABSTRACT terms (the class of
+      wasted spend avoided, the class of win redirected to); benchmark-
+      specific numbers live in the evidence ledger, never in the body.
+  The mechanism lives inside these sections where it earns trust — never
+  as its own section. The body cites at most 2-3 headline numbers.
 - Evidence entries have exactly four parts (source, verdict, usage, effect);
   the effect ends with the sentence that earns the verdict; quoted numbers
   must re-grep in the cited artifact. Lifts from hindcast settlements copy
   the settlement's delta and refs — never recompute, never embellish.
+- SERVING OUTCOMES ARE CLAIM EVIDENCE. Under the body contract the card
+  CLAIMS its own usefulness, so serving-feedback rows settle like any
+  claim: followed and the decision paid → `confirm`; followed with no
+  measurable benefit → `weaken`; served and ignored (uptake-fail) →
+  `exercise` on first occurrence, `weaken` once it recurs across
+  campaigns (a card nobody acts on is failing at its job, whatever its
+  truth value); ignored while the warned-against direction paid →
+  `refute` territory — route it to the ledger honestly.
 - RESERVED WORDS in `usage`: "served", "cited", and "probe" claim THIS
   CARD's participation in that campaign, and the frame checks the claim
   against the serving record. Describing anything else — a report citing
