@@ -37,6 +37,13 @@ bundle-relative paths (`[mined/it-2/flow-3.md#evaluation]`,
 Markers: Extraction — HIT-SERVED | HIT-UNSERVED | MISS-UNCARDED | MISS-NOVEL.
 Claims settlement — AGREED | CONTRADICTED | OUT-OF-SCOPE | THIN.
 Serving — SERVED-USED | UPTAKE-FAIL | SERVE-MISS | SERVE-NOISE.
+Serving rows exist ONLY for cards the serving record actually lists as
+served (or the probe). WITHHOLDING IS NOT A SERVING EVENT: never write
+rows about bank-inventory cards that were not served — a correctly
+withheld card is silence, not SERVE-NOISE. When the record shows
+`served: []`, the Serving section is EMPTY and the `serving` dimension is
+null; commentary about what the bank holds belongs nowhere in this
+report.
 Every SERVED-USED entry must also GRADE THE PAYOFF of following the card:
 name the decision the campaign took because of it and the measured effect
 (delta and ref), or state plainly "followed, no measurable benefit". A
