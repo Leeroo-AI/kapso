@@ -6,8 +6,6 @@ the AI era: at IOAI 2026 in Astana, 471 contestants from 108 countries and terri
 competed on expert designed problems spanning the whole craft of machine learning, from
 computer vision and language to optimization under a single GPU budget.
 
-![IOAI 2026 scale](assets/ioai2026_countries.png)
-
 In 2026 the olympiad opened a second arena. [IOAI², the AI Model Track](https://ioai-official.org/ai-model-track/),
 puts AI systems in the same exam hall: the same
 [six contest tasks](https://github.com/IOAI-official/IOAI-2026), two fully autonomous 6 hour
@@ -15,16 +13,24 @@ sessions with three tasks each, up to 50 submission attempts per task, every sol
 on standardized single GPU hardware. Once a session starts, no human may solve, correct, or
 improve anything. Fourteen AI labs entered as Founding AI Participants; Kapso was one of them.
 
-![Founding AI Participants](assets/ioai2026_ai_labs.png)
-
 ## Results
 
-Kapso solved all six contest tasks with a mean score of 89.3:
+Kapso solved all six contest tasks, and its total passed the score of the best human
+contestant:
 
-![IOAI 2026 scores](assets/ioai2026_scores.png)
+| # | Task | Score |
+|---|---|---|
+| 1 | Find the Order | 75.97 |
+| 2 | Robot Chasing | 98.83 |
+| 3 | Potato | 92.03 |
+| 4 | Double Agent Dilemma | 98.84 |
+| 5 | Ghost of the Machine | 97.17 |
+| 6 | IOAI Field | 73.23 |
+|   | **Mean** | **89.3** |
 
-That total passed the score of the best human contestant, placed Kapso in the top 3 among all
-participating AI systems, and earned the **IOAI² Grand Master Trophy**.
+🥇 **Top 3** among all participating AI systems
+
+🏆 **IOAI² Grand Master Trophy**
 
 ## How it works
 
