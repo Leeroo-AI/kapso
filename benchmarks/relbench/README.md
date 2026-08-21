@@ -23,13 +23,8 @@ result per task. Kapso beats both bars:
 
 ![Kapso vs KumoRFM-v2](assets/kapso_vs_best_published.png)
 
-The same solutions, re-measured under an identical budget, also beat a frontier coding agent
-working alone:
-
-![Kapso vs Claude Code](assets/kapso_vs_claude_code.png)
-
-All scores come from the official RelBench evaluator. The Claude Code baseline (same tasks,
-same hardware, same 4-hour budget, one generic prompt) is fully reproducible from
+All scores come from the official RelBench evaluator. The same solutions also beat a frontier
+coding agent (Claude Code, Fable-5) under an identical budget: see
 [`claude_code_baseline/`](claude_code_baseline/).
 
 ## How it stays honest
