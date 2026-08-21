@@ -426,12 +426,13 @@ def await_registered_evaluation(
     waited = 0.0
     pid = _live_eval_pid()
     if pid is not None:
+        bound_label = "without a deadline" if bound is None else f"up to {bound:.0f}s"
         print(
             f"[GenericSearch] Registered evaluation still running "
-            f"(pid {pid}) after session end — waiting up to {bound:.0f}s "
+            f"(pid {pid}) after session end — waiting {bound_label} "
             "before teardown"
         )
-    while pid is not None and waited < bound:
+    while pid is not None and (bound is None or waited < bound):
         time.sleep(5)
         waited += 5
         pid = _live_eval_pid()

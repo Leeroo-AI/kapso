@@ -137,6 +137,18 @@ def test_relbench_generic_resolves_overrides_and_inherited_defaults():
     assert resolved["retry"]["request_timeout_seconds"] == 600
 
 
+def test_platform_default_modes_carry_no_session_timeouts():
+    # Decision from the example E2E run: GENERIC and MINIMAL set no session
+    # deadlines — sessions run to completion, bounded only by an explicit
+    # time budget. Absent keys resolve to the strategy's None default.
+    for mode in ("GENERIC", "MINIMAL"):
+        params = load_mode_config(
+            str(REPO_ROOT / "src" / "kapso" / "config.yaml"), mode
+        )["search_strategy"]["params"]
+        assert "ideation_timeout" not in params
+        assert "implementation_timeout" not in params
+
+
 def test_kaggle_resolves_overrides_and_inherited_defaults():
     resolved = load_mode_config(
         str(REPO_ROOT / "benchmarks" / "ioai2026" / "config.yaml"), "KAGGLE"

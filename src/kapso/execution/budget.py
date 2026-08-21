@@ -276,9 +276,9 @@ class BudgetSnapshot:
 
     def clamp_timeout(
         self,
-        configured_seconds: float,
+        configured_seconds: Optional[float],
         elapsed_since_snapshot: float = 0.0,
-    ) -> float:
+    ) -> Optional[float]:
         """Bound an agent deadline by the budget remaining outside reserve.
 
         ``elapsed_since_snapshot`` discounts time burned after this snapshot
@@ -292,10 +292,10 @@ class BudgetSnapshot:
         remaining = self.remaining_after_reserve
         if remaining is None:
             return configured_seconds
-        return max(
-            self.min_agent_timeout_seconds,
-            min(configured_seconds, remaining - elapsed_since_snapshot),
-        )
+        bound = remaining - elapsed_since_snapshot
+        if configured_seconds is not None:
+            bound = min(configured_seconds, bound)
+        return max(self.min_agent_timeout_seconds, bound)
 
     @property
     def remaining_seconds(self) -> Optional[float]:

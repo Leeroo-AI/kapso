@@ -57,8 +57,6 @@ modes:
         implementation_model: "claude-opus-5"
         auth_mode: "oauth"
         gate_failure_policy: "warn"
-        ideation_timeout: 300
-        implementation_timeout: 600
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
@@ -80,7 +78,6 @@ modes:
       agent_specific:
         auth_mode: "oauth"
         streaming: true
-        timeout: 600
     
     feedback_generator:
       type: "claude_code"
@@ -89,7 +86,6 @@ modes:
       agent_specific:
         auth_mode: "oauth"
         streaming: true
-        timeout: 120
     
     # Knowledge search configuration
     # All model/collection details are in knowledge_search.yaml presets.
@@ -127,8 +123,6 @@ modes:
         implementation_model: "claude-opus-5"
         auth_mode: "oauth"
         gate_failure_policy: "warn"
-        ideation_timeout: 180
-        implementation_timeout: 300
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
@@ -150,7 +144,6 @@ modes:
       agent_specific:
         auth_mode: "oauth"
         streaming: true
-        timeout: 120
     
     feedback_generator:
       type: "claude_code"
@@ -159,7 +152,6 @@ modes:
       agent_specific:
         auth_mode: "oauth"
         streaming: true
-        timeout: 120
     
     knowledge_search:
       type: "kg_llm_navigation"

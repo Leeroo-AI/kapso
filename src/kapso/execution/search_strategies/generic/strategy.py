@@ -127,8 +127,11 @@ class GenericSearch(SearchStrategy):
           (default: bedrock, preserving the existing generic strategy behavior)
         - use_bedrock: Deprecated compatibility alias for auth_mode
         - aws_region: AWS region (default: us-east-1)
-        - ideation_timeout: Timeout for ideation in seconds (default: 300)
-        - implementation_timeout: Timeout for implementation in seconds (default: 600)
+        - ideation_timeout: Ideation session deadline in seconds. Default
+          None: no deadline — the session is bounded only by an explicit
+          time budget, when one is set.
+        - implementation_timeout: Implementation session deadline in
+          seconds. Default None: no deadline (budget-bounded only).
         - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
           (default: warn)
         - effort: Optional reasoning effort for both agent sessions
@@ -178,7 +181,9 @@ class GenericSearch(SearchStrategy):
         else:
             self._claude_auth_settings = {"auth_mode": "bedrock"}
         self.aws_region = self.params.get("aws_region", "us-east-1")
-        self.ideation_timeout = self.params.get("ideation_timeout", 300)
+        # None (the default) means no session deadline: sessions run to
+        # completion, bounded only by the time budget when one exists.
+        self.ideation_timeout = self.params.get("ideation_timeout")
         # Ideation web access: gates the codex member's --search AND the lens
         # planner's WebSearch/WebFetch tools. Default True (Claude members and
         # implementation never had web). Set False for leakage-safe harvest
@@ -308,7 +313,7 @@ class GenericSearch(SearchStrategy):
                 "ideation_candidates_per_member must be >= 1, got "
                 f"{self.ideation_candidates_per_member}"
             )
-        self.implementation_timeout = self.params.get("implementation_timeout", 600)
+        self.implementation_timeout = self.params.get("implementation_timeout")
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
         self.parent_policy = parent_policy
@@ -1044,8 +1049,14 @@ class GenericSearch(SearchStrategy):
         os.makedirs(stream_dir, exist_ok=True)
         return os.path.join(stream_dir, "stream.jsonl")
 
-    def _clamped_timeout(self, configured_seconds: float) -> float:
+    def _clamped_timeout(
+        self, configured_seconds: Optional[float]
+    ) -> Optional[float]:
         """Bound an agent deadline by the searchable budget, when known.
+
+        ``configured_seconds`` None means the phase has no configured
+        deadline: the result is the budget remainder when a budget exists,
+        and None (unbounded) otherwise.
 
         The snapshot is frozen at iteration start; the monotonic anchor
         discounts whatever this iteration's earlier phases already burned,
