@@ -19,6 +19,16 @@ cd /path/to/kapso
 pip install -e .
 ```
 
+Authenticate the two model providers the default config uses:
+
+```bash
+# Claude Code sessions (ideation, implementation, feedback): log in once
+claude login   # or: export CLAUDE_CODE_OAUTH_TOKEN=...
+
+# utility / research models
+export OPENAI_API_KEY=your_key_here
+```
+
 ## Goal
 
 Optimize the `Model` class in `module.py` for maximum speedup while maintaining numerical correctness.

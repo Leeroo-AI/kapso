@@ -53,20 +53,19 @@ modes:
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
-        implementation_model: "us.anthropic.claude-opus-4-6-v1"
-        auth_mode: "bedrock"
+        idea_generation_model: "claude-opus-5"
+        implementation_model: "claude-opus-5"
+        auth_mode: "oauth"
         gate_failure_policy: "warn"
-        aws_region: "us-east-1"
         ideation_timeout: 300
         implementation_timeout: 600
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
     models:
-      utility: "gpt-4.1-mini"
-      reasoning: "gpt-5-mini"
-      web_search: "openai/gpt-4o-search-preview"
+      utility: "gpt-5.6-luna"
+      reasoning: "gpt-5.6-sol"
+      web_search: "gpt-5.6-luna"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5
@@ -76,21 +75,19 @@ modes:
     
     coding_agent:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-6-v1"
-      debug_model: "us.anthropic.claude-opus-4-6-v1"
+      model: "claude-opus-5"
+      debug_model: "claude-opus-5"
       agent_specific:
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        auth_mode: "oauth"
         streaming: true
         timeout: 600
     
     feedback_generator:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-6-v1"
-      debug_model: "us.anthropic.claude-opus-4-6-v1"
+      model: "claude-opus-5"
+      debug_model: "claude-opus-5"
       agent_specific:
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        auth_mode: "oauth"
         streaming: true
         timeout: 120
     
@@ -105,18 +102,16 @@ modes:
     # Learner configuration for kapso.learn()
     learner:
       ingestor:
-        model: "us.anthropic.claude-opus-4-6-v1"
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        model: "claude-opus-5"
+        auth_mode: "oauth"
         timeout: 1800
         cleanup: true
         cleanup_staging: false
         fail_on_validation_errors: true
         github_repo_visibility: "private"
       merger:
-        model: "us.anthropic.claude-opus-4-6-v1"
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        model: "claude-opus-5"
+        auth_mode: "oauth"
         timeout: 3600
 
   # ===========================================
@@ -128,20 +123,19 @@ modes:
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-6-v1"
-        implementation_model: "us.anthropic.claude-opus-4-6-v1"
-        auth_mode: "bedrock"
+        idea_generation_model: "claude-opus-5"
+        implementation_model: "claude-opus-5"
+        auth_mode: "oauth"
         gate_failure_policy: "warn"
-        aws_region: "us-east-1"
         ideation_timeout: 180
         implementation_timeout: 300
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
     models:
-      utility: "gpt-4.1-mini"
-      reasoning: "gpt-5-mini"
-      web_search: "openai/gpt-4o-search-preview"
+      utility: "gpt-5.6-luna"
+      reasoning: "gpt-5.6-sol"
+      web_search: "gpt-5.6-luna"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5
@@ -151,21 +145,19 @@ modes:
     
     coding_agent:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-6-v1"
-      debug_model: "us.anthropic.claude-opus-4-6-v1"
+      model: "claude-opus-5"
+      debug_model: "claude-opus-5"
       agent_specific:
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        auth_mode: "oauth"
         streaming: true
         timeout: 120
     
     feedback_generator:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-6-v1"
-      debug_model: "us.anthropic.claude-opus-4-6-v1"
+      model: "claude-opus-5"
+      debug_model: "claude-opus-5"
       agent_specific:
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        auth_mode: "oauth"
         streaming: true
         timeout: 120
     
@@ -176,16 +168,14 @@ modes:
     # Learner configuration for kapso.learn()
     learner:
       ingestor:
-        model: "us.anthropic.claude-opus-4-6-v1"
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        model: "claude-opus-5"
+        auth_mode: "oauth"
         timeout: 600
         cleanup: true
         cleanup_staging: false
         fail_on_validation_errors: true
         github_repo_visibility: "private"
       merger:
-        model: "us.anthropic.claude-opus-4-6-v1"
-        auth_mode: "bedrock"
-        aws_region: "us-east-1"
+        model: "claude-opus-5"
+        auth_mode: "oauth"
         timeout: 1800
