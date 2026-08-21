@@ -277,6 +277,10 @@ learning:
     # Inclusive docket nomination threshold — similarity nominates, mechanism
     # decides (a false nomination costs minutes of review, never correctness).
     dup_nominate_jaccard: 0.5
+    # Reader-contract migration pace: non-conforming card bodies rewritten
+    # per lesson run, highest reliability first (~20% of the founding bank;
+    # fast-iteration decision 2026-08-21).
+    rewrite_rows_per_run: 4
     sightings_expiry_batches: 6
     run_root: learning/runs
   ab:

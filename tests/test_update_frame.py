@@ -80,6 +80,7 @@ def make_config(tmp_path):
                 "timeout_minutes": 1,
                 "dup_nominate_jaccard": 0.5,
                 "sightings_expiry_batches": 6,
+                "rewrite_rows_per_run": 2,
                 "run_root": str(tmp_path / "runs"),
             },
         }
@@ -227,6 +228,41 @@ def test_clean_run_commits_tags_and_reports(tmp_path):
     assert TRAJECTORY_ID in show
     # derived edges rebuilt
     assert (run_dir / "bank" / "index" / "edges.yaml").is_file()
+
+
+def test_rewrite_rows_capped_and_priority_ordered(tmp_path):
+    # Migration seeding: non-conforming bodies get rewrite rows, highest
+    # reliability first, capped by config; conforming cards seed nothing.
+    cards = {
+        "a-card": card_text("a-card"),  # conforming; good_lead edits it
+        "legacy-low": card_text("legacy-low", score=0.3,
+                                body="Old prose without sections."),
+        "legacy-high": card_text("legacy-high", score=0.9,
+                                 body="Old prose without sections."),
+        "legacy-mid": card_text("legacy-mid", score=0.6,
+                                body="Old prose without sections."),
+        "conforming": card_text("conforming", score=0.99),
+    }
+    captured = {}
+
+    def snoop(workspace):
+        captured["worksheet"] = (
+            Path(workspace) / "work" / "observations.md"
+        ).read_text()
+        return good_lead(workspace)
+
+    frame, config, batch, _ = make_frame(tmp_path, [snoop, snoop], cards=cards)
+    with pytest.raises(RuntimeError):
+        frame.run_update(
+            batch, config["learning"]["update_crew"]["run_root"], "crew_v1"
+        )
+    worksheet = captured["worksheet"]
+    rewrite_rows = [l for l in worksheet.splitlines() if "[rewrite]" in l]
+    assert len(rewrite_rows) == 2  # capped by rewrite_rows_per_run
+    assert "legacy-high" in rewrite_rows[0]
+    assert "legacy-mid" in rewrite_rows[1]
+    assert not any("conforming" in row for row in rewrite_rows)
+    assert not any("legacy-low" in row for row in rewrite_rows)
 
 
 def test_worksheet_seeding_classes(tmp_path):

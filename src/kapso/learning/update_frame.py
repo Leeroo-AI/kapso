@@ -309,6 +309,29 @@ class UpdateFrame:
                     f"replay/ into the card directory, set representation: "
                     f"code, an entrypoint, and last_replayed to the run date")
 
+        # Reader-contract migration (user decision 2026-08-21: iterate on a
+        # small prioritized slice, not the whole bank at once): seed rewrite
+        # rows for live non-conforming card bodies, highest reliability
+        # first, capped per run. The invariant enforces the contract on any
+        # card a transaction touches; these rows drive the backlog down.
+        rewrite_cap = self.crew_config["rewrite_rows_per_run"]
+        decoys = bank.decoy_names
+        nonconforming = [
+            (card.score or 0.0, name)
+            for name, card in bank.cards.items()
+            if name not in decoys and any(
+                section not in card.body
+                for section in BankTransactionValidator.BODY_SECTIONS
+            )
+        ]
+        for _, name in sorted(nonconforming, reverse=True)[:rewrite_cap]:
+            add("dk", "rewrite",
+                f"card {name} predates the reader body contract — rewrite "
+                f"its body in place (## When you're here / ## Do this / "
+                f"## What you gain; gains abstract, numbers stay in "
+                f"evidence; claim meaning unchanged), bump the version "
+                f"with one log entry")
+
         nominate_threshold = self.crew_config["dup_nominate_jaccard"]
         names = sorted(bank.cards)
         for i, name_a in enumerate(names):

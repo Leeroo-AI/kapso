@@ -102,14 +102,21 @@ class BankTransactionValidator:
     BODY_SECTIONS = ("## When you're here", "## Do this", "## What you gain")
 
     def _check_body_contract(self) -> List[str]:
-        """Every live card body carries the three reader-intent sections —
-        a card that cannot tell an engineer when it applies, what to do,
-        and what it buys them has not finished being written."""
+        """Cards written or rewritten in THIS transaction carry the three
+        reader-intent sections — a card that cannot tell an engineer when
+        it applies, what to do, and what it buys them has not finished
+        being written. Untouched legacy cards pass: conformance rides each
+        card's next edit (plus the seeder's capped rewrite rows), so the
+        bank migrates incrementally instead of blocking every transaction
+        on a full rewrite."""
         findings: List[str] = []
         decoys = self.after.decoy_names
         for name, card in sorted(self.after.cards.items()):
             if name in decoys:
                 continue  # decoys are frozen bait — crews may not touch them
+            previous = self.before.cards.get(name)
+            if previous is not None and previous.body == card.body:
+                continue  # untouched this transaction — legacy passes
             missing = [s for s in self.BODY_SECTIONS if s not in card.body]
             if missing:
                 findings.append(

@@ -90,6 +90,7 @@ def develop_config(tmp_path):
                 "critic": {"cli": "claude_code", "model": "m"},
                 "repair_rounds": 1, "timeout_minutes": 1,
                 "dup_nominate_jaccard": 0.5, "sightings_expiry_batches": 6,
+                "rewrite_rows_per_run": 2,
                 "run_root": str(tmp_path / "prod-runs"),
             },
             "develop": {
