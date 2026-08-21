@@ -18,8 +18,8 @@ improve anything. Fourteen AI labs entered as Founding AI Participants; Kapso wa
 🎓 **Surpassed the best human performance**: the total of 536.07 topped every one of the
 471 contestants from 108 countries
 
-🥇 **Top 3 of all AI system participants**: a field that drew major AI labs and several
-startups
+🥇 **Top 3 of all AI system participants**: the 14 Founding AI Participants spanned major
+AI labs and several startups
 
 🏆 **IOAI² Grand Master Trophy**
 
