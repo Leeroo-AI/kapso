@@ -6,7 +6,7 @@ benchmark configs carry overrides only. These tests pin the merge semantics
 paths (unknown mode, missing defaults section), and the real-file contract:
 the enumerated gap-fills (retry.request_timeout_seconds, models.embedding)
 reach every mode that does not override them — the drift class where
-request_timeout_seconds reached relbench's copy but never kaggle's.
+request_timeout_seconds reached relbench's copy but never ioai2026's.
 """
 
 import os
@@ -139,7 +139,7 @@ def test_relbench_generic_resolves_overrides_and_inherited_defaults():
 
 def test_kaggle_resolves_overrides_and_inherited_defaults():
     resolved = load_mode_config(
-        str(REPO_ROOT / "benchmarks" / "kaggle" / "config.yaml"), "KAGGLE"
+        str(REPO_ROOT / "benchmarks" / "ioai2026" / "config.yaml"), "KAGGLE"
     )
     assert resolved["search_strategy"]["params"]["implementation_web"] is True
     assert resolved["retry"]["request_timeout_seconds"] == 600

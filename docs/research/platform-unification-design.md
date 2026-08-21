@@ -363,6 +363,13 @@ Mechanics notes:
 | S6.5 config layering | `d59f6033` (deep-merge mechanism + defaults layer), `a98efb6e` (pure-dedup trims) | 487 green; 18-mode resolution diff = exactly the two intended gap-fills (request_timeout_seconds, models.embedding), zero defects, zero runner repoints |
 | S7 ship | this commit; `git push origin unify/platform:main` (fast-forward) | — |
 
+Post-ship restructure (2026-08-21, user-directed): `benchmarks/ioai` (Animal Deduction
+pipe-cleaner) deleted; `benchmarks/kaggle` renamed to `benchmarks/ioai2026`;
+`benchmarks/ioai_tasks` nested as `benchmarks/ioai2026/past_learning/`. All imports,
+config paths, gitignore rules, and tests repointed (test files renamed to
+`test_ioai2026_benchmark.py` / `test_past_learning_tasks.py`); references to the old names
+in THIS document are the historical record of the merge as it happened.
+
 Deviation from §7 as written: the merge-to-main landed as a **fast-forward push** rather than a
 `--no-ff` merge commit — the session's git is worktree-pinned away from the primary checkout,
 and the branch strictly descends from `origin/main`, so the pushed tree is identical and the

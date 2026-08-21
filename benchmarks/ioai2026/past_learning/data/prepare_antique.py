@@ -6,7 +6,7 @@ Agent-visible dataset = training_set (semi-supervised) + validation_with_labels
 test_set + gold testing_label. The reference solution is stashed under
 <root>/gold/ for the aggregate step; never under task/.
 
-    python -m benchmarks.ioai_tasks.data.prepare_antique \
+    python -m benchmarks.ioai2026.past_learning.data.prepare_antique \
         --root ~/antique_run --source-dir ~/antique_src
 """
 

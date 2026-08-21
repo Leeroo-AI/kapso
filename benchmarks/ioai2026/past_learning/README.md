@@ -5,18 +5,18 @@ lessons into the **Night Watch** (audio class-incremental) shared-cache seed.
 
 ## Pipeline
 ```
-1. RUN        python -m benchmarks.ioai_tasks.runner --root <run> --hours 2 \
+1. RUN        python -m benchmarks.ioai2026.past_learning.runner --root <run> --hours 2 \
                  --node-expansion 2 [--shared-cache-dir <seed>]
               (LocalTaskHandler + generic runner; scores submission/solution.py
                on a PRIVATE held-out split via the task's evaluate.py)
 2. EXTRACT    per finished run, a claude_code CLI session (Fable 5, max
               reasoning, OAuth) briefed by harvest/extract_prompt.md:
-                python -m benchmarks.ioai_tasks.harvest.harvest_runner extract \
+                python -m benchmarks.ioai2026.past_learning.harvest.harvest_runner extract \
                     --run-root <run_root> --out <learning.json>
               → a structured learning JSON (what worked / failed+why /
                validation lessons / transfer tagged NEW|CONFIRMS / novelty)
 3. AGGREGATE  one claude_code CLI session briefed by harvest/aggregate_prompt.md:
-                python -m benchmarks.ioai_tasks.harvest.harvest_runner aggregate \
+                python -m benchmarks.ioai2026.past_learning.harvest.harvest_runner aggregate \
                     --extractions a.json b.json \
                     --current-learnings LEARNINGS.md --out LEARNINGS.new.md
               merges per-task JSONs + current seed → updated LEARNINGS.md

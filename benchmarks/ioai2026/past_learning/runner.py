@@ -6,8 +6,8 @@ scores the submitted solution on a HELD-OUT labeled split with the task's
 evaluator. Ground truth is local; there is no external submission.
 
 Usage:
-    python -m benchmarks.ioai_tasks.runner --root /path/to/run_root --hours 2
-    python -m benchmarks.ioai_tasks.runner --root /path/to/run_root --final-eval-only
+    python -m benchmarks.ioai2026.past_learning.runner --root /path/to/run_root --hours 2
+    python -m benchmarks.ioai2026.past_learning.runner --root /path/to/run_root --final-eval-only
 """
 
 import argparse
@@ -26,7 +26,7 @@ load_dotenv()
 import yaml
 
 from kapso.execution.orchestrator import OrchestratorAgent
-from benchmarks.ioai_tasks.handler import LocalTaskHandler
+from benchmarks.ioai2026.past_learning.handler import LocalTaskHandler
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 

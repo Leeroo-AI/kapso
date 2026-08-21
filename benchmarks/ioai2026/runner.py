@@ -7,8 +7,8 @@ among submissions made during the run window, plus a static audit of the
 submitted kernel source for external-resource violations.
 
 Usage:
-    python -m benchmarks.kaggle.runner --root /path/to/run_root --hours 2
-    python -m benchmarks.kaggle.runner --root /path/to/run_root --final-eval-only
+    python -m benchmarks.ioai2026.runner --root /path/to/run_root --hours 2
+    python -m benchmarks.ioai2026.runner --root /path/to/run_root --final-eval-only
 """
 
 import argparse
@@ -32,8 +32,8 @@ load_dotenv()
 import yaml
 
 from kapso.execution.orchestrator import OrchestratorAgent
-from benchmarks.kaggle import kernel_slots
-from benchmarks.kaggle.handler import KaggleNotebookHandler
+from benchmarks.ioai2026 import kernel_slots
+from benchmarks.ioai2026.handler import KaggleNotebookHandler
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 REPO_ROOT = os.path.abspath(

@@ -24,7 +24,7 @@ modes:
     # Curated best-solutions book (repo-root-relative; gitignored, shipped to
     # boxes by the launch protocol). Staged into <task>/knowledge_bank/ at
     # runner startup; every module is told it is the FIRST search priority.
-    knowledge_bank_dir: benchmarks/kaggle/knowledge_bank
+    knowledge_bank_dir: benchmarks/ioai2026/knowledge_bank
 
     search_strategy:
       type: "generic"
@@ -151,7 +151,7 @@ modes:
 
     # URL->run-root preflight: one session that downloads the competition
     # (authenticated kaggle CLI) and authors dataset/statement.md per
-    # benchmarks/kaggle/preflight_spec.md. cli is codex or claude_code; a
+    # benchmarks/ioai2026/preflight_spec.md. cli is codex or claude_code; a
     # claude_code preflight additionally needs an auth_mode key.
     preflight:
       cli: "codex"

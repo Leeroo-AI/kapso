@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Acquire Antique into contest/ (agent-visible) vs gold/ (answers).
 
-    python -m benchmarks.ioai_tasks.data.acquire_antique --out ~/antique_src
+    python -m benchmarks.ioai2026.past_learning.data.acquire_antique --out ~/antique_src
 """
 
 import argparse

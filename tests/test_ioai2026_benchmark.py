@@ -15,10 +15,10 @@ import time
 import pytest
 import yaml
 
-from benchmarks.kaggle import kernel_slots
-from benchmarks.kaggle.handler import KaggleNotebookHandler
-from benchmarks.kaggle.preflight import SPEC_PATH, build_prompt, validate_root
-from benchmarks.kaggle.runner import (
+from benchmarks.ioai2026 import kernel_slots
+from benchmarks.ioai2026.handler import KaggleNotebookHandler
+from benchmarks.ioai2026.preflight import SPEC_PATH, build_prompt, validate_root
+from benchmarks.ioai2026.runner import (
     RULES_PATH,
     audit_kernel,
     banked_kernel_refs,
@@ -32,7 +32,7 @@ from benchmarks.kaggle.runner import (
 )
 
 CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "benchmarks", "kaggle", "config.yaml"
+    os.path.dirname(__file__), "..", "benchmarks", "ioai2026", "config.yaml"
 )
 
 SESSION_CAPS = {"ideation_timeout": 1080, "implementation_timeout": 5400}
@@ -194,7 +194,7 @@ def test_runner_stages_the_real_cli_playbook():
     # KAGGLE_CLI.md, so the runner's staging source must exist and must be the
     # actual playbook — a moved/renamed skill would otherwise strand every
     # lane with no submit mechanics at all.
-    from benchmarks.kaggle.runner import SKILL_PATH
+    from benchmarks.ioai2026.runner import SKILL_PATH
     assert os.path.isfile(SKILL_PATH)
     skill = open(SKILL_PATH, encoding="utf-8").read()
     assert "kernels push" in skill and "competitions submit" in skill
@@ -526,7 +526,7 @@ def test_runner_stages_knowledge_bank_and_fails_loud(tmp_path):
     # staged whole into the task dir. The staged bank must carry INDEX.md —
     # the platform-wide entry point (design decision #13) — so a stale
     # pre-rename local bank (book_index.md only) dies at launch too.
-    import benchmarks.kaggle.runner as runner_mod
+    import benchmarks.ioai2026.runner as runner_mod
     src = tmp_path / "bank"
     (src / "some-problem").mkdir(parents=True)
     (src / "INDEX.md").write_text("# book")
@@ -563,7 +563,7 @@ def test_runner_stages_knowledge_bank_and_fails_loud(tmp_path):
     runner_source = open(runner_mod.__file__).read()
     assert "INDEX.md" in runner_source and "book_index.md to INDEX.md" in runner_source
     cfg = yaml.safe_load(open(runner_mod.CONFIG_PATH))["modes"]["KAGGLE"]
-    assert cfg["knowledge_bank_dir"] == "benchmarks/kaggle/knowledge_bank"
+    assert cfg["knowledge_bank_dir"] == "benchmarks/ioai2026/knowledge_bank"
     # Deliberately no isdir() on the bank itself: the bank is gitignored,
     # launch-shipped material — its presence is a box-provisioning fact, not a
     # repo contract. The fail-loud staging path above pins the actual behavior

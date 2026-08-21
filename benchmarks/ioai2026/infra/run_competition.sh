@@ -53,9 +53,9 @@ trap 'exec 1>&- 2>&-; wait $LOG_WRITER_PID 2>/dev/null || true' EXIT
 echo "=== run log: $RUN_LOG ==="
 
 echo "=== preflight: task brief (${#TASK_BRIEF} chars)  ->  $ROOT ==="
-python3 -m benchmarks.kaggle.preflight --task "$TASK_BRIEF" --root "$ROOT"
+python3 -m benchmarks.ioai2026.preflight --task "$TASK_BRIEF" --root "$ROOT"
 
 echo "=== runner: campaign on $ROOT (k/hours from run_defaults unless overridden) ==="
-python3 -m benchmarks.kaggle.runner --root "$ROOT" "$@"
+python3 -m benchmarks.ioai2026.runner --root "$ROOT" "$@"
 
 echo "=== done. results: $ROOT/results.json  |  trace: $RUN_LOG ==="

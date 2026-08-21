@@ -8,7 +8,7 @@ Consumes the split produced by acquire_bobai.py:
               split (outside task/), and the reference solution is copied to
               <root>/gold/ for the aggregate step (never under task/).
 
-    python -m benchmarks.ioai_tasks.data.prepare_bobai \
+    python -m benchmarks.ioai2026.past_learning.data.prepare_bobai \
         --root ~/bobai_run --source-dir ~/bobai_src
 """
 

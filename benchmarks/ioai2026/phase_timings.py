@@ -16,8 +16,8 @@ Three independent timing sources, in decreasing resolution:
    round trip that no local log can see.
 
 Usage:
-    python -m benchmarks.kaggle.phase_timings --log ~/driver.log
-    python -m benchmarks.kaggle.phase_timings --log ~/driver.log \
+    python -m benchmarks.ioai2026.phase_timings --log ~/driver.log
+    python -m benchmarks.ioai2026.phase_timings --log ~/driver.log \
         --competition ioai-2026-ai-models-track-practice-task-1 --json out.json
 """
 

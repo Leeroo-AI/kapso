@@ -5,11 +5,11 @@ public leaderboard score.
 
 ```bash
 # 1. URL -> run root (one codex call: downloads data, authors the statement)
-python -m benchmarks.kaggle.preflight \
+python -m benchmarks.ioai2026.preflight \
     --url https://www.kaggle.com/competitions/<slug>/overview --root ~/run_root
 
 # 2. run root -> scored campaign (k and hours come from config run_defaults)
-python -m benchmarks.kaggle.runner --root ~/run_root
+python -m benchmarks.ioai2026.runner --root ~/run_root
 ```
 
 The run root is the contract between the two stages:
@@ -55,7 +55,7 @@ which are separate concerns with their own blast radius and are not covered here
 | `63eda5d7` | `ideation_candidates_per_member` read from `search_strategy.params` instead of a module literal | Safe. The module constant remains the sourced default (`2` — the old literal), so behaviour is unchanged unless a config sets it. |
 
 Every other change in the Kaggle-automation work is confined to
-`benchmarks/kaggle/` and `tests/test_kaggle_benchmark.py`.
+`benchmarks/ioai2026/` and `tests/test_kaggle_benchmark.py`.
 
 ### 2. `session_budget` has a different shape here than everywhere else
 
@@ -96,7 +96,7 @@ Reverting any of these silently regresses behaviour:
   git clone, so a sibling's path does not resolve). `best_score.log` survives
   for a different job: it records the PUBLIC scores actually banked, and it is
   what `deliverable_ready_reserve_seconds()` reads.
-- **`benchmarks/kaggle/data/` was deleted** (`2786cd40`) — `prepare_task1.py`,
+- **`benchmarks/ioai2026/data/` was deleted** (`2786cd40`) — `prepare_task1.py`,
   `prepare_task2.py` and the hand-written statements are superseded by the
   preflight. A merge that resurrects them reintroduces per-task Python that the
   URL-driven flow no longer has any caller for.

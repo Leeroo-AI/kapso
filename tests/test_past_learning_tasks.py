@@ -13,11 +13,11 @@ import time
 import pytest
 import yaml
 
-from benchmarks.ioai_tasks.handler import LocalTaskHandler
-from benchmarks.ioai_tasks.runner import parse_metric
+from benchmarks.ioai2026.past_learning.handler import LocalTaskHandler
+from benchmarks.ioai2026.past_learning.runner import parse_metric
 
 CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "benchmarks", "ioai_tasks", "config.yaml"
+    os.path.dirname(__file__), "..", "benchmarks", "ioai2026", "past_learning", "config.yaml"
 )
 
 SESSION_CAPS = {"ideation_timeout": 1080, "implementation_timeout": 5400}
@@ -136,7 +136,7 @@ def test_strategy_web_off_sets_disallowed_websearch():
 
 
 def test_bobai_acquire_manifests_sequester_answers():
-    from benchmarks.ioai_tasks.data import acquire_bobai as a
+    from benchmarks.ioai2026.past_learning.data import acquire_bobai as a
 
     # contest/ must never carry the reference solution or test labels;
     # gold/ must carry exactly the answer material.
@@ -150,7 +150,7 @@ def test_bobai_acquire_manifests_sequester_answers():
 
 
 def test_harvest_config_is_fable_max_and_single_sourced():
-    from benchmarks.ioai_tasks.harvest.harvest_runner import _harvest_config
+    from benchmarks.ioai2026.past_learning.harvest.harvest_runner import _harvest_config
 
     cfg = _harvest_config()
     assert cfg["model"] == "claude-fable-5"
@@ -161,7 +161,7 @@ def test_harvest_config_is_fable_max_and_single_sourced():
 
 def test_evaluator_fail_loud_on_bad_shape(tmp_path):
     torch = pytest.importorskip("torch")
-    from benchmarks.ioai_tasks.data import bobai_evaluate
+    from benchmarks.ioai2026.past_learning.data import bobai_evaluate
 
     bad = tmp_path / "bad.pt"
     torch.save(torch.zeros(3, 5), bad)  # not [N,1,769]

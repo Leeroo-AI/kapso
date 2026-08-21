@@ -53,7 +53,7 @@ uv tool install kaggle==2.2.3 --python 3.11 --force  # pinned: match the dev box
 echo "  kaggle: $(kaggle --version)"
 
 echo "### 4/6 clone kapso @$KAPSO_BRANCH — PAT used for the clone, then dropped from the remote"
-# Clone the BRANCH directly: a plain clone lands on main (no benchmarks/kaggle
+# Clone the BRANCH directly: a plain clone lands on main (no benchmarks/ioai2026
 # work) and the follow-up authenticated fetch is where things break. The
 # `http.extraheader` basic-auth form does NOT authenticate against this repo
 # (git falls through to an interactive prompt -> "could not read Username"), so
@@ -116,7 +116,7 @@ PY
 
 echo "### 6/6 verify kapso imports via PYTHONPATH (no editable install on this image)"
 PYTHONPATH="$HOME/kapso/src:$HOME/kapso" python3 - <<'PY'
-import kapso, benchmarks.kaggle.preflight, benchmarks.kaggle.runner  # noqa: F401
+import kapso, benchmarks.ioai2026.preflight, benchmarks.ioai2026.runner  # noqa: F401
 from kapso.execution.coding_agents.factory import CodingAgentFactory as F
 assert F.is_available("codex") and F.is_available("claude_code")
 print("  kapso + benchmarks import OK; codex + claude_code registered")

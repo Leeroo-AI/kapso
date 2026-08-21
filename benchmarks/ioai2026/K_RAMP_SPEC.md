@@ -36,7 +36,7 @@ A per-round K schedule instead of a single fixed `node_expansion_value`:
 `parent_policy=best` already expands rounds ≥2 from round 1's winner, so the warm
 baseline naturally becomes the parent the 8 lanes build on.
 
-### Config surface (`benchmarks/kaggle/config.yaml` → `run_defaults`)
+### Config surface (`benchmarks/ioai2026/config.yaml` → `run_defaults`)
 
 ```yaml
 run_defaults:

@@ -8,10 +8,10 @@ populates it from .env and the subprocess inherits it — our code never reads
 the secret. Model / effort / timeout / tools are config-sourced (Rule 1).
 
     # per finished run:
-    python -m benchmarks.ioai_tasks.harvest.harvest_runner extract \
+    python -m benchmarks.ioai2026.past_learning.harvest.harvest_runner extract \
         --run-root <run_root> --out <learning.json>
     # once, after the extractions exist:
-    python -m benchmarks.ioai_tasks.harvest.harvest_runner aggregate \
+    python -m benchmarks.ioai2026.past_learning.harvest.harvest_runner aggregate \
         --extractions a.json b.json --current-learnings LEARNINGS.md \
         --out LEARNINGS.new.md
 """

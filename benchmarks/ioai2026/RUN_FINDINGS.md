@@ -149,7 +149,7 @@ first-class signal (it is currently only inferable from the lane count).
 ## Run 2 — 2026-07-29 11:26 UTC, spot 8×L4, k=8, 1.75h, opus-5
 
 ### I-4 (FIXED) — `setup_box.sh` cloned `main`, not the worktree branch
-**Symptom:** box had no `benchmarks/kaggle/` work; `preflight.py` absent.
+**Symptom:** box had no `benchmarks/ioai2026/` work; `preflight.py` absent.
 **Root cause:** a plain `git clone` lands on the default branch, and the
 follow-up `git -c "http.extraheader=AUTHORIZATION: basic …" fetch` does **not**
 authenticate against this repo — git falls through to an interactive prompt and

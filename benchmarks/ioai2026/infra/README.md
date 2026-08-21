@@ -43,7 +43,7 @@ dependency install landing on the competition clock.
 ## Knowledge bank shipping
 
 `config.yaml knowledge_bank_dir` points at the curated best-solutions book
-(`benchmarks/kaggle/knowledge_bank/`), which is GITIGNORED — a box clone does
+(`benchmarks/ioai2026/knowledge_bank/`), which is GITIGNORED — a box clone does
 not carry it. The launch protocol must scp the directory from the dev machine
 into the box's repo checkout before `run_competition.sh`; the runner stages it
 into `<task>/knowledge_bank/` and FAILS the launch if the configured dir is

@@ -5,7 +5,7 @@ paths, the best-public-score objective, the up-to-three submit-and-learn
 rounds each lane runs inside its session, and score reporting. Every
 per-competition submission mechanic (kernel push vs. file upload, format,
 compute limits, quota) lives in the statement itself, authored by the preflight
-(benchmarks/kaggle/preflight_spec.md). Lanes learn from each other through
+(benchmarks/ioai2026/preflight_spec.md). Lanes learn from each other through
 Kaggle itself — the account holds every submission's score, message and code.
 best_score.log stays as the run's own record of PUBLIC scores actually banked;
 the finalization reserve is released against it.
@@ -61,7 +61,7 @@ class KaggleNotebookHandler(ProblemHandler):
         if not os.path.isfile(self.rules_path):
             raise FileNotFoundError(
                 f"{self.rules_path} missing — the runner stages "
-                "benchmarks/kaggle/RULES.md there at launch"
+                "benchmarks/ioai2026/RULES.md there at launch"
             )
         # The kaggle CLI playbook, staged by the runner from the repo's
         # kaggle-cli-submission skill. The statement deliberately authors no

@@ -14,7 +14,7 @@ dataset/statement.md per preflight_spec.md. This code only stages input and
 validates the artifacts afterwards — fail loud on anything missing.
 
 Usage:
-    python -m benchmarks.kaggle.preflight \
+    python -m benchmarks.ioai2026.preflight \
         --task 'Solve the Kaggle competition <slug>. ...' \
         --root ~/kaggle_run
 """

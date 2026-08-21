@@ -8,7 +8,7 @@ search. This split makes the boundary explicit: prepare_bobai builds the run
 root from contest/ only, uses gold/ labels for PRIVATE scoring, and stashes
 gold/ the reference solution for the aggregate step.
 
-    python -m benchmarks.ioai_tasks.data.acquire_bobai --out ~/bobai_src
+    python -m benchmarks.ioai2026.past_learning.data.acquire_bobai --out ~/bobai_src
 """
 
 import argparse
