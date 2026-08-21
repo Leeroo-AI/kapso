@@ -26,7 +26,7 @@ contestant:
 | 4 | Double Agent Dilemma | 98.84 |
 | 5 | Ghost of the Machine | 97.17 |
 | 6 | IOAI Field | 73.23 |
-|   | **Mean** | **89.3** |
+|   | **Total** | **536.07** |
 
 🥇 **Top 3** among all participating AI systems
 
