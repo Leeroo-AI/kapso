@@ -1,7 +1,7 @@
 # Claude Code Baseline
 
 How far does a frontier coding agent get on RelBench without any scaffolding? This baseline
-runs Claude Code (Fable-5, xhigh reasoning) on the same sanitized task data Kapso sees, with
+runs Claude Code (Fable-5) on the same sanitized task data Kapso sees, with
 one short generic prompt ([`PROMPT.md`](PROMPT.md)), the same hardware, and the same 4-hour
 budget per task. Predictions are scored one way by the official RelBench evaluator
 ([`score_baseline.py`](score_baseline.py)); the agent never sees test labels.
