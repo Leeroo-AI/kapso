@@ -15,15 +15,11 @@ improve anything. Fourteen AI labs entered as Founding AI Participants; Kapso wa
 
 ## Results
 
-**Kapso surpassed the best human performance at the olympiad.** Its total of 536.07 topped
-every one of the 471 contestants from 108 countries.
-
-The machine field was no easier: the AI Model Track drew major AI labs and several startups.
-Kapso finished among the very best of them:
-
-🥇 **Top 3** of all AI system participants
-
-🏆 **IOAI² Grand Master Trophy**
+- 🎓 **Surpassed the best human performance**: the total of 536.07 topped every one of the
+  471 contestants from 108 countries
+- 🥇 **Top 3 of all AI system participants**: a field that drew major AI labs and several
+  startups
+- 🏆 **IOAI² Grand Master Trophy**
 
 Per task:
 
