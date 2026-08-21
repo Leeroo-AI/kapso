@@ -68,6 +68,8 @@ def card_text(
     return f"""{body}
 
 ---
+
+```yaml
 type: {kind}
 tags: {tags_yaml}
 timestamp: 2026-08-14T09:00:00Z
@@ -101,6 +103,7 @@ supersedes: null
 contradicts: {contradicts_yaml}
 probe: >-
   Ablate the grouped-rank block on one forward fold; keep the clustered delta.
+```
 """
 
 

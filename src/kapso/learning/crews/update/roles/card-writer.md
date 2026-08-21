@@ -106,6 +106,10 @@ WRITING — the rules that bind every edit:
   - Never a bare `---` line inside the body (it delimits the ledger).
   - Index hero lines are the Rule's first clause; the ledger carries no
     title or description fields (both derive from the body).
+  - The machine ledger below the `---` lives inside a fenced ```yaml
+    block (so the file renders cleanly for humans); keep the fence when
+    editing, and keep the ledger's house style — folded `>-` blocks for
+    prose, flow lists for tags, ISO timestamps.
 - Evidence entries have exactly four parts (source, verdict, usage, effect);
   the effect ends with the sentence that earns the verdict; quoted numbers
   must re-grep in the cited artifact. Lifts from hindcast settlements copy

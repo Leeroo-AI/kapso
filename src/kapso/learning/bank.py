@@ -6,6 +6,7 @@
 # findings — what the retriever's push core and the graders consume. The write
 # side (diff invariants, indexes, lr_ tags) lands with the update crew (P4).
 
+import datetime
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,17 +34,53 @@ _RULE_PATTERN = re.compile(r"\*\*Rule:\*\*\s*(.+?)(?:\n\s*\n|\n#|\Z)", re.S)
 
 def split_card_text(text: str) -> tuple:
     """Card file format v2 (user decision 2026-08-21): the engineer-facing
-    body FIRST, then one line `---`, then the machine ledger (YAML). Returns
-    (body, ledger_yaml_text); raises on a file without the delimiter."""
+    body FIRST, then one line `---`, then the machine ledger as a fenced
+    ```yaml block (so GitHub renders it as code, not markdown soup).
+    Returns (body, ledger_yaml_text); raises on any other shape."""
     lines = text.split("\n")
     for index, line in enumerate(lines):
         if line.strip() == "---":
-            return (
-                "\n".join(lines[:index]).strip(),
-                "\n".join(lines[index + 1:]),
-            )
+            body = "\n".join(lines[:index]).strip()
+            tail = [l for l in lines[index + 1:]]
+            while tail and not tail[0].strip():
+                tail.pop(0)
+            while tail and not tail[-1].strip():
+                tail.pop()
+            if not tail or tail[0].strip() != "```yaml" \
+                    or tail[-1].strip() != "```":
+                raise ValueError(
+                    "card ledger must be a fenced ```yaml block below the "
+                    "`---` delimiter (format v2)"
+                )
+            return body, "\n".join(tail[1:-1])
     raise ValueError("card has no `---` ledger delimiter (format v2: body "
                      "first, machine ledger below)")
+
+
+class _LedgerDumper(yaml.SafeDumper):
+    """House style for ledger YAML: folded blocks for long prose, flow
+    style for leaf collections, ISO-8601 Z timestamps."""
+
+
+def _represent_str(dumper, value):
+    if "\n" in value or len(value) > 76:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=">")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value)
+
+
+def _represent_datetime(dumper, value):
+    text = value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dumper.represent_scalar("tag:yaml.org,2002:timestamp", text)
+
+
+_LedgerDumper.add_representer(str, _represent_str)
+_LedgerDumper.add_representer(datetime.datetime, _represent_datetime)
+
+
+def dump_ledger(ledger: Dict[str, Any]) -> str:
+    """Serialize a card's machine ledger in house style."""
+    return yaml.dump(ledger, Dumper=_LedgerDumper, sort_keys=False,
+                     allow_unicode=True, width=78, default_flow_style=None)
 
 
 class Card:

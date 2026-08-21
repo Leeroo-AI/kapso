@@ -100,6 +100,8 @@ FRESH_BODY = (
 SPAWN_CARD = """{body}
 
 ---
+
+```yaml
 type: insight
 tags: []
 timestamp: 2026-08-18T09:00:00Z
@@ -133,6 +135,7 @@ log:
     change: Spawned by the trap-test fake.
 supersedes: null
 contradicts: []
+```
 """
 
 

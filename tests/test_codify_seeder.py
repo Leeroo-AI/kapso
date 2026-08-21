@@ -44,6 +44,8 @@ read, while the paired gate kept every such flip out.
 **Confidence:** {plain}
 
 ---
+
+```yaml
 type: procedure
 tags: []
 timestamp: 2026-08-18T09:00:00Z
@@ -67,6 +69,7 @@ log:
 contradicts: {contradicts}
 probe: >-
   Re-run the gate on one fold.
+```
 """
 
 

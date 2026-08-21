@@ -18,9 +18,12 @@ CARD = """# Gated acceptance
 Accept a candidate only when its measured delta clears the gate.
 
 ---
+
+```yaml
 type: procedure
 representation: text
 preconditions: "cpu-only; a metrics table with fold scores"
+```
 """
 
 REQUEST = {
