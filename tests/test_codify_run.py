@@ -204,7 +204,7 @@ def test_request_notes_land_in_workspace(tmp_path):
     request["notes"] = "SE = clustered bootstrap, ddof 1."
     driver, _ = make_driver(tmp_path, [implementor_writer()], [ENDORSE])
     driver.run(request, CARD, str(tmp_path / "run"))
-    notes = tmp_path / "run" / "workspace" / "replay-notes.md"
+    notes = tmp_path / "run" / "workspace" / "replay" / "notes.md"
     assert notes.read_text() == "SE = clustered bootstrap, ddof 1."
 
 
@@ -216,7 +216,8 @@ def test_gate_tampering_is_restored_and_named(tmp_path):
 
     def tampering_implementor(workspace):
         good_writer(workspace)
-        (Path(workspace) / "gates.yaml").write_text("decisions: {renamed: true}")
+        (Path(workspace) / "replay" / "gates.yaml").write_text(
+            "decisions: {renamed: true}")
 
     driver, _ = make_driver(
         tmp_path, [tampering_implementor], [ENDORSE], max_iterations=1
@@ -224,7 +225,9 @@ def test_gate_tampering_is_restored_and_named(tmp_path):
     verdict = driver.run(REQUEST, CARD, str(tmp_path / "run"))
     assert verdict["status"] == "failed"
     assert any("contract violation" in f for f in verdict["mechanical_findings"])
-    gates_on_disk = (tmp_path / "run" / "workspace" / "gates.yaml").read_text()
+    gates_on_disk = (
+        tmp_path / "run" / "workspace" / "replay" / "gates.yaml"
+    ).read_text()
     assert "renamed" not in gates_on_disk
     assert "gate_cleared" in gates_on_disk
 

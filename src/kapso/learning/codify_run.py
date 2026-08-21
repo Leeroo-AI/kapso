@@ -35,24 +35,25 @@ bindings (dataset names, paths, thresholds — observed values as defaults);
 do not invent an alternative method even if you believe it better —
 fidelity is the acceptance criterion.
 
-card.md and gates.yaml are the IMMUTABLE contract: never edit them, and
-outcome.yaml must report EXACTLY the decision and metric names gates.yaml
-states — renamed, added, or "improved" schemas fail the run mechanically.
+card.md and replay/gates.yaml are the IMMUTABLE contract: never edit
+them, and outcome.yaml must report EXACTLY the decision and metric names
+gates.yaml states — renamed, added, or "improved" schemas fail the run mechanically.
 
 Workspace layout (you are in it):
 - card.md        the spec: fact, method body, declared preconditions
 - materials/     the cited archived implementations — adapt, don't author
 - inputs/        the fixture run's inputs (read-only)
-- gates.yaml     the reproduction gates your evaluation must assert
-- replay-notes.md (when present) the request's replay definitions — exact
-  meanings for the gate names (resample recipe, dedup rules, banding
-  anchors); follow them precisely
+- replay/gates.yaml  the reproduction gates your evaluation must assert
+- replay/notes.md    (when present) the request's replay definitions —
+  exact meanings for the gate names (resample recipe, dedup rules,
+  banding anchors); follow them precisely
 - replay/eval.py YOU write this: the registered evaluation — it runs your
   code on inputs/, asserts the gates' recorded values (decision outcomes
   exactly; numeric within the stated band; artifacts produced), and writes
   outcome.yaml at the workspace root: {{decisions: ..., metrics: ...}}.
 
-Write code/ + an entrypoint, write replay/eval.py, run it
+Write code/ with the entrypoint INSIDE it (code/main.py unless the card
+says otherwise), write replay/eval.py, run it
 (`python replay/eval.py`), and iterate until it is green. Your final
 message: one line — green or what failed.
 {feedback_section}"""
@@ -131,13 +132,14 @@ class CodifyRunDriver:
         workspace.mkdir(parents=True)
         (workspace / "card.md").write_text(card_text)
         gates = request["gates"]
-        with open(workspace / "gates.yaml", "w") as handle:
+        (workspace / "replay").mkdir()
+        with open(workspace / "replay" / "gates.yaml", "w") as handle:
             yaml.safe_dump(gates, handle, sort_keys=False)
         # Replay definitions the gate names alone underdetermine (resample
         # recipes, dedup semantics, banding anchors) — YAML comments do not
         # survive the dump, so the request carries them as prose.
         if request.get("notes"):
-            (workspace / "replay-notes.md").write_text(str(request["notes"]))
+            (workspace / "replay" / "notes.md").write_text(str(request["notes"]))
 
         staged = self._stage(request, workspace)
         leak_findings = actually_invoked_findings(staged, gates)
@@ -153,7 +155,7 @@ class CodifyRunDriver:
         gpu = "gpu" in str(front.get("preconditions") or "").lower()
 
         max_iterations = self.codify_config["max_iterations"]
-        canonical_gates = (workspace / "gates.yaml").read_text()
+        canonical_gates = (workspace / "replay" / "gates.yaml").read_text()
         feedback = ""
         verdict: Dict[str, Any] = {"status": "failed", "iterations": 0}
         for iteration in range(1, max_iterations + 1):
@@ -163,10 +165,10 @@ class CodifyRunDriver:
             # before the evaluation and the judge see the workspace, and
             # name the violation so the next iteration fixes the code.
             tampered = (
-                (workspace / "gates.yaml").read_text() != canonical_gates
+                (workspace / "replay" / "gates.yaml").read_text() != canonical_gates
                 or (workspace / "card.md").read_text() != card_text
             )
-            (workspace / "gates.yaml").write_text(canonical_gates)
+            (workspace / "replay" / "gates.yaml").write_text(canonical_gates)
             (workspace / "card.md").write_text(card_text)
             outcome_path = self.executor.run_evaluation(workspace, gpu=gpu)
             outcome = yaml.safe_load(Path(outcome_path).read_text()) or {}
@@ -281,7 +283,7 @@ class CodifyRunDriver:
             JUDGE_PROMPT.format(
                 card_path=workspace / "card.md",
                 workspace=workspace,
-                gates_path=workspace / "gates.yaml",
+                gates_path=workspace / "replay" / "gates.yaml",
                 outcome_path=workspace / "outcome.yaml",
                 mechanical="; ".join(mechanical) or "none — mechanically green",
                 verdict_path=verdict_path,

@@ -418,7 +418,7 @@ def test_representation_flip_requires_a_green_run_in_transaction(tmp_path):
         proc_dir = run_dir / "bank" / "procedures" / "flip-proc"
         text = (proc_dir / "card.md").read_text()
         text = text.replace("representation: text", "representation: code")
-        text = text.replace("entrypoint: null", "entrypoint: run.py")
+        text = text.replace("entrypoint: null", "entrypoint: code/run.py")
         text = text.replace("provenance: {version: 1}", "provenance: {version: 2}")
         # log stays append-only: the codify entry goes AFTER the founding one
         text = text.replace(
@@ -432,6 +432,7 @@ def test_representation_flip_requires_a_green_run_in_transaction(tmp_path):
         (proc_dir / "code" / "run.py").write_text("print('gate')\n")
         (proc_dir / "replay").mkdir(exist_ok=True)
         (proc_dir / "replay" / "eval.py").write_text("assert True\n")
+        (proc_dir / "replay" / "gates.yaml").write_text("decisions: {}\n")
 
     def seed_flip_bank(tmp_path):
         root = bare_bank(tmp_path / "fixture")

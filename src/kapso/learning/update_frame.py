@@ -307,8 +307,10 @@ class UpdateFrame:
                     f"procedure {flip_dir.name} holds a GREEN codify run in "
                     f"this transaction (work/codify-runs/{flip_dir.name}) — "
                     f"commit the representation flip: move its code/ and "
-                    f"replay/ into the card directory, set representation: "
-                    f"code, an entrypoint, and last_replayed to the run date")
+                    f"replay/ into the card directory (entrypoint inside "
+                    f"code/, gates+notes inside replay/), set "
+                    f"representation: code, entrypoint: code/<file>, and "
+                    f"last_replayed to the run date")
 
         # Reader-contract migration (user decision 2026-08-21: iterate on a
         # small prioritized slice, not the whole bank at once): seed rewrite
@@ -525,8 +527,27 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
                     findings.append(
                         f"{name}: representation code without {required}/"
                     )
-            if not str(card.frontmatter.get("entrypoint") or "").strip():
+            # Layout law (user decision 2026-08-21): everything runnable
+            # lives in code/ (entrypoint included), everything reproduction
+            # lives in replay/ (eval + gates + notes).
+            entrypoint = str(card.frontmatter.get("entrypoint") or "").strip()
+            if not entrypoint:
                 findings.append(f"{name}: representation code without an entrypoint")
+            elif not entrypoint.startswith("code/"):
+                findings.append(
+                    f"{name}: entrypoint {entrypoint!r} must live inside "
+                    f"code/ (e.g. code/main.py)"
+                )
+            elif not (card_dir / entrypoint).is_file():
+                findings.append(
+                    f"{name}: entrypoint {entrypoint!r} does not exist in "
+                    f"the card directory"
+                )
+            if not (card_dir / "replay" / "gates.yaml").is_file():
+                findings.append(
+                    f"{name}: representation code without replay/gates.yaml "
+                    f"— the reproduction contract ships with the card"
+                )
         return findings
 
     def _check_coverage(self, run_dir: Path) -> List[str]:
