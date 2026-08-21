@@ -43,41 +43,64 @@ hindcast:
   [mined/it-1/flow-1.md].
 """
 
-# TWIN_BODY lexically twins card_text's default body (the duplicate trap's
-# Jaccard bait); both bodies carry substantive reader-contract sections.
-TWIN_BODY = ("## When you're here\nYou are ranking rows that compete inside "
-             "a shared pool, your model consumes absolute per-row features, "
-             "and you are choosing which normalization to build for the "
-             "ranking objective before training the next candidate.\n"
-             "## Do this\nUse group-relative signals, not absolute values "
-             "[E1]: compute each feature's percentile or z-score within its "
-             "competing group, feed those transforms alongside the raw "
-             "columns, and gate the block with your usual paired "
-             "significance check before shipping into the champion.\n"
-             "## What you gain\nOrdering signal the absolute view hides, "
-             "because competition happens within the pool rather than "
-             "across it; the relative view is what separates competing "
-             "rows at the margin when raw magnitudes look informative.")
-TWIN_HERO = "A hero line for a-card."
-FRESH_BODY = ("## When you're here\nYou are rebuilding the full feature "
-              "matrix on every search iteration, the build dominates your "
-              "loop time, and the schema of the matrix changes far less "
-              "often than the models consuming it do.\n"
-              "## Do this\nCache the feature matrix between iterations and "
-              "version the cache by its schema fingerprint; rebuild only "
-              "when the schema changes, and let model-side iterations "
-              "reuse the cached matrix directly from disk each time.\n"
-              "## What you gain\nIteration time back without staleness "
-              "risk, because schema-fingerprint versioning invalidates "
-              "the cache exactly when the features truly changed rather "
-              "than on every loop, so search spends budget on models.")
-FRESH_HERO = "Rebuild cadence for feature caches."
+# TWIN_BODY lexically twins card_text's TEMPLATE_BODY (the duplicate
+# trap's Jaccard bait); both bodies follow the format-v2 template.
+TWIN_PLAIN = ("tentative — one observation in one campaign; no "
+              "counter-evidence; untested elsewhere.")
+TWIN_BODY = (
+    "# Prefer group-relative signals when rows compete in a pool\n\n"
+    "**Rule:** When ranked rows compete inside a shared pool, build "
+    "group-relative features (within-group percentiles and z-scores), not "
+    "absolute values — the relative view carries the ordering signal.\n\n"
+    "## Is this your situation?\n\n"
+    "- You are ranking rows that compete inside a shared pool.\n"
+    "- Your model consumes absolute per-row features today.\n"
+    "- You are choosing which normalization block to build next before "
+    "training the next candidate.\n\n"
+    "## What to do\n\n"
+    "1. Group rows by their competing pool.\n"
+    "2. Compute each feature's percentile or z-score within its group.\n"
+    "3. Feed those transforms alongside the raw columns.\n"
+    "4. Gate the block with your paired significance check before "
+    "shipping the change into the current best model.\n\n"
+    "## Why believe this\n\n"
+    "Competition happens within the pool rather than across it, so "
+    "absolute magnitudes mislead exactly when they look informative. In "
+    "our runs the relative block separated competing rows at the margin "
+    "where the absolute view ranked them identically.\n\n"
+    f"**Confidence:** {TWIN_PLAIN}"
+)
+FRESH_PLAIN = ("tentative — one observation in one campaign; no "
+               "counter-evidence; untested elsewhere.")
+FRESH_BODY = (
+    "# Cache the feature matrix by schema fingerprint\n\n"
+    "**Rule:** When the matrix build dominates loop time and its schema "
+    "changes rarely, cache the built matrix and version the cache by a "
+    "schema fingerprint — rebuild only when the fingerprint moves.\n\n"
+    "## Is this your situation?\n\n"
+    "- You rebuild the full feature matrix on every search iteration.\n"
+    "- The build dominates your loop time.\n"
+    "- The matrix schema changes far less often than the models "
+    "consuming it.\n\n"
+    "## What to do\n\n"
+    "1. Fingerprint the matrix schema (columns, dtypes, windows).\n"
+    "2. Cache the built matrix keyed by that fingerprint.\n"
+    "3. Rebuild only when the fingerprint changes; otherwise load from "
+    "disk.\n"
+    "4. Let model-side iterations reuse the cached matrix directly.\n\n"
+    "## Why believe this\n\n"
+    "Fingerprint versioning invalidates the cache exactly when the "
+    "features truly changed rather than on every loop, so staleness risk "
+    "stays zero while the search spends its budget on models instead of "
+    "rebuilds. In our runs the loop time dropped by the full build cost "
+    "on every unchanged-schema iteration.\n\n"
+    f"**Confidence:** {FRESH_PLAIN}"
+)
 
-SPAWN_CARD = """---
+SPAWN_CARD = """{body}
+
+---
 type: insight
-title: B Card
-description: >-
-  {hero}
 tags: []
 timestamp: 2026-08-18T09:00:00Z
 scope: domain
@@ -98,6 +121,7 @@ reliability:
   boundary: 0.4
   coverage: 0.2
   score: 0.5
+  plain: {plain}
   rationale: >-
     Single-batch observation; untested elsewhere.
   state: candidate
@@ -109,8 +133,6 @@ log:
     change: Spawned by the trap-test fake.
 supersedes: null
 contradicts: []
----
-{body}
 """
 
 
@@ -173,11 +195,11 @@ class SpawningLeadFake:
                     f"- **{row_id} → SPAWN** — carded as b-card. "
                     f"[mined/it-1/flow-1.md]"
                 )
-                hero = TWIN_HERO if self.twin else FRESH_HERO
                 body = TWIN_BODY if self.twin else FRESH_BODY
+                plain = TWIN_PLAIN if self.twin else FRESH_PLAIN
                 (run_dir / "bank" / "insights" / "b-card.md").write_text(
                     SPAWN_CARD.format(
-                        hero=hero, body=body,
+                        body=body, plain=plain,
                         lr_id=inputs["lr_id"], trajectory=trajectory,
                     )
                 )

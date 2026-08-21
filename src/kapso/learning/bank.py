@@ -28,10 +28,28 @@ CODIFY_FAILED_MARKER = "codify attempt failed"
 _SCOPE_COORD_PATTERN = re.compile(r"^(family|dataset):(.+)$")
 DECOY_REGISTRY_NAME = ".decoys.yaml"
 SIGHTINGS_NAME = "sightings.md"
+_RULE_PATTERN = re.compile(r"\*\*Rule:\*\*\s*(.+?)(?:\n\s*\n|\n#|\Z)", re.S)
+
+
+def split_card_text(text: str) -> tuple:
+    """Card file format v2 (user decision 2026-08-21): the engineer-facing
+    body FIRST, then one line `---`, then the machine ledger (YAML). Returns
+    (body, ledger_yaml_text); raises on a file without the delimiter."""
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        if line.strip() == "---":
+            return (
+                "\n".join(lines[:index]).strip(),
+                "\n".join(lines[index + 1:]),
+            )
+    raise ValueError("card has no `---` ledger delimiter (format v2: body "
+                     "first, machine ledger below)")
 
 
 class Card:
-    """One parsed card: frontmatter fields + the body (THE FACT)."""
+    """One parsed card: the engineer-facing body (THE CARD) + the machine
+    ledger. `frontmatter` keeps its historical name but lives BELOW the
+    body on disk since format v2."""
 
     def __init__(self, name: str, kind_dir: str, frontmatter: Dict[str, Any], body: str):
         self.name = name              # the slug — path is identity
@@ -41,17 +59,14 @@ class Card:
 
     @classmethod
     def parse(cls, path: Path, bank_root: Path) -> "Card":
-        text = path.read_text()
-        if not text.startswith("---\n") or "\n---" not in text[4:]:
-            raise ValueError(f"card {path} has no frontmatter block")
-        end = text.index("\n---", 4)
-        frontmatter = yaml.safe_load(text[4:end])
+        body, ledger_text = split_card_text(path.read_text())
+        frontmatter = yaml.safe_load(ledger_text)
         if not isinstance(frontmatter, dict):
-            raise ValueError(f"card {path} frontmatter is not a mapping")
+            raise ValueError(f"card {path} ledger is not a mapping")
         rel = path.relative_to(bank_root)
         kind_dir = rel.parts[0]
         name = rel.parts[1] if kind_dir == "procedures" else rel.stem
-        return cls(name, kind_dir, frontmatter, text[end + 4:])
+        return cls(name, kind_dir, frontmatter, body)
 
     # ------------------------------------------------------------ accessors
 
@@ -60,8 +75,27 @@ class Card:
         return self.frontmatter.get("type")
 
     @property
+    def title(self) -> str:
+        """The H1 heading — the rule as a plain sentence. Cards still
+        awaiting the template rewrite fall back to the humanized slug."""
+        first = self.body.split("\n", 1)[0]
+        if first.startswith("# "):
+            return first[2:].strip()
+        return self.name.replace("-", " ").capitalize()
+
+    @property
     def hero(self) -> str:
-        return str(self.frontmatter.get("description", "")).strip()
+        """One-line summary for indexes and shortlists: the **Rule:**
+        paragraph, collapsed. Pre-template bodies fall back to their first
+        non-heading line."""
+        match = _RULE_PATTERN.search(self.body)
+        if match:
+            return " ".join(match.group(1).split())
+        for line in self.body.split("\n"):
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                return stripped
+        return ""
 
     @property
     def scope(self) -> Any:
@@ -112,7 +146,8 @@ class Card:
         if front.get("type") not in CARD_TYPES:
             findings.append(f"{self.name}: type {front.get('type')!r} invalid")
         if not self.hero:
-            findings.append(f"{self.name}: missing hero `description`")
+            findings.append(f"{self.name}: no hero derivable — body is empty "
+                            f"of prose")
         scope = front.get("scope")
         if scope != "domain" and not (
             isinstance(scope, list) and scope

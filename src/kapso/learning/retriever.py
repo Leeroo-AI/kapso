@@ -86,9 +86,11 @@ def _render_card(card: Card) -> str:
         verdict = str(entry.get("verdict"))
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
     digest = ", ".join(f"{v} ×{n}" for v, n in sorted(verdicts.items()))
+    # Format v2: the body opens with its own `# title` and closes with the
+    # **Confidence:** line, so the projection adds only the citation tag
+    # and the machine coordinates the body deliberately omits.
     lines = [
-        f"### {card.frontmatter.get('title', card.name)}  [card:{card.name}]",
-        f"*{card.hero}*",
+        f"[card:{card.name}]",
         f"- reliability: state={card.state} {scores}",
         f"- scope: {card.scope}"
         + (f" — {card.frontmatter['scope_conditions']}"

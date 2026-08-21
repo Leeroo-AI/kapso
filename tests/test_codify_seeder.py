@@ -10,11 +10,41 @@ from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.learning.update_frame import UpdateFrame
 from tests.test_update_frame import make_config
 
-PROC_TMPL = """---
+PROC_PLAIN = ("promising — executed in 2 campaigns on 2 datasets; no "
+              "counter-evidence; untested elsewhere.")
+
+PROC_TMPL = """# {title}: decide candidates on paired deltas
+
+**Rule:** Never accept or reject a fresh candidate on its raw validation
+score; decide on the paired, cluster-resampled delta against the incumbent
+so shared fold noise cancels out of the decision.
+
+## Is this your situation?
+
+- You have a fresh candidate model and an incumbent champion on the same
+  validation split.
+- Their scores differ by less than the split's noise.
+- You must decide right now whether the candidate ships or dies.
+
+## What to do
+
+1. Score both models on the identical fold set.
+2. Compute the paired clustered-bootstrap delta with its standard error.
+3. Accept the candidate only when the delta clears the significance gate.
+4. Otherwise keep the incumbent unchanged.
+
+## Why believe this
+
+Paired deltas cancel shared fold variance that raw score comparisons
+cannot, so the decision reads the models' true difference instead of the
+split's noise. In our runs, teams that skipped the pairing routinely
+shipped regressions that looked like wins on a single noisy validation
+read, while the paired gate kept every such flip out.
+
+**Confidence:** {plain}
+
+---
 type: procedure
-title: {title}
-description: >-
-  A fixture procedure.
 tags: []
 timestamp: 2026-08-18T09:00:00Z
 scope: domain
@@ -27,6 +57,7 @@ evidence:
   boundary: 0.5
   coverage: 0.4
   score: 0.65
+  plain: {plain}
   rationale: >-
     Fixture ledger.
   state: {state}
@@ -36,22 +67,6 @@ log:
 contradicts: {contradicts}
 probe: >-
   Re-run the gate on one fold.
----
-
-## When you're here
-You have a fresh candidate model and an incumbent champion on the same
-validation split, their scores differ by less than the split's noise, and
-you must decide whether the candidate ships or dies right now.
-## Do this
-Run the gated acceptance procedure end to end [E1]: score both models on
-the identical fold set, compute the paired clustered-bootstrap delta with
-its standard error, and accept the candidate only when the delta clears
-the significance gate; otherwise keep the incumbent unchanged.
-## What you gain
-Noise-proof accept/reject decisions instead of score-of-record coin flips,
-because paired deltas cancel shared fold variance that raw score
-comparisons cannot; teams that skip the pairing routinely ship regressions
-that looked like wins on a single noisy validation read.
 """
 
 
@@ -88,7 +103,7 @@ def write_proc(root, name, evidence_rows, state="active", contradicts="[]",
         evidence="".join(evidence_rows),
         state=state, contradicts=contradicts,
         log="".join(log_rows or [log_row()]),
-        version=version,
+        version=version, plain=PROC_PLAIN,
     ))
 
 
@@ -122,6 +137,7 @@ def test_closure_expands_founding_refs_and_dedups_shared_sources(tmp_path):
         evidence=entry("rel-a--t/20260101T000000_lane-a")
         + entry("rel-d--t/20260104T000000_lane-d"),
         state="superseded", contradicts="[]", log=log_row(), version=1,
+        plain=PROC_PLAIN,
     )
     (root / "retired" / "procedures" / "old-proc" / "card.md").write_text(parent)
     write_proc(root, "successor", [

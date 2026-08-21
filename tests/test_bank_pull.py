@@ -62,8 +62,11 @@ def test_projections_refuse_by_name_and_keep_decoys_unmarked(tmp_path):
     assert "out of scope" in reasons["avito-card"]
     # a decoy refuses exactly like a nonexistent card — quarantine unmarked
     assert reasons["decoy-card"] == reasons["no-such-card"] == "no such card"
-    # the full fact is rendered for the got card (Rule 6: never clipped)
-    assert "Use group-relative signals, not absolute values" in result["text"]
+    # the full card body is rendered for the got card (Rule 6: never
+    # clipped), title-first per format v2, with the citation tag line
+    assert "[card:strong-card]" in result["text"]
+    assert "# Use group-relative signals when rows compete in a pool" in result["text"]
+    assert "**Confidence:**" in result["text"]
 
 
 def test_co_serving_guard_names_the_tension_on_gets(tmp_path):

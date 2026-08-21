@@ -27,7 +27,10 @@ from kapso.learning.trajectory_store import TrajectoryStore
 # transaction). Evidence appends and reliability re-scores do not bump — the
 # version identifies the claim text, and evidence entries pin card_version.
 CLAIM_LAYER_FIELDS = (
-    "type", "title", "description", "tags", "scope", "scope_conditions",
+    # title/description left the ledger with card format v2 — both are
+    # derived from the body (H1 heading, **Rule:** line), which is itself
+    # part of the claim signature below.
+    "type", "tags", "scope", "scope_conditions",
     "probe", "supersedes", "contradicts", "representation", "entrypoint",
     "preconditions", "replay",
     # The reliability block is served with the card — a reassessment (score,
@@ -62,29 +65,65 @@ def usage_claims_serving(usage: str) -> bool:
     return any(word in lower for word in ("served", "cited", "probe"))
 
 
-# The reader contract (user decisions 2026-08-21): three engineer-facing
-# intents per body, each with enough substance to act on — a missing
-# section is an unwritten card, a slogan-thin one is an unfinished card.
-BODY_SECTIONS = ("## When you're here", "## Do this", "## What you gain")
+# The card template (user-approved 2026-08-21): the body IS the card an ML
+# engineer reads cold — H1 title (the rule as a plain sentence), a
+# **Rule:** paragraph, three sections, and a closing **Confidence:** line
+# that mirrors reliability.plain. Machine ledger lives below the `---`.
+BODY_SECTIONS = ("## Is this your situation?", "## What to do",
+                 "## Why believe this")
+_CONFIDENCE_PATTERN = re.compile(r"\*\*Confidence:\*\*\s*(.+)\Z", re.S)
+_RULE_TEXT_PATTERN = re.compile(r"\*\*Rule:\*\*\s*(.+?)(?:\n\s*\n|\n#|\Z)", re.S)
+_ARTIFACT_REF_PATTERN = re.compile(r"\[E\d|mined/|\bflow-\d")
 
 
-def body_contract_gaps(body: str, min_words: int) -> List[str]:
-    """Missing or slogan-thin reader sections, named. Shared by the
-    transaction validator (touched cards must conform) and the seeder
-    (non-conforming cards queue for rewrite)."""
+def body_confidence_text(body: str) -> Optional[str]:
+    """The body's closing **Confidence:** text, whitespace-collapsed."""
+    match = _CONFIDENCE_PATTERN.search(body)
+    return " ".join(match.group(1).split()) if match else None
+
+
+def body_contract_gaps(body: str, floors: Dict[str, int]) -> List[str]:
+    """Missing or under-substantiated template elements, named. Shared by
+    the transaction validator (touched cards must conform) and the seeder
+    (non-conforming cards queue for rewrite). floors: {rule, section,
+    confidence} minimum word counts."""
     gaps: List[str] = []
+    if not body.startswith("# "):
+        gaps.append("missing `# <title>` heading (the rule as a sentence)")
+    rule = _RULE_TEXT_PATTERN.search(body)
+    if not rule:
+        gaps.append("missing `**Rule:**` paragraph")
+    elif len(rule.group(1).split()) < floors["rule"]:
+        gaps.append(f"`**Rule:**` too thin ({len(rule.group(1).split())} "
+                    f"words < {floors['rule']})")
+    positions = []
     for index, section in enumerate(BODY_SECTIONS):
-        if section not in body:
+        at = body.find(section)
+        if at < 0:
             gaps.append(f"missing {section!r}")
             continue
+        positions.append(at)
         tail = body.split(section, 1)[1]
         for later in BODY_SECTIONS[index + 1:]:
             tail = tail.split(later, 1)[0]
+        tail = _CONFIDENCE_PATTERN.sub("", tail)
         words = len(tail.split())
-        if words < min_words:
+        if words < floors["section"]:
             gaps.append(
-                f"{section!r} is slogan-thin ({words} words < {min_words})"
+                f"{section!r} is slogan-thin ({words} words < "
+                f"{floors['section']})"
             )
+    if positions != sorted(positions):
+        gaps.append("sections out of template order")
+    confidence = body_confidence_text(body)
+    if confidence is None:
+        gaps.append("missing closing `**Confidence:**` line")
+    elif len(confidence.split()) < floors["confidence"]:
+        gaps.append(f"`**Confidence:**` too thin ({len(confidence.split())} "
+                    f"words < {floors['confidence']})")
+    if _ARTIFACT_REF_PATTERN.search(body):
+        gaps.append("internal artifact references in body ([En], mined/, "
+                    "flow-N) — evidence pointers live in the ledger")
     return gaps
 
 
@@ -103,10 +142,10 @@ class BankTransactionValidator:
     state). Pure function of two Bank views + context; findings, never
     repairs."""
 
-    def __init__(self, before: Bank, after: Bank, body_section_min_words: int):
+    def __init__(self, before: Bank, after: Bank, body_floors: Dict[str, int]):
         self.before = before
         self.after = after
-        self.body_section_min_words = body_section_min_words
+        self.body_floors = body_floors
 
     def validate(self) -> List[str]:
         findings: List[str] = []
@@ -120,6 +159,7 @@ class BankTransactionValidator:
         findings += self._check_supersede_shapes()
         findings += self._check_sightings()
         findings += self._check_body_contract()
+        findings += self._check_confidence_sync()
         return findings
 
     # ------------------------------------------------------- body contract
@@ -140,14 +180,44 @@ class BankTransactionValidator:
             previous = self.before.cards.get(name)
             if previous is not None and previous.body == card.body:
                 continue  # untouched this transaction — legacy passes
-            gaps = body_contract_gaps(card.body, self.body_section_min_words)
+            gaps = body_contract_gaps(card.body, self.body_floors)
             if gaps:
                 findings.append(
-                    f"{name}: reader-contract body gaps — "
-                    f"{'; '.join(gaps)} — write each section for an ML "
-                    "engineer mid-task with enough substance to act on "
-                    "(no length cap; abstract gains with their why; "
-                    "numbers stay in evidence)"
+                    f"{name}: card-template gaps — {'; '.join(gaps)} — "
+                    "the body is the card an ML engineer reads cold: "
+                    "`# title` / **Rule:** / Is this your situation? / "
+                    "What to do / Why believe this / **Confidence:**"
+                )
+        return findings
+
+    def _check_confidence_sync(self) -> List[str]:
+        """The body's **Confidence:** line and reliability.plain are one
+        string written by the assessor — whenever either moves (or a card
+        is new), they must exist and match, so the served card can never
+        show a rating the ledger does not hold."""
+        findings: List[str] = []
+        decoys = self.after.decoy_names
+        for name, card in sorted(self.after.cards.items()):
+            if name in decoys:
+                continue
+            previous = self.before.cards.get(name)
+            plain = card.reliability.get("plain")
+            if previous is not None and previous.body == card.body and \
+                    previous.reliability.get("plain") == plain:
+                continue  # nothing moved this transaction
+            confidence = body_confidence_text(card.body)
+            if confidence is None:
+                continue  # template gap already reported for touched cards
+            if not str(plain or "").strip():
+                findings.append(
+                    f"{name}: body carries **Confidence:** but "
+                    f"reliability.plain is missing — the assessor writes "
+                    f"one string into both"
+                )
+            elif " ".join(str(plain).split()) != confidence:
+                findings.append(
+                    f"{name}: **Confidence:** line diverges from "
+                    f"reliability.plain — one string, two renderings"
                 )
         return findings
 

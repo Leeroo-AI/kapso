@@ -67,27 +67,45 @@ WRITING — the rules that bind every edit:
   families or a mechanism argument that plainly spans them. And
   `scope_conditions` states WHEN the mechanism applies, precisely enough
   that a retriever miss is a boundary fact, not a vague hedge.
-- THE BODY CONTRACT — every card body is written for an ML engineer
-  mid-task who has never seen this bank, in exactly three sections.
-  There is NO length cap: each section is as long as serving the reader
-  requires, and a section that leaves the reader with obvious follow-up
-  questions is unfinished. The MDL rule guards against pasting instances
-  — abstraction is NOT brevity; abstract richly.
-    `## When you're here` — the task situation in engineering terms (what
-      they're building, what they already have, what they're about to
-      try, and the tell-tale signs they're in it); a reader answers "is
-      this me?" in five seconds and trusts the match.
-    `## Do this` — imperative and executable today: the check to run and
-      HOW to run it, the thing to build or skip and with what shape, the
-      fork and how to recognize each branch, where to route the output.
-      Steps where steps exist. Actionable without reading anything else.
-    `## What you gain` — the benefit with its WHY: the class of wasted
-      spend avoided and what typically lures engineers into it, the class
-      of win redirected to and the mechanism that makes it pay. Several
-      sentences, not a slogan. Benchmark-specific numbers live in the
-      evidence ledger, never in the body.
-  The mechanism lives inside these sections where it earns trust — never
-  as its own section. The body cites at most 2-3 headline numbers.
+- THE CARD TEMPLATE (format v2) — the body IS the card: what an ML
+  engineer with zero context on this bank reads and acts on, sitting
+  ABOVE the `---` machine ledger. Exact shape, in order:
+    `# <title>` — the rule as one plain sentence (this heading is the
+      card's title everywhere; there is no title field in the ledger).
+    `**Rule:**` — 1-2 imperative sentences in common ML vocabulary,
+      payoff included: what to do/skip and what that buys.
+    `## Is this your situation?` — 3-4 bullets, each a condition the
+      reader can recognize in under a minute, in engineering terms
+      (models, features, task shapes — never our campaign vocabulary).
+    `## What to do` — numbered steps, each executable today: the check
+      to run and HOW, the thing to build or skip and with what shape,
+      any fork as an explicit "All X? -> ..." / "Y remains? -> ..." with
+      how to recognize each branch, and where outputs route.
+    `## Why believe this` — the causal mechanism in plain words, then
+      the grounded episode: what we actually tried, what won, what lost,
+      with 1-2 ROUNDED anchor numbers labeled as observed in our runs
+      ("lost ~0.5 AUC points"); exact figures stay in the ledger. End
+      the section with the assessor's line:
+    `**Confidence:**` — the rating, verbatim from reliability.plain.
+      YOU DO NOT AUTHOR IT: copy the card's current reliability.plain if
+      one exists, else leave the literal placeholder
+      `**Confidence:** (assessor)` — the assessor owns this string and
+      writes it into both places at batch end.
+  Style laws for the body:
+  - Plain-language rule: if a term would not appear in a general ML blog
+    post, define it inline or rephrase ("a later time-based holdout the
+    search never touched", not "untouched later origins"). Our internal
+    vocabulary (origins, lanes, briefs, serving, mined views, flow files)
+    never appears.
+  - No evidence pointers in the body ([E1], mined/, flow-N) — prose must
+    stand alone; the ledger sits directly below for drill-down.
+  - Short sentences, one idea each; bullets for conditions, numbers for
+    steps; no length cap — a section that leaves obvious follow-up
+    questions is unfinished. The MDL rule guards against pasting
+    instances; abstraction is NOT brevity.
+  - Never a bare `---` line inside the body (it delimits the ledger).
+  - Index hero lines are the Rule's first clause; the ledger carries no
+    title or description fields (both derive from the body).
 - Evidence entries have exactly four parts (source, verdict, usage, effect);
   the effect ends with the sentence that earns the verdict; quoted numbers
   must re-grep in the cited artifact. Lifts from hindcast settlements copy

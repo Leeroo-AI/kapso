@@ -316,23 +316,24 @@ class UpdateFrame:
         # first, capped per run. The invariant enforces the contract on any
         # card a transaction touches; these rows drive the backlog down.
         rewrite_cap = self.crew_config["rewrite_rows_per_run"]
-        min_words = self.crew_config["body_section_min_words"]
+        floors = self.crew_config["body_floors"]
         decoys = bank.decoy_names
         nonconforming = [
             (card.score or 0.0, name)
             for name, card in bank.cards.items()
             if name not in decoys
-            and body_contract_gaps(card.body, min_words)
+            and body_contract_gaps(card.body, floors)
         ]
         for _, name in sorted(nonconforming, reverse=True)[:rewrite_cap]:
-            gaps = body_contract_gaps(bank.cards[name].body, min_words)
+            gaps = body_contract_gaps(bank.cards[name].body, floors)
             add("dk", "rewrite",
-                f"card {name} misses the reader body contract "
-                f"({'; '.join(gaps)}) — rewrite its body in place "
-                f"(## When you're here / ## Do this / ## What you gain; "
-                f"no length cap, each section substantive; gains abstract "
-                f"with their why; numbers stay in evidence; claim meaning "
-                f"unchanged), bump the version with one log entry")
+                f"card {name} misses the card template "
+                f"({'; '.join(gaps[:3])}{'; …' if len(gaps) > 3 else ''}) — "
+                f"rewrite the body to the engineer-facing template in the "
+                f"card-writer role doc (# title / **Rule:** / Is this your "
+                f"situation? / What to do / Why believe this / "
+                f"**Confidence:**), claim meaning unchanged, one version "
+                f"bump with one log entry")
 
         nominate_threshold = self.crew_config["dup_nominate_jaccard"]
         names = sorted(bank.cards)
@@ -449,7 +450,7 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
 
         findings += BankTransactionValidator(
             before, after,
-            body_section_min_words=self.crew_config["body_section_min_words"],
+            body_floors=self.crew_config["body_floors"],
         ).validate()
         findings += self._check_coverage(run_dir)
         findings += self._check_evidence(before, after, batch)

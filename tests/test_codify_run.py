@@ -13,14 +13,14 @@ from kapso.learning.codify_run import CodifyRunDriver
 from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
 from tests.test_trajectory_store import TRAJECTORY_ID, build_work_dir
 
-CARD = """---
-type: procedure
-title: Gated acceptance
-representation: text
-preconditions: "cpu-only; a metrics table with fold scores"
----
+CARD = """# Gated acceptance
 
 Accept a candidate only when its measured delta clears the gate.
+
+---
+type: procedure
+representation: text
+preconditions: "cpu-only; a metrics table with fold scores"
 """
 
 REQUEST = {

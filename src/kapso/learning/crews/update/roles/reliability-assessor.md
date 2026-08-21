@@ -27,6 +27,18 @@ For each listed card:
   0.25*coverage, rounded to two decimals. State each anchor and each
   adjustment in the rationale so a second assessor can reproduce the
   number from the ledger alone.
+- THE PLAIN CONFIDENCE LINE IS YOURS (format v2). For every card you
+  assess, write `plain:` inside the reliability block AND write the same
+  string verbatim into the body's closing `**Confidence:**` line
+  (replacing any `(assessor)` placeholder) — one string, two renderings;
+  the frame rejects divergence. Content: the RATING only — counts and
+  boundaries, never stories: band, support breadth, counter-evidence,
+  where untested. Derive the band mechanically: `established` = state
+  active AND >= 2 distinct confirming campaigns AND score >= 0.75;
+  `tentative` = score < 0.55 OR any unresolved refute; `promising` =
+  everything between. Example: "promising — supported in 4 churn
+  campaigns on 4 datasets (1 direct confirmation, 3 consistent
+  rejections); no counter-evidence; untested outside churn-style tasks."
 - SERVING OUTCOMES COUNT. Evidence entries born from serving feedback
   (followed-and-paid confirm, followed-no-benefit weaken, recurring
   uptake-fail weaken) sit in the same validity arithmetic as any other

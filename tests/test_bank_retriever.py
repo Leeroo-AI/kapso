@@ -20,6 +20,37 @@ RETRIEVER_CONFIG = {
 TASK = {"family": "entity_binary_classification", "dataset": "rel-hm"}
 
 
+# One shared confidence string: the assessor writes it into BOTH
+# reliability.plain and the body's **Confidence:** line (sync-checked).
+PLAIN_CONFIDENCE = ("promising — confirmed in 1 campaign on 1 dataset; "
+                    "no counter-evidence; untested elsewhere.")
+
+TEMPLATE_BODY = (
+    "# Use group-relative signals when rows compete in a pool\n\n"
+    "**Rule:** When ranked rows compete inside a shared pool, build "
+    "group-relative features (within-group percentiles and z-scores), not "
+    "absolute values — the relative view carries the ordering signal.\n\n"
+    "## Is this your situation?\n\n"
+    "- You are ranking rows that compete inside a shared pool.\n"
+    "- Your model consumes absolute per-row features today.\n"
+    "- You are choosing which normalization block to build next before "
+    "training the next candidate.\n\n"
+    "## What to do\n\n"
+    "1. Group rows by their competing pool.\n"
+    "2. Compute each feature's percentile or z-score within its group.\n"
+    "3. Feed those transforms alongside the raw columns.\n"
+    "4. Gate the block with your usual paired significance check before "
+    "shipping the change into the current best model.\n\n"
+    "## Why believe this\n\n"
+    "Competition happens within the pool rather than across it, so "
+    "absolute magnitudes mislead exactly when they look informative. In "
+    "our runs the relative block separated competing rows at the margin "
+    "where the absolute view ranked them identically, and it shipped "
+    "after clearing the paired gate.\n\n"
+    f"**Confidence:** {PLAIN_CONFIDENCE}"
+)
+
+
 def card_text(
     name,
     kind="insight",
@@ -29,28 +60,15 @@ def card_text(
     tags=(),
     contradicts=(),
     evidence_trajectory="rel-amazon--user-churn/20260101T000000_lane-t1",
-    body="## When you're here\nYou are ranking rows that compete inside a "
-         "shared pool, your model consumes absolute per-row features, and "
-         "you are choosing which normalization to build for the ranking "
-         "objective before training the next candidate.\n"
-         "## Do this\nUse group-relative signals, not absolute values [E1]: "
-         "compute each feature's percentile or z-score within its competing "
-         "group, feed those transforms alongside the raw columns, and gate "
-         "the block with your usual paired significance check before "
-         "shipping the change into the champion.\n"
-         "## What you gain\nOrdering signal the absolute view hides, because "
-         "competition happens within the pool rather than across it; teams "
-         "skip this when raw magnitudes look informative, and the relative "
-         "view is what actually separates competing rows at the margin.",
+    body=TEMPLATE_BODY,
 ):
     tags_yaml = "[" + ", ".join(tags) + "]"
     contradicts_yaml = "[" + ", ".join(contradicts) + "]"
     scope_yaml = scope if isinstance(scope, str) else "[" + ", ".join(scope) + "]"
-    return f"""---
+    return f"""{body}
+
+---
 type: {kind}
-title: {name.replace('-', ' ').title()}
-description: >-
-  A hero line for {name}.
 tags: {tags_yaml}
 timestamp: 2026-08-14T09:00:00Z
 scope: {scope_yaml}
@@ -69,6 +87,7 @@ reliability:
   boundary: 0.5
   coverage: 0.3
   score: {score}
+  plain: {PLAIN_CONFIDENCE}
   rationale: >-
     Validity from two confirmations; boundary untested; coverage thin.
   state: {state}
@@ -82,8 +101,6 @@ supersedes: null
 contradicts: {contradicts_yaml}
 probe: >-
   Ablate the grouped-rank block on one forward fold; keep the clustered delta.
----
-{body}
 """
 
 

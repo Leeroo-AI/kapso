@@ -20,6 +20,7 @@ import yaml
 
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.learning.bank import split_card_text
 from kapso.learning.codify_gates import (
     actually_invoked_findings,
     reproduction_findings,
@@ -148,7 +149,7 @@ class CodifyRunDriver:
 
         # Machine class from the card's declared preconditions (CD§3): a
         # gpu-bearing precondition selects the campaign-class machine.
-        front = yaml.safe_load(card_text.split("---")[1]) or {}
+        front = yaml.safe_load(split_card_text(card_text)[1]) or {}
         gpu = "gpu" in str(front.get("preconditions") or "").lower()
 
         max_iterations = self.codify_config["max_iterations"]
