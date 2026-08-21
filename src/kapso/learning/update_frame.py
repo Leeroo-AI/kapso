@@ -618,9 +618,14 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
     def _check_score_bounds(self, after: Bank) -> List[str]:
         """The assessor's validity is frame-bounded against the ledger's
         verdict arithmetic (v1 bound: confirms over outcome verdicts ± the
-        graders band)."""
+        graders band). Decoys are exempt: crews may not touch them, so a
+        corridor miss there would deadlock every transaction (seen live at
+        the clean-room founding)."""
         findings = []
+        decoys = after.decoy_names
         for name, card in after.cards.items():
+            if name in decoys:
+                continue
             confirms = sum(1 for e in card.evidence if e.get("verdict") == "confirm")
             outcomes = sum(
                 1 for e in card.evidence
