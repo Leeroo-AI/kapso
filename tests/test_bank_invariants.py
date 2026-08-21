@@ -36,7 +36,7 @@ def write_card(root, name, text):
 
 def test_clean_transaction_has_no_findings(tmp_path):
     before, after = clone_bank(tmp_path, {"a-card": card_text("a-card")})
-    assert BankTransactionValidator(before, after).validate() == []
+    assert BankTransactionValidator(before, after, body_section_min_words=25).validate() == []
 
 
 def test_body_contract_names_missing_reader_sections(tmp_path):
@@ -48,7 +48,7 @@ def test_body_contract_names_missing_reader_sections(tmp_path):
         write_card(root, "a-card", head + "A mechanism paragraph only.")
 
     before, after = clone_bank(tmp_path, {"a-card": card_text("a-card")}, mutate)
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any(
         "reader-contract" in f and "When you're here" in f for f in findings
     )
@@ -63,7 +63,7 @@ def test_evidence_append_only(tmp_path):
         write_card(root, "a-card", text)
 
     before, after = clone_bank(tmp_path, {"a-card": card_text("a-card")}, mutate)
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("evidence is append-only" in f for f in findings)
 
 
@@ -79,7 +79,7 @@ def test_claim_change_requires_version_and_log(tmp_path):
     before, after = clone_bank(
         tmp_path / "x", {"a-card": card_text("a-card")}, scope_edit_no_bump
     )
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("claim-layer change without exactly one version bump" in f
                for f in findings)
     assert any("exactly one log entry" in f for f in findings)
@@ -93,7 +93,7 @@ def test_claim_change_requires_version_and_log(tmp_path):
     before, after = clone_bank(
         tmp_path / "y", {"a-card": card_text("a-card")}, bump_no_change
     )
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("version bumped without a claim-layer change" in f for f in findings)
 
 
@@ -108,7 +108,7 @@ def test_retirement_is_a_move(tmp_path):
         {"a-card": card_text("a-card"), "b-card": card_text("b-card")},
         delete,
     )
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("without a move to retired/" in f for f in findings)
 
     def move(root):
@@ -122,7 +122,7 @@ def test_retirement_is_a_move(tmp_path):
         {"a-card": card_text("a-card"), "b-card": card_text("b-card")},
         move,
     )
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert not any("retired" in f for f in findings)
 
 
@@ -145,7 +145,7 @@ def test_decoys_untouchable(tmp_path):
         return Bank(str(before_root)), Bank(str(after_root))
 
     before, after = build(tmp_path)
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("decoy decoy-card: modified" in f for f in findings)
 
 
@@ -165,7 +165,7 @@ def test_contradicts_lands_on_both_cards(tmp_path):
         tmp_path, {"a-card": card_text("a-card"), "b-card": card_text("b-card")},
         one_sided,
     )
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("but not vice versa" in f for f in findings)
 
 
@@ -191,7 +191,7 @@ def test_merge_shape(tmp_path):
         tmp_path, {"a-card": card_text("a-card"), "b-card": card_text("b-card")},
         merge,
     )
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("supersedes b-card but it is not in retired/" in f for f in findings)
     # founding evidence never referenced parent a's ledger
     assert any("merge evidence is by reference" in f for f in findings)
@@ -219,7 +219,7 @@ def test_generalize_born_candidate_with_probe(tmp_path):
         (root / "insights" / "a-card.md").unlink()
 
     before, after = clone_bank(tmp_path, {"a-card": card_text("a-card")}, generalize)
-    findings = BankTransactionValidator(before, after).validate()
+    findings = BankTransactionValidator(before, after, body_section_min_words=25).validate()
     assert any("must be born candidate" in f for f in findings)
     assert any("unseen-family probe" in f for f in findings)
 
@@ -322,7 +322,8 @@ def test_retired_cards_are_frozen_history(tmp_path):
     retired = after_root / "retired" / "insights" / "a-card.md"
     retired.write_text(retired.read_text().replace("score: 0.7", "score: 0.1"))
     findings = BankTransactionValidator(
-        Bank(str(before_root)), Bank(str(after_root))
+        Bank(str(before_root)), Bank(str(after_root)),
+        body_section_min_words=25,
     ).validate()
     assert any("modified after retirement" in f for f in findings)
 

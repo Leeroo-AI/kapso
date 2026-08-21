@@ -39,11 +39,19 @@ probe: >-
 ---
 
 ## When you're here
-Accepting or rejecting a candidate against a champion.
+You have a fresh candidate model and an incumbent champion on the same
+validation split, their scores differ by less than the split's noise, and
+you must decide whether the candidate ships or dies right now.
 ## Do this
-Run the gated acceptance procedure end to end [E1].
+Run the gated acceptance procedure end to end [E1]: score both models on
+the identical fold set, compute the paired clustered-bootstrap delta with
+its standard error, and accept the candidate only when the delta clears
+the significance gate; otherwise keep the incumbent unchanged.
 ## What you gain
-Noise-proof accept/reject decisions.
+Noise-proof accept/reject decisions instead of score-of-record coin flips,
+because paired deltas cancel shared fold variance that raw score
+comparisons cannot; teams that skip the pairing routinely ship regressions
+that looked like wins on a single noisy validation read.
 """
 
 

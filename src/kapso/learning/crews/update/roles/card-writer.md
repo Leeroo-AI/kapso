@@ -68,17 +68,24 @@ WRITING — the rules that bind every edit:
   `scope_conditions` states WHEN the mechanism applies, precisely enough
   that a retriever miss is a boundary fact, not a vague hedge.
 - THE BODY CONTRACT — every card body is written for an ML engineer
-  mid-task who has never seen this bank, in exactly three sections
-  (loose prose inside, ~15 lines total):
+  mid-task who has never seen this bank, in exactly three sections.
+  There is NO length cap: each section is as long as serving the reader
+  requires, and a section that leaves the reader with obvious follow-up
+  questions is unfinished. The MDL rule guards against pasting instances
+  — abstraction is NOT brevity; abstract richly.
     `## When you're here` — the task situation in engineering terms (what
       they're building, what they already have, what they're about to
-      try); a reader answers "is this me?" in five seconds.
-    `## Do this` — imperative and executable today: the check to run, the
-      thing to build or skip, the fork if there is one. Actionable without
-      reading anything else.
-    `## What you gain` — the benefit in ABSTRACT terms (the class of
-      wasted spend avoided, the class of win redirected to); benchmark-
-      specific numbers live in the evidence ledger, never in the body.
+      try, and the tell-tale signs they're in it); a reader answers "is
+      this me?" in five seconds and trusts the match.
+    `## Do this` — imperative and executable today: the check to run and
+      HOW to run it, the thing to build or skip and with what shape, the
+      fork and how to recognize each branch, where to route the output.
+      Steps where steps exist. Actionable without reading anything else.
+    `## What you gain` — the benefit with its WHY: the class of wasted
+      spend avoided and what typically lures engineers into it, the class
+      of win redirected to and the mechanism that makes it pay. Several
+      sentences, not a slogan. Benchmark-specific numbers live in the
+      evidence ledger, never in the body.
   The mechanism lives inside these sections where it earns trust — never
   as its own section. The body cites at most 2-3 headline numbers.
 - Evidence entries have exactly four parts (source, verdict, usage, effect);

@@ -81,6 +81,7 @@ def make_config(tmp_path):
                 "dup_nominate_jaccard": 0.5,
                 "sightings_expiry_batches": 6,
                 "rewrite_rows_per_run": 2,
+                "body_section_min_words": 25,
                 "run_root": str(tmp_path / "runs"),
             },
         }

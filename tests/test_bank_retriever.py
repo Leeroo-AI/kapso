@@ -29,10 +29,19 @@ def card_text(
     tags=(),
     contradicts=(),
     evidence_trajectory="rel-amazon--user-churn/20260101T000000_lane-t1",
-    body="## When you're here\nRanking rows that compete in a shared pool.\n"
-         "## Do this\nUse group-relative signals, not absolute values [E1].\n"
-         "## What you gain\nOrdering signal the absolute view hides; the "
-         "mechanism is competition within a shared pool.",
+    body="## When you're here\nYou are ranking rows that compete inside a "
+         "shared pool, your model consumes absolute per-row features, and "
+         "you are choosing which normalization to build for the ranking "
+         "objective before training the next candidate.\n"
+         "## Do this\nUse group-relative signals, not absolute values [E1]: "
+         "compute each feature's percentile or z-score within its competing "
+         "group, feed those transforms alongside the raw columns, and gate "
+         "the block with your usual paired significance check before "
+         "shipping the change into the champion.\n"
+         "## What you gain\nOrdering signal the absolute view hides, because "
+         "competition happens within the pool rather than across it; teams "
+         "skip this when raw magnitudes look informative, and the relative "
+         "view is what actually separates competing rows at the margin.",
 ):
     tags_yaml = "[" + ", ".join(tags) + "]"
     contradicts_yaml = "[" + ", ".join(contradicts) + "]"

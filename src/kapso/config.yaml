@@ -281,6 +281,10 @@ learning:
     # per lesson run, highest reliability first (~20% of the founding bank;
     # fast-iteration decision 2026-08-21).
     rewrite_rows_per_run: 4
+    # Substance floor per reader section — slogan-thin sections count as
+    # non-conforming and re-queue for rewrite (user feedback 2026-08-21:
+    # the length cap produced unusably thin bodies).
+    body_section_min_words: 25
     sightings_expiry_batches: 6
     run_root: learning/runs
   ab:

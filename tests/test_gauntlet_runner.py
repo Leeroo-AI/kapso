@@ -44,16 +44,33 @@ hindcast:
 """
 
 # TWIN_BODY lexically twins card_text's default body (the duplicate trap's
-# Jaccard bait); both bodies carry the reader-contract sections.
-TWIN_BODY = ("## When you're here\nRanking rows that compete in a shared "
-             "pool.\n## Do this\nUse group-relative signals, not absolute "
-             "values [E1].\n## What you gain\nOrdering signal the absolute "
-             "view hides; the mechanism is competition within a shared pool.")
+# Jaccard bait); both bodies carry substantive reader-contract sections.
+TWIN_BODY = ("## When you're here\nYou are ranking rows that compete inside "
+             "a shared pool, your model consumes absolute per-row features, "
+             "and you are choosing which normalization to build for the "
+             "ranking objective before training the next candidate.\n"
+             "## Do this\nUse group-relative signals, not absolute values "
+             "[E1]: compute each feature's percentile or z-score within its "
+             "competing group, feed those transforms alongside the raw "
+             "columns, and gate the block with your usual paired "
+             "significance check before shipping into the champion.\n"
+             "## What you gain\nOrdering signal the absolute view hides, "
+             "because competition happens within the pool rather than "
+             "across it; the relative view is what separates competing "
+             "rows at the margin when raw magnitudes look informative.")
 TWIN_HERO = "A hero line for a-card."
-FRESH_BODY = ("## When you're here\nRebuilding features every iteration.\n"
+FRESH_BODY = ("## When you're here\nYou are rebuilding the full feature "
+              "matrix on every search iteration, the build dominates your "
+              "loop time, and the schema of the matrix changes far less "
+              "often than the models consuming it do.\n"
               "## Do this\nCache the feature matrix between iterations and "
-              "version it by schema; rebuild only when the schema changes.\n"
-              "## What you gain\nIteration time back without staleness.")
+              "version the cache by its schema fingerprint; rebuild only "
+              "when the schema changes, and let model-side iterations "
+              "reuse the cached matrix directly from disk each time.\n"
+              "## What you gain\nIteration time back without staleness "
+              "risk, because schema-fingerprint versioning invalidates "
+              "the cache exactly when the features truly changed rather "
+              "than on every loop, so search spends budget on models.")
 FRESH_HERO = "Rebuild cadence for feature caches."
 
 SPAWN_CARD = """---

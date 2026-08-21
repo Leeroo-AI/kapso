@@ -26,6 +26,7 @@ from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.bank import Bank
 from kapso.learning.bank_invariants import (
     BankTransactionValidator,
+    body_contract_gaps,
     evidence_admission_findings,
 )
 from kapso.learning.graders.hindcast import HindcastReport
@@ -315,22 +316,23 @@ class UpdateFrame:
         # first, capped per run. The invariant enforces the contract on any
         # card a transaction touches; these rows drive the backlog down.
         rewrite_cap = self.crew_config["rewrite_rows_per_run"]
+        min_words = self.crew_config["body_section_min_words"]
         decoys = bank.decoy_names
         nonconforming = [
             (card.score or 0.0, name)
             for name, card in bank.cards.items()
-            if name not in decoys and any(
-                section not in card.body
-                for section in BankTransactionValidator.BODY_SECTIONS
-            )
+            if name not in decoys
+            and body_contract_gaps(card.body, min_words)
         ]
         for _, name in sorted(nonconforming, reverse=True)[:rewrite_cap]:
+            gaps = body_contract_gaps(bank.cards[name].body, min_words)
             add("dk", "rewrite",
-                f"card {name} predates the reader body contract — rewrite "
-                f"its body in place (## When you're here / ## Do this / "
-                f"## What you gain; gains abstract, numbers stay in "
-                f"evidence; claim meaning unchanged), bump the version "
-                f"with one log entry")
+                f"card {name} misses the reader body contract "
+                f"({'; '.join(gaps)}) — rewrite its body in place "
+                f"(## When you're here / ## Do this / ## What you gain; "
+                f"no length cap, each section substantive; gains abstract "
+                f"with their why; numbers stay in evidence; claim meaning "
+                f"unchanged), bump the version with one log entry")
 
         nominate_threshold = self.crew_config["dup_nominate_jaccard"]
         names = sorted(bank.cards)
@@ -445,7 +447,10 @@ cat "role-prompts/$ROLE.md" "$ASSIGNMENT" | codex exec \\
         before = Bank(str(before_dir))
         after = Bank(str(run_dir / "bank"))
 
-        findings += BankTransactionValidator(before, after).validate()
+        findings += BankTransactionValidator(
+            before, after,
+            body_section_min_words=self.crew_config["body_section_min_words"],
+        ).validate()
         findings += self._check_coverage(run_dir)
         findings += self._check_evidence(before, after, batch)
         findings += self._check_score_bounds(after)

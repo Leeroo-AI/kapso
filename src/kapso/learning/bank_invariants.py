@@ -62,6 +62,32 @@ def usage_claims_serving(usage: str) -> bool:
     return any(word in lower for word in ("served", "cited", "probe"))
 
 
+# The reader contract (user decisions 2026-08-21): three engineer-facing
+# intents per body, each with enough substance to act on — a missing
+# section is an unwritten card, a slogan-thin one is an unfinished card.
+BODY_SECTIONS = ("## When you're here", "## Do this", "## What you gain")
+
+
+def body_contract_gaps(body: str, min_words: int) -> List[str]:
+    """Missing or slogan-thin reader sections, named. Shared by the
+    transaction validator (touched cards must conform) and the seeder
+    (non-conforming cards queue for rewrite)."""
+    gaps: List[str] = []
+    for index, section in enumerate(BODY_SECTIONS):
+        if section not in body:
+            gaps.append(f"missing {section!r}")
+            continue
+        tail = body.split(section, 1)[1]
+        for later in BODY_SECTIONS[index + 1:]:
+            tail = tail.split(later, 1)[0]
+        words = len(tail.split())
+        if words < min_words:
+            gaps.append(
+                f"{section!r} is slogan-thin ({words} words < {min_words})"
+            )
+    return gaps
+
+
 def _claim_signature(card: Card) -> Dict[str, Any]:
     signature = {field: card.frontmatter.get(field) for field in CLAIM_LAYER_FIELDS}
     signature["body"] = card.body
@@ -77,9 +103,10 @@ class BankTransactionValidator:
     state). Pure function of two Bank views + context; findings, never
     repairs."""
 
-    def __init__(self, before: Bank, after: Bank):
+    def __init__(self, before: Bank, after: Bank, body_section_min_words: int):
         self.before = before
         self.after = after
+        self.body_section_min_words = body_section_min_words
 
     def validate(self) -> List[str]:
         findings: List[str] = []
@@ -97,18 +124,14 @@ class BankTransactionValidator:
 
     # ------------------------------------------------------- body contract
 
-    # The reader contract (user decision 2026-08-21): every card body is
-    # written for an ML engineer mid-task, in exactly these three intents.
-    BODY_SECTIONS = ("## When you're here", "## Do this", "## What you gain")
-
     def _check_body_contract(self) -> List[str]:
         """Cards written or rewritten in THIS transaction carry the three
-        reader-intent sections — a card that cannot tell an engineer when
-        it applies, what to do, and what it buys them has not finished
-        being written. Untouched legacy cards pass: conformance rides each
-        card's next edit (plus the seeder's capped rewrite rows), so the
-        bank migrates incrementally instead of blocking every transaction
-        on a full rewrite."""
+        reader-intent sections with real substance — a card that cannot
+        tell an engineer when it applies, what to do, and what it buys
+        them (and why) has not finished being written. Untouched legacy
+        cards pass: conformance rides each card's next edit (plus the
+        seeder's capped rewrite rows), so the bank migrates incrementally
+        instead of blocking every transaction on a full rewrite."""
         findings: List[str] = []
         decoys = self.after.decoy_names
         for name, card in sorted(self.after.cards.items()):
@@ -117,14 +140,14 @@ class BankTransactionValidator:
             previous = self.before.cards.get(name)
             if previous is not None and previous.body == card.body:
                 continue  # untouched this transaction — legacy passes
-            missing = [s for s in self.BODY_SECTIONS if s not in card.body]
-            if missing:
+            gaps = body_contract_gaps(card.body, self.body_section_min_words)
+            if gaps:
                 findings.append(
-                    f"{name}: body is missing the reader-contract "
-                    f"section(s) {', '.join(repr(m) for m in missing)} — "
-                    "rewrite the body for an ML engineer mid-task (when "
-                    "you're here / do this / what you gain; abstract "
-                    "gains, numbers stay in evidence)"
+                    f"{name}: reader-contract body gaps — "
+                    f"{'; '.join(gaps)} — write each section for an ML "
+                    "engineer mid-task with enough substance to act on "
+                    "(no length cap; abstract gains with their why; "
+                    "numbers stay in evidence)"
                 )
         return findings
 
