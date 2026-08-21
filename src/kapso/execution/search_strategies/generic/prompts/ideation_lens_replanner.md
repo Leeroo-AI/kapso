@@ -45,8 +45,8 @@ Prior decision rationale: {{previous_rationale}}
 ## Axis-coverage contract (anti-freeze)
 
 Campaigns measurably fail by silently freezing an axis once a champion
-exists (e.g. a feature matrix never widened again while every iteration
-swaps mechanisms). Whether you KEEP or REVISE, your paragraph must assign
+exists (e.g. the input-representation axis never revisited while every
+iteration swaps model mechanisms). Whether you KEEP or REVISE, your paragraph must assign
 each axis above exactly one status:
 - ACTIVE — a lens moves it this iteration (say which lens);
 - SATURATED — cite the measured evidence (an ablation/importance study, or

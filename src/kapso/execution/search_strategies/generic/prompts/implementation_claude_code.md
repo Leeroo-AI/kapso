@@ -32,7 +32,7 @@ You are a world class developer and programmer. Your task is to implement the pr
 ### Knowledge Search (MCP Tools)
 - **wiki_code_search**: Search curated ML/AI knowledge base for implementation patterns
   - Use for: code examples, implementation details, library usage
-  - Example: "QLoRA implementation", "mixed precision training code"
+  - Example: "early-stopping implementation", "efficient data-loading code"
 
 - **research_implementation**: Research implementations from the web
   - Use for: finding open-source implementations, library documentation
@@ -170,7 +170,7 @@ because each has destroyed a real session before:
   as stale, read the file or task output it names. Your belief that you
   killed a process does not outrank a result file on disk.
 - KILL DISCIPLINE: terminate processes by specific PID only. NEVER use
-  pattern kills (`pkill -f python`, `pkill -f vllm`) or group kills
+  pattern kills (`pkill -f python`, `pkill -f <server>`) or group kills
   (`kill 0`, `kill -- -PID`): this machine also runs YOUR OWN session and
   its orchestrator, and a pattern/group kill will terminate you mid-work.
 - NO ORPHANED VALUE: every background job you start must end in one of two

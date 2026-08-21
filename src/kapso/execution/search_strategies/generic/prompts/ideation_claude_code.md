@@ -43,16 +43,16 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
 
 - **search_similar_experiments**: Search for experiments similar to your idea
   - Use this to check if your approach was already tried
-  - Example: `search_similar_experiments(query="gradient accumulation", k=3)`
+  - Example: `search_similar_experiments(query="<your candidate approach>", k=3)`
 
 ### Knowledge Search (MCP Tools)
 - **wiki_idea_search**: Search curated ML/AI knowledge base for principles and heuristics
   - Use for: foundational concepts, best practices, theoretical understanding
-  - Example: "LoRA fine-tuning principles", "gradient accumulation best practices"
+  - Example: "overfitting mitigation principles", "hyperparameter search best practices"
 
 - **wiki_code_search**: Search for implementation patterns and code examples
   - Use for: concrete code patterns, implementation details
-  - Example: "QLoRA implementation", "mixed precision training code"
+  - Example: "early-stopping implementation", "efficient data-loading code"
 
 - **research_idea**: Research ideas from the web (use when curated knowledge is insufficient)
   - Use for: cutting-edge techniques, recent papers, novel approaches
