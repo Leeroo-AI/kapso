@@ -257,12 +257,6 @@ Data access (violations invalidate the run):
   methods, domain background, and library usage are fine. Solve it yourself.
 - PRETRAINED MODELS (encouraged) — any pretrained model may be downloaded
   and used however helps (fine-tune, distill, feature-extract).
-- SIBLING-TASK CLAIMS (encouraged) — proven prior solutions for other tasks
-  in this benchmark live in this checkout at
-  `benchmarks/relbench/claims/<dataset>--<task>/` (winning code plus its
-  final report). When label lineage links your task to a sibling
-  (modelling practice 11), that claim is a legitimate starting design and
-  reference engine — our own prior work, not an external source.
 - HOSTED MODEL APIS (encouraged) — calling hosted LLM APIs with the
   provided credentials (OPENAI_API_KEY) is explicitly PERMITTED, for
   feature extraction and anything else that helps. There is NO

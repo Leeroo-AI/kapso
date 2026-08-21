@@ -1,7 +1,0 @@
-RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-2026-08-02: Profiled immutable grader mechanics, split years, allowed text lengths, surviving categories, seed-time relation coverage, and result-table censoring.
-2026-08-02: Pretrained model pinned to thomas-sounack/BioClinical-ModernBERT-base revision c3648aa87af95837c809e6f0c5f85d08160db437.
-2026-08-02: No external dataset used. The only external artifact is the MIT-licensed pretrained encoder from Hugging Face; it supplies generic pretrained weights rather than task labels or post-cutoff AACT data.
-2026-08-02: Added the rare legitimately seed-time outcomes, withdrawals, reported events, and outcome analyses to a quota-limited RESULTS field; every such row is filtered by result.date <= seed.date.
-2026-08-02: Fast gate completed in 588.8s with official validation ROC-AUC 0.9535086726 and valid full-shape outputs.
-2026-08-02: Full attempt 1 was stopped before checkpoint/archive creation after 1,500/5,672 initial-stage steps: micro-batch 4 measured 1,864 examples/minute but only 34.4% mean GPU utilization and 3.5 GB memory. Increased micro-batch to 16 while preserving effective batch 32.

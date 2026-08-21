@@ -1,5 +1,0 @@
-Iteration 1 started: profiled immutable grader mechanics, repository contract, installed dependencies, and training-only coverage axes.
-RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-Implemented projected detailed-event caching, fixed-quota relational candidate sources, BGE embedding and HNSW cache with replay gate, 68 temporally censored features, training-only forward replay, LambdaRank, robust reciprocal-rank blending, Model A freeze, Model B refit, chunked inference, and strict prediction checks.
-Debug evaluation completed in 615.4 seconds with valid full-shape arrays; Stage C BGE candidates were rejected because their training-replay recall@800 deltas were -0.00534 and -0.00304.
-Recovered issues: corrected a DuckDB parameter-count mismatch in snapshot aggregation; corrected candidate/truth group alignment and quadratic quota accounting; added the heuristic-rank blend after raw LambdaRank transferred poorly across training origins.

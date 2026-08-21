@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from benchmarks.relbench.scorecard import PROTOCOL_SENSITIVE_TASKS
+from benchmarks.relbench.campaign import PROTOCOL_SENSITIVE_TASKS
 
 GRADER = Path(__file__).parents[1] / "benchmarks" / "relbench" / "data" / "generic_eval" / "grader.py"
 

@@ -1,6 +1,0 @@
-RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-2026-08-01: Profiled immutable scoring mechanics and frozen-origin coverage. Kept the profile at repository root because files under kapso_evaluation are explicitly immutable.
-2026-08-01: Implemented the all-table causal feature store, daily frozen label/cohort states, repeat/cold LightGBM experts, forward-origin stability-gated router, two legal prediction chains, prediction banking, and slice diagnostics.
-2026-08-01: Debug recovery: removed high-cardinality native categorical declarations after a 36.9 GB memory spike; cast NumPy router dominance flags to Python bool after metrics JSON serialization failed.
-2026-08-01: Full run_0004 scored validation ROC AUC 0.9453316240. Forward slices identified cold rows as the main loss pool; added granular device and device-context frozen cohort priors after they improved fixed forward-origin mean and worst AUC.
-2026-08-01: Rejected the widened v2 cohort block after full three-origin test-chain resampling fell from v1 mean/worst AUC 0.950982/0.945338 to 0.950844/0.944744; reverted to v1 independently of official-validation selection.

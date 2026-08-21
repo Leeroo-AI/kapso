@@ -8,11 +8,9 @@ import pytest
 import yaml
 
 from benchmarks.relbench.campaign import (CPU_LOCAL_QUEUE, CPU_SAFE_DATASETS,
-                                          ROI_QUEUE, derive_goal, select_tasks)
+                                          PROTOCOL_SENSITIVE_TASKS, ROI_QUEUE,
+                                          derive_goal, select_tasks)
 from benchmarks.relbench.runner import _write_runtime_config
-from benchmarks.relbench.scorecard import PROTOCOL_SENSITIVE_TASKS, _campaign_orders
-
-DATA = Path(__file__).parents[1] / "benchmarks" / "relbench" / "data"
 
 
 def test_queue_integrity():
@@ -25,9 +23,6 @@ def test_queue_integrity():
         assert task in get_task_names(ds), f"{task_id} not in relbench registry"
     assert len(CPU_LOCAL_QUEUE) == 39
     assert all(t.split("/")[0] in CPU_SAFE_DATASETS for t in CPU_LOCAL_QUEUE)
-    # scorecard sources the same lists (the single-home contract)
-    roi, cpu = _campaign_orders()
-    assert roi == ROI_QUEUE and cpu == set(CPU_LOCAL_QUEUE)
 
 
 def test_selection_gates(tmp_path):
@@ -44,23 +39,20 @@ def test_selection_gates(tmp_path):
                           "rel-avito/ad-ctr"]
     assert PROTOCOL_SENSITIVE_TASKS == {"rel-f1/driver-position", "rel-f1/driver-dnf",
                                         "rel-f1/driver-top3"}
-    from benchmarks.relbench.scorecard import ROLLING_VERIFIED
+    from benchmarks.relbench.campaign import ROLLING_VERIFIED
 
     # an unverified rolling task would be blocked: simulate by construction
     assert ROLLING_VERIFIED <= PROTOCOL_SENSITIVE_TASKS
 
 
-def test_derive_goal_units():
-    baselines = json.loads((DATA / "baselines.json").read_text())
-    div = baselines["_meta"]["train_std_divisors_nmae"]["rel-f1/driver-position"]
-    kumo, desc = derive_goal("rel-f1/driver-position", "beat-kumo")
-    assert kumo == pytest.approx(2.731) and "raw MAE" in desc
-    best, desc = derive_goal("rel-f1/driver-position", "beat-best")
-    assert best == pytest.approx(0.3745 * div, rel=1e-6)  # NMAE -> raw MAE
-    auroc, _ = derive_goal("rel-event/user-repeat", "beat-best")
-    assert auroc == pytest.approx(83.6)  # percentages pass through
-    explicit, _ = derive_goal("rel-f1/driver-position", "2.6")
-    assert explicit == 2.6
+def test_derive_goal_explicit_only():
+    # Symbolic board targets were retired with data/sota.json +
+    # data/baselines.json; only explicit numeric targets remain.
+    explicit, desc = derive_goal("rel-f1/driver-position", "2.6")
+    assert explicit == 2.6 and "explicit" in desc
+    for retired in ("beat-best", "beat-kumo"):
+        with pytest.raises(ValueError, match="retired"):
+            derive_goal("rel-f1/driver-position", retired)
 
 
 def test_goal_none_omits_target(tmp_path, capsys):

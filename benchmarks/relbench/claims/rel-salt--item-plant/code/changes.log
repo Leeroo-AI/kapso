@@ -1,9 +1,0 @@
-RepoMemory sections consulted: core.architecture, core.dependencies, core.entrypoints, core.gotchas, core.invariants, core.testing, core.where_to_edit
-Initialized the measurement profile and campaign time-allocation plan.
-Replaced the trivial candidate with a 30-weight nonnegative organization-anchored causal factor model, document-signature pooling, role-specific geography histories, and a calibrated multi-plant exception gate.
-Implemented separate train-only model A validation inference and train-plus-validation model B test inference, including three internal origins and fixed internal-only hyperparameter selection.
-Verified the debug contract at full output shape; direct debug validation accuracy was 0.9981655622602723.
-Added an internally selected high-purity organization/product exception path that pools unanimous organization-product and organization-party-product evidence to the document level; debug validation accuracy increased to 0.9983085054607705 without validation-driven selection.
-Expanded the exception candidates to compare stable item-only organization-product evidence, item ensembles, and document ensembles using mean-plus-worst internal-origin improvement; raw class purity is computed causally from each history prefix.
-Added a 90/180-day blended-recency organization-product exception candidate after it improved both mean and worst internal-origin deltas over the unweighted rule.
-Widened the recency exception key with document type after organization-by-document-type-by-product improved mean and worst internal-origin accuracy over organization-by-product alone.

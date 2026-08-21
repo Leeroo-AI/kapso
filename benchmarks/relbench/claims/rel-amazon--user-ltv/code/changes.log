@@ -1,8 +1,0 @@
-RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-Characterized immutable evaluator mechanics, full split shapes, quarterly label drift, validation-to-test activity gap, schema coverage, and installed dependency versions.
-Kept kapso_evaluation read-only as required by the immutable evaluation contract; evaluation profile is stored at repository root.
-Implemented compound-process feature, cutoff recurrence, forward-fold gate, LightGBM count/quantile/reference, Sobol decoding, and two-model orchestration modules.
-Measured causal event-state materialization at 536,467 review rows/s; train auxiliary outcomes had no nonzero-LTV/zero-count inconsistencies and maximum N91 of 535.
-Forward folds rejected compound median decoding (median MAE 15.9469) in favor of the analytic hurdle reference (15.7682), beyond clustered bootstrap SE 0.00425; count/recurrence predictions remain reference features.
-Difficulties: DuckDB 1.5.4 lacks log1p, fixed with ln(1+x); vectorized a per-customer squared-target cumsum after a groupby lambda stalled; PyMC-Marketing MAP hit an NDArray.record(in_warmup) dependency incompatibility and used the specified raw recurrence fallback.
-Registered full evaluation archived run_0002 with validation MAE 11.682163205937716, RMSE 40.138768152251195, and R2 0.32688182878730476; persisted official validation slices in evaluation_results.json.

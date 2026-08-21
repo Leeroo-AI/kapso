@@ -240,13 +240,6 @@ examples/ml_model_development/e2e/runs/
 # fetched run artifacts (large, regenerable from GCS)
 benchmarks/posttrain/gcp/results_fetched/
 
-# Claim prediction arrays: multi-hundred-MB float dumps that breach GitHub's
-# 100 MB blob limit (rel-salt/sales-group hit 159 MB). They stay on disk for
-# final_evaluate's val recomputation and are archived per run in GCS
-# (gs://leeroo-kapso-relbench-artifacts/runs/), so git carries the claim's
-# code + final_report.json and not the raw arrays.
-benchmarks/relbench/claims/**/*.npy
-
 # Private IOAI organizer Discord transcript — not ours to redistribute
 benchmarks/ioai2026/discussions.md
 

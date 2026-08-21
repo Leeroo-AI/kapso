@@ -1,2 +1,0 @@
-2026-07-30: Characterized the immutable full-fidelity evaluator, split origins, label-size distributions, history-depth drift, metric aggregation, and prediction contract. Added PLAN.md and a root eval_profile.md because kapso_evaluation is read-only.
-RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
