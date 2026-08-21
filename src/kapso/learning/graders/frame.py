@@ -84,6 +84,18 @@ class GradingFrame:
         result = agent.generate_code(prompt, timeout_seconds=timeout)
         return result.output or ""
 
+    def _run_role_for_artifact(
+        self, role: str, prompt: str, cwd: Path, artifact: Path
+    ) -> None:
+        """Run a role session that must produce `artifact`. A session can
+        die without writing it for infrastructure reasons (rate-limit
+        events, provider disconnects) — retry ONCE with a fresh session,
+        then let the caller's missing-artifact raise fire (fail loud; the
+        retry covers transport, never content)."""
+        self._run_role(role, prompt, cwd)
+        if not artifact.is_file():
+            self._run_role(role, prompt, cwd)
+
     # ------------------------------------------------------------ one exam
 
     def grade_trajectory(
@@ -164,7 +176,9 @@ class GradingFrame:
 
         repair_rounds = self.crew_config["repair_rounds"]
         rounds_used = 0
-        self._run_role("report_writer", writer_prompt, run_dir)
+        self._run_role_for_artifact(
+            "report_writer", writer_prompt, run_dir, slot / "report.md"
+        )
         while True:
             report_path = slot / "report.md"
             if not report_path.is_file():
@@ -174,7 +188,10 @@ class GradingFrame:
             report = HindcastReport.parse(report_path.read_text())
             findings = validator.validate(report)
             if not findings:
-                self._run_role("verifier", verifier_prompt, run_dir)
+                self._run_role_for_artifact(
+                    "verifier", verifier_prompt, run_dir,
+                    slot / "verifier-findings.md",
+                )
                 findings = self._block_findings(slot / "verifier-findings.md")
             if not findings:
                 return {
@@ -190,12 +207,13 @@ class GradingFrame:
                 )
             rounds_used += 1
             numbered = "\n".join(f"{i+1}. {f}" for i, f in enumerate(findings))
-            self._run_role(
+            self._run_role_for_artifact(
                 "report_writer",
                 writer_prompt
                 + "\n\nYour previous report was rejected. Named findings — fix "
                   "each and rewrite the report file:\n" + numbered,
                 run_dir,
+                slot / "report.md",
             )
 
     def _block_findings(self, findings_path: Path) -> List[str]:
