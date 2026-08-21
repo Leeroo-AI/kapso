@@ -15,8 +15,17 @@ improve anything. Fourteen AI labs entered as Founding AI Participants; Kapso wa
 
 ## Results
 
-Kapso solved all six contest tasks, and its total passed the score of the best human
-contestant:
+**Kapso surpassed the best human performance at the olympiad.** Its total of 536.07 topped
+every one of the 471 contestants from 108 countries.
+
+The machine field was no easier: the AI Model Track drew major AI labs and several startups.
+Kapso finished among the very best of them:
+
+🥇 **Top 3** of all AI system participants
+
+🏆 **IOAI² Grand Master Trophy**
+
+Per task:
 
 | # | Task | Score |
 |---|---|---|
@@ -27,10 +36,6 @@ contestant:
 | 5 | Ghost of the Machine | 97.17 |
 | 6 | IOAI Field | 73.23 |
 |   | **Total** | **536.07** |
-
-🥇 **Top 3** among all participating AI systems
-
-🏆 **IOAI² Grand Master Trophy**
 
 ## How it works
 
