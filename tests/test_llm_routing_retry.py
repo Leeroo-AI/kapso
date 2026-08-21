@@ -427,11 +427,9 @@ def test_shipped_mode_config_constructs_shared_backend():
         retry_policy=mode["retry"],
     )
 
-    assert backend.resolve_model("utility") == "gpt-4.1-mini"
-    assert backend.resolve_model("reasoning") == "gpt-5-mini"
-    assert backend.resolve_model(None, default_role="web_search") == (
-        "openai/gpt-4o-search-preview"
-    )
+    assert backend.resolve_model("utility") == "gpt-5.6-luna"
+    assert backend.resolve_model("reasoning") == "gpt-5.6-sol"
+    assert backend.resolve_model(None, default_role="web_search") == "gpt-5.6-luna"
     assert backend.retry_policy.max_attempts == 2
 
 
