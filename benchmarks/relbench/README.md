@@ -15,10 +15,16 @@ and **Leeroopedia**, Leeroo's curated ML knowledge base.
 
 ## Results
 
-Kapso beats the best published results across the three task families. The same solutions,
-re-measured under an identical budget, also beat a frontier coding agent working alone:
+[KumoRFM-v2](https://arxiv.org/abs/2604.12596) is the strongest foundational model for
+relational data: one pretrained model, queried in context on any database. It is the bar to
+beat in outcome prediction and forecasting. Recommendation tasks are the gap in its coverage
+(the model does not support them), so there Kapso is measured against the best reported
+result per task. Kapso beats both bars:
 
-![Kapso vs best published](assets/kapso_vs_best_published.png)
+![Kapso vs KumoRFM-v2](assets/kapso_vs_best_published.png)
+
+The same solutions, re-measured under an identical budget, also beat a frontier coding agent
+working alone:
 
 ![Kapso vs Claude Code](assets/kapso_vs_claude_code.png)
 
