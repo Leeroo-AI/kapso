@@ -95,10 +95,13 @@ def test_bank_serving_env_threads_into_the_gate_server(tmp_path):
     assert "gated-knowledge" not in mcp_servers
 
 
-def test_knowledge_slot_replaced_by_live_brief():
+def test_knowledge_slot_additive_brief_on_static_notes():
     live = knowledge_section("SERVED BRIEF BODY")
+    # additive contract: notes are the permanent base, brief appends after
+    assert FEATURE_ENGINEERING_NOTE in live
     assert "Knowledge bank brief" in live and "SERVED BRIEF BODY" in live
-    assert FEATURE_ENGINEERING_NOTE not in live
+    assert live.index(FEATURE_ENGINEERING_NOTE) < live.index("SERVED BRIEF BODY")
+    assert "let your own measurements arbitrate" in live
     fallback = knowledge_section(None)
     assert FEATURE_ENGINEERING_NOTE in fallback
     assert "Knowledge bank brief" not in fallback

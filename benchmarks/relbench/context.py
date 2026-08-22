@@ -323,18 +323,23 @@ Experimentation notes for this search:
 # ---------------------------------------------------------------------------
 
 def knowledge_section(bank_brief: "Optional[str]") -> str:
-    """The context's knowledge slot. Serving live (learn-from-trajectories
-    §5.3): the compiled push brief REPLACES the two hand-maintained notes —
-    same slot, now scoped, cited, and reliability-graded. With serving off
-    the static notes stand (the per-benchmark off-switch, not a legacy
-    path)."""
-    if bank_brief:
-        return ("\n## Knowledge bank brief (measured practice — suggestion)\n"
-                + bank_brief)
-    return ("\n## Feature engineering (high-value direction — suggestion)\n"
+    """The context's knowledge slot. The two hand-maintained notes are the
+    permanent base; serving live (learn-from-trajectories §5.3), the
+    compiled push brief is ADDITIVE on top of them — scoped, cited, and
+    reliability-graded. An A/B candidate arm therefore measures the bank's
+    marginal value over everything the incumbent already gets, not its
+    worth as a replacement."""
+    base = ("\n## Feature engineering (high-value direction — suggestion)\n"
             + FEATURE_ENGINEERING_NOTE
             + "\n\n## Modelling practices (measured — suggestion)\n"
             + MODELLING_PRACTICE_NOTE)
+    if bank_brief:
+        return (base
+                + "\n\n## Knowledge bank brief (measured practice — suggestion)\n"
+                + "This complements the practice notes above; where they "
+                + "disagree, let your own measurements arbitrate.\n"
+                + bank_brief)
+    return base
 
 
 FEATURE_ENGINEERING_NOTE = (

@@ -1062,8 +1062,12 @@ naturally produce; learning reads, mines, and settles entirely on its own
 side, and never adds an output obligation or workflow step to the campaign
 loop — the probe-outcome note this design once considered is the canonical
 counterexample, killed in favor of learning-side settlement matching (§5.1).
-What serving touches is exactly this: the push brief replaces two static
-context constants; the `bank_search`/`bank_get` tools join the gated-MCP
+What serving touches is exactly this: the push brief rides **additively** on
+the two static context constants — the notes are the permanent base every
+campaign gets, the brief appends after them (with a one-line
+measurements-arbitrate note for conflicts), so an A/B candidate arm measures
+the bank's marginal value over the incumbent's full context, never its worth
+as a replacement; the `bank_search`/`bank_get` tools join the gated-MCP
 presets for ideation/implementation sessions (never the judge; per-benchmark
 off-switch in config); probe rendering is one prompt paragraph *offering* a
 suggestion; `bank_head` in campaign meta is stamped by the retriever, not by
@@ -1110,7 +1114,7 @@ apart in cost — cheap rungs iterate the learner, expensive rungs certify it
 | **1 — audits + gauntlet** | free; every learner run | provenance, coherence, revision, memory economy | diff invariants (the decoy audit of §6 among them, enforced per commit); the duplicate trap (a disguised clone of a real mined view must add nothing — the ~20× echo shape of our corpus, made a test); the stability trap (two runs on the same batch must agree in substance); implant and red-team specs deferred until an incident earns them |
 | **2 — hindcast** | minutes; no GPU | extraction, generalization-as-prediction, calibration, availability | freeze the bank; for a held-out trajectory compile the brief it *would have* served, then score against what that campaign actually measured: discoveries already banked (extraction — the re-derivation rate, inverted), bank claims settled by the campaign's graded outcomes inside claimed scope (calibration points for free), relevant cards actually **in** the brief at budget (availability: miss rate and noise rate) |
 | **3 — probes** | capped slice of live campaigns | generalization-as-causation for single claims; boundary carving | the probe queue (§5.1): pre-registered, VoI-ranked, budget-capped |
-| **4 — A/B arms** | full campaigns; config-waivable | transfer — terminal, incorruptible | candidate-head arm vs incumbent-head arm (two refs of one repo; the first generation's incumbent is the empty brief), **same-task pairs** — the champion-vs-no-champion harness; primary KPI: paired test-score delta ± SE; guard KPI: no regression where the bank is thin |
+| **4 — A/B arms** | full campaigns; config-waivable | transfer — terminal, incorruptible | candidate-head arm vs incumbent-head arm (two refs of one repo; the first generation's incumbent is the empty brief, i.e. static notes only — both arms always carry the permanent notes, arms differ only in the appended brief), **same-task pairs** — the champion-vs-no-champion harness; primary KPI: paired test-score delta ± SE; guard KPI: no regression where the bank is thin |
 
 Rung 2's honest limit, stated once: the hindcast measures **predictive
 alignment, not causal influence** — the held-out campaign was never steered by
@@ -1178,11 +1182,12 @@ commit (Rule 8):
    seed); update-crew v1 over the learn-set; iterate crew versions against the
    scorecard (§4.4); human review of the first bank commits; keep-best banking
    of learner versions.
-5. **Serving** — the retriever replaces the static context notes (push brief
-   + `bank_search`/`bank_get` tools); stamping + citation contract;
-   exam-before-lesson goes live on every new campaign. A/B-able immediately: founding cards vs static notes should be
-   ≈neutral (same content, now scoped and cited), validating the plumbing before
-   any mining takes credit.
+5. **Serving** — the retriever augments the static context notes (push brief
+   appended after them + `bank_search`/`bank_get` tools); stamping + citation
+   contract; exam-before-lesson goes live on every new campaign. A/B-able
+   immediately: notes+founding-brief vs notes alone should be ≈neutral or
+   better (the founding cards overlap the notes' content), validating the
+   plumbing before any mining takes credit.
 6. **Probes + arms** — probe-queue rendering into the lens planner under
    `learning.probe_budget`; the first A/B arm; transfer measurement in earnest.
 

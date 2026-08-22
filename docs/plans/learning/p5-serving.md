@@ -1,6 +1,7 @@
 # P5 — Serving goes live
 
-**Goal:** the retriever replaces the static context notes; every new campaign
+**Goal:** the retriever augments the static context notes (brief appended
+after them — additive, per MD§5.3); every new campaign
 is briefed, tooled, stamped, and exam-before-lesson runs on it (MD§8.5,
 MD§4.1, MD§5.1–5.3). **Design sources:** MD§5.1 (both modes, serving record,
 co-serving guard), MD§5.3 (the read-only-substrate law + the sanctioned
@@ -25,8 +26,9 @@ entries; the §5.3 evolve-side edits (gated); exam-before-lesson wiring;
    ideation + implementation sessions only — **never the feedback judge**;
    per-benchmark off-switch in config.
 2. **(G) GATED — the §5.3 evolve edits** (approval D5b, diffs before merge):
-   push brief replaces the two static context constants
-   (`MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` blocks); the
+   push brief appends after the two static context constants
+   (`MODELLING_PRACTICE_NOTE` / `FEATURE_ENGINEERING_NOTE` stay the
+   permanent base — additive, flipped from replacement 2026-08-22); the
    citation-contract paragraph in ideation/implementation prompts +
    `cards_load_bearing` in the judge template (the one sanctioned
    convention); `bank_head` stamped into campaign meta **by the retriever,
