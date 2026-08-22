@@ -44,6 +44,11 @@ withheld card is silence, not SERVE-NOISE. When the record shows
 `served: []`, the Serving section is EMPTY and the `serving` dimension is
 null; commentary about what the bank holds belongs nowhere in this
 report.
+PARTIAL UPTAKE IS UPTAKE-FAIL: SERVED-USED requires the campaign to have
+followed the card's ACTUAL method — following a degraded or partial
+variant (fewer splits, missing checks, a different gate) is UPTAKE-FAIL
+with the gap named, however good the intent looked. A served probe row is
+charged separately and NEVER absorbs the card row's own uptake verdict.
 Every SERVED-USED entry must also GRADE THE PAYOFF of following the card:
 name the decision the campaign took because of it and the measured effect
 (delta and ref), or state plainly "followed, no measurable benefit". A
