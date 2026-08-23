@@ -10,6 +10,9 @@ Push only an *introduction* to the bank and per-module guidance on *when* to
 consult it; give every module agentic search tools over the whole bank —
 "like the index of a book" — instead of frame-side top-k selection.
 Inspiration: PageIndex (VectifyAI) — vectorless, reasoning-based retrieval.
+Refined 2026-08-23 (user redlines): no pitfall card type anywhere; index
+lines simplified (no visited-here, no probe flags); intro stripped to what
+the bank is + the tools; explicit tool names.
 
 ---
 
@@ -47,7 +50,7 @@ Adopted, mapped to the bank:
 |---|---|
 | tree node = natural section | card = natural unit (already atomic) |
 | node title + summary | card name + hero line |
-| page range (where to go deeper) | the read/inspect tools by card name |
+| page range (where to go deeper) | the get-card tools by card name |
 | LLM navigates with full conversation context | module scans the index holding its own plan/failure — situational match happens in the reader's head, not in a ranker |
 | traceable retrieval trajectory | pull log + serving record exposure ladder |
 | no vectors, no chunking | no embeddings anywhere; selection is reading |
@@ -70,34 +73,35 @@ implementation, and lens-planner sessions — never the feedback judge (§5.3
 law, unchanged). All three are read-only, deterministic, filtered by task
 eligibility + quarantine exactly as today, and logged to the pull log.
 
+Names state exactly what returns: `bank_index` (the index page),
+`bank_get_card` (the card), `bank_get_card_with_evidence` (the card plus the
+evidence it stands on).
+
 ### 3.1 `bank_index` — the book's index (entry point)
 
-**Input:** none required. Optional `section: insights | procedures | pitfalls`
-filter (irrelevant at 29 cards; the contract that survives scale).
-**Output:** the WHOLE eligible set, one line per card, reliability-ordered
-within type sections, plus a census/gaps footer. No query, no ranking cut —
+**Input:** none required. Optional `section: insights | procedures` filter
+(irrelevant at 29 cards; the contract that survives scale).
+**Output:** the WHOLE eligible set, one line-group per card,
+reliability-ordered within type sections. No query, no ranking cut —
 browsing replaces querying.
 
-Line format (everything the agent needs to decide "open or skip"):
+Line format — three facts per card, enough to decide "open or skip":
 
 ```
 ## Insights
-[card:renewal-units-beat-raw-event-counts] insight · score 0.73 · visited-here yes
+[card:renewal-units-beat-raw-event-counts] score 0.73
   — Test whether renewal units beat raw event counts when actions cluster in bursts
   applies-when: repeated actions per entity cluster in bursts within short periods
-[card:direct-target-head-anchors-survival-reformulations] insight · score 0.45 · visited-here no · PROBE-WANTED
+[card:direct-target-head-anchors-survival-reformulations] score 0.45
   — Keep a direct binary-target head anchored when reformulating to survival/hazard objectives
   applies-when: fixed-horizon binary target is also reformulated into survival, hazard, or waiting-time auxiliaries
 ...
 
 ## Procedures
-[card:six-fold-forward-gate-runner] procedure · score 0.61 · visited-here no
+[card:six-fold-forward-gate-runner] score 0.61
   — Precommitted expanding-origin gate harness with clustered uncertainty readout
   applies-when: admitting feature/model changes on temporal tasks; cost scales with dataset size
-...
 
-## Census
-29 cards eligible (27 insights, 2 procedures, 0 pitfall-tagged) · 4 probe-flagged
 gaps: no procedure covers <task-family> end-to-end
 ```
 
@@ -106,15 +110,13 @@ Design notes:
   card-writer at authoring time, not at serve time) — **this line is the
   wave-A fix**: an agent scanning with "I'm about to reformulate to survival"
   in its head matches it by reading, no ranker involved.
-- `visited-here` replaces the ×0.5 unvisited *discount*: the fact is shown,
-  the judgment is the reader's. The discount knob dies.
-- `PROBE-WANTED` flags at most `probe_budget` cards whose probe the bank
-  wants run; the probe text itself arrives on read (§3.2), keeping the index
-  cheap.
-- The census/gaps footer is the honest "what the bank does not know",
-  preserved from v1.
+- The closing `gaps:` line (only when non-empty) preserves v1's honest
+  "what the bank does not know".
+- Deliberately absent: visited-this-dataset flags, probe flags, census
+  counts — the index is name + one-liner + score + applies-when, nothing
+  else. Dataset history and probes surface on the card itself (§3.2).
 
-### 3.2 `bank_read` — the card body
+### 3.2 `bank_get_card` — the card body
 
 **Input:** `cards: [name, ...]` (co-serving guard as today: reading a card
 pulls in its tension partners' index lines so contested scope stays visible).
@@ -122,25 +124,27 @@ pulls in its tension partners' index lines so contested scope stays visible).
 Is-this-your-situation → What-to-do → Why-believe-this → Confidence) — the
 body already IS the engineer-facing card; nothing else added. Plus:
 
-- if probe-flagged: the probe paragraph + the cost clause (§5, wave-A lesson).
+- if the card has a queued probe (at most `probe_budget` offered per
+  campaign): the probe paragraph + the cost clause (§5, wave-A lesson) —
+  an optional measurement offer, visible only when the card is opened.
 - **if a procedure: the code location** —
   `code: <bank_checkout>/procedures/<name>/code/` (entrypoint `code/main.py`)
   and `replay: <bank_checkout>/procedures/<name>/replay/` — the on-disk
   serving clone paths, so a session can read, copy, or execute the harness
   directly.
 
-### 3.3 `bank_inspect` — body + reliability + evidence (due diligence)
+### 3.3 `bank_get_card_with_evidence` — the card plus its track record
 
 **Input:** `cards: [name, ...]`.
-**Output per card:** everything `bank_read` returns **plus** the machine
+**Output per card:** everything `bank_get_card` returns **plus** the machine
 ledger's trust surface: the reliability block (validity/boundary/coverage/
 score + rationale + plain line), the full evidence entries (per-entry
 trajectory, ref, verdict, note), and current state/version. Procedures again
 include code + replay locations.
 
-Purpose split (why two depths, per the user's spec): `bank_read` is for
-*acting on* a card mid-flow; `bank_inspect` is for *betting on* one — before
-a lane commits real budget to a card's advice, it can audit where the claim
+Purpose split (why two depths): `bank_get_card` is for *acting on* a card
+mid-flow; `bank_get_card_with_evidence` is for *betting on* one — before a
+lane commits real budget to a card's advice, it can audit where the claim
 comes from and how it has fared. Rule 6 note: neither tool ever truncates a
 body or an evidence note; depth selects *which sections*, never cuts within
 one.
@@ -148,35 +152,32 @@ one.
 ## 4. The push side — an introduction, not a payload
 
 `knowledge_section()` keeps the two static notes (additive protocol,
-2026-08-22 decision) and replaces the compiled brief with a fixed ~15-line
+2026-08-22 decision) and replaces the compiled brief with a fixed short
 **intro** (draft, to iterate):
 
 ```
 ## Knowledge bank (measured practice from past campaigns)
 
 A bank of evidence-priced cards distilled from earlier campaigns on this
-benchmark: insights (mechanisms that paid or failed, with the conditions),
-pitfall guardrails, and procedures (runnable harnesses — their code ships
-with the card). Every card carries a reliability score and the evidence
-behind it. It complements the practice notes above; where they disagree,
-let your own measurements arbitrate.
+benchmark: insights (mechanisms that paid or failed, with the conditions
+they hold under) and procedures (runnable harnesses — their code ships with
+the card). Every card carries a reliability score and the evidence behind
+it. It complements the practice notes above; where they disagree, let your
+own measurements arbitrate.
 
 Three tools, in reading order:
-- bank_index() — the whole bank as one index page: name, one-liner, score,
-  whether its evidence has visited this dataset, and when it applies. Cheap;
-  call it whenever your next decision might have been faced before.
-- bank_read(cards) — full card bodies (procedures include their code path).
-- bank_inspect(cards) — body + reliability + evidence, for due diligence
-  before you stake real budget on a card's advice.
-
-Census right now: <N> cards eligible for this task (<i> insights,
-<p> procedures) · <k> carrying a probe the bank wants run · gaps: <gaps>.
-Cite cards that shape a decision as [card:<name>] in your specs and notes.
+- bank_index() — the whole bank as one index page: card name, one-liner,
+  score, and when it applies. Cheap; call it whenever your next decision
+  might have been faced before.
+- bank_get_card(cards) — full card bodies (procedures include their code
+  path).
+- bank_get_card_with_evidence(cards) — the card plus its reliability and
+  evidence trail, for due diligence before you stake real budget on its
+  advice.
 ```
 
-The census line is compiled at launch (cheap, deterministic) — it is the
-bait that makes the first `bank_index()` call natural, and it carries the
-gap analysis so a thin bank is honest from minute zero.
+That is the whole push. When and how to use the tools is each module's
+paragraph (§5); the citation convention also lives there, not in the intro.
 
 ## 5. Per-module integration — "when to use it"
 
@@ -184,11 +185,11 @@ Each module's prompt gains one short, imperative paragraph. Drafts:
 
 **Ideation (and its selector):**
 > Before writing ideas, call `bank_index()` once and scan it against the
-> task: open (`bank_read`) any card whose applies-when matches a direction
-> you are considering, and steal or steelman it. When an idea adopts a
-> card's move, cite `[card:<name>]` in the idea. Probe-flagged cards are
-> optional measurement offers — adopt one only if its protocol is affordable
-> at this dataset's scale, and say so explicitly.
+> task: open (`bank_get_card`) any card whose applies-when matches a
+> direction you are considering, and steal or steelman it. When an idea
+> adopts a card's move, cite `[card:<name>]` in the idea. A card you open
+> may carry a probe — an optional measurement offer; adopt one only if its
+> protocol is affordable at this dataset's scale, and say so explicitly.
 
 **Implementation sessions:**
 > Consult the bank at decision points, not continuously: (a) before
@@ -196,14 +197,14 @@ Each module's prompt gains one short, imperative paragraph. Drafts:
 > worth >30 min of budget — `bank_index()` and scan applies-when lines
 > against your plan; (b) when a gate fails in a way that surprises you —
 > the failure mode may be carded; (c) before adopting a card's advice
-> wholesale — `bank_inspect` it and weigh its evidence. Cite
-> `[card:<name>]` in specs and features_history entries the card shaped.
-> Following a card is never mandatory; departing from one you read is worth
-> one line of why.
+> wholesale — `bank_get_card_with_evidence` it and weigh its evidence.
+> Cite `[card:<name>]` in specs and features_history entries the card
+> shaped. Following a card is never mandatory; departing from one you read
+> is worth one line of why.
 
-**Lens planner:** gets the intro + census only; when allocating lanes it may
-call `bank_index()` to check whether a planned lane theme is carded (either
-as support or as guardrail).
+**Lens planner:** gets the intro; when allocating lanes it may call
+`bank_index()` to check whether a planned lane theme is carded (either as
+support or as guardrail).
 
 **Feedback judge:** unchanged — tool-locked, card-blind (§5.3). The
 `cards_load_bearing` template field stays for now; its inertness is a known
@@ -220,11 +221,11 @@ notes untouched; additive order preserved.
 ```yaml
 mode: agentic
 bank_head: <sha>
-intro: {census: {...}, gaps: [...]}
+gaps: [...]
 exposure:                # per card, highest level reached
   - {card: renewal-units-beat-raw-event-counts, level: read, by: [ideation, generic_exp_1]}
   - {card: direct-target-head-anchors-survival-reformulations, level: indexed}
-  - {card: six-fold-forward-gate-runner, level: inspected, by: [generic_exp_2]}
+  - {card: six-fold-forward-gate-runner, level: evidence-read, by: [generic_exp_2]}
 index_calls: 3
 probes_offered: [forward-fold-referee-governs-temporal-regime-change]
 ```
@@ -233,22 +234,25 @@ Exposure ladder (replaces v1's `got`/`searched`), each level derived from the
 pull log, all frame-side:
 
 `offered` (intro seen — every card, implicitly) → `indexed` (a bank_index
-call returned its line) → `read` → `inspected` → `cited` (`[card:]` in
-specs/living docs) → `probe-settled`. Attribution binds at `read` and above;
-`cited` keeps its rung; the grading side maps v1 vocabulary onto this ladder
-(§7).
+call returned its line) → `read` (`bank_get_card`) → `evidence-read`
+(`bank_get_card_with_evidence`) → `cited` (`[card:]` in specs/living docs)
+→ `probe-settled`. Attribution binds at `read` and above; `cited` keeps its
+rung; the grading side maps v1 vocabulary onto this ladder (§7).
 
 ## 7. What dies, and the companion edits (Rule 7 — no dual paths)
 
 **Deleted:** `compile_brief`'s top-k selection and card rendering into the
-context; `k_insights`/`k_procedures`/`k_pitfalls`/`unvisited_discount`
-config knobs; the probe rider on the brief (probes become index flags +
-read-time text); `bank_search(query)` and `bank_get` (replaced by the three
-tools); `mode: push` records.
+context; the pitfall card category end to end — the `k_pitfalls` quota, the
+`PITFALL_TAG` routing in the retriever, and the "pitfall guardrails" brief
+section (a hazard-shaped lesson is simply an insight whose applies-when
+names the hazard); `k_insights`/`k_procedures`/`unvisited_discount` config
+knobs; the probe rider on the brief (probes surface on card read, §3.2);
+`bank_search(query)` and `bank_get` (replaced by the three tools);
+`mode: push` records.
 
-**Survives unchanged:** bank_head stamping (frame-side), citation contract,
-quarantine/decoy filtering at the tool layer, judge tool-lock, serving
-record as the graded receipt, `probe_budget`.
+**Survives unchanged:** bank_head stamping (frame-side), citation contract
+(now carried by module prompts, §5), quarantine/decoy filtering at the tool
+layer, judge tool-lock, serving record as the graded receipt, `probe_budget`.
 
 **Companion edits (learning side, same change-set when implemented):**
 - Grading contracts (`report_writer_prompt.md` and friends): serving-section
@@ -280,14 +284,13 @@ B's win came from *pushed* bodies; under v2 that campaign wins only if
 ideation actually calls `bank_index()` and opens the renewal card.
 Mitigations: (a) query-friction removed — `bank_index()` takes no arguments,
 browsing beats composing; (b) imperative per-module cues with named moments,
-not vague availability; (c) the census bait in the intro; (d) the serving
-record makes non-use visible and gradable, so the learning loop prices it.
-Residual risk is real and is exactly what the certification A/B (§R4) must
-measure. If sessions still don't call, the fallback lever is one mandated
-`bank_index()` at ideation start (still agentic selection, guaranteed
-exposure of the index page) — deliberately NOT in the base design to keep
-uptake honest; pre-registered as the first amendment if the A/B shows
-tool-silence.
+not vague availability; (c) the serving record makes non-use visible and
+gradable, so the learning loop prices it. Residual risk is real and is
+exactly what the certification A/B (§R4) must measure. If sessions still
+don't call, the fallback lever is one mandated `bank_index()` at ideation
+start (still agentic selection, guaranteed exposure of the index page) —
+deliberately NOT in the base design to keep uptake honest; pre-registered as
+the first amendment if the A/B shows tool-silence.
 
 **R2 — do we lose wave-B-style guaranteed steering?** Yes, by design: v2
 trades guaranteed exposure of 4 frame-chosen cards for agent-chosen coverage
@@ -298,9 +301,9 @@ weave all four pushed cards — an agent that engaged that deeply with pushed
 text plausibly opens them from a scented index; unproven until §R4 runs.
 
 **R3 — context cost.** v1 pushed ~4 full bodies (~3-5k tokens) always. v2
-pushes ~15 lines always + index pages (~30-60 lines/call) + only the bodies
-actually opened. Strictly cheaper unless a session reads >4 cards — which is
-then presumably worth it.
+pushes a ~12-line intro always + index pages (~2-3 lines per card per call)
++ only the bodies actually opened. Strictly cheaper unless a session reads
+>4 cards — which is then presumably worth it.
 
 **R4 — certification.** The redesign is itself a serving-generation change,
 so it takes the same gate as a bank generation: an A/B wave pair —
@@ -310,7 +313,7 @@ score delta, tool-call counts (did pull come alive), exposure→uptake→payoff
 chain in the exam, per the TIME-based efficiency contract.
 
 **R5 — open questions for iteration:**
-1. Should `bank_read` on a probe-flagged card *require* an explicit
+1. Should `bank_get_card` on a probe-carrying card *require* an explicit
    accept/decline line in the spec (cheap probe-settlement signal), or is
    that an output obligation §5.3 forbids? (Leaning: forbidden; settlement
    stays learning-side.)
@@ -321,20 +324,21 @@ chain in the exam, per the TIME-based efficiency contract.
    cheapest to trim later.)
 4. Dataset dossier (wave-C gap) — orthogonal card *species*; if adopted, it
    is just more index lines here, no tool changes. Tracked separately.
-5. Procedure execution: `bank_read` hands out code paths; do we also want a
-   `bank_run_procedure` gated executor, or is copy-and-adapt the right
-   contract? (Leaning: copy-and-adapt; an executor is an obligation-shaped
-   coupling.)
+5. Procedure execution: `bank_get_card` hands out code paths; do we also
+   want a gated executor tool, or is copy-and-adapt the right contract?
+   (Leaning: copy-and-adapt; an executor is an obligation-shaped coupling.)
 
 ## 10. Implementation map (for the build, later)
 
-`retriever.py`: `compile_brief` → `compile_intro` (census+gaps only);
-`pull_shortlist` → `render_index` (adds applies-when + probe flags + census
-footer); `pull_projections` → `render_read` / `render_inspect` (procedures
-attach code/replay paths). `serving_launch.py`: returns intro instead of
-brief; record v2 skeleton. `gated_mcp/presets.py`: three tool entries
-replace two. `benchmarks/relbench/context.py`: intro injection.
-Prompt files: ideation/implementation/lens-planner paragraphs (§5).
-Learning side: grading prompts + update-frame vocabulary + card-writer
-scope_conditions floor + tests (§7). Config: delete 4 knobs, keep
-`probe_budget`.
+`retriever.py`: `compile_brief` → `compile_intro` (intro text + gaps);
+`pull_shortlist` → `render_index` (applies-when lines + gaps footer; delete
+`PITFALL_TAG` routing and the visited/discount machinery);
+`pull_projections` → `render_card` / `render_card_with_evidence`
+(procedures attach code/replay paths; probe offers ride card render under
+`probe_budget`). `serving_launch.py`: returns intro instead of brief;
+record v2 skeleton. `gated_mcp/presets.py`: three tool entries replace two.
+`benchmarks/relbench/context.py`: intro injection. Prompt files:
+ideation/implementation/lens-planner paragraphs (§5). Learning side:
+grading prompts + update-frame vocabulary + card-writer scope_conditions
+floor + tests (§7). Config: delete `k_insights`/`k_procedures`/`k_pitfalls`/
+`unvisited_discount`, keep `probe_budget`.
