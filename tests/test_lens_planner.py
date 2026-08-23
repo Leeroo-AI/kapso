@@ -156,6 +156,7 @@ def make_stub(tmp_path, planner=PLANNER, iteration=1, node_history=()):
     strategy.session_effort = "xhigh"
     strategy.node_history = list(node_history)
     strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
+    strategy.bank_serving = None
     return strategy
 
 
@@ -371,3 +372,32 @@ def test_planner_and_replanner_prompts_carry_design_axes(
     assert "Axis-coverage contract" in replanner_prompt
     assert "SATURATED" in replanner_prompt
     assert "DEFERRED" in replanner_prompt
+
+
+def test_planner_session_mounts_bank_gate_when_serving(tmp_path, fake_planner):
+    # Regression (serving v2 §5): the lens planner is the direction-setter —
+    # with bank_serving staged its session must carry the bank MCP tools;
+    # without it the session stays a plain Read/WebSearch/WebFetch session
+    # (asserted by the existing initial-plan test via bank_serving=None).
+    strategy = make_stub(tmp_path)
+    strategy.bank_serving = {
+        "KAPSO_BANK_DIR": str(tmp_path),
+        "KAPSO_BANK_HEAD": "abc",
+        "KAPSO_SERVING_PULL_LOG": str(tmp_path / "pull.jsonl"),
+        "KAPSO_TASK_FAMILY": "entity_binary_classification",
+        "KAPSO_PROBE_BUDGET": "1",
+    }
+    fake_planner.outputs = [
+        {
+            "output": (
+                "<lens_1>lens one one</lens_1>"
+                "<lens_2>lens two two</lens_2>"
+                "<sources>- s</sources>"
+            )
+        }
+    ]
+    lenses, _ = strategy._resolve_member_lenses("the problem", str(tmp_path))
+    assert lenses == ["lens one one", "lens two two"]
+    tools = fake_planner.calls[0]["config"].agent_specific["allowed_tools"]
+    assert any("bank_index" in name for name in tools)
+    assert fake_planner.calls[0]["config"].agent_specific["mcp_servers"]

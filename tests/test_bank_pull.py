@@ -33,15 +33,16 @@ def make_pull_bank(tmp_path):
     return Bank(str(root))
 
 
-def test_index_is_the_whole_eligible_set(tmp_path):
+def test_index_is_the_whole_bank_no_filtering(tmp_path):
     bank = make_pull_bank(tmp_path)
     result = render_index(bank, TASK)
     names = [row["card"] for row in result["listed"]]
-    # out-of-scope, retired-state, and decoy cards never appear
-    assert "avito-card" not in names
+    # no scope filtering: the out-of-scope card is LISTED (2026-08-23
+    # amendment — scope is displayed information, never a gate)
+    assert "avito-card" in names
+    # quarantine alone stays frame-side
     assert "retired-state-card" not in names
     assert "decoy-card" not in names
-    # the whole eligible set is listed
     assert {"strong-card", "weak-card", "tension-a", "tension-b"} <= set(names)
     # reliability order: strong before weak
     assert names.index("strong-card") < names.index("weak-card")
@@ -52,14 +53,16 @@ def test_reads_refuse_by_name_and_keep_decoys_unmarked(tmp_path):
     bank = make_pull_bank(tmp_path)
     result = render_cards(
         bank, TASK,
-        ["strong-card", "avito-card", "decoy-card", "no-such-card"],
+        ["strong-card", "avito-card", "retired-state-card", "decoy-card",
+         "no-such-card"],
         False, {},
     )
     got_names = [row["card"] for row in result["served"]]
-    assert got_names == ["strong-card"]
+    # anything the index lists can be opened — the out-of-scope card reads
+    assert got_names == ["strong-card", "avito-card"]
     assert all(row["exposure"] == "read" for row in result["served"])
     reasons = {r["card"]: r["reason"] for r in result["refused"]}
-    assert "out of scope" in reasons["avito-card"]
+    assert "not servable" in reasons["retired-state-card"]
     # a decoy refuses exactly like a nonexistent card — quarantine unmarked
     assert reasons["decoy-card"] == reasons["no-such-card"] == "no such card"
     # the full card body is rendered for the got card (Rule 6: never

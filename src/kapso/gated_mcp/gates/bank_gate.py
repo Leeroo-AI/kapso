@@ -84,12 +84,12 @@ class BankGate(ToolGate):
             Tool(
                 name="bank_index",
                 description=(
-                    "The knowledge bank's index page: every card eligible "
-                    "for this campaign's task — name, one-liner, score, and "
-                    "when it applies — like the index of a book. This is "
-                    "the bank's whole answer for the task's scope; you are "
-                    "the selector: scan it against your plan, then open "
-                    "the cards worth reading with bank_get_card."
+                    "The knowledge bank's full index: every card, one "
+                    "line each — name, one-liner, score, and when it "
+                    "applies — like the index of a book. Nothing is "
+                    "pre-selected or filtered for you; judge relevance "
+                    "from each applies-when line against your own plan, "
+                    "then open the cards worth reading with bank_get_card."
                 ),
                 inputSchema={
                     "type": "object",
@@ -110,8 +110,8 @@ class BankGate(ToolGate):
                 description=(
                     "Full card bodies for named bank cards (title, rule, "
                     "situation, what to do, why believe it). Procedures "
-                    "include their runnable code location. Cards outside "
-                    "this task's scope are refused by name."
+                    "include their runnable code location. Anything the "
+                    "index lists can be opened."
                 ),
                 inputSchema={
                     "type": "object",
@@ -173,7 +173,7 @@ class BankGate(ToolGate):
                 "section": section,
                 "task": coords,
                 "bank_head": bank_head,
-                "eligible": result["eligible"],
+                "listed_count": result["listed_count"],
                 "listed": result["listed"],
             })
             return [TextContent(type="text", text=result["text"])]

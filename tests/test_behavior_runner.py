@@ -72,7 +72,8 @@ def make_serve_scenario(tmp_path):
         "task": {"family": "entity_binary_classification", "dataset": "rel-hm"},
     }))
     (scenario_dir / "truth.md").write_text(
-        "relevant-card must serve; avito-card must not (scope excludes rel-hm).\n"
+        "the index lists the WHOLE bank (both cards; scope is displayed\n"
+        "information, never a filter); gaps report scope coverage.\n"
     )
     (scenario_dir / "rubric.md").write_text(
         "1. Is every served card semantically relevant?\n"
@@ -101,9 +102,9 @@ def test_serve_scenario_runs_real_machinery_and_gates(tmp_path):
     record = yaml.safe_load((run_dir / "artifacts" / "serving-record.yaml").read_text())
     assert record["mode"] == "agentic" and record["gaps"]  # v2 launch record
     index_text = (run_dir / "artifacts" / "index.md").read_text()
-    # the real eligibility law ran: relevant card indexed, out-of-scope not
+    # the whole bank is indexed — scope never filters (2026-08-23)
     assert "[card:relevant-card]" in index_text
-    assert "avito-card" not in index_text
+    assert "[card:avito-card]" in index_text
     assert "truth.md" in reviewer.prompts[0] and "rubric.md" in reviewer.prompts[0]
 
 

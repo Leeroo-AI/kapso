@@ -70,8 +70,11 @@ must be the selector.
 
 Served through the existing gated-MCP registry to ideation, selector,
 implementation, and lens-planner sessions — never the feedback judge (§5.3
-law, unchanged). All three are read-only, deterministic, filtered by task
-eligibility + quarantine exactly as today, and logged to the pull log.
+law, unchanged). All three are read-only, deterministic, and logged to the
+pull log. No task-scope filtering anywhere (amendment 2026-08-23): the
+index shows the whole bank and anything it shows can be opened — scope is
+information the reader judges. Quarantine alone stays frame-side (decoys
+refuse as unknown; non-servable states refuse by name).
 
 Names state exactly what returns: `bank_index` (the index page),
 `bank_get_card` (the card), `bank_get_card_with_evidence` (the card plus the
@@ -81,9 +84,14 @@ evidence it stands on).
 
 **Input:** none required. Optional `section: insights | procedures` filter
 (irrelevant at 29 cards; the contract that survives scale).
-**Output:** the WHOLE eligible set, one line-group per card,
-reliability-ordered within type sections. No query, no ranking cut —
-browsing replaces querying.
+**Output:** the WHOLE BANK, one line-group per card, reliability-ordered
+within type sections — **no filtering** (amendment 2026-08-23, user):
+nothing is pre-selected or scoped away; scope is displayed information
+(the applies-when line) and relevance judgment belongs to the reader.
+Only quarantine stays frame-side (decoys + retired, silent). The gaps
+footer still reports scope coverage for the current task —
+informational, never a filter. No query, no ranking cut — browsing
+replaces querying.
 
 Line format — three facts per card, enough to decide "open or skip":
 
@@ -202,9 +210,29 @@ Each module's prompt gains one short, imperative paragraph. Drafts:
 > shaped. Following a card is never mandatory; departing from one you read
 > is worth one line of why.
 
-**Lens planner:** gets the intro; when allocating lanes it may call
-`bank_index()` to check whether a planned lane theme is carded (either as
-support or as guardrail).
+**Lens planner (amended 2026-08-23 — the direction-setting contract):**
+the planner session mounts the same bank gate as ideation (it is the
+campaign's direction-setter; the v2-certification trace showed the
+steering loss lives exactly here). Its prompt contract: call
+`bank_index()` ONCE before writing lenses — the full unfiltered index,
+read as a map of directions — and close EVERY lens with one `bank:`
+declaration, exactly one of:
+
+    bank: supported — [card:<name>], [card:<name>]
+    bank: warned — [card:<name>]; overriding because <one concrete reason>
+    bank: uncarded — novelty bet
+
+`supported` = the lens's spine rides those cards' mechanisms (members
+inheriting the lens read them); `warned` = a card cautions against the
+direction and the override reason is mandatory; `uncarded` = an honest
+exploration bet. The line is a declaration, never a permission slip
+(cards stay suggestions; the arbitrate rule holds), and it lives inside
+the lens text — so it flows to ensemble members and to the harvested
+trajectory with zero schema changes, giving the exam a direction-level
+uptake reading (a dishonest declaration is priced there: the pull log
+shows what the planner actually indexed and read). Portfolio guideline,
+not a gate: with supported directions showing credible headroom, the
+lens set is never all-uncarded — and never all-supported either.
 
 **Feedback judge:** unchanged — tool-locked, card-blind (§5.3). The
 `cards_load_bearing` template field stays for now; its inertness is a known

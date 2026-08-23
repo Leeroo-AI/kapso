@@ -3,12 +3,13 @@
 # Design: serving-agentic-redesign.md (supersedes §5.1's push/pull split).
 # Push is an INTRODUCTION only — what the bank is and the three tools; no
 # card content is selected or injected by the frame. Selection belongs to
-# the reading agent: `render_index` returns the WHOLE eligible set as
-# book-index lines (name + hero + score + applies-when), and the agent
-# opens cards with `render_cards` at two depths (body / body+evidence).
-# Eligibility is law on every surface (task ∈ scope, quarantine excluded);
-# rank in the index is plain reliability order — no discounts, no k caps,
-# no ranking cut. Everything here is a pure function of (task, bank
+# the reading agent: `render_index` returns the WHOLE BANK as book-index
+# lines (name + hero + score + applies-when), and the agent opens cards
+# with `render_cards` at two depths (body / body+evidence). Nothing is
+# scope-filtered on either surface — scope is displayed information and
+# relevance judgment belongs to the reader; only quarantine is law
+# (decoys and retired states, frame-side, silent). Rank in the index is
+# plain reliability order — no discounts, no k caps, no ranking cut. Everything here is a pure function of (task, bank
 # checkout, bank_head): no agent, no clock, no randomness — the hindcast
 # replays it at historical heads, byte-identical.
 #
@@ -129,26 +130,31 @@ def _index_row(card: Card) -> Dict[str, Any]:
 def render_index(
     bank: Bank, task_coords: Dict[str, str], section: Optional[str] = None
 ) -> Dict[str, Any]:
-    """bank_index: the whole eligible set as book-index lines.
+    """bank_index: the WHOLE BANK as book-index lines — no filtering.
 
     One line-group per card — `[card:name] score X` / hero one-liner /
     `applies-when:` (the card's authored scope_conditions, when present) —
     reliability-ordered within `## Insights` / `## Procedures` sections,
-    closing with the gaps footer. No query, no ranking cut: the calling
-    agent is the selector, scanning with its own plan in mind."""
-    eligible = [c for c in bank.servable() if c.eligible_for(task_coords)]
-    gaps = _gaps(eligible)
+    closing with the gaps footer. Nothing is pre-selected or scoped away
+    for the reader: scope is displayed information (the applies-when
+    line), and relevance judgment belongs to the calling agent, scanning
+    with its own plan in mind. Only quarantine stays frame-side
+    (servable() excludes decoys and retired states, silently). The gaps
+    footer still reports scope coverage for THIS task — informational,
+    never a filter."""
+    listed_cards = list(bank.servable())
+    gaps = _gaps([c for c in listed_cards if c.eligible_for(task_coords)])
     if section:
         if section not in ("insights", "procedures"):
             raise ValueError(f"unknown index section: {section}")
         wanted = "insight" if section == "insights" else "procedure"
-        eligible = [c for c in eligible if c.type == wanted]
-    eligible.sort(key=lambda card: (-float(card.score or 0.0), card.name))
+        listed_cards = [c for c in listed_cards if c.type == wanted]
+    listed_cards.sort(key=lambda card: (-float(card.score or 0.0), card.name))
 
     sections: List[str] = []
     for kind, heading in (("insight", "## Insights"),
                           ("procedure", "## Procedures")):
-        cards = [c for c in eligible if c.type == kind]
+        cards = [c for c in listed_cards if c.type == kind]
         if not cards:
             continue
         lines = [heading]
@@ -162,18 +168,18 @@ def render_index(
                 )
         sections.append("\n".join(lines))
 
-    if not eligible:
+    if not listed_cards:
         sections.append(
-            "The bank holds NO eligible card for this task's scope — this "
-            "is the bank's whole answer; nothing else matches."
+            "The bank holds NO card yet — this is its whole answer; "
+            "nothing else exists."
         )
     for gap in gaps:
         sections.append(f"gaps: {gap}")
     return {
         "text": "\n\n".join(sections),
-        "listed": [_index_row(card) for card in eligible],
+        "listed": [_index_row(card) for card in listed_cards],
         "gaps": gaps,
-        "eligible": len(eligible),
+        "listed_count": len(listed_cards),
     }
 
 
@@ -295,9 +301,11 @@ def render_cards(
 ) -> Dict[str, Any]:
     """bank_get_card / bank_get_card_with_evidence: full cards on request.
 
-    Quarantine and eligibility are law even on direct request — refusals
-    are named, so the agent learns the boundary instead of silence. The
-    co-serving guard names contradicts pairs inside one returned set."""
+    Anything the index shows can be opened — scope is the reader's
+    judgment, never a gate (a visible-but-unreadable card would be
+    incoherent). Quarantine stays law: decoys refuse as unknown, and
+    non-servable states refuse by name. The co-serving guard names
+    contradicts pairs inside one returned set."""
     exposure = "evidence-read" if with_evidence else "read"
     decoys = bank.decoy_names
     got: List[Card] = []
@@ -311,11 +319,6 @@ def render_cards(
         elif card.state not in ("candidate", "active"):
             refused.append(
                 {"card": name, "reason": f"not servable (state={card.state})"}
-            )
-        elif not card.eligible_for(task_coords):
-            refused.append(
-                {"card": name,
-                 "reason": f"out of scope for this task ({card.scope})"}
             )
         else:
             got.append(card)

@@ -1111,10 +1111,22 @@ class GenericSearch(SearchStrategy):
 
         from kapso.execution.coding_agents.base import CodingAgentConfig
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+        from kapso.gated_mcp import get_mcp_config
 
+        # The planner is the campaign's direction-setter, so it gets the
+        # bank tools (serving-agentic-redesign.md §5): the index as a map
+        # of directions, and the per-lens `bank:` declaration contract in
+        # its prompt. Serving off -> bank gate unresolved -> plain session.
+        mcp_servers, mcp_tools = get_mcp_config(
+            gates=["bank"],
+            include_base_tools=False,
+            gate_failure_policy="skip",
+            bank_serving=self.bank_serving,
+        )
         print(
             f"[GenericSearch] Lens planner starting: {planner['model']} "
-            f"({'web-enabled' if self.ideation_web_search else 'web-OFF'})"
+            f"({'web-enabled' if self.ideation_web_search else 'web-OFF'}"
+            f"{', bank-served' if mcp_servers else ''})"
         )
         config = CodingAgentConfig(
             agent_type="claude_code",
@@ -1125,7 +1137,11 @@ class GenericSearch(SearchStrategy):
                 "env_strip": self.env_strip,
                 "env_defaults": self.env_defaults,
                 "aws_region": self.aws_region,
-                "allowed_tools": ["Read", "WebSearch", "WebFetch"],
+                "mcp_servers": mcp_servers,
+                "allowed_tools": [
+                    "Read", "WebSearch", "WebFetch",
+                    *[t for t in mcp_tools if t.startswith("mcp__")],
+                ],
                 "disallowed_tools": self._web_disallowed_tools,
                 "timeout": planner.get("timeout", 600),
                 "streaming": True,

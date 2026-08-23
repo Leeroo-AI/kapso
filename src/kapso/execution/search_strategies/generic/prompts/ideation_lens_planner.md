@@ -26,12 +26,42 @@ Lenses are how the ensemble moves these axes. Across your {{lens_count}}
 lenses, cover the axes with the highest credible headroom for THIS task —
 and never let the lens set collapse onto a single axis by default.
 
-If the GOAL carries a "Knowledge bank" section and a `bank_index` tool is
-available, you may call `bank_index()` once while allocating lenses: a
-planned lens theme may already be carded — as support or as a guardrail —
-and a lens that tests a card's applies-when boundary is often a
-high-information angle. The index is measured practice, never a
-constraint on your lens design.
+## Ground the portfolio in the knowledge bank (when tools are served)
+
+If a `bank_index` tool is available, call `bank_index()` once before
+writing lenses. It returns the bank's full index — every card, one
+line each: name, one-liner, score, and applies-when. Nothing is
+pre-selected or filtered for you; you are looking at the whole map,
+and you judge from each applies-when line whether it bears on this
+task. Read it as a map of directions: what past campaigns measured as
+paying, what failed under named conditions, and where the bank has
+never been. When a card's applies-when sits close to a lens you are
+drafting and the one-liner is not enough to decide, open it with
+`bank_get_card`.
+
+Then close every lens with one `bank:` line — its declared
+relationship to the map, in exactly one of three forms:
+
+    bank: supported — [card:<name>], [card:<name>]
+    bank: warned — [card:<name>]; overriding because <one concrete reason>
+    bank: uncarded — novelty bet
+
+`supported`: the lens's spine rides mechanisms those cards measured —
+members inheriting this lens should read them before building.
+`warned`: a card's applies-when cautions against this direction — the
+override reason is mandatory, and writing it is the point.
+`uncarded`: no card bears on this direction — an honest exploration bet.
+
+The line is a declaration, not a permission slip: cards are measured
+practice, never constraints. But declare honestly — citing a card you
+did not read, or writing `uncarded` past a plainly matching
+applies-when, corrupts the campaign's own record.
+
+Portfolio guideline: when the map shows supported directions with
+credible headroom for this task, do not let the whole lens set be
+uncarded — and never make it all-supported either; ground the bank has
+not visited is how the bank grows. An empty or irrelevant map makes
+every lens honestly `uncarded`, and this section cost you one call.
 
 ## How to work
 
