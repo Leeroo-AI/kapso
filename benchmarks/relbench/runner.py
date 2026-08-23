@@ -129,7 +129,7 @@ def solve_task(args) -> dict:
             handler.work_dir,
         )
         if serving:
-            handler.apply_bank_brief(serving["brief"])
+            handler.apply_bank_intro(serving["intro"])
             print(f"  Knowledge bank: serving at head {serving['bank_head']}")
 
     initial_repo = args.initial_repo

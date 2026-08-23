@@ -15,7 +15,7 @@
 #
 # The runner stages a scratch copy, invokes the REAL machinery (never a mock
 # of the thing under test), then launches the reviewer session over truth +
-# rubric + the run's artifacts. v1 machineries: `serve` (compile_brief) and
+# rubric + the run's artifacts. v1 machineries: `serve` (serving surface) and
 # `grade-exam` / `update` (the real frames — real sessions; the scenarios
 # that need them land with their phases' fixtures).
 
@@ -31,7 +31,7 @@ from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.bank import Bank
 from kapso.learning.graders.frame import GradingFrame
-from kapso.learning.retriever import compile_brief
+from kapso.learning.retriever import compile_intro, render_index
 from kapso.learning.trajectory_store import TrajectoryStore
 from kapso.learning.update_frame import UpdateFrame, init_bank
 
@@ -150,17 +150,19 @@ class BehaviorRunner:
     def _run_serve(
         self, scenario: Dict[str, Any], scenario_path: Path, artifacts_dir: Path
     ) -> None:
-        """B8-class: the real push core over the fixture bank."""
+        """B8-class: the real serving-v2 surface over the fixture bank —
+        the intro plus the full index (the agentic replacement for the
+        push brief)."""
         bank = Bank(str(scenario_path / "fixture" / "bank"))
-        result = compile_brief(
-            bank,
-            scenario["task"],
-            scenario.get("bank_head", "fixture"),
-            self.config["learning"]["retriever"],
+        intro = compile_intro(
+            bank, scenario["task"], scenario.get("bank_head", "fixture")
         )
-        (artifacts_dir / "brief.md").write_text(result["brief"])
+        index = render_index(bank, scenario["task"])
+        (artifacts_dir / "index.md").write_text(
+            intro["intro"] + "\n\n" + index["text"]
+        )
         with open(artifacts_dir / "serving-record.yaml", "w") as handle:
-            yaml.safe_dump(result["record"], handle, sort_keys=False)
+            yaml.safe_dump(intro["record"], handle, sort_keys=False)
 
     def _run_grade_exam(
         self, scenario: Dict[str, Any], scenario_path: Path, artifacts_dir: Path

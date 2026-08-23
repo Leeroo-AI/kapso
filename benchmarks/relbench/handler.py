@@ -147,7 +147,7 @@ class RelBenchHandler(ProblemHandler):
         self._extra_knowledge = extra_knowledge
         self._champion = champion
 
-        self.problem_context = self._compose_problem_context(bank_brief=None)
+        self.problem_context = self._compose_problem_context(bank_intro=None)
 
         # Harden the whole process tree: coding agents (e.g. claude_code) can
         # execute code during development sessions, and those subprocesses
@@ -201,7 +201,7 @@ class RelBenchHandler(ProblemHandler):
     # Handler contract
     # ======================================================================
 
-    def _compose_problem_context(self, bank_brief: Optional[str]) -> str:
+    def _compose_problem_context(self, bank_intro: Optional[str]) -> str:
         return build_problem_context(
             task=self.task,
             dataset=self.dataset,
@@ -217,14 +217,14 @@ class RelBenchHandler(ProblemHandler):
             extra_knowledge=self._extra_knowledge,
             rolling=self.rolling,
             champion=self._champion,
-            bank_brief=bank_brief,
+            bank_intro=bank_intro,
         )
 
-    def apply_bank_brief(self, bank_brief: str) -> None:
+    def apply_bank_intro(self, bank_intro: str) -> None:
         """Serving live (learn-from-trajectories §5.3): the compiled push
         brief replaces the static context notes. The runner calls this after
         staging serving, before the orchestrator reads problem_context."""
-        self.problem_context = self._compose_problem_context(bank_brief)
+        self.problem_context = self._compose_problem_context(bank_intro)
 
     def get_problem_context(self, budget_progress: float = 0, **kwargs) -> str:
         return self.problem_context

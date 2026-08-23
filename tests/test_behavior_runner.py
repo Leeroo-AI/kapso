@@ -48,8 +48,7 @@ def behavior_config(tmp_path, scenarios_dir):
     return {
         "learning": {
             "trajectory_store": {"local": str(tmp_path / "store"), "remote": None},
-            "retriever": {"k_insights": 2, "k_procedures": 1, "k_pitfalls": 1,
-                          "unvisited_discount": 0.5, "probe_budget": 1},
+            "retriever": {"probe_budget": 1},
             "behavior": {
                 "scenarios_dir": str(scenarios_dir),
                 "reviewer": {"cli": "claude_code", "model": "m",
@@ -100,8 +99,11 @@ def test_serve_scenario_runs_real_machinery_and_gates(tmp_path):
     assert result["verdict"] == "PASS"
     run_dir = Path(result["run_dir"])
     record = yaml.safe_load((run_dir / "artifacts" / "serving-record.yaml").read_text())
-    served = [row["card"] for row in record["served"]]
-    assert served == ["relevant-card"]  # the real eligibility law ran
+    assert record["mode"] == "agentic" and record["gaps"]  # v2 launch record
+    index_text = (run_dir / "artifacts" / "index.md").read_text()
+    # the real eligibility law ran: relevant card indexed, out-of-scope not
+    assert "[card:relevant-card]" in index_text
+    assert "avito-card" not in index_text
     assert "truth.md" in reviewer.prompts[0] and "rubric.md" in reviewer.prompts[0]
 
 
@@ -110,7 +112,7 @@ def test_rollup_gates_on_any_fail(tmp_path):
     scenario_dir = make_serve_scenario(tmp_path)
     config = behavior_config(tmp_path, scenario_dir.parent)
     reviewer = FakeReviewer(
-        "verdict: FAIL\nrationale: noise served — avito-card in the brief.\n"
+        "verdict: FAIL\nrationale: noise served — avito-card in the index.\n"
     )
     runner = BehaviorRunner(
         TrajectoryStore.from_config(config), config,

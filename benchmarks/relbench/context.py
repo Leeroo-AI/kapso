@@ -322,23 +322,19 @@ Experimentation notes for this search:
 # Top-level assembly
 # ---------------------------------------------------------------------------
 
-def knowledge_section(bank_brief: "Optional[str]") -> str:
+def knowledge_section(bank_intro: "Optional[str]") -> str:
     """The context's knowledge slot. The two hand-maintained notes are the
-    permanent base; serving live (learn-from-trajectories §5.3), the
-    compiled push brief is ADDITIVE on top of them — scoped, cited, and
-    reliability-graded. An A/B candidate arm therefore measures the bank's
-    marginal value over everything the incumbent already gets, not its
-    worth as a replacement."""
+    permanent base; serving live (serving-agentic-redesign.md), the bank
+    INTRO is ADDITIVE on top of them — what the bank is and the three
+    retrieval tools; card content itself is never injected, the sessions
+    retrieve it agentically. An A/B candidate arm therefore measures the
+    bank's marginal value over everything the incumbent already gets."""
     base = ("\n## Feature engineering (high-value direction — suggestion)\n"
             + FEATURE_ENGINEERING_NOTE
             + "\n\n## Modelling practices (measured — suggestion)\n"
             + MODELLING_PRACTICE_NOTE)
-    if bank_brief:
-        return (base
-                + "\n\n## Knowledge bank brief (measured practice — suggestion)\n"
-                + "This complements the practice notes above; where they "
-                + "disagree, let your own measurements arbitrate.\n"
-                + bank_brief)
+    if bank_intro:
+        return base + "\n\n" + bank_intro
     return base
 
 
@@ -751,7 +747,7 @@ def build_problem_context(
     gpu_name: str = "",
     rolling: bool = False,
     champion: Optional[dict] = None,
-    bank_brief: Optional[str] = None,
+    bank_intro: Optional[str] = None,
 ) -> str:
     sections = [
         "# RelBench task",
@@ -768,7 +764,7 @@ def build_problem_context(
         "\n## Prediction contract\n" + _prediction_contract(spec, len(val_df), n_test),
         ("\n## ROLLING EVALUATION — read carefully\n" + ROLLING_CONTRACT_NOTE) if rolling else "",
         "\n## Data access rules\n" + _data_access_rules(spec),
-        knowledge_section(bank_brief),
+        knowledge_section(bank_intro),
         ("\n## Prior champion (provided — reproduce it, then beat it)\n"
          + CHAMPION_NOTE_TEMPLATE.format(metric=spec.primary_metric, val=champion["val"]))
         if champion else "",

@@ -67,6 +67,13 @@ WRITING — the rules that bind every edit:
   families or a mechanism argument that plainly spans them. And
   `scope_conditions` states WHEN the mechanism applies, precisely enough
   that a retriever miss is a boundary fact, not a vague hedge.
+  `scope_conditions` is REQUIRED on every card you author or rewrite — it
+  is user-facing: serving renders it as the index's `applies-when` line,
+  the one line an agent scans against its own plan to decide whether to
+  open the card. One compressed sentence naming the SITUATION (the
+  abstraction law applies — mechanism-class conditions, never instances);
+  a card whose applies-when an engineer cannot match against a concrete
+  plan is a card serving cannot deliver.
 - THE CARD TEMPLATE (format v2) — the body IS the card: what an ML
   engineer with zero context on this bank reads and acts on, sitting
   ABOVE the `---` machine ledger. Exact shape, in order:

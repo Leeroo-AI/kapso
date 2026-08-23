@@ -213,14 +213,10 @@ learning:
     timeout_minutes: 240
     repair_rounds: 1
   retriever:
-    # Push-core serving knobs (design §5.1): k caps selection, never content
-    # (Rule 6); the unvisited discount is the ledger-derived coverage penalty.
-    k_insights: 4
-    k_procedures: 2
-    k_pitfalls: 2
-    unvisited_discount: 0.5
-    # Probe rider slots per campaign (§5.1) — a hard cap, so learning never
-    # cannibalizes doing.
+    # Serving v2 (serving-agentic-redesign.md): no selection knobs — the
+    # index carries the whole eligible set and the reading agent selects.
+    # Probe offers riding card reads per campaign — a hard cap, so learning
+    # never cannibalizes doing.
     probe_budget: 1
   graders:
     # Scoring semantics (grader-scoring doc §5): corridor half-width, the
@@ -259,11 +255,11 @@ learning:
     # runs, boxes pull at campaign start (P5.3).
     remote: https://github.com/Leeroo-AI/kapso-bank-relbench.git
   serving:
-    # Serving live (design §5.3): when enabled, campaign launches pin the
-    # bank, the push brief replaces the static context notes, and
-    # ideation/implementation sessions get the bank pull tools (the
-    # feedback judge never does). Per-benchmark off-switch — flip for the
-    # P5 acceptance experiment and production campaigns.
+    # Serving v2 (serving-agentic-redesign.md): when enabled, campaign
+    # launches pin the bank, the knowledge intro rides after the static
+    # context notes, and ideation/implementation sessions get the three
+    # bank tools — bank_index / bank_get_card / bank_get_card_with_evidence
+    # (the feedback judge never does). Per-benchmark off-switch.
     enabled: false
   update_crew:
     # The update crew (design §4.3; update-crew doc): Claude lead (structural

@@ -1,21 +1,21 @@
-# Bank read model + retriever push core tests (P3).
+# Bank read model + retriever serving-v2 core tests.
 #
 # Each test names the regression it catches (Rule 9). Fixtures are hand-built
-# bank checkouts under tmp_path — the schema is the design §3.2 card.
+# bank checkouts under tmp_path — the schema is the design §3.2 card; the
+# serving surface is serving-agentic-redesign.md (intro + index + cards at
+# two depths).
 
 from pathlib import Path
 
 import pytest
 
 from kapso.learning.bank import Bank, Card
-from kapso.learning.retriever import compile_brief
-
-RETRIEVER_CONFIG = {
-    "k_insights": 2,
-    "k_procedures": 1,
-    "k_pitfalls": 1,
-    "unvisited_discount": 0.5, "probe_budget": 1,
-}
+from kapso.learning.retriever import (
+    compile_intro,
+    probe_offers,
+    render_cards,
+    render_index,
+)
 
 TASK = {"family": "entity_binary_classification", "dataset": "rel-hm"}
 
@@ -163,70 +163,143 @@ def test_quarantine_is_law(tmp_path):
     assert served == {"good-card"}
 
 
-def test_push_brief_rank_and_record(tmp_path):
-    # Regression: rank = reliability order with the unvisited discount; the
-    # serving record carries versions and rank components; k caps selection.
+def test_intro_and_launch_record(tmp_path):
+    # Regression: the intro is the whole push surface — head stamp + the
+    # three tool names, never card content; the launch record is v2 shape.
+    root = build_bank(tmp_path, {"a-card": card_text("a-card")})
+    result = compile_intro(Bank(str(root)), TASK, "lr_head")
+    assert "lr_head" in result["intro"]
+    for tool in ("bank_index()", "bank_get_card(", "bank_get_card_with_evidence("):
+        assert tool in result["intro"]
+    assert "[card:a-card]" not in result["intro"]  # no card content pushed
+    assert result["record"] == {
+        "mode": "agentic", "task": dict(TASK), "bank_head": "lr_head",
+        "gaps": ["no procedure in the bank covers this task's scope"],
+    }
+
+
+def test_index_is_whole_set_score_ordered_no_discount(tmp_path):
+    # Regression: the index carries EVERY eligible card in plain reliability
+    # order — no k cut, no visited discount, no visited/probe markers; each
+    # card is name + hero + applies-when.
     root = build_bank(tmp_path, {
-        # visited (evidence trajectory on rel-hm) at 0.6 -> effective 0.6
         "visited-card": card_text(
             "visited-card", score=0.6,
             evidence_trajectory="rel-hm--user-churn/20260101T000000_lane-t1"),
-        # unvisited at 0.9 -> effective 0.45, ranks BELOW the visited 0.6
         "unvisited-card": card_text("unvisited-card", score=0.9),
         "third-card": card_text("third-card", score=0.2),
     })
-    result = compile_brief(Bank(str(root)), TASK, "lr_test", RETRIEVER_CONFIG)
-    served = [s["card"] for s in result["record"]["served"]]
-    assert served == ["visited-card", "unvisited-card"]  # k_insights=2 caps third
-    assert result["record"]["served"][0]["visited"] is True
-    assert result["record"]["served"][1]["effective"] == pytest.approx(0.45)
-    assert result["record"]["bank_head"] == "lr_test"
-    assert all(s["exposure"] == "got" for s in result["record"]["served"])
-    # unvisited serving surfaces in the gap analysis
-    assert any("unvisited-card" in g for g in result["record"]["gaps"])
+    result = render_index(Bank(str(root)), TASK)
+    listed = [row["card"] for row in result["listed"]]
+    # raw score order — the 0.9 card leads regardless of dataset history
+    assert listed == ["unvisited-card", "visited-card", "third-card"]
+    assert all(row["exposure"] == "indexed" for row in result["listed"])
+    text = result["text"]
+    assert "[card:unvisited-card] score 0.9" in text
+    assert "applies-when: rows share a competing group" in text
+    assert "visited-here" not in text and "PROBE" not in text
+    # the empty procedure shelf is a stated gap, not silence
+    assert "gaps: no procedure in the bank covers this task's scope" in text
 
 
-def test_push_purity(tmp_path):
-    # Regression: push is a pure function of (task, bank_head) — byte-equal
-    # output on repeated calls (the hindcast replays it at historical heads).
-    root = build_bank(tmp_path, {"a-card": card_text("a-card")})
-    first = compile_brief(Bank(str(root)), TASK, "lr_x", RETRIEVER_CONFIG)
-    second = compile_brief(Bank(str(root)), TASK, "lr_x", RETRIEVER_CONFIG)
-    assert first == second
+def test_index_purity_and_section_filter(tmp_path):
+    # Regression: the index is a pure function of (task, checkout) — the
+    # hindcast replays it byte-identical; the section filter subsets it.
+    root = build_bank(tmp_path, {
+        "a-card": card_text("a-card"),
+        "proc-card": card_text("proc-card", kind="procedure"),
+    })
+    bank = Bank(str(root))
+    assert render_index(bank, TASK) == render_index(bank, TASK)
+    full = render_index(bank, TASK)
+    assert "## Insights" in full["text"] and "## Procedures" in full["text"]
+    only_proc = render_index(bank, TASK, section="procedures")
+    assert [row["card"] for row in only_proc["listed"]] == ["proc-card"]
+    with pytest.raises(ValueError, match="unknown index section"):
+        render_index(bank, TASK, section="pitfalls")
 
 
-def test_co_serving_guard_names_tension(tmp_path):
-    # Regression: a contradicts pair served together must name the tension.
+def test_render_cards_two_depths_and_rule6(tmp_path):
+    # Regression: read depth is the whole body and nothing else; evidence
+    # depth adds the reliability block + full evidence trail; the body is
+    # never clipped at either depth (Rule 6).
+    long_body = TEMPLATE_BODY.replace(
+        "## Why believe this",
+        "A fact stated at length. " * 200 + "\n\n## Why believe this",
+    )
+    root = build_bank(tmp_path, {"long-card": card_text("long-card", body=long_body)})
+    bank = Bank(str(root))
+    read = render_cards(bank, TASK, ["long-card"], False, {})
+    assert "A fact stated at length. " * 200 in read["text"]
+    assert "### Reliability" not in read["text"]
+    assert read["served"][0]["exposure"] == "read"
+    deep = render_cards(bank, TASK, ["long-card"], True, {})
+    assert "### Reliability" in deep["text"]
+    assert "### Evidence (1 entries)" in deep["text"]
+    assert "verdict=confirm" in deep["text"]
+    assert "KEPT at +0.0032" in deep["text"]
+    assert deep["served"][0]["exposure"] == "evidence-read"
+
+
+def test_probe_offers_cap_eligibility_and_ride_reads(tmp_path):
+    # Regression: at most probe_budget offers, eligible cards only, and the
+    # offer (with its cost clause) rides ONLY the offered card's read.
+    from kapso.learning.retriever import compile_probe_queue
+
+    root = build_bank(tmp_path, {
+        "strong-card": card_text("strong-card", score=0.8),
+        "weak-card": card_text("weak-card", score=0.4),
+        "avito-card": card_text("avito-card", scope=["dataset:rel-avito"]),
+    })
+    bank = Bank(str(root))
+    (root / "index").mkdir(exist_ok=True)
+    (root / "index" / "probe-queue.md").write_text(compile_probe_queue(bank))
+    offers = probe_offers(bank, TASK, 1)
+    assert len(offers) == 1 and "avito-card" not in offers
+    assert probe_offers(bank, TASK, 0) == {}
+    offered_name = next(iter(offers))
+    other = "weak-card" if offered_name != "weak-card" else "strong-card"
+    with_offer = render_cards(bank, TASK, [offered_name], False, offers)
+    assert "*probe:*" in with_offer["text"]
+    assert "optional measurement offer" in with_offer["text"]
+    without = render_cards(bank, TASK, [other], False, offers)
+    assert "*probe:*" not in without["text"]
+
+
+def test_procedure_read_carries_code_location(tmp_path):
+    # Regression: a code-flipped procedure's read includes its code dir,
+    # entrypoint, and replay dir; a prose-only procedure includes neither.
+    flipped = card_text("flipped-proc", kind="procedure").replace(
+        "provenance: {version: 1}",
+        "provenance: {version: 1}\nentrypoint: code/main.py",
+    )
+    root = build_bank(tmp_path, {
+        "flipped-proc": flipped,
+        "prose-proc": card_text("prose-proc", kind="procedure"),
+    })
+    code_dir = root / "procedures" / "flipped-proc" / "code"
+    code_dir.mkdir()
+    (code_dir / "main.py").write_text("print('run')\n")
+    (root / "procedures" / "flipped-proc" / "replay").mkdir()
+    bank = Bank(str(root))
+    result = render_cards(bank, TASK, ["flipped-proc", "prose-proc"], False, {})
+    text = result["text"]
+    assert f"code: {code_dir}" in text
+    assert "entrypoint: " in text and "code/main.py" in text
+    assert f"replay: {root / 'procedures' / 'flipped-proc' / 'replay'}" in text
+    prose_section = text.split("[card:prose-proc]")[1]
+    assert "code:" not in prose_section and "replay:" not in prose_section
+
+
+def test_co_serving_guard_names_tension_on_reads(tmp_path):
+    # Regression: a contradicts pair read together must name the tension.
     root = build_bank(tmp_path, {
         "card-a": card_text("card-a", contradicts=("card-b",)),
         "card-b": card_text("card-b", contradicts=("card-a",)),
     })
-    result = compile_brief(Bank(str(root)), TASK, "lr_x", RETRIEVER_CONFIG)
-    assert result["record"]["tensions"] == [["card-a", "card-b"]]
-    assert "treat as contested" in result["brief"]
-
-
-def test_pitfalls_ride_along_and_gaps_state_absences(tmp_path):
-    # Regression: pitfall-tagged insights ride as guardrails on their own
-    # budget; an empty procedure shelf is a stated gap, not silence.
-    root = build_bank(tmp_path, {
-        "pit-card": card_text("pit-card", tags=("pitfall",), score=0.1),
-        "main-card": card_text("main-card"),
-    })
-    result = compile_brief(Bank(str(root)), TASK, "lr_x", RETRIEVER_CONFIG)
-    served = [s["card"] for s in result["record"]["served"]]
-    assert "pit-card" in served and "main-card" in served
-    assert "Pitfall guardrails" in result["brief"]
-    assert any("no procedure" in g for g in result["record"]["gaps"])
-
-
-def test_full_fact_never_clipped(tmp_path):
-    # Regression (Rule 6): k caps selection, never content — the body rides
-    # whole into the brief.
-    long_body = "A fact stated at length. " * 200
-    root = build_bank(tmp_path, {"long-card": card_text("long-card", body=long_body)})
-    result = compile_brief(Bank(str(root)), TASK, "lr_x", RETRIEVER_CONFIG)
-    assert long_body.strip() in result["brief"]
+    result = render_cards(Bank(str(root)), TASK, ["card-a", "card-b"], False, {})
+    assert result["tensions"] == [["card-a", "card-b"]]
+    assert "treat as contested" in result["text"]
 
 
 def test_conformance_findings(tmp_path):
@@ -294,32 +367,3 @@ def test_probe_queue_ranks_by_voi_tiers(tmp_path):
     assert "decoy-card" not in queue
     assert "probeless" not in " ".join(lines)
 
-
-def test_probe_rider_attaches_at_most_the_budget(tmp_path):
-    # P6 regression: one probe slot rides the brief (a second never
-    # attaches), only eligible servable cards, recorded in the record.
-    from kapso.learning.retriever import compile_brief, compile_probe_queue
-
-    root = build_bank(tmp_path, {
-        "strong-card": card_text("strong-card", score=0.8),
-        "weak-card": card_text("weak-card", score=0.4),
-        "avito-card": card_text("avito-card", scope=["dataset:rel-avito"]),
-    })
-    bank = Bank(str(root))
-    (root / "index").mkdir(exist_ok=True)
-    (root / "index" / "probe-queue.md").write_text(compile_probe_queue(bank))
-    config = dict(RETRIEVER_CONFIG)
-    result = compile_brief(
-        bank, {"family": "entity_binary_classification", "dataset": "rel-hm"},
-        "head", config,
-    )
-    assert len(result["record"]["probes"]) == 1
-    assert result["record"]["probes"][0]["card"] != "avito-card"
-    assert "unverified on this family; probe:" in result["brief"]
-    config["probe_budget"] = 0
-    result = compile_brief(
-        bank, {"family": "entity_binary_classification", "dataset": "rel-hm"},
-        "head", config,
-    )
-    assert result["record"]["probes"] == []
-    assert "unverified on this family" not in result["brief"]

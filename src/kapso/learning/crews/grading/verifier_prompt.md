@@ -6,7 +6,11 @@ Report under attack (read-only): {{report_path}}
 The trajectory's mined view: {{mined_dir}}
 Raw bundle root (for re-greps): {{bundle_dir}}
 Bank checkout: {{bank_dir}}
-Brief + serving record: {{brief_path}} , {{record_path}}
+Serving surface (intro + full index) + launch record: {{index_path}} , {{record_path}}
+Live serving artifacts, when present (inside the bundle):
+`.kapso/serving/serving-record.yaml` + `.kapso/serving/serving-pull.jsonl`
+— serving rows must anchor on the pull log's exposure ladder (`read` and
+above); attack any uptake row about a card the log never shows opened.
 Learn-set mined views (re-run source searches here): {{learn_set_dir}}
 Write EXACTLY ONE file: {{findings_path}}
 

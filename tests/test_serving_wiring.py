@@ -33,8 +33,7 @@ def serving_config(tmp_path, enabled=True):
             "serving": {"enabled": enabled},
             "bank": {"local_path": str(tmp_path / "bank-home.git"),
                      "remote": None},
-            "retriever": {"k_insights": 2, "k_procedures": 1, "k_pitfalls": 1,
-                          "unvisited_discount": 0.5, "probe_budget": 1},
+            "retriever": {"probe_budget": 1},
         }
     }
 
@@ -43,19 +42,24 @@ def test_prepare_campaign_serving_stages_everything(tmp_path):
     seed_bank_home(tmp_path, {"a-card": card_text("a-card")})
     work_dir = tmp_path / "work"
     serving = prepare_campaign_serving(serving_config(tmp_path), TASK, work_dir)
-    # the brief is stamped with the pinned head and carries the card
-    assert serving["bank_head"] in serving["brief"]
-    assert "[card:a-card]" in serving["brief"]
-    # the push record landed inside the harvested tree
+    # the intro is stamped with the pinned head, names the three tools,
+    # and never carries card content (serving v2: the agent selects)
+    assert serving["bank_head"] in serving["intro"]
+    assert "bank_index()" in serving["intro"]
+    assert "bank_get_card_with_evidence(" in serving["intro"]
+    assert "[card:a-card]" not in serving["intro"]
+    # the launch record landed inside the harvested tree, v2 shape
     record = yaml.safe_load(Path(serving["record_path"]).read_text())
     assert record["bank_head"] == serving["bank_head"]
-    assert record["served"][0]["card"] == "a-card"
-    # the pull-tool env mapping is complete and points into the work dir
+    assert record["mode"] == "agentic"
+    assert "served" not in record  # exposure is the pull log's job now
+    # the tool env mapping is complete and points into the work dir
     env = serving["bank_serving"]
     assert Path(env["KAPSO_BANK_DIR"]).is_dir()
     assert env["KAPSO_BANK_HEAD"] == serving["bank_head"]
     assert env["KAPSO_TASK_FAMILY"] == TASK["family"]
     assert env["KAPSO_TASK_DATASET"] == TASK["dataset"]
+    assert env["KAPSO_PROBE_BUDGET"] == "1"
     assert str(work_dir) in env["KAPSO_SERVING_PULL_LOG"]
     # the checkout is PINNED: a later bank commit must not change it
     head_now = subprocess.run(
@@ -80,6 +84,7 @@ def test_bank_serving_env_threads_into_the_gate_server(tmp_path):
         "KAPSO_SERVING_PULL_LOG": str(tmp_path / "pull.jsonl"),
         "KAPSO_TASK_FAMILY": "entity_binary_classification",
         "KAPSO_TASK_DATASET": "rel-hm",
+        "KAPSO_PROBE_BUDGET": "1",
     }
     mcp_servers, tools = get_mcp_config(
         ["bank"], gate_failure_policy="error", bank_serving=mapping,
@@ -95,16 +100,15 @@ def test_bank_serving_env_threads_into_the_gate_server(tmp_path):
     assert "gated-knowledge" not in mcp_servers
 
 
-def test_knowledge_slot_additive_brief_on_static_notes():
-    live = knowledge_section("SERVED BRIEF BODY")
-    # additive contract: notes are the permanent base, brief appends after
+def test_knowledge_slot_additive_intro_on_static_notes():
+    live = knowledge_section("## Knowledge bank\nSERVED INTRO BODY")
+    # additive contract: notes are the permanent base, intro appends after
     assert FEATURE_ENGINEERING_NOTE in live
-    assert "Knowledge bank brief" in live and "SERVED BRIEF BODY" in live
-    assert live.index(FEATURE_ENGINEERING_NOTE) < live.index("SERVED BRIEF BODY")
-    assert "let your own measurements arbitrate" in live
+    assert "SERVED INTRO BODY" in live
+    assert live.index(FEATURE_ENGINEERING_NOTE) < live.index("SERVED INTRO BODY")
     fallback = knowledge_section(None)
     assert FEATURE_ENGINEERING_NOTE in fallback
-    assert "Knowledge bank brief" not in fallback
+    assert "Knowledge bank" not in fallback
 
 
 def test_judge_parses_cards_load_bearing():

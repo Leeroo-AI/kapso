@@ -26,6 +26,13 @@ Lenses are how the ensemble moves these axes. Across your {{lens_count}}
 lenses, cover the axes with the highest credible headroom for THIS task —
 and never let the lens set collapse onto a single axis by default.
 
+If the GOAL carries a "Knowledge bank" section and a `bank_index` tool is
+available, you may call `bank_index()` once while allocating lenses: a
+planned lens theme may already be carded — as support or as a guardrail —
+and a lens that tests a card's applies-when boundary is often a
+high-information angle. The index is measured practice, never a
+constraint on your lens design.
+
 ## How to work
 
 1. **Research before you write.** Use WebSearch/WebFetch to survey how this

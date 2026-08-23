@@ -33,7 +33,7 @@ from kapso.learning.graders.scorecard import (
     validate_verdict,
 )
 from kapso.learning.graders.split import held_out_ids
-from kapso.learning.retriever import compile_brief
+from kapso.learning.retriever import compile_intro, render_index
 from kapso.learning.trajectory_store import TrajectoryStore
 
 CREW_DIR = Path(__file__).parent.parent / "crews" / "grading"
@@ -121,10 +121,14 @@ class GradingFrame:
 
         slot = run_dir / "hindcast" / trajectory_id.replace("/", "--")
         slot.mkdir(parents=True, exist_ok=True)
-        push = compile_brief(bank, task_coords, bank_head, self.retriever_config)
-        (slot / "brief.md").write_text(push["brief"])
+        # The would-have-been serving surface (serving v2): the intro plus
+        # the full index — deterministic, so the hindcast replays it at
+        # historical heads byte-identical. Availability is index membership.
+        intro = compile_intro(bank, task_coords, bank_head)
+        index = render_index(bank, task_coords)
+        (slot / "index.md").write_text(intro["intro"] + "\n\n" + index["text"])
         with open(slot / "serving-record.yaml", "w") as handle:
-            yaml.safe_dump(push["record"], handle, sort_keys=False)
+            yaml.safe_dump(intro["record"], handle, sort_keys=False)
 
         values = {
             "trajectory_id": trajectory_id,
@@ -132,7 +136,7 @@ class GradingFrame:
             "mined_dir": bundle_dir / "mined",
             "bundle_dir": bundle_dir,
             "bank_dir": Path(bank_dir).resolve(),
-            "brief_path": slot / "brief.md",
+            "index_path": slot / "index.md",
             "record_path": slot / "serving-record.yaml",
             "learn_set_dir": learn_set_dir,
             "report_path": slot / "report.md",
@@ -154,7 +158,7 @@ class GradingFrame:
         bundle_root = bundle_dir.resolve()
 
         def ref_exists(path: str) -> bool:
-            if path in inventory or path == "brief.md":
+            if path in inventory or path == "index.md":
                 return True
             target = (bundle_dir / path).resolve()
             if not target.exists() and "trajectories/" in path:

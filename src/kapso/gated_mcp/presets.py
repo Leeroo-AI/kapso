@@ -187,16 +187,17 @@ GATES: Dict[str, GateDefinition] = {
         ],
         default_params={},
     ),
-    # Knowledge-bank pull tools (learn-from-trajectories §5.1): ideation +
+    # Knowledge-bank tools (serving-agentic-redesign.md): ideation +
     # implementation sessions only — the feedback judge never gets this gate.
     "bank": GateDefinition(
-        tools=["bank_search", "bank_get"],
+        tools=["bank_index", "bank_get_card", "bank_get_card_with_evidence"],
         default_params={},
         required_env=[
             "KAPSO_BANK_DIR",
             "KAPSO_BANK_HEAD",
             "KAPSO_SERVING_PULL_LOG",
             "KAPSO_TASK_FAMILY",
+            "KAPSO_PROBE_BUDGET",
         ],
     ),
     # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
@@ -393,8 +394,9 @@ def get_mcp_config(
         command_resolver: Optional command lookup override for testing.
         bank_serving: Campaign parameters for the "bank" gate, keyed by its
                       KAPSO_* env names (KAPSO_BANK_DIR, KAPSO_BANK_HEAD,
-                      KAPSO_SERVING_PULL_LOG, KAPSO_TASK_FAMILY, optional
-                      KAPSO_TASK_DATASET). Required for the gate to resolve.
+                      KAPSO_SERVING_PULL_LOG, KAPSO_TASK_FAMILY,
+                      KAPSO_PROBE_BUDGET, optional KAPSO_TASK_DATASET).
+                      Required for the gate to resolve.
     
     Returns:
         Tuple of (mcp_servers dict, allowed_tools list)

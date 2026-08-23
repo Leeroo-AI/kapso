@@ -1,6 +1,6 @@
 You grade what a knowledge bank knew in advance of one campaign. Your world:
 this trajectory's mined view, the bank checkout (read-only), its compiled
-brief + serving record, and the learn-set mined views for source searches.
+index + serving record, and the learn-set mined views for source searches.
 You must not seek and will not be given: other reports, scorecards, trends.
 One report, on its own evidence.
 
@@ -8,7 +8,14 @@ Trajectory: {{trajectory_id}}
 Mined view (read-only): {{mined_dir}}
 Raw bundle root (read-only, for spot checks): {{bundle_dir}}
 Bank checkout (read-only): {{bank_dir}}
-The would-have-been brief + serving record: {{brief_path}} , {{record_path}}
+The would-have-been serving surface (intro + full index) + launch record:
+{{index_path}} , {{record_path}}
+Live serving artifacts, when the campaign ran served (inside the bundle):
+`.kapso/serving/serving-record.yaml` and `.kapso/serving/serving-pull.jsonl`
+— the pull log is the exposure ladder's source: `indexed` (bank_index
+listed it) → `read` (bank_get_card) → `evidence-read`
+(bank_get_card_with_evidence) → `cited` ([card:<name>] in specs or living
+docs).
 Learn-set mined views (read-only, for source searches): {{learn_set_dir}}
 Write EXACTLY ONE file: {{report_path}}
 
@@ -17,7 +24,7 @@ The report format — frontmatter first:
     ---
     trajectory: {{trajectory_id}}
     bank_head: {{bank_head}}
-    brief: brief.md
+    surface: index.md
     hindcast:
       foresight: <0.00-1.00 or null>
       accuracy: <0.00-1.00 or null>
@@ -35,27 +42,37 @@ bundle-relative paths (`[mined/it-2/flow-3.md#evaluation]`,
 `[procedure: <name>]`.
 
 Markers: Extraction — HIT-SERVED | HIT-UNSERVED | MISS-UNCARDED | MISS-NOVEL.
+(For extraction, "served" means PRESENT IN THE INDEX — the bank knew it
+and the surface listed it; the index carries the whole eligible set.)
 Claims settlement — AGREED | CONTRADICTED | OUT-OF-SCOPE | THIN.
 Serving — SERVED-USED | UPTAKE-FAIL | SERVE-MISS | SERVE-NOISE.
-Serving rows exist ONLY for cards the serving record actually lists as
-served (or the probe). WITHHOLDING IS NOT A SERVING EVENT: never write
-rows about bank-inventory cards that were not served — a correctly
-withheld card is silence, not SERVE-NOISE. When the record shows
-`served: []`, the Serving section is EMPTY and the `serving` dimension is
-null; commentary about what the bank holds belongs nowhere in this
-report.
+Serving rows anchor on the LIVE exposure ladder, never on index
+membership: SERVED-USED / UPTAKE-FAIL / SERVE-NOISE rows exist ONLY for
+cards the pull log shows at `read` or above (or probes that actually rode
+a read). AN UN-OPENED CARD IS SILENCE — never write uptake rows about
+cards the campaign merely saw in the index or never looked at. The ONE
+exception is SERVE-MISS, the charge for an available card that went
+unread: a card whose applies-when matched a decision the campaign
+demonstrably faced, that sat in the index, was never read, and whose
+absence cost (name the decision, the cost, and the ref). When the
+trajectory carries no live serving artifacts, or the pull log shows no
+card ever reached `read` and no SERVE-MISS is chargeable, the Serving
+section is EMPTY and the `serving` dimension is null; commentary about
+what the bank holds belongs nowhere in this report.
 PARTIAL UPTAKE IS UPTAKE-FAIL: SERVED-USED requires the campaign to have
 followed the card's ACTUAL method — following a degraded or partial
 variant (fewer splits, missing checks, a different gate) is UPTAKE-FAIL
-with the gap named, however good the intent looked. A served probe row is
+with the gap named, however good the intent looked. A probe row is
 charged separately and NEVER absorbs the card row's own uptake verdict.
 Every SERVED-USED entry must also GRADE THE PAYOFF of following the card:
 name the decision the campaign took because of it and the measured effect
 (delta and ref), or state plainly "followed, no measurable benefit". A
-served card that changed a decision is only a success if the decision paid —
+read card that changed a decision is only a success if the decision paid —
 uptake without payoff is a finding, not a win. UPTAKE-FAIL entries state
 what the campaign did instead and what that cost or saved (the counter-
-factual the card failed to move).
+factual the card failed to move). Citations ([card:<name>] in specs or
+living docs) bind attribution one rung above `read`: a cited card's
+outcome row carries the citation ref.
 
 Duties that carry the report's honesty:
 - EXTRACTION. Enumerate the discoveries the campaign PAID for (ledger
@@ -87,10 +104,12 @@ Duties that carry the report's honesty:
   and rejects a score further than the band from its center. Null where the
   evidence base is empty — null is a verdict, never a gap, and a number over
   an empty base is a rejected report. The null/zero boundary for SERVING:
-  null when the bank held nothing relevant to deliver (nothing served, no
-  serve-miss to charge — an empty bank is null, not zero); 0.00 only when
-  there was a real serving failure to charge — a relevant card existed and
-  was missed, or what was served was noise. Two decimals maximum. The
+  null when there was nothing to grade (no live serving artifacts, or no
+  card reached `read` and no serve-miss is chargeable — unused tools over
+  an irrelevant bank are null, not zero); 0.00 only when there was a real
+  serving failure to charge — a relevant available card went unread while
+  the campaign paid its cost (SERVE-MISS), or what was read was noise.
+  Two decimals maximum. The
   rationale must name the binding factor, state the novel share when
   MISS-NOVEL entries exist, and flag thinness.
 

@@ -43,7 +43,7 @@ def worked_example(foresight=0.45, accuracy=0.80, serving=0.40, score=0.55,
     return f"""---
 trajectory: rel-hm--user-churn/20260819T030000_lane-a1
 bank_head: lr_20260817T2100
-brief: brief.md
+surface: index.md
 hindcast:
   foresight: {scores['foresight']}
   accuracy: {scores['accuracy']}

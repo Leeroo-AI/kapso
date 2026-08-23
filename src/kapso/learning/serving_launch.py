@@ -1,12 +1,12 @@
-# Campaign-launch serving (design §5.3, P5): pin the bank, compile the push
-# brief, stage the pull-tool parameters — all frame-side, before any session
-# exists. The network is never on the campaign path: v1 serves from the
-# durable local home (`learning.bank.local_path`); the remote arrives with
-# D3 and changes only where the home syncs from, never this function.
+# Campaign-launch serving (serving-agentic-redesign.md, v2): pin the bank,
+# compile the intro, stage the tool parameters — all frame-side, before any
+# session exists. The network is never on the campaign path: serving reads
+# the durable local home (`learning.bank.local_path`).
 #
 # Everything staged here lands inside the campaign work dir (.kapso/serving/)
 # so the harvested trajectory carries the exact served state: the pinned
-# checkout, the push record, and the sessions' pull log.
+# checkout, the launch record, and the sessions' pull log (the exposure
+# ladder's source).
 
 import shutil
 import subprocess
@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 from kapso.learning.bank import Bank
-from kapso.learning.retriever import compile_brief
+from kapso.learning.retriever import compile_intro
 
 
 def prepare_campaign_serving(
@@ -26,10 +26,11 @@ def prepare_campaign_serving(
 ) -> Optional[Dict[str, Any]]:
     """Stage serving for one campaign launch; None when serving is off.
 
-    Returns {brief, bank_head, record_path, bank_serving} — `brief` is the
-    stamped markdown for the problem context, `bank_serving` is the KAPSO_*
-    env mapping the bank gate resolves on (ideation + implementation
-    sessions only; the feedback judge never receives it).
+    Returns {intro, bank_head, record_path, bank_serving} — `intro` is the
+    knowledge-bank introduction appended after the static context notes,
+    `bank_serving` is the KAPSO_* env mapping the bank gate resolves on
+    (ideation + implementation sessions only; the feedback judge never
+    receives it).
     """
     serving_config = config["learning"]["serving"]
     if not serving_config["enabled"]:
@@ -54,22 +55,13 @@ def prepare_campaign_serving(
         check=True, capture_output=True, text=True,
     ).stdout.strip()
 
-    result = compile_brief(
-        Bank(str(checkout)), task_coords, bank_head,
-        config["learning"]["retriever"],
-    )
+    result = compile_intro(Bank(str(checkout)), task_coords, bank_head)
     record_path = serve_dir / "serving-record.yaml"
     with open(record_path, "w") as handle:
         yaml.safe_dump(result["record"], handle, sort_keys=False)
 
-    stamp = (
-        f"Served from the knowledge bank at head `{bank_head}` "
-        f"({len(result['record']['served'])} cards; pinned for this whole "
-        f"campaign). Cards are measured practice, not constraints; cite "
-        f"load-bearing use as [card:<name>]."
-    )
     return {
-        "brief": stamp + "\n\n" + result["brief"],
+        "intro": result["intro"],
         "bank_head": bank_head,
         "record_path": str(record_path),
         "bank_serving": {
@@ -77,6 +69,9 @@ def prepare_campaign_serving(
             "KAPSO_BANK_HEAD": bank_head,
             "KAPSO_SERVING_PULL_LOG": str(serve_dir / "serving-pull.jsonl"),
             "KAPSO_TASK_FAMILY": task_coords["family"],
+            "KAPSO_PROBE_BUDGET": str(
+                config["learning"]["retriever"]["probe_budget"]
+            ),
             **({"KAPSO_TASK_DATASET": task_coords["dataset"]}
                if task_coords.get("dataset") else {}),
         },

@@ -58,14 +58,17 @@ The repository has a semantic memory that captures architecture, gotchas, and ke
   - Use for: comprehensive understanding of a complex topic
 
 ## Knowledge bank (when served)
-If the problem context carries a "Knowledge bank brief" section, or
-`bank_search` / `bank_get` tools are available: the brief is the bank's
-push-selected cards for this task, and `bank_search` lists the WHOLE
-eligible set as hero lines (you are the reranker — `bank_get` the ones
-worth reading in full). Cards are measured practice, not constraints:
-follow the evidence your own measurements produce. The citation contract:
-when a card's guidance is load-bearing in your proposal, cite it inline as
-`[card:<name>]` exactly where used. Cite only real use — never decorate.
+If the problem context carries a "Knowledge bank" section and the
+`bank_index` / `bank_get_card` / `bank_get_card_with_evidence` tools are
+available: before writing ideas, call `bank_index()` once and scan it
+against the task — open (`bank_get_card`) any card whose applies-when
+matches a direction you are considering, and steal or steelman it. Cards
+are measured practice, not constraints: follow the evidence your own
+measurements produce. When an idea adopts a card's move, cite it inline
+as `[card:<name>]` exactly where used — cite only real use, never
+decorate. A card you open may carry a probe — an optional measurement
+offer; adopt one only if its protocol is affordable at this dataset's
+scale, and say so explicitly.
 
 ## IMPORTANT: Read-Only Mode
 You are in IDEATION mode. Do NOT modify any files. Only read and research.
