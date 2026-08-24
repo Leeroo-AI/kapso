@@ -187,6 +187,7 @@ def run_lens_planner_session(
     ideation_dir: str,
     *,
     planner: Dict[str, Any],
+    bank_serving: Optional[Dict[str, str]] = None,
     claude_auth_settings: Dict[str, Any],
     env_strip: List[str],
     env_defaults: Dict[str, str],
@@ -199,10 +200,22 @@ def run_lens_planner_session(
     """One planner/replanner claude session; returns (result, cost_usd)."""
     from kapso.execution.coding_agents.base import CodingAgentConfig
     from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
+    from kapso.gated_mcp import get_mcp_config
 
+    # The planner is the campaign's direction-setter, so it gets the bank
+    # tools (serving-agentic-redesign.md §5): the index as a map of
+    # directions, and the per-lens `bank:` declaration contract in its
+    # prompt. Serving off -> bank gate unresolved -> plain session.
+    mcp_servers, mcp_tools = get_mcp_config(
+        gates=["bank"],
+        include_base_tools=False,
+        gate_failure_policy="skip",
+        bank_serving=bank_serving,
+    )
     print(
         f"[GenericSearch] Lens planner starting: {planner['model']} "
-        f"({'web-enabled' if ideation_web_search else 'web-OFF'})"
+        f"({'web-enabled' if ideation_web_search else 'web-OFF'}"
+        f"{', bank-served' if mcp_servers else ''})"
     )
     config = CodingAgentConfig(
         agent_type="claude_code",
@@ -213,7 +226,11 @@ def run_lens_planner_session(
             "env_strip": env_strip,
             "env_defaults": env_defaults,
             "aws_region": aws_region,
-            "allowed_tools": ["Read", "WebSearch", "WebFetch"],
+            "mcp_servers": mcp_servers,
+            "allowed_tools": [
+                "Read", "WebSearch", "WebFetch",
+                *[t for t in mcp_tools if t.startswith("mcp__")],
+            ],
             "disallowed_tools": web_disallowed_tools,
             "timeout": planner.get("timeout", 600),
             "streaming": True,

@@ -42,6 +42,7 @@ def run_implementation(
     sync_registered_evaluation: Callable[[str], None],
     implementation_gates: List[str],
     gate_failure_policy: str,
+    bank_serving: Optional[Dict[str, str]] = None,
     implementation_cli: str,
     implementation_model: str,
     implementation_fallback_model: Optional[str],
@@ -104,6 +105,7 @@ def run_implementation(
         repo_root=session.session_folder,
         include_base_tools=False,
         gate_failure_policy=gate_failure_policy,
+        bank_serving=bank_serving,
     )
     
     # 3. Build full tool set for implementation (includes Write, Edit)

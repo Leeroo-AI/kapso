@@ -226,6 +226,7 @@ def generate_solution(
     experiment_history_path: str,
     ideation_gates: List[str],
     gate_failure_policy: str,
+    bank_serving: Optional[Dict[str, str]] = None,
     ideation_web_search: bool,
     ideation_ensemble: Optional[List[Dict[str, str]]],
     idea_generation_model: str,
@@ -287,6 +288,7 @@ def generate_solution(
             repo_root=ideation_dir,
             include_base_tools=False,
             gate_failure_policy=gate_failure_policy,
+            bank_serving=bank_serving,
         )
 
         # 3. Build restricted tool set (read-only for ideation). Claude
