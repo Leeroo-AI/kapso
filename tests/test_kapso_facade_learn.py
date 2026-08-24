@@ -290,3 +290,30 @@ def test_evolve_serving_staging_and_disabled_byte_identity(
     # the serving record landed inside the campaign workspace
     record = tmp_path / "out2" / ".kapso" / "serving" / "serving-record.yaml"
     assert record.is_file()
+
+
+def test_learn_knowledge_flattens_research_output(tmp_path, monkeypatch):
+    # Regression (E2E 2026-08-24): research(mode="idea") returns a LIST of
+    # typed sources; passing it directly (the advertised contract) must
+    # reach the pipeline flattened — never as one 'list'-typed source.
+    config_path = facade_config(tmp_path)
+    kapso = Kapso(config_path=config_path)
+    captured = {}
+
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, *sources, skip_merge=False):
+            captured["sources"] = sources
+            return SimpleNamespace(
+                sources_processed=len(sources), total_pages_extracted=1,
+                created=1, edited=0, errors=[],
+            )
+
+    monkeypatch.setattr("kapso.kapso.KnowledgePipeline", FakePipeline)
+    idea_a, idea_b = object(), object()
+    kapso.learn_knowledge([idea_a, idea_b], skip_merge=True)
+    assert captured["sources"] == (idea_a, idea_b)
+    with pytest.raises(ValueError, match="empty source lists"):
+        kapso.learn_knowledge([], skip_merge=True)

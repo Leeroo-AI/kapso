@@ -445,7 +445,23 @@ class Kapso:
             )
         """
         if not sources:
-            raise ValueError("learn() requires at least one source")
+            raise ValueError("learn_knowledge() requires at least one source")
+        # research(mode="idea"/"implementation") returns a LIST of typed
+        # sources; the advertised contract passes that output directly as
+        # one argument — flatten one level so the pipeline's per-source
+        # factory sees the typed items, never a bare list (found live
+        # 2026-08-24 by the facade E2E: "Unknown ingestor type: 'list'").
+        flattened: List[Any] = []
+        for item in sources:
+            if isinstance(item, (list, tuple)):
+                flattened.extend(item)
+            else:
+                flattened.append(item)
+        sources = tuple(flattened)
+        if not sources:
+            raise ValueError(
+                "learn_knowledge() received only empty source lists"
+            )
 
         # Backward-compatible handling: if a URL is provided, fall back to the default local wiki dir.
         resolved_wiki_dir = wiki_dir
