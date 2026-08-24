@@ -15,6 +15,7 @@ Run:  PYTHONPATH=src:. python examples/ml_model_development/run_full_loop.py
 import json
 import os
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,11 +75,33 @@ RESEARCH_QUESTION = (
 )
 
 
+def _build_revision() -> str:
+    """The code revision this stage ran on — a loop assembled from several
+    builds is not a green E2E, so the record must show which build each
+    stage used (E2E review 2026-08-24)."""
+    return subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
 def stage(status_path: Path, name: str, state: str, **extra) -> None:
+    """Record a stage transition. Attempts APPEND: a superseded or failed
+    attempt stays in the record instead of being overwritten by the one
+    that worked (E2E review 2026-08-24 — the state machine hid both)."""
     status = json.loads(status_path.read_text()) if status_path.exists() else {}
-    status[name] = {"state": state,
-                    "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    **extra}
+    entry = {
+        "state": state,
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "build": _build_revision(),
+        **extra,
+    }
+    previous = status.get(name)
+    attempts = list(previous.get("attempts", [])) if previous else []
+    if previous:
+        attempts.append({k: v for k, v in previous.items() if k != "attempts"})
+    status[name] = {**entry, "attempts": attempts}
     status_path.write_text(json.dumps(status, indent=1, default=str))
     print(f"\n=== STAGE {name}: {state} {extra if extra else ''}\n", flush=True)
 

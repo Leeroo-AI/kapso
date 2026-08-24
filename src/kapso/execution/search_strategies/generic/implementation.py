@@ -43,6 +43,7 @@ def run_implementation(
     implementation_gates: List[str],
     gate_failure_policy: str,
     bank_serving: Optional[Dict[str, str]] = None,
+    kg_index_path: Optional[str] = None,
     implementation_cli: str,
     implementation_model: str,
     implementation_fallback_model: Optional[str],
@@ -106,6 +107,11 @@ def run_implementation(
         include_base_tools=False,
         gate_failure_policy=gate_failure_policy,
         bank_serving=bank_serving,
+        kg_index_path=kg_index_path,
+        research_web_search_model=(
+            llm.resolve_model(None, default_role="web_search")
+            if llm is not None else None
+        ),
     )
     
     # 3. Build full tool set for implementation (includes Write, Edit)

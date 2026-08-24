@@ -89,6 +89,25 @@ class KGIndexError(Exception):
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 
+def _memory_overrides(
+    serving_plan: Optional[Dict[str, Any]],
+    kg_index_path: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Per-campaign strategy params carrying BOTH memory stores.
+
+    The strategy mounts the gates that follow from these: a staged bank
+    pulls in the `bank` gate, a staged knowledge index pulls in the
+    wiki-search gates. Neither is an independent config choice — the
+    injected intro tells sessions those tools exist (E2E review
+    2026-08-24: they did not).
+    """
+    overrides: Dict[str, Any] = {}
+    if serving_plan:
+        overrides["bank_serving"] = serving_plan["bank_serving"]
+    if kg_index_path:
+        overrides["kg_index_path"] = kg_index_path
+    return overrides or None
+
 class Kapso:
     """
     The main Kapso Agent class.
@@ -510,6 +529,18 @@ class Kapso:
         )
         result = pipeline.run(*sources, skip_merge=skip_merge)
 
+        # The merge wrote pages into the KG backends AND an .index beside
+        # the wiki dir. Record that index as this agent's knowledge
+        # provenance: evolve stamps it into every SolutionResult and
+        # threads it to the wiki-search gates, so a solution is traceable
+        # to the knowledge state that produced it. Without this the stamp
+        # was null on every learn_knowledge -> evolve sequence and the
+        # gates had no index to mount (E2E review 2026-08-24).
+        if not skip_merge:
+            merged_index = Path(resolved_wiki_dir).expanduser() / ".index"
+            if merged_index.is_file():
+                self._kg_index_path = str(merged_index)
+                print(f"  Knowledge index: {merged_index}")
         # S1 fix (learn-api-design.md §8.2): a merged run just wrote into
         # the KG backends — a Kapso constructed without kg_index would
         # otherwise keep its null search and the next evolve() in this
@@ -679,6 +710,21 @@ class Kapso:
             report_path = campaign_dir / "final_report.json"
             if not report_path.is_file():
                 report: Dict[str, Any] = {"generated_by": "Kapso.learn"}
+                # The manifest reads family/dataset from here, and the
+                # update crew scopes cards by them. Recording the coords
+                # the campaign was SERVED on keeps the cards a lesson
+                # mints eligible for the very task that produced them
+                # (E2E review 2026-08-24: cards were scoped to invented
+                # families and matched nothing).
+                served_record = (
+                    campaign_dir / ".kapso" / "serving" / "serving-record.yaml"
+                )
+                if served_record.is_file():
+                    served_task = yaml.safe_load(
+                        served_record.read_text()
+                    ).get("task") or {}
+                    report["family"] = served_task.get("family")
+                    report["dataset"] = served_task.get("dataset")
                 if isinstance(source, SolutionResult):
                     report.update({
                         "goal": source.goal,
@@ -1047,9 +1093,8 @@ class Kapso:
             eval_dir=eval_dir,
             data_dir=data_dir,
             goal=goal,
-            strategy_params_overrides=(
-                {"bank_serving": serving_plan["bank_serving"]}
-                if serving_plan else None
+            strategy_params_overrides=_memory_overrides(
+                serving_plan, self._kg_index_path
             ),
         )
 
@@ -1060,10 +1105,23 @@ class Kapso:
             serving = stage_campaign_serving(
                 self._serving_config, serving_coords, serving_plan
             )
+            # Fail loud rather than lie: the intro instructs sessions to
+            # call the three bank tools, so the gate that provides them
+            # must have resolved. A silently-unmounted gate produced an
+            # intro advertising tools no session had (E2E review
+            # 2026-08-24, blocker 1).
+            mounted = orchestrator.search_strategy.ideation_gates
+            if "bank" not in mounted:
+                raise RuntimeError(
+                    "serving staged but the 'bank' gate is not mounted in "
+                    f"ideation gates {mounted} — the intro would advertise "
+                    "tools the sessions do not have"
+                )
             handler.additional_context = "\n\n".join(
                 [c for c in [handler.additional_context, serving["intro"]] if c]
             )
             print(f"  Knowledge bank: serving at head {serving['bank_head']}")
+            print(f"  Bank tools mounted in gates: {mounted}")
 
         # Run experimentation
         print("Running experiments...")

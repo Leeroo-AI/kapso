@@ -157,6 +157,7 @@ def make_stub(tmp_path, planner=PLANNER, iteration=1, node_history=()):
     strategy.node_history = list(node_history)
     strategy.problem_handler = SimpleNamespace(maximize_scoring=False)
     strategy.bank_serving = None
+    strategy.kg_index_path = None
     return strategy
 
 

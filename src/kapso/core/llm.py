@@ -29,7 +29,12 @@ MODEL_ROLES = frozenset({"utility", "reasoning", "web_search", "embedding"})
 DEFAULT_MODEL_ROUTES: Dict[str, str] = {
     "utility": "gpt-4.1-mini",
     "reasoning": "gpt-5-mini",
-    "web_search": "openai/gpt-4o-search-preview",
+    # Web search runs through the Responses API web_search TOOL, which the
+    # retired search-preview family rejects ("not supported with the
+    # Responses API" — a gate whose subprocess fell back to this default
+    # 400'd on every call, E2E review 2026-08-24). Any current chat model
+    # works; deployments override via the config's models.web_search.
+    "web_search": "gpt-4.1-mini",
     "embedding": "text-embedding-3-small",
 }
 

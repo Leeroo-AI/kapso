@@ -214,6 +214,9 @@ class GenericSearch(SearchStrategy):
         # into ideation, implementation, and lens-planner sessions — never
         # the feedback judge.
         self.bank_serving = self.params.get("bank_serving")
+        # Knowledge-store index for the wiki-search gates (learn_knowledge
+        # / index_kg write it; the facade threads it per campaign).
+        self.kg_index_path = self.params.get("kg_index_path")
         # Durable-archive recovery root for the registered evaluation (glob
         # of run archive parents, e.g. "tmp/relbench/*/runs"). None disables
         # archive recovery; the live-process wait still applies.
@@ -322,6 +325,25 @@ class GenericSearch(SearchStrategy):
         self.implementation_timeout = self.params.get("implementation_timeout")
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
+        # A staged bank MUST be reachable: serving injects an intro that
+        # instructs sessions to call bank_index / bank_get_card /
+        # bank_get_card_with_evidence, so the gate that provides them is
+        # not an independent config choice — it follows the serving
+        # decision. Without this, the intro advertised tools no session
+        # had and every pull log stayed empty (E2E review 2026-08-24,
+        # blocker 1).
+        if self.bank_serving:
+            for gates in (self.ideation_gates, self.implementation_gates):
+                if "bank" not in gates:
+                    gates.append("bank")
+        # Same law for the knowledge store: when a KG index is staged the
+        # wiki-search gates must be mounted, or learn_knowledge writes
+        # pages no campaign can read (E2E review 2026-08-24, blocker 2).
+        if self.params.get("kg_index_path"):
+            for gates in (self.ideation_gates, self.implementation_gates):
+                for gate in ("idea", "code"):
+                    if gate not in gates:
+                        gates.append(gate)
         self.parent_policy = parent_policy
         
         # Experiment history path (set by orchestrator)
@@ -643,6 +665,7 @@ class GenericSearch(SearchStrategy):
             ideation_gates=self.ideation_gates,
             gate_failure_policy=self.gate_failure_policy,
             bank_serving=self.bank_serving,
+            kg_index_path=self.kg_index_path,
             ideation_web_search=self.ideation_web_search,
             ideation_ensemble=self.ideation_ensemble,
             idea_generation_model=self.idea_generation_model,
@@ -807,6 +830,7 @@ class GenericSearch(SearchStrategy):
             implementation_gates=self.implementation_gates,
             gate_failure_policy=self.gate_failure_policy,
             bank_serving=self.bank_serving,
+            kg_index_path=self.kg_index_path,
             implementation_cli=self.implementation_cli,
             implementation_model=self.implementation_model,
             implementation_fallback_model=self.implementation_fallback_model,

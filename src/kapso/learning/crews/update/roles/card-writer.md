@@ -67,6 +67,16 @@ WRITING — the rules that bind every edit:
   families or a mechanism argument that plainly spans them. And
   `scope_conditions` states WHEN the mechanism applies, precisely enough
   that a retriever miss is a boundary fact, not a vague hedge.
+  ELIGIBILITY IS THE TEST: a card founded on a trajectory MUST be
+  eligible for that trajectory's own task coordinates (its manifest
+  `family` / `dataset`). Coordinates are matched literally — `domain`
+  covers everything, `family:<x>` matches only that exact family string,
+  and an invented family nobody serves on matches nothing. Read the
+  coordinates off the trajectory instead of inventing a taxonomy: a
+  lesson whose card cannot be served back to the campaign that produced
+  it is a card the bank can never use (found live 2026-08-24: seven
+  cards scoped to invented families left the next campaign's index
+  empty).
   `scope_conditions` is REQUIRED on every card you author or rewrite — it
   is user-facing: serving renders it as the index's `applies-when` line,
   the one line an agent scans against its own plan to decide whether to

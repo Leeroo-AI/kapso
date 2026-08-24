@@ -188,10 +188,12 @@ Depth options:
                 parts.append(f"{idea.content}\n")
             return [TextContent(type="text", text="".join(parts))]
         except Exception as e:
+            # A broken research channel must reach the operator, not the
+            # model as prose: three 400s were handed to the agent as
+            # "Research error: ..." text and the driver recorded the stage
+            # done (E2E review 2026-08-24). Log, then propagate.
             logger.error(f"Research idea failed: {e}", exc_info=True)
-            import traceback
-            error_details = traceback.format_exc()
-            return [TextContent(type="text", text=f"Research error: {str(e)}\n\nDetails:\n```\n{error_details}\n```")]
+            raise
     
     async def _handle_implementation(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle research_implementation."""

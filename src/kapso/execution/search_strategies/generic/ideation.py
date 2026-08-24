@@ -227,6 +227,7 @@ def generate_solution(
     ideation_gates: List[str],
     gate_failure_policy: str,
     bank_serving: Optional[Dict[str, str]] = None,
+    kg_index_path: Optional[str] = None,
     ideation_web_search: bool,
     ideation_ensemble: Optional[List[Dict[str, str]]],
     idea_generation_model: str,
@@ -289,6 +290,11 @@ def generate_solution(
             include_base_tools=False,
             gate_failure_policy=gate_failure_policy,
             bank_serving=bank_serving,
+            kg_index_path=kg_index_path,
+            research_web_search_model=(
+                llm.resolve_model(None, default_role="web_search")
+                if llm is not None else None
+            ),
         )
 
         # 3. Build restricted tool set (read-only for ideation). Claude

@@ -367,3 +367,39 @@ def test_probe_queue_ranks_by_voi_tiers(tmp_path):
     assert "decoy-card" not in queue
     assert "probeless" not in " ".join(lines)
 
+
+
+def test_flat_procedure_file_fails_the_transaction(tmp_path):
+    # Regression (E2E review 2026-08-24): a crew wrote a procedure as a
+    # flat procedures/<slug>.md. Bank loads procedures from
+    # procedures/<slug>/card.md, so the card was committed, counted as
+    # created by the lesson, and invisible to bank_index, bank_get_card,
+    # the probe queue and every grading surface. The transaction must
+    # refuse a card file the read layer cannot load.
+    from kapso.learning.bank_invariants import BankTransactionValidator
+
+    before_root = build_bank(tmp_path / "before", {"a-card": card_text("a-card")})
+    after_root = build_bank(tmp_path / "after", {"a-card": card_text("a-card")})
+    flat = after_root / "procedures" / "flat-procedure.md"
+    flat.write_text(card_text("flat-procedure", kind="procedure"))
+
+    findings = BankTransactionValidator(
+        Bank(str(before_root)), Bank(str(after_root)),
+        {"rule": 35, "section": 25, "confidence": 8},
+    ).validate()
+    assert any(
+        "procedures/flat-procedure.md" in finding
+        and "invisible to the read layer" in finding
+        for finding in findings
+    ), findings
+
+    # the correct layout passes
+    flat.unlink()
+    good = after_root / "procedures" / "good-procedure"
+    good.mkdir()
+    (good / "card.md").write_text(card_text("good-procedure", kind="procedure"))
+    findings = BankTransactionValidator(
+        Bank(str(before_root)), Bank(str(after_root)),
+        {"rule": 35, "section": 25, "confidence": 8},
+    ).validate()
+    assert not any("invisible to the read layer" in f for f in findings), findings

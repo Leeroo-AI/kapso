@@ -214,6 +214,7 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.ideation_gates = ["repo_memory"]
     strategy.gate_failure_policy = "warn"
     strategy.bank_serving = None
+    strategy.kg_index_path = None
     strategy.idea_generation_model = "model"
     strategy._claude_auth_settings = {"auth_mode": "oauth"}
     strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."

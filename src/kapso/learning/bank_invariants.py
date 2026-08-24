@@ -165,6 +165,44 @@ class BankTransactionValidator:
         findings += self._check_sightings()
         findings += self._check_body_contract()
         findings += self._check_confidence_sync()
+        findings += self._check_card_files_are_loadable()
+        return findings
+
+    # --------------------------------------------- on-disk loadability
+
+    def _check_card_files_are_loadable(self) -> List[str]:
+        """Every committed card file must be one the read layer LOADS.
+
+        Insights live at `insights/<slug>.md`, procedures at
+        `procedures/<slug>/card.md` (design §3.1). A crew that writes a
+        procedure as a flat `procedures/<slug>.md` commits a card that
+        Bank never loads: invisible to bank_index, bank_get_card, the
+        probe queue and every grading surface, while the lesson reports
+        it as created (found live 2026-08-24 — one of seven banked cards
+        was unservable)."""
+        findings: List[str] = []
+        root = self.after.root
+        insights_dir = root / "insights"
+        if insights_dir.is_dir():
+            for path in sorted(insights_dir.rglob("*.md")):
+                relative = path.relative_to(insights_dir)
+                if len(relative.parts) != 1:
+                    findings.append(
+                        f"insights/{relative.as_posix()}: insight cards are "
+                        f"flat files insights/<slug>.md"
+                    )
+        procedures_dir = root / "procedures"
+        if procedures_dir.is_dir():
+            for path in sorted(procedures_dir.rglob("*.md")):
+                relative = path.relative_to(procedures_dir)
+                if relative.name == "index.md" and len(relative.parts) == 1:
+                    continue
+                if len(relative.parts) != 2 or relative.name != "card.md":
+                    findings.append(
+                        f"procedures/{relative.as_posix()}: procedure cards "
+                        f"live at procedures/<slug>/card.md — this file is "
+                        f"invisible to the read layer"
+                    )
         return findings
 
     # ------------------------------------------------------- body contract

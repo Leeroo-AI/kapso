@@ -242,6 +242,11 @@ def test_evolve_serving_staging_and_disabled_byte_identity(
     captured = {}
 
     class FakeOrchestrator:
+        # What gates the strategy resolved — the real one appends "bank"
+        # when bank_serving is in its params; tests flip this to prove the
+        # facade refuses to inject an intro over an unmounted gate.
+        gates = ["research", "repo_memory", "bank"]
+
         def __init__(self, handler, **kwargs):
             captured["handler"] = handler
             captured["kwargs"] = kwargs
@@ -251,6 +256,7 @@ def test_evolve_serving_staging_and_disabled_byte_identity(
                 get_deliverable_score=lambda: None,
                 get_experiment_history=lambda best_last=True: [],
                 iteration_evaluations=[],
+                ideation_gates=list(FakeOrchestrator.gates),
             )
 
         def solve(self, **kwargs):
@@ -317,3 +323,67 @@ def test_learn_knowledge_flattens_research_output(tmp_path, monkeypatch):
     assert captured["sources"] == (idea_a, idea_b)
     with pytest.raises(ValueError, match="empty source lists"):
         kapso.learn_knowledge([], skip_merge=True)
+
+
+def test_evolve_refuses_to_advertise_unmounted_bank_tools(tmp_path, monkeypatch):
+    # Regression (E2E review 2026-08-24, blocker 1): the injected intro
+    # instructs sessions to call bank_index / bank_get_card /
+    # bank_get_card_with_evidence. If the gate providing them did not
+    # resolve, the intro lies and every pull log stays empty — the facade
+    # must fail loud instead.
+    config_path = facade_config(tmp_path)
+    seed_bank_home(tmp_path, {"seed-card": card_text("seed-card")})
+    config = yaml.safe_load(Path(config_path).read_text())
+    config["learning"]["serving"]["enabled"] = True
+    Path(config_path).write_text(yaml.safe_dump(config))
+
+    class GatelessOrchestrator:
+        def __init__(self, handler, **kwargs):
+            self.search_strategy = SimpleNamespace(
+                workspace=SimpleNamespace(workspace_dir=str(tmp_path / "ws")),
+                checkout_to_best_experiment_branch=lambda: "main",
+                get_deliverable_score=lambda: None,
+                get_experiment_history=lambda best_last=True: [],
+                iteration_evaluations=[],
+                ideation_gates=["research", "repo_memory"],  # no "bank"
+            )
+
+        def solve(self, **kwargs):  # never reached
+            raise AssertionError("solve must not run with an unmounted gate")
+
+    monkeypatch.setattr("kapso.kapso.OrchestratorAgent", GatelessOrchestrator)
+    monkeypatch.chdir(tmp_path)
+    kapso = Kapso(config_path=config_path)
+    with pytest.raises(RuntimeError, match="'bank' gate is not mounted"):
+        kapso.evolve(goal="test goal", output_path=str(tmp_path / "out3"))
+
+
+def test_learn_knowledge_records_the_index_it_wrote(tmp_path, monkeypatch):
+    # Regression (E2E review 2026-08-24): kg_index provenance was None on
+    # every learn_knowledge -> evolve sequence because the facade never
+    # recorded the index the merge wrote.
+    config_path = facade_config(tmp_path)
+    kapso = Kapso(config_path=config_path)
+    wiki_dir = tmp_path / "wikis"
+    wiki_dir.mkdir()
+    (wiki_dir / ".index").write_text('{"page_count": 3}')
+
+    class FakePipeline:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, *sources, skip_merge=False):
+            return SimpleNamespace(
+                sources_processed=1, total_pages_extracted=3,
+                created=3, edited=0, errors=[],
+            )
+
+    monkeypatch.setattr("kapso.kapso.KnowledgePipeline", FakePipeline)
+    monkeypatch.setattr(
+        "kapso.kapso.KnowledgeSearchFactory",
+        SimpleNamespace(create=lambda **kw: SimpleNamespace(
+            is_enabled=lambda: True), create_null=lambda: None),
+    )
+    kapso.learn_knowledge(object(), wiki_dir=str(wiki_dir))
+    assert kapso._kg_index_path == str(wiki_dir / ".index")
+    assert kapso.memory.knowledge_index == str(wiki_dir / ".index")

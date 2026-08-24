@@ -36,3 +36,30 @@ def test_default_gates_include_research(tmp_path):
     assert strategy.implementation_gates == [
         "research", "repo_memory", "leeroopedia",
     ]
+
+
+def test_staged_memory_stores_mount_their_own_gates(tmp_path):
+    # Regression (E2E review 2026-08-24, blockers 1+2): serving injects an
+    # intro naming bank_index / bank_get_card / bank_get_card_with_evidence
+    # and learn_knowledge writes pages the wiki-search gates read. Both are
+    # reachable only if the providing gate is mounted, so the gate list
+    # FOLLOWS the staged store instead of being an independent config
+    # choice — the live run advertised bank tools no session had.
+    params = {
+        "bank_serving": {"KAPSO_BANK_DIR": "/tmp/bank"},
+        "kg_index_path": "/tmp/wikis/.index",
+    }
+    with _patched_super_init(str(tmp_path)):
+        strategy = GenericSearch(SimpleNamespace(params=params), str(tmp_path))
+    for gates in (strategy.ideation_gates, strategy.implementation_gates):
+        assert "bank" in gates
+        assert {"idea", "code"} <= set(gates)
+
+
+def test_gates_unchanged_without_staged_stores(tmp_path):
+    # The mount is conditional: no staged store, no extra gates.
+    with _patched_super_init(str(tmp_path)):
+        strategy = GenericSearch(SimpleNamespace(params={}), str(tmp_path))
+    for gates in (strategy.ideation_gates, strategy.implementation_gates):
+        assert "bank" not in gates
+        assert "idea" not in gates and "code" not in gates
