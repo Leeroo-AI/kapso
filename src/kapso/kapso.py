@@ -745,6 +745,14 @@ class Kapso:
                 work_dir=str(campaign_dir),
                 campaign_log=str(log_path),
                 contract="historical",
+                # An evolve workspace IS a git repo, and `.git/index` is
+                # rewritten by any git command a later reader runs — the
+                # mining frame's raw-immutability check then fails the view
+                # ("raw file .git/index was modified during mining", found
+                # live 2026-08-24). The repo's own object store is not
+                # campaign evidence: the working tree, living documents,
+                # run manifests and logs are.
+                work_dir_exclude=(".git",),
                 bank_head=served_head,
                 upload=None,
             )

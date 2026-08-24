@@ -3,7 +3,11 @@ stages completed (run_full_loop.py, learn-facade-integration.md Phase 2).
 
 Usage:
   PYTHONPATH=src:. python examples/ml_model_development/resume_full_loop.py \
-      learning/e2e-facade/<stamp>
+      learning/e2e-facade/<stamp> [--from evolve1|learn]
+
+`--from learn` reuses a completed evolve1 by learning from its campaign
+DIRECTORY (learn()'s path dispatch) — no SolutionResult needed, so a
+crashed later stage never costs a good campaign.
 
 Validates the completed stages' artifacts, reconnects the knowledge
 search (the pages already live in the KG backends — no re-learning),
@@ -34,6 +38,11 @@ from examples.ml_model_development.run_full_loop import (
 
 def main() -> None:
     sandbox = Path(sys.argv[1]).resolve()
+    start_at = "evolve1"
+    if "--from" in sys.argv:
+        start_at = sys.argv[sys.argv.index("--from") + 1]
+    if start_at not in ("evolve1", "learn"):
+        raise ValueError("--from must be evolve1 or learn")
     status_path = sandbox / "stage_status.json"
     status = json.loads(status_path.read_text())
     if status["research"]["state"] != "done" or (
@@ -69,7 +78,10 @@ def main() -> None:
 
     # A partial campaign from the interrupted run cannot be resumed at this
     # layer (the driver owns whole stages) — wipe and redo cleanly.
+    keep = {"campaign1"} if start_at == "learn" else set()
     for partial in ("campaign1", "campaign2"):
+        if partial in keep:
+            continue
         if (sandbox / partial).exists() and status.get(
             f"evolve{partial[-1]}", {}
         ).get("state") != "done":
@@ -79,7 +91,12 @@ def main() -> None:
     workdir = sandbox / "task"
 
     # --- 3. evolve #1 (KG + founding bank) ---
-    if status.get("evolve1", {}).get("state") != "done":
+    sol1 = None
+    if start_at == "learn":
+        if status.get("evolve1", {}).get("state") != "done":
+            raise RuntimeError("--from learn requires a completed evolve1")
+        print("  reusing completed evolve1 (campaign1)", flush=True)
+    elif status.get("evolve1", {}).get("state") != "done":
         stage(status_path, "evolve1", "running")
         sol1 = kapso.evolve(
             goal=GOAL,
@@ -116,7 +133,9 @@ def main() -> None:
 
     # --- 4. learn ---
     stage(status_path, "learn", "running")
-    lesson = kapso.learn(sol1)
+    lesson = kapso.learn(
+        sol1 if sol1 is not None else str(sandbox / "campaign1")
+    )
     (sandbox / "lesson.txt").write_text(lesson.explain())
     (sandbox / "memory-2-after-lesson.txt").write_text(kapso.memory.explain())
     stage(status_path, "learn", "done",
