@@ -28,7 +28,12 @@ from kapso.kapso import DEFAULT_CONFIG_PATH, Kapso
 from kapso.learning.update_frame import init_bank
 from examples.ml_model_development.e2e.generate_data import generate
 
-EVOLVE_BUDGET_MINUTES = 20
+# The example's own reference E2E config budgets 45 minutes for this task
+# (e2e/config.e2e.yaml). A 20-minute budget exhausted mid-first-
+# implementation: no evaluation, score 0.0, "no iteration content to
+# analyze" (measured 2026-08-24) — the campaign needs room to finish at
+# least one full experiment.
+EVOLVE_BUDGET_MINUTES = 45
 EVOLVE_MAX_ITERATIONS = 4
 
 GOAL = """

@@ -94,10 +94,25 @@ def main() -> None:
               bank_head_served=sol1.metadata.get("bank_head_served"),
               kg_index=sol1.metadata.get("kg_index"))
     else:
-        raise RuntimeError(
-            "evolve1 already done — this resume path expects to run it; "
-            "extend the script if later stages need resuming"
+        # Redo: a completed-but-unusable stage (e.g. a budget-starved
+        # campaign) is re-run from scratch into a fresh campaign dir.
+        # The durable stages (research, learn_knowledge) are never redone.
+        print("  evolve1 was done — redoing it (fresh campaign)", flush=True)
+        if (sandbox / "campaign1").exists():
+            shutil.rmtree(sandbox / "campaign1")
+        stage(status_path, "evolve1", "running")
+        sol1 = kapso.evolve(
+            goal=GOAL,
+            initial_repo=str(workdir),
+            output_path=str(sandbox / "campaign1"),
+            max_iterations=EVOLVE_MAX_ITERATIONS,
+            time_budget_minutes=EVOLVE_BUDGET_MINUTES,
         )
+        (sandbox / "solution1.txt").write_text(sol1.explain())
+        stage(status_path, "evolve1", "done",
+              score=sol1.final_score, succeeded=sol1.succeeded,
+              bank_head_served=sol1.metadata.get("bank_head_served"),
+              kg_index=sol1.metadata.get("kg_index"))
 
     # --- 4. learn ---
     stage(status_path, "learn", "running")
