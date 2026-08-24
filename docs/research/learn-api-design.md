@@ -166,3 +166,113 @@ facade-level: dispatch (result/path/id), idempotent-refusal, exam-pin
 (head recorded before lesson), LessonResult.admitted, evolve-serving
 staging when enabled + byte-identical problem context when disabled.
 CLI stays as is (it is the same chain spelled out).
+
+---
+
+# §8. The memory model — connecting the two learners
+
+The facade now carries two learning systems with different backends:
+
+| | `learn_knowledge()` — knowledge | `learn()` — experience |
+|---|---|---|
+| source | external: repos, research outputs, ideas | internal: the agent's own campaigns |
+| content | wiki pages / workflow repos | evidence-priced cards |
+| backend | wiki dir + KG backends + `.index` pointer | bank git repo (home + optional remote) |
+| trust model | curated, unpriced | measured, reliability-scored |
+| evolve read path | knowledge_search (KG gates) + workflow-repo search | serving (intro + bank tools) |
+
+## 8.1 Unification options considered
+
+- **A — one backend** (migrate wikis into the bank as a card species, or
+  cards into the KG): rejected. The trust models are incompatible (a
+  curated page cannot carry an evidence ledger; pricing machinery is
+  meaningless for imported docs), the read modes differ (semantic search
+  vs agentic index), and the migration buys adapters, not deletions
+  (Rule 10).
+- **B — one facade model, two stores** (chosen): the agent has ONE
+  memory with two stores — **knowledge** (what others know, imported)
+  and **experience** (what it measured by doing). Unification lives in
+  the mental model, the constructor, the status surface, and evolve's
+  automatic consumption of BOTH — never in the backends.
+- **C — one verb dispatching by source type**: rejected in §1 (a pun,
+  not a unification); the connection problem is state and read paths,
+  not naming.
+
+## 8.2 The connection design
+
+**Constructor — symmetric, config-defaulted, override-able:**
+
+```python
+Kapso(
+    config_path=None,
+    kg_index=None,   # knowledge store connection (as today)
+    bank=None,       # experience store home; default:
+                     #   config learning.bank.local_path
+)
+```
+
+Both stores resolve ONCE at construction into an internal memory
+descriptor; `learn()`, `learn_knowledge()`, and `evolve()` all read that
+resolution — never re-reading config at call time, and no per-call
+store overrides (one resolution point; the CLI keeps `--config`).
+
+**Status surface — one place to ask "what does this agent know":**
+
+```python
+kapso.memory            # MemoryStatus
+#   .knowledge:  index path | None, backend type, enabled
+#   .experience: bank path, head, active cards, store trajectories,
+#                serving_enabled
+kapso.memory.explain()  # one readable summary
+```
+
+**Provenance — every result stamps what it drew on:** evolve stamps
+`metadata["kg_index"]` and `metadata["bank_head_served"]` into
+SolutionResult; learn already stamps heads into LessonResult. A solution
+is always traceable to the exact memory state that produced it.
+
+**Read paths stay SEPARATE in the prompt, deliberately.** Knowledge
+arrives through the existing KG gates and workflow-repo search;
+experience through the serving intro + bank tools. They are different
+epistemic classes — one curated, one measured — and merging them into a
+single retrieval list would launder that distinction. The ideation
+prompt already frames each correctly (INDEX.md-style bank text vs "cards
+are measured practice").
+
+**One repair the simulations forced (S1):** `learn_knowledge()` merges
+into the KG backends but never refreshes `self.knowledge_search` — a
+Kapso built without `kg_index` stays null-search, so a same-object
+evolve is blind to knowledge it just learned (verified at
+kapso.py:learn tail — pipeline.run() then return, no search rebuild).
+Fix, part of this design: after a merge (`skip_merge=False`),
+`learn_knowledge()` initializes/refreshes `self.knowledge_search` from
+the config preset exactly as `index_kg()` already does post-index.
+
+## 8.3 The permutation simulations
+
+| # | sequence | outcome under this design |
+|---|---|---|
+| S1 | `learn_knowledge(repo)` → `evolve` | WORKS after the 8.2 repair (was: silently blind). evolve consults the fresh KG; bank empty → serving intro honestly reports gaps (or serving off → today's behavior). |
+| S2 | `evolve` → `learn(sol)` → `evolve` | The §2-§4 loop: second evolve's launch-time bank clone sees the new head. |
+| S3 | `learn_knowledge(repo)` → `evolve` → `learn(sol)` → `evolve` | Both stores feed the last evolve through their separate slots; SolutionResult stamps kg_index + bank_head_served. |
+| S4 | `evolve` → `learn(sol)` → `learn_knowledge(research_out)` → `evolve` | Order-free: `research()` output feeds learn_knowledge (already supported); stores are independent, so interleaving cannot corrupt either. |
+| S5 | two projects | `Kapso(bank="./proj-a-bank")` vs `Kapso(bank="./proj-b-bank")`; kg likewise per `kg_index`. Concurrent READS of one bank are safe (serving pins per-campaign clones). Concurrent `learn()` into one bank is NOT supported — the update transaction assumes a serial writer; documented contract: one learn at a time per bank home. |
+| S6 | cross-process resume | `learn("path/to/campaign")` and `learn("store/id")` cover results from other processes; nothing depends on in-object state. |
+| S7 | cold start | no kg, no bank: evolve is byte-identical to today. First `learn()` requires the bank home (init_bank or config-created); error names the fix. |
+
+## 8.4 Facade summary after §§1-8
+
+```python
+k = Kapso(kg_index="data/indexes/ml.index")        # knowledge connected
+k.learn_knowledge(Source.Repo(url), k.research(q)) # imported knowledge
+sol   = k.evolve(goal=..., time_budget_minutes=240) # consults BOTH stores
+les   = k.learn(sol)                                # experience earned
+print(k.memory.explain())                           # one status view
+sol2  = k.evolve(goal=...)                          # smarter on both axes
+```
+
+Implementation adds to §7's map: the `bank=` constructor arg + memory
+resolution, `MemoryStatus` + `explain()`, the S1 refresh in
+learn_knowledge, provenance stamps in evolve, and facade tests for
+S1-S4 (S1's regression test: null-search Kapso + learn_knowledge →
+evolve consults the KG).
