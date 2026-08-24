@@ -681,6 +681,10 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
     kapso = Kapso.__new__(Kapso)
     kapso.config_path = None
     kapso.knowledge_search = SimpleNamespace(is_enabled=lambda: False)
+    # Mirror __init__-set attributes the evolve path reads (stub gotcha).
+    kapso._config = {}
+    kapso._bank_home = None
+    kapso._kg_index_path = None
     result = kapso.evolve(
         goal="Improve support",
         output_path=str(workspace),

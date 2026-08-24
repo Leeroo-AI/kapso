@@ -6,7 +6,7 @@
 #     from src import Kapso, Source, DeployStrategy
 #     
 #     kapso = Kapso()
-#     kapso.learn(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
+#     kapso.learn_knowledge(Source.Repo("https://github.com/user/repo"), wiki_dir="data/wikis")
 #     solution = kapso.evolve(goal="Create a triage agent")
 #     software = solution.deploy()
 #     result = software.run({"symptoms": "headache"})

@@ -120,7 +120,7 @@ def learn_repo(repo_url: str, index: int, total: int) -> dict:
     kapso = Kapso()
 
     try:
-        result = kapso.learn(
+        result = kapso.learn_knowledge(
             Source.Repo(repo_url),
             wiki_dir=args.wiki_dir,
             skip_merge=True,            # <-- Skip merge (Stage 2)

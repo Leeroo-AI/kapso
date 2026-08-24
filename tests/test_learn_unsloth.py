@@ -40,7 +40,7 @@ for i, repo_url in enumerate(repos, 1):
     print("-" * 60)
     
     try:
-        result = kapso.learn(
+        result = kapso.learn_knowledge(
             Source.Repo(repo_url),
             wiki_dir="data/wikis",
             github_org="leeroopedia",

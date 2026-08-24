@@ -19,7 +19,11 @@
 
 import json
 import os
-from datetime import datetime
+import subprocess
+import uuid
+
+import yaml
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -38,6 +42,12 @@ from kapso.knowledge_base.learners import Source, KnowledgePipeline
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
 from kapso.core.config import load_config
+from kapso.learning.graders.frame import GradingFrame
+from kapso.learning.lesson_result import LessonResult, MemoryStatus
+from kapso.learning.mining import MiningFrame
+from kapso.learning.serving_launch import prepare_campaign_serving
+from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
+from kapso.learning.update_frame import UpdateFrame
 
 # Placeholder types for unimplemented learning
 class KnowledgeChunk:
@@ -79,29 +89,29 @@ DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 class Kapso:
     """
     The main Kapso Agent class.
-    
-    A Kapso is an intelligent agent that can:
-    1. Index knowledge from wiki pages or JSON knowledge graphs
-    2. Evolve software to solve goals using experimentation
-    3. Deploy solutions as running software
-    
-    Knowledge Graph Workflow:
-        # ONE-TIME SETUP: Index your knowledge
-        kapso = Kapso(config_path="./config.yaml")
-        kapso.index_kg(
-            wiki_dir="data/wikis/ml_knowledge",
-            save_to="data/indexes/ml.index",
-        )
-        
-        # EVERY TIME: Load existing index
-        kapso = Kapso(
-            config_path="./config.yaml",
-            kg_index="data/indexes/ml.index",
-        )
-        solution = kapso.evolve(goal="Create a momentum trading bot")
+
+    A Kapso is an intelligent agent with ONE memory and TWO stores
+    (learn-api-design.md §8):
+    - knowledge  — what others know, imported via learn_knowledge()
+      (repos, research outputs) into the knowledge graph;
+    - experience — what the agent measured by doing, earned via learn()
+      (its own campaigns) into the evidence-priced bank.
+    evolve() consults BOTH automatically, through separate surfaces
+    (KG search gates vs bank serving), and every SolutionResult stamps
+    the exact memory it drew on.
+
+    The closed loop:
+        kapso = Kapso(kg_index="data/indexes/ml.index")
+        kapso.learn_knowledge(Source.Repo(url), kapso.research(question))
+        solution = kapso.evolve(goal=..., time_budget_minutes=240)
+        lesson   = kapso.learn(solution)     # import -> mine -> exam -> lesson
+        print(kapso.memory.explain())        # one status view of both stores
+        solution2 = kapso.evolve(goal=...)   # smarter on both axes
+
+    Deployment:
         software = kapso.deploy(solution)
         result = software.run({"ticker": "AAPL"})
-        
+
     Advanced usage with evaluation and data directories:
         solution = kapso.evolve(
             goal="Build a classifier with 95% accuracy",
@@ -118,21 +128,38 @@ class Kapso:
     }
     
     def __init__(
-        self, 
+        self,
         config_path: Optional[str] = None,
         kg_index: Optional[str] = None,
+        bank: Optional[str] = None,
     ):
         """
         Initialize a Kapso agent.
-        
+
         Args:
             config_path: Path to configuration file (uses default if not provided)
             kg_index: Path to existing .index file to load knowledge graph from.
                       If provided, connects to the indexed knowledge graph.
                       If not provided, knowledge search is disabled.
+            bank: Experience-store (knowledge bank) home directory. Overrides
+                  the config default (learning.bank.local_path). The bank is
+                  where learn() writes evidence-priced cards and where
+                  evolve() serves them from when serving is enabled.
         """
         self.config_path = config_path or DEFAULT_CONFIG_PATH
         self._config = load_config(self.config_path)
+
+        # The agent's memory resolves ONCE here (design §8.2): knowledge =
+        # the KG connection below; experience = the bank home. Every later
+        # call (learn / learn_knowledge / evolve) reads this resolution —
+        # never re-reading config at call time.
+        configured_bank = (
+            (self._config.get("learning") or {}).get("bank") or {}
+        ).get("local_path")
+        bank_path = bank or configured_bank
+        self._bank_home: Optional[Path] = (
+            Path(bank_path).expanduser() if bank_path else None
+        )
         
         # Track learned knowledge chunks (in-memory for MVP)
         self._learned_chunks: List[KnowledgeChunk] = []
@@ -364,8 +391,8 @@ class Kapso:
 
         return self._web_researcher.research(objective, mode=mode, depth=depth)
     
-    def learn(
-        self, 
+    def learn_knowledge(
+        self,
         *sources: Union[Source.Repo, Source.Solution, Source.Idea, Source.Implementation, Source.ResearchReport, ResearchFindings],
         wiki_dir: str = "data/wikis",
         skip_merge: bool = False,
@@ -401,14 +428,14 @@ class Kapso:
             
         Example:
             # Learn from repo + web research and merge into local KG
-            kapso.learn(
+            kapso.learn_knowledge(
                 Source.Repo("https://github.com/user/repo"),
                 kapso.research("How to pick LoRA rank?", mode="idea"),
                 wiki_dir="data/wikis",
             )
             
             # Learn and push workflow repos to an organization as public
-            kapso.learn(
+            kapso.learn_knowledge(
                 Source.Repo("https://github.com/user/repo"),
                 github_org="my-org",
                 is_private=False,
@@ -464,6 +491,24 @@ class Kapso:
         )
         result = pipeline.run(*sources, skip_merge=skip_merge)
 
+        # S1 fix (learn-api-design.md §8.2): a merged run just wrote into
+        # the KG backends — a Kapso constructed without kg_index would
+        # otherwise keep its null search and the next evolve() in this
+        # object would be blind to knowledge it just learned. Refresh the
+        # search from the config preset, exactly as index_kg() does.
+        if not skip_merge and not self.knowledge_search.is_enabled():
+            mode = self._config.get("default_mode", "GENERIC")
+            mode_config = self._config.get("modes", {}).get(mode, {})
+            search_config = mode_config.get("knowledge_search", {})
+            params = search_config.get("params", {}).copy()
+            params.setdefault("models", mode_config.get("models"))
+            params.setdefault("retry", mode_config.get("retry"))
+            self.knowledge_search = KnowledgeSearchFactory.create(
+                search_type=search_config.get("type", "kg_graph_search"),
+                params=params,
+            )
+            print("  Knowledge search connected (post-learn refresh)")
+
         # Keep a small, user-friendly summary.
         print(
             f"Learn complete: sources={result.sources_processed}, "
@@ -474,6 +519,328 @@ class Kapso:
 
         return result
     
+
+    # =========================================================================
+    # Learning from experience (learn-from-trajectories)
+    # =========================================================================
+
+    def _bank_head(self) -> str:
+        """Current head of the bank home (fail loud when absent)."""
+        return subprocess.run(
+            ["git", "--git-dir", str(self._bank_home), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    @property
+    def memory(self) -> MemoryStatus:
+        """What this agent knows right now, across both memory stores
+        (design §8.2): knowledge (imported — KG) and experience (earned —
+        the bank)."""
+        knowledge_enabled = self.knowledge_search.is_enabled()
+        bank_head = None
+        active_cards = None
+        store_count = None
+        if self._bank_home is not None and self._bank_home.exists():
+            bank_head = self._bank_head()
+            listing = subprocess.run(
+                ["git", "--git-dir", str(self._bank_home), "ls-tree",
+                 "-r", "--name-only", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.splitlines()
+            active_cards = sum(
+                1 for path in listing
+                if (path.startswith("insights/") or path.startswith("procedures/"))
+                and path.endswith(".md") and not path.endswith("index.md")
+            )
+            store = TrajectoryStore.from_config(self._config)
+            store_count = len(store.list_manifests())
+        return MemoryStatus(
+            knowledge_index=self._kg_index_path,
+            knowledge_backend=(
+                type(self.knowledge_search).__name__ if knowledge_enabled else None
+            ),
+            knowledge_enabled=knowledge_enabled,
+            bank_path=str(self._bank_home) if self._bank_home else None,
+            bank_head=bank_head,
+            bank_active_cards=active_cards,
+            store_trajectories=store_count,
+            serving_enabled=bool(
+                ((self._config.get("learning") or {}).get("serving") or {})
+                .get("enabled")
+            ),
+        )
+
+    def learn(
+        self,
+        source: Union[SolutionResult, str],
+        *,
+        trajectory_id: Optional[str] = None,
+        learner_version: Optional[str] = None,
+        exam: bool = True,
+        push: Optional[bool] = None,
+    ) -> LessonResult:
+        """Learn from one finished campaign: import it into the trajectory
+        store, mine it, grade the bank on it (exam-before-lesson), then run
+        the update crew — evidence-priced cards, one tagged bank commit.
+
+        Args:
+            source: What to learn from —
+                - the SolutionResult returned by evolve() (its campaign
+                  workspace is read directly),
+                - a path to a campaign directory (archived + imported), or
+                - a trajectory id already in the store (import skipped).
+            trajectory_id: Store id when importing a directory; default is
+                derived (<goal-or-dir-slug>/<UTC-stamp>).
+            learner_version: Update-crew version; default from config
+                (learning.update_crew.default_version).
+            exam: Run the hindcast exam against the pinned pre-lesson bank
+                head first. False is for development replays only.
+            push: Push the bank commit to learning.bank.remote. None means
+                "push exactly when a remote is configured".
+
+        Returns:
+            LessonResult — what changed in the bank and the paper trail.
+        """
+        started = datetime.now(timezone.utc)
+        if self._bank_home is None or not self._bank_home.exists():
+            raise FileNotFoundError(
+                f"bank home {self._bank_home} does not exist — run "
+                "`kapso learn init-bank` (or init_bank()) first, or point "
+                "Kapso(bank=...) / learning.bank.local_path at an existing "
+                "bank"
+            )
+        learning_config = self._config["learning"]
+        version = (
+            learner_version
+            or learning_config["update_crew"]["default_version"]
+        )
+        store = TrajectoryStore.from_config(self._config)
+
+        # --- dispatch (design §2) ---
+        if isinstance(source, SolutionResult):
+            campaign_dir = Path(source.code_path).expanduser()
+            slug_seed = source.goal
+        else:
+            known_ids = {m["id"] for m in store.list_manifests()}
+            if source in known_ids:
+                campaign_dir = None
+                trajectory_id = source
+                slug_seed = source
+            else:
+                campaign_dir = Path(source).expanduser()
+                slug_seed = campaign_dir.name
+                if not campaign_dir.is_dir():
+                    raise FileNotFoundError(
+                        f"learn() source {source!r} is neither a store "
+                        f"trajectory id nor an existing campaign directory"
+                    )
+
+        if campaign_dir is not None:
+            if trajectory_id is None:
+                slug = "".join(
+                    ch if ch.isalnum() else "-" for ch in slug_seed.lower()
+                ).strip("-")[:48].strip("-") or "campaign"
+                stamp = started.strftime("%Y%m%dT%H%M%S")
+                trajectory_id = f"{slug}/{stamp}_facade"
+            # Harvest bridge (the same step benchmark drivers run at
+            # campaign completion). A bare evolve workspace lacks the
+            # benchmark-shaped artifacts, so the facade synthesizes the
+            # historical-contract trio HONESTLY from what the campaign
+            # actually produced — each generated file says so.
+            kapso_dir = campaign_dir / ".kapso"
+            kapso_dir.mkdir(exist_ok=True)
+            meta_path = campaign_dir / "campaign_meta.json"
+            if not meta_path.is_file():
+                meta_path.write_text(json.dumps({
+                    "goal": slug_seed,
+                    "workspace": str(campaign_dir),
+                    "harvested_by": "Kapso.learn",
+                    "harvested_at": started.isoformat(timespec="seconds"),
+                }, indent=1))
+            report_path = campaign_dir / "final_report.json"
+            if not report_path.is_file():
+                report: Dict[str, Any] = {"generated_by": "Kapso.learn"}
+                if isinstance(source, SolutionResult):
+                    report.update({
+                        "goal": source.goal,
+                        "succeeded": source.succeeded,
+                        "final_score": source.final_score,
+                        "metadata": source.metadata,
+                    })
+                report_path.write_text(json.dumps(report, indent=1, default=str))
+            log_path = campaign_dir / ".kapso" / "campaign.log"
+            if not log_path.is_file():
+                lines = ["# facade-generated harvest log (Kapso.learn)"]
+                if isinstance(source, SolutionResult):
+                    lines.append(source.explain())
+                log_path.write_text("\n".join(lines) + "\n")
+            # The store contract requires registered runs. A bare evolve
+            # workspace records its experiments in the history store, not
+            # a runs/ archive — synthesize run manifests from that REAL
+            # history (one per recorded experiment; a campaign with zero
+            # experiments has nothing to learn from and fails loud).
+            runs_dir = campaign_dir / "runs"
+            if not any(runs_dir.glob("run_*")):
+                history_path = (
+                    campaign_dir / ".kapso" / "experiment_history.json"
+                )
+                if not history_path.is_file():
+                    raise FileNotFoundError(
+                        f"learn() source {campaign_dir} has neither runs/ "
+                        "nor .kapso/experiment_history.json — nothing to "
+                        "learn from"
+                    )
+                history = json.loads(history_path.read_text())
+                entries = (
+                    history if isinstance(history, list)
+                    else history.get("experiments", [])
+                )
+                if not entries:
+                    raise ValueError(
+                        f"learn() source {campaign_dir} recorded no "
+                        "experiments — nothing to learn from"
+                    )
+                for index, entry in enumerate(entries, start=1):
+                    run_dir = runs_dir / f"run_{index:04d}"
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    (run_dir / "manifest.txt").write_text(
+                        json.dumps(
+                            {"generated_by": "Kapso.learn", **entry}
+                            if isinstance(entry, dict)
+                            else {"generated_by": "Kapso.learn",
+                                  "experiment": entry},
+                            indent=1, default=str,
+                        )
+                    )
+            serving_record = (
+                campaign_dir / ".kapso" / "serving" / "serving-record.yaml"
+            )
+            served_head: Optional[str] = None
+            if serving_record.is_file():
+                served_head = yaml.safe_load(
+                    serving_record.read_text()
+                )["bank_head"]
+            save_trajectory(
+                store,
+                trajectory_id,
+                work_dir=str(campaign_dir),
+                campaign_log=str(log_path),
+                contract="historical",
+                bank_head=served_head,
+                upload=None,
+            )
+            print(f"  Harvested into store: {trajectory_id}")
+
+        # --- mine (idempotent: skip when the view exists) ---
+        manifest = store.manifest(trajectory_id)
+        if not manifest.get("derived", {}).get("mined"):
+            mined_dir = MiningFrame.from_config(self._config).mine(trajectory_id)
+            print(f"  Mined view: {mined_dir}")
+
+        # --- the exam pin: clone + record the head BEFORE the lesson ---
+        graders_root = Path(
+            learning_config["graders"]["run_root"]
+        ).expanduser()
+        checkout = (
+            graders_root / "ingest-serving"
+            / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+               + "-" + uuid.uuid4().hex[:8])
+        )
+        checkout.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "clone", "--quiet", str(self._bank_home), str(checkout)],
+            check=True,
+        )
+        bank_head_before = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+        exam_report_path: Optional[str] = None
+        if exam:
+            grading = GradingFrame(store, self._config)
+            learn_set_ids = [
+                row["id"] for row in store.list_manifests()
+                if row["id"] != trajectory_id
+                and (store.local / row["id"] / "mined").is_dir()
+            ]
+            exam_report_path = str(grading.grade_exam(
+                trajectory_id, str(checkout), bank_head_before,
+                str(graders_root), learn_set_ids,
+            ))
+            print(f"  Exam report: {exam_report_path}")
+
+        # --- the lesson ---
+        frame = UpdateFrame(store, self._config)
+        run_dir = frame.run_update(
+            [{"trajectory": trajectory_id,
+              "hindcast_report": exam_report_path}]
+            if exam_report_path else
+            [{"trajectory": trajectory_id}],
+            learning_config["update_crew"]["run_root"],
+            version,
+        )
+        bank_head_after = self._bank_head()
+
+        # --- what changed (derived from the bank itself, never trusted) ---
+        cards_created: List[str] = []
+        cards_updated: List[str] = []
+        if bank_head_after != bank_head_before:
+            diff = subprocess.run(
+                ["git", "--git-dir", str(self._bank_home), "diff",
+                 "--name-status", bank_head_before, bank_head_after,
+                 "--", "insights", "procedures"],
+                check=True, capture_output=True, text=True,
+            ).stdout.splitlines()
+            for line in diff:
+                status, _, path = line.partition("\t")
+                if not path.endswith(".md") or path.endswith("index.md"):
+                    continue
+                # insights/<name>.md -> stem; procedures/<name>/card.md
+                # -> the directory name (the card's identity).
+                parts = Path(path).parts
+                name = (
+                    Path(path).parent.name
+                    if parts[0] == "procedures" and parts[-1] == "card.md"
+                    else Path(path).stem
+                )
+                if status.startswith("A"):
+                    cards_created.append(name)
+                elif status.startswith("M"):
+                    cards_updated.append(name)
+
+        # --- push (config-determined by default) ---
+        remote = learning_config["bank"].get("remote")
+        should_push = bool(remote) if push is None else push
+        pushed = False
+        if should_push:
+            if not remote:
+                raise ValueError(
+                    "push=True but learning.bank.remote is not configured"
+                )
+            subprocess.run(
+                ["git", "--git-dir", str(self._bank_home), "push",
+                 str(remote), "main", "--tags"],
+                check=True,
+            )
+            pushed = True
+
+        duration = (datetime.now(timezone.utc) - started).total_seconds()
+        return LessonResult(
+            trajectory_id=trajectory_id,
+            bank_head_before=bank_head_before,
+            bank_head_after=bank_head_after,
+            cards_created=sorted(cards_created),
+            cards_updated=sorted(cards_updated),
+            exam_report_path=exam_report_path,
+            lesson_report_path=str(Path(run_dir) / "report.md"),
+            metadata={
+                "learner_version": version,
+                "pushed": pushed,
+                "duration_minutes": round(duration / 60, 1),
+            },
+        )
+
     def evolve(
         self,
         goal: str,
@@ -495,6 +862,8 @@ class Kapso:
         data_dir: Optional[str] = None,
         # --- Extra context options ---
         additional_context: str = "",
+        # --- Experience serving (design §4/§8) ---
+        serving_scope: Optional[Dict[str, str]] = None,
     ) -> SolutionResult:
         """
         Evolve a solution for the given goal.
@@ -583,7 +952,45 @@ class Kapso:
         user_context = (additional_context or "").strip()
         items_context = "\n\n".join(context_parts).strip()
         combined_context = "\n\n".join([c for c in [user_context, items_context] if c])
-        
+
+        # Experience serving (learn-api-design.md §4): when serving is
+        # enabled and the bank exists, stage the knowledge intro + bank
+        # tools for this campaign. The facade owns the workspace dir in
+        # that case so the serving record lands INSIDE the campaign
+        # (learn() later reads it from there). Serving off, or no bank ->
+        # byte-identical to the pre-serving path.
+        serving = None
+        if (
+            ((self._config.get("learning") or {}).get("serving") or {})
+            .get("enabled")
+            and self._bank_home is not None
+            and self._bank_home.exists()
+        ):
+            workspace_for_serving = output_path or os.path.join(
+                "tmp", "search_strategy_workspace", uuid.uuid4().hex
+            )
+            os.makedirs(workspace_for_serving, exist_ok=True)
+            serving_config = dict(self._config)
+            serving_config["learning"] = dict(self._config["learning"])
+            serving_config["learning"]["bank"] = {
+                **self._config["learning"]["bank"],
+                "local_path": str(self._bank_home),
+            }
+            serving = prepare_campaign_serving(
+                serving_config,
+                serving_scope or {
+                    "family": (
+                        mode or self._config.get("default_mode", "GENERIC")
+                    ).lower()
+                },
+                workspace_for_serving,
+            )
+            output_path = output_path or workspace_for_serving
+            combined_context = "\n\n".join(
+                [c for c in [combined_context, serving["intro"]] if c]
+            )
+            print(f"  Knowledge bank: serving at head {serving['bank_head']}")
+
         # Create problem handler with all options
         handler = GenericProblemHandler(
             problem_description=problem,
@@ -615,8 +1022,11 @@ class Kapso:
             eval_dir=eval_dir,
             data_dir=data_dir,
             goal=goal,
+            strategy_params_overrides=(
+                {"bank_serving": serving["bank_serving"]} if serving else None
+            ),
         )
-        
+
         # Run experimentation
         print("Running experiments...")
         solve_result = orchestrator.solve(
@@ -656,6 +1066,12 @@ class Kapso:
                 "stop_detail": solve_result.stop_detail,
                 "best_branch": best_branch,
                 "resumed": resume,
+                # Memory provenance (design §8.2): the exact stores this
+                # solution drew on.
+                "kg_index": self._kg_index_path,
+                "bank_head_served": (
+                    serving["bank_head"] if serving else None
+                ),
                 "external_metrics": dict(
                     getattr(
                         solve_result.best_experiment,

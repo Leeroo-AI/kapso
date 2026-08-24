@@ -148,11 +148,18 @@ class OrchestratorAgent:
         eval_dir: Optional[str] = None,
         data_dir: Optional[str] = None,
         goal: Optional[str] = None,
+        strategy_params_overrides: Optional[Dict[str, Any]] = None,
     ):
         self.problem_handler = problem_handler
         self.config_path = config_path
         self.mode = mode
         self.goal = goal or ""
+        # Per-campaign strategy-param overrides merged over the mode
+        # config's params (the facade's serving hook uses this to thread
+        # bank_serving — same semantics as a benchmark runtime config,
+        # without the temp file). Merged BEFORE fingerprinting, so resume
+        # validation sees exactly what the strategy will run with.
+        self._strategy_params_overrides = dict(strategy_params_overrides or {})
         # Load once before constructing shared services so model roles and retry
         # behavior apply consistently across strategy, memory, and commit calls.
         self.mode_config = load_mode_config(config_path, mode)
@@ -466,13 +473,16 @@ class OrchestratorAgent:
         """Resolve strategy identity before a resume mutates the workspace."""
         mode_config = self.mode_config
         if not mode_config:
-            return "generic", {}
+            return "generic", dict(self._strategy_params_overrides)
 
         search_config = mode_config.get("search_strategy", {})
         if search_config:
             return (
                 search_config.get("type", "generic"),
-                search_config.get("params", {}) or {},
+                {
+                    **(search_config.get("params", {}) or {}),
+                    **self._strategy_params_overrides,
+                },
             )
 
         return (
@@ -511,6 +521,7 @@ class OrchestratorAgent:
                 "idea_generation_ensemble_models": mode_config.get(
                     "idea_generation_ensemble_models", ["reasoning"]
                 ),
+                **self._strategy_params_overrides,
             },
         )
 
