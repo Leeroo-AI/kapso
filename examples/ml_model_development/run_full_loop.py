@@ -118,6 +118,11 @@ def main() -> None:
     stage(status_path, "research", "running")
     findings = kapso.research(RESEARCH_QUESTION, mode="idea", depth="light")
     (sandbox / "research_findings.md").write_text(str(findings))
+    if len(str(findings)) < 500:
+        raise RuntimeError(
+            f"research produced only {len(str(findings))} chars — not a "
+            "usable findings set"
+        )
     stage(status_path, "research", "done",
           chars=len(str(findings)))
 
@@ -131,6 +136,11 @@ def main() -> None:
         raise RuntimeError(
             "S1 CONTRACT VIOLATION: knowledge_search is not live after a "
             "merged learn_knowledge run"
+        )
+    if kg_result.errors or kg_result.total_pages_extracted == 0:
+        raise RuntimeError(
+            f"learn_knowledge ingested nothing usable: pages="
+            f"{kg_result.total_pages_extracted}, errors={kg_result.errors}"
         )
     stage(status_path, "learn_knowledge", "done",
           pages=kg_result.total_pages_extracted,
