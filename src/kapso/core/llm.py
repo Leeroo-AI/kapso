@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
 import tiktoken
-from litellm import acompletion, completion, embedding
+from litellm import acompletion, aresponses, completion, embedding, responses
 
 # Suppress verbose LiteLLM logs.
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
@@ -547,6 +547,17 @@ class LLMBackend:
 
         return asyncio.run(_run())
 
+    @staticmethod
+    def _responses_text(response: Any) -> str:
+        """Concatenated output_text parts of a Responses-API result."""
+        texts: List[str] = []
+        for item in getattr(response, "output", []) or []:
+            for part in getattr(item, "content", []) or []:
+                text = getattr(part, "text", None)
+                if text:
+                    texts.append(text)
+        return "\n".join(texts)
+
     def llm_completion_with_web_search(
         self,
         model: Optional[str],
@@ -554,27 +565,29 @@ class LLMBackend:
         search_context_size: str = "medium",
         **kwargs: Any,
     ) -> str:
-        # The web_search_options route is the provider's SEARCH endpoint
-        # (OpenAI search-preview family) — a non-reasoning surface that 400s
-        # on reasoning_effort ("Unrecognized request argument"), and litellm's
-        # drop_params does not drop it. Every research-gate result silently
-        # came back empty because of it (found live 2026-08-03). Depth is
-        # expressed through search_context_size instead.
+        # Web search rides the provider's Responses API `web_search` TOOL.
+        # The former chat-completions `web_search_options` parameter belongs
+        # to the retired search-preview family and 400s on current models
+        # ("Unknown parameter: 'web_search_options'", found live 2026-08-24
+        # by the facade E2E — the researcher silently returned empty
+        # findings). Depth is expressed through the tool's
+        # search_context_size.
         resolved_model = self.resolve_model(model, default_role="web_search")
         kwargs.pop("temperature", None)
+        prompt = "\n\n".join(str(m.get("content", "")) for m in messages)
         response = self._run_sync(
             "web-search completion",
             resolved_model,
-            lambda: completion(
+            lambda: responses(
                 model=resolved_model,
-                messages=messages,
-                web_search_options={"search_context_size": search_context_size},
-                drop_params=True,
+                input=prompt,
+                tools=[{"type": "web_search",
+                        "search_context_size": search_context_size}],
                 timeout=self.retry_policy.request_timeout_seconds,
                 **kwargs,
             ),
         )
-        return self._content(response)
+        return self._responses_text(response)
 
     def llm_multiple_completions_with_web_search(
         self,
@@ -595,20 +608,23 @@ class LLMBackend:
                 self._run_async(
                     "parallel web-search completion",
                     model,
-                    lambda model=model: acompletion(
+                    lambda model=model: aresponses(
                         model=model,
-                        messages=messages,
-                        web_search_options={
-                            "search_context_size": search_context_size
-                        },
-                        drop_params=True,
+                        input="\n\n".join(
+                            str(m.get("content", "")) for m in messages
+                        ),
+                        tools=[{"type": "web_search",
+                                "search_context_size": search_context_size}],
                         timeout=self.retry_policy.request_timeout_seconds,
                         **kwargs,
                     ),
                 )
                 for model in resolved_models
             ]
-            return [self._content(item) for item in await asyncio.gather(*tasks)]
+            return [
+                self._responses_text(item)
+                for item in await asyncio.gather(*tasks)
+            ]
 
         return asyncio.run(_run())
 

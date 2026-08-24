@@ -184,21 +184,15 @@ class Researcher:
         # Build prompt
         prompt = self._build_research_prompt(query=query, mode=mode, top_k=top_k)
         
-        try:
-            raw_text = self._llm.llm_completion_with_web_search(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                search_context_size=search_context_size,
-            )
-        except Exception as e:
-            logger.exception(f"Research failed for mode '{mode}': {e}")
-            # Return empty results on error
-            if mode == "idea":
-                return []
-            elif mode == "implementation":
-                return []
-            else:  # study
-                return Source.ResearchReport(query=query, content="")
+        # Fail loud: a research failure returned as empty findings poisons
+        # every downstream consumer silently (learn_knowledge ingested
+        # nothing and reported success; found live 2026-08-24 by the facade
+        # E2E). Genuine provider errors propagate to the caller.
+        raw_text = self._llm.llm_completion_with_web_search(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            search_context_size=search_context_size,
+        )
         
         # Parse based on mode
         if mode == "idea":

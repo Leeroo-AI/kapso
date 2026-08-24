@@ -45,7 +45,10 @@ from kapso.core.config import load_config
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.lesson_result import LessonResult, MemoryStatus
 from kapso.learning.mining import MiningFrame
-from kapso.learning.serving_launch import prepare_campaign_serving
+from kapso.learning.serving_launch import (
+    plan_campaign_serving,
+    stage_campaign_serving,
+)
 from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
 from kapso.learning.update_frame import UpdateFrame
 
@@ -953,43 +956,41 @@ class Kapso:
         items_context = "\n\n".join(context_parts).strip()
         combined_context = "\n\n".join([c for c in [user_context, items_context] if c])
 
-        # Experience serving (learn-api-design.md §4): when serving is
-        # enabled and the bank exists, stage the knowledge intro + bank
-        # tools for this campaign. The facade owns the workspace dir in
-        # that case so the serving record lands INSIDE the campaign
-        # (learn() later reads it from there). Serving off, or no bank ->
-        # byte-identical to the pre-serving path.
+        # Experience serving (learn-api-design.md §4), two-phase: the
+        # PLAN (deterministic env + head, no filesystem writes) happens
+        # before orchestrator construction so bank_serving can be
+        # fingerprinted into the strategy params; the STAGE (bank clone,
+        # intro, launch record) happens after construction, once the
+        # workspace exists — a seeded workspace must be EMPTY at
+        # construction, so nothing may touch it earlier. Serving off, or
+        # no bank -> byte-identical to the pre-serving path.
+        serving_plan = None
         serving = None
+        serving_coords = None
         if (
             ((self._config.get("learning") or {}).get("serving") or {})
             .get("enabled")
             and self._bank_home is not None
             and self._bank_home.exists()
         ):
-            workspace_for_serving = output_path or os.path.join(
+            output_path = output_path or os.path.join(
                 "tmp", "search_strategy_workspace", uuid.uuid4().hex
             )
-            os.makedirs(workspace_for_serving, exist_ok=True)
             serving_config = dict(self._config)
             serving_config["learning"] = dict(self._config["learning"])
             serving_config["learning"]["bank"] = {
                 **self._config["learning"]["bank"],
                 "local_path": str(self._bank_home),
             }
-            serving = prepare_campaign_serving(
-                serving_config,
-                serving_scope or {
-                    "family": (
-                        mode or self._config.get("default_mode", "GENERIC")
-                    ).lower()
-                },
-                workspace_for_serving,
+            serving_coords = serving_scope or {
+                "family": (
+                    mode or self._config.get("default_mode", "GENERIC")
+                ).lower()
+            }
+            serving_plan = plan_campaign_serving(
+                serving_config, serving_coords, output_path
             )
-            output_path = output_path or workspace_for_serving
-            combined_context = "\n\n".join(
-                [c for c in [combined_context, serving["intro"]] if c]
-            )
-            print(f"  Knowledge bank: serving at head {serving['bank_head']}")
+            self._serving_config = serving_config
 
         # Create problem handler with all options
         handler = GenericProblemHandler(
@@ -1023,9 +1024,22 @@ class Kapso:
             data_dir=data_dir,
             goal=goal,
             strategy_params_overrides=(
-                {"bank_serving": serving["bank_serving"]} if serving else None
+                {"bank_serving": serving_plan["bank_serving"]}
+                if serving_plan else None
             ),
         )
+
+        # Stage serving now that the workspace exists (see the plan/stage
+        # note above), and inject the intro into the problem context —
+        # the handler reads additional_context lazily at solve time.
+        if serving_plan is not None:
+            serving = stage_campaign_serving(
+                self._serving_config, serving_coords, serving_plan
+            )
+            handler.additional_context = "\n\n".join(
+                [c for c in [handler.additional_context, serving["intro"]] if c]
+            )
+            print(f"  Knowledge bank: serving at head {serving['bank_head']}")
 
         # Run experimentation
         print("Running experiments...")

@@ -25,6 +25,12 @@ from kapso.knowledge_base.types import Source
 from kapso.researcher import Researcher
 
 
+def responses_response(text):
+    return SimpleNamespace(
+        output=[SimpleNamespace(content=[SimpleNamespace(text=text)])],
+    )
+
+
 def response(text, cost=0.0):
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
@@ -301,13 +307,16 @@ def test_parallel_completion_retries_only_the_failed_model(monkeypatch):
 
 
 def test_web_search_uses_configured_role_and_legacy_alias(monkeypatch):
+    # Web search rides the Responses API `web_search` TOOL — the legacy
+    # chat-completions web_search_options parameter 400s on current models
+    # ("Unknown parameter", found live 2026-08-24 by the facade E2E).
     calls = []
 
-    def fake_completion(**kwargs):
+    def fake_responses(**kwargs):
         calls.append(kwargs)
-        return response("search result")
+        return responses_response("search result")
 
-    monkeypatch.setattr(llm_module, "completion", fake_completion)
+    monkeypatch.setattr(llm_module, "responses", fake_responses)
     backend = LLMBackend(models={"web_search": "vendor/search"})
 
     result = backend.llm_completion_with_web_search(
@@ -319,21 +328,25 @@ def test_web_search_uses_configured_role_and_legacy_alias(monkeypatch):
 
     assert result == "search result"
     assert calls[0]["model"] == "vendor/search"
-    assert calls[0]["web_search_options"] == {"search_context_size": "high"}
+    assert calls[0]["tools"] == [
+        {"type": "web_search", "search_context_size": "high"}
+    ]
+    assert calls[0]["input"] == "latest"
     assert "temperature" not in calls[0]
+    assert "web_search_options" not in calls[0]
 
 
 def test_web_search_uses_shared_transient_retry_policy(monkeypatch):
     calls = []
     sleeps = []
 
-    def fake_completion(**kwargs):
+    def fake_responses(**kwargs):
         calls.append(kwargs)
         if len(calls) == 1:
             raise StatusError(429)
-        return response("search result")
+        return responses_response("search result")
 
-    monkeypatch.setattr(llm_module, "completion", fake_completion)
+    monkeypatch.setattr(llm_module, "responses", fake_responses)
     backend = LLMBackend(
         retry_policy=no_jitter_policy(initial_delay_seconds=3),
         sleep_fn=sleeps.append,
@@ -358,16 +371,16 @@ def test_web_search_calls_never_carry_reasoning_effort(monkeypatch):
     # effort, so that is exactly the shape pinned here.
     calls = []
 
-    async def fake_acompletion(**kwargs):
+    async def fake_aresponses(**kwargs):
         calls.append(kwargs)
-        return response(kwargs["model"])
+        return responses_response(kwargs["model"])
 
-    def fake_completion(**kwargs):
+    def fake_responses(**kwargs):
         calls.append(kwargs)
-        return response("ok")
+        return responses_response("ok")
 
-    monkeypatch.setattr(llm_module, "acompletion", fake_acompletion)
-    monkeypatch.setattr(llm_module, "completion", fake_completion)
+    monkeypatch.setattr(llm_module, "aresponses", fake_aresponses)
+    monkeypatch.setattr(llm_module, "responses", fake_responses)
     backend = LLMBackend(
         models={
             "web_search": {"model": "vendor/search", "reasoning_effort": "high"}
@@ -497,16 +510,19 @@ def test_researcher_preserves_explicit_model_and_light_depth():
     assert "reasoning_effort" not in backend.call
 
 
-def test_researcher_failure_returns_typed_empty_report():
+def test_researcher_failure_propagates():
+    # Fail loud: a research failure returned as empty findings poisons
+    # every downstream consumer silently — learn_knowledge ingested
+    # nothing and reported success (found live 2026-08-24 by the facade
+    # E2E). Provider errors must reach the caller.
     class FailingBackend:
         def llm_completion_with_web_search(self, **kwargs):
             raise AuthenticationError("bad key")
 
     researcher = Researcher(llm_backend=FailingBackend())
 
-    report = researcher.research("test query", mode="study", depth="light")
-
-    assert report == Source.ResearchReport(query="test query", content="")
+    with pytest.raises(AuthenticationError, match="bad key"):
+        researcher.research("test query", mode="study", depth="light")
 
 
 def test_kapso_research_uses_active_mode_routes_and_retry(
