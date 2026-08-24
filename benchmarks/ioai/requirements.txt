@@ -1,8 +1,0 @@
-# On top of core kapso requirements. The task env additionally needs a CUDA
-# torch build (the DLVM image ships one) — torch is deliberately unpinned here.
-gdown
-torch
-transformers
-accelerate
-pandas
-numpy

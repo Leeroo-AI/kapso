@@ -16,9 +16,8 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.generic.strategy import (
+from kapso.execution.search_strategies.generic.lens_planning import (
     DESIGN_AXES_DEFAULT,
-    GenericSearch,
     LENS_PLAN_FILENAME,
     LENS_PLAN_HISTORY_FILENAME,
     normalize_design_axes,
@@ -27,6 +26,7 @@ from kapso.execution.search_strategies.generic.strategy import (
     parse_lens_revision,
     validate_lens_planner_against_ensemble,
 )
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 PLANNER = {"cli": "claude_code", "model": "claude-fable-5", "effort": "max"}
 MEMBERS = [

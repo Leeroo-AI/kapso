@@ -89,8 +89,18 @@ def _label_stats(spec: TaskSpec, train_df: pd.DataFrame, val_df: pd.DataFrame) -
             lines.append(
                 f"- {split}: {len(df):,} rows | target min={t.min():.3g} "
                 f"q25={t.quantile(0.25):.3g} median={t.median():.3g} "
-                f"q75={t.quantile(0.75):.3g} max={t.max():.3g} mean={t.mean():.3g}"
+                f"q75={t.quantile(0.75):.3g} max={t.max():.3g} mean={t.mean():.3g} "
+                f"std={t.std():.5g}"
             )
+    if spec.primary_metric == "mae":
+        train_std = float(train_df[spec.target_col].std())
+        lines.append(
+            f"- PUBLISHED-BOARD UNITS: the public leaderboard reports NMAE = "
+            f"MAE / std(train targets) = MAE / {train_std:.5g}. The constant "
+            f"divisor leaves your in-run MAE ordering unchanged, but every "
+            f"published bar is in NMAE units — divide your MAE by "
+            f"{train_std:.5g} before comparing against them."
+        )
     return "\n".join(lines)
 
 
@@ -315,6 +325,17 @@ Experimentation notes for this search:
   resulting features. Code that is wired up but scores zero rows at run time
   is not the measurement; a campaign must not reach final selection without
   this comparison having actually run.
+- When the label window abuts the data horizon (the test origin sits at or
+  near the last timestamps the database covers), a single flat validation
+  origin is PRESUMED DISHONEST: measured here, the better a candidate fit
+  such a validation window, the worse it transferred (flat, then +11%, then
+  +30% degradation across three campaigns' best candidates). From the FIRST
+  full evaluation, score every candidate across temporal sub-windows of
+  validation under test-identical truncation, gate selection on the
+  MOST-SHIFTED window, and report both the flat and windowed readings. If
+  the evaluation maintainer evolves the ruler mid-campaign, treat the newer
+  ruler's reading as the honest one immediately — do not keep optimizing
+  the old one.
 """
 
 
@@ -566,6 +587,21 @@ MODELLING_PRACTICE_NOTE = (
     "embeddings against your labels, or escalate to practice 9. "
     "Zero-shot rejection followed by supervised success is the measured "
     "norm on document-heavy tasks.\n"
+    "- When the label AGGREGATES future outcomes of LINKED documents (a "
+    "rate/mean/count over an entity's related documents' events in the "
+    "label window), do not only attach document scores as historical "
+    "entity aggregates — the entity's own outcome-rate features absorb "
+    "those. Score each document at its own level and aggregate "
+    "predictions over the entity's CUTOFF-VISIBLE FORWARD ROSTER: the "
+    "linked documents already registered at cutoff whose outcomes land "
+    "in the window. Measured on such a task: 92% of the label-defining "
+    "documents were already registered at cutoff, over half the "
+    "entities had NO history (history features scored no better than "
+    "the global mean), oracle per-document labels aggregated over the "
+    "covered roster nearly solved the task, and a per-document scorer "
+    "at a sibling task's measured accuracy beat the field's best "
+    "published number in simulation while the historical-aggregate "
+    "design plateaued far above it.\n"
     "9. WHEN A FROZEN TEXT CHANNEL PAYS BUT A LARGE TEXT GAP REMAINS, "
     "ESCALATE TO FINE-TUNING AN OPEN LLM ON THE TASK. Any frozen text "
     "channel — practice 8 extraction or a fine-tuned small encoder — "
@@ -604,7 +640,51 @@ MODELLING_PRACTICE_NOTE = (
     "bare labels. Validate on forward folds under the same leakage and "
     "two-model discipline as everything else, and enter the fine-tuned "
     "scorer as one more decorrelated family for practice 6 — gated "
-    "against the frozen channel it escalates from, never assumed better."
+    "against the frozen channel it escalates from, never assumed better.\n"
+    "10. OPTIMIZE THE METRIC YOU ARE SCORED ON — FOR MAE-FAMILY METRICS "
+    "THAT MEANS MEDIANS, NOT MEANS. When the evaluation is MAE/NMAE, "
+    "L2-trained means target the wrong statistic: train with L1/"
+    "quantile-0.5 objectives and predict conditional MEDIANS end-to-end — "
+    "including through any target transform (log1p-then-expm1 preserves "
+    "the median, not the mean, so it pairs correctly with L1; use it for "
+    "heavy-tailed targets). For zero-inflated counts — most activity and "
+    "monetary labels — model hurdle-style: a P(zero) classifier times a "
+    "positive-part regressor (or a Tweedie objective), gate the zero "
+    "component like any family, and remember the MAE-optimal point "
+    "prediction is exactly 0 whenever P(zero) exceeds 0.5. Calibrate "
+    "per-slice (practice 5) on the metric's own scale, never on a proxy. "
+    "And when the label is a RATIO of future binary events over a small "
+    "roster (median roster of one or two), the label lives on the "
+    "lattice k/n: the MAE-optimal prediction is the MEDIAN of the "
+    "predicted outcome distribution, not its mean — snap to the "
+    "achievable lattice (round(p*n)/n; for n=1 the 0/1 threshold at "
+    "p>0.5). Measured in simulation, this snap alone recovered a "
+    "double-digit percentage of the metric that calibrated-probability "
+    "predictions leave on the table.\n"
+    "11. RUN A LABEL-DETERMINISM AUDIT BEFORE DEEP MODELING. Some labels "
+    "are partially DETERMINED at cutoff: the database already contains "
+    "rows that fix the outcome (posted results, registrations, RSVPs, "
+    "schedules, completed transactions). Before building anything deep, "
+    "probe every pre-cutoff table as a direct label source with cheap "
+    "single-join tests — per table: join to the label rows, aggregate, "
+    "measure standalone score on a sample — and treat a published method "
+    "family beating the whole field by several times on one task as "
+    "strong evidence such a source exists and standard featureization "
+    "misses it. Signal found this way is legal by task construction: the "
+    "leakage rules forbid post-cutoff reads, not reading the cutoff "
+    "state well. Measured precedent: a registry snapshot-direct funnel "
+    "(a few percent of rows fixed at cutoff, model fallback elsewhere) "
+    "was the single largest banked gain of this campaign. Wire such "
+    "sources as covered-rows-direct plus model-fallback, with coverage "
+    "counts and per-slice scores logged. Part of this audit is LABEL "
+    "LINEAGE across the database's task family: check whether the label "
+    "is a function of per-document outcomes that a sibling task "
+    "predicts directly (verified here: an aggregate task's per-document "
+    "success definition was byte-identical to its sibling "
+    "classification task's) — if so, the strongest channel is that "
+    "sibling-grade per-document predictor applied over the label's "
+    "cutoff-visible roster, and the sibling task's proven design is "
+    "your starting point, not a from-scratch search."
 )
 
 ROLLING_CONTRACT_NOTE = (

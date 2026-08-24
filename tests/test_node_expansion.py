@@ -13,13 +13,15 @@ from types import SimpleNamespace
 import pytest
 
 from kapso.core.prompt_loader import load_prompt
-from kapso.execution.search_strategies.generic.strategy import (
-    GenericSearch,
+from kapso.execution.search_strategies.generic.expansion_lanes import (
     normalize_node_expansion,
-    parse_selected_solutions,
     render_lane_brief,
     validate_node_expansion_config,
 )
+from kapso.execution.search_strategies.generic.ideation import (
+    parse_selected_solutions,
+)
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 MEMBERS = [
     {"cli": "codex", "model": "gpt-5.6-sol"},
@@ -59,17 +61,24 @@ def test_expansion_requires_ensemble_and_selector():
 
 
 def test_parse_selected_solutions():
-    single = "<solution>only one</solution>"
-    assert parse_selected_solutions(single, 1) == ["only one"]
+    # Spec-sized bodies: anything under MIN_SELECTED_SOLUTION_CHARS is a
+    # malformed emission the parser rejects (pinned in
+    # test_selector_hardening); these pin rank order and tag fallbacks.
+    alpha = "alpha plan: concrete codable step. " * 8
+    beta = "beta plan: concrete codable step. " * 8
+    single = f"<solution>{alpha}</solution>"
+    assert parse_selected_solutions(single, 1) == [alpha.strip()]
     ranked = (
         "<selection_reasoning>...</selection_reasoning>"
-        "<solution_1>alpha</solution_1><solution_2>beta</solution_2>"
+        f"<solution_1>{alpha}</solution_1><solution_2>{beta}</solution_2>"
     )
-    assert parse_selected_solutions(ranked, 2) == ["alpha", "beta"]
-    # Missing slot 2 -> loud degrade to one lane.
-    assert parse_selected_solutions("<solution_1>alpha</solution_1>", 2) == ["alpha"]
+    assert parse_selected_solutions(ranked, 2) == [alpha.strip(), beta.strip()]
+    # Missing slot 2 -> parsed short; the caller retries and tops up.
+    assert parse_selected_solutions(
+        f"<solution_1>{alpha}</solution_1>", 2
+    ) == [alpha.strip()]
     # No numbered tags -> legacy single tag still yields one lane.
-    assert parse_selected_solutions(single, 2) == ["only one"]
+    assert parse_selected_solutions(single, 2) == [alpha.strip()]
     # Nothing parseable -> empty (caller ladder takes over).
     assert parse_selected_solutions("prose only", 2) == []
 

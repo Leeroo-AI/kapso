@@ -13,7 +13,7 @@ from kapso.execution.coding_agents.adapters.oss_claude_code_agent import (
     FIRST_PARTY_ENV_VARS,
     OssClaudeCodeCodingAgent,
 )
-from kapso.execution.search_strategies.generic.strategy import (
+from kapso.execution.search_strategies.generic.ideation import (
     ENSEMBLE_MEMBER_CLIS,
     normalize_ensemble_member,
 )

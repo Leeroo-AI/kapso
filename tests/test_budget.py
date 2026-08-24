@@ -302,6 +302,13 @@ def test_snapshot_clamps_agent_deadlines_with_a_floor():
     )
     assert unbudgeted.clamp_timeout(600) == 600
 
+    # None-configured phases (no session deadline in config): the budget
+    # remainder is the only bound when a budget exists; with no budget the
+    # deadline stays None (unbounded).
+    assert budgeted.clamp_timeout(None) == 120
+    assert budgeted.clamp_timeout(None, elapsed_since_snapshot=80) == 60
+    assert unbudgeted.clamp_timeout(None) is None
+
 
 def test_budget_status_block_renders_in_all_modes():
     from kapso.core.prompt_loader import load_prompt

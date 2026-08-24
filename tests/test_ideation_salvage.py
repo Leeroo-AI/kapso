@@ -8,10 +8,10 @@ solution; crashes and near-empty kills keep the explicit fallback.
 """
 
 from kapso.execution.coding_agents.base import CodingResult
-from kapso.execution.search_strategies.generic.strategy import (
-    GenericSearch,
+from kapso.execution.search_strategies.generic.ideation import (
     MIN_IDEATION_SALVAGE_CHARS,
 )
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 SALVAGE_HEADER = "Salvaged from a deadline-terminated ideation session"
 

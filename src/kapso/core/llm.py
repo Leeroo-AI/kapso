@@ -552,14 +552,15 @@ class LLMBackend:
         model: Optional[str],
         messages: List[Dict[str, str]],
         search_context_size: str = "medium",
-        reasoning_effort: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
+        # The web_search_options route is the provider's SEARCH endpoint
+        # (OpenAI search-preview family) — a non-reasoning surface that 400s
+        # on reasoning_effort ("Unrecognized request argument"), and litellm's
+        # drop_params does not drop it. Every research-gate result silently
+        # came back empty because of it (found live 2026-08-03). Depth is
+        # expressed through search_context_size instead.
         resolved_model = self.resolve_model(model, default_role="web_search")
-        if reasoning_effort is None:
-            reasoning_effort = self.model_router.effort_for(
-                model, default_role="web_search"
-            )
         kwargs.pop("temperature", None)
         response = self._run_sync(
             "web-search completion",
@@ -570,7 +571,6 @@ class LLMBackend:
                 web_search_options={"search_context_size": search_context_size},
                 drop_params=True,
                 timeout=self.retry_policy.request_timeout_seconds,
-                **_effort_kwargs(reasoning_effort),
                 **kwargs,
             ),
         )
@@ -581,41 +581,33 @@ class LLMBackend:
         models: Sequence[Optional[str]],
         messages: List[Dict[str, str]],
         search_context_size: str = "medium",
-        reasoning_efforts: Optional[Sequence[str]] = None,
         **kwargs: Any,
     ) -> List[str]:
+        # Same non-reasoning search surface as the single-shot variant:
+        # reasoning effort never rides on web-search calls.
         resolved_models = [
             self.resolve_model(model, default_role="web_search") for model in models
         ]
         kwargs.pop("temperature", None)
 
         async def _run() -> List[str]:
-            tasks = []
-            for index, model in enumerate(resolved_models):
-                effort = (
-                    reasoning_efforts[index]
-                    if reasoning_efforts and index < len(reasoning_efforts)
-                    else self.model_router.effort_for(
-                        models[index], default_role="web_search"
-                    )
+            tasks = [
+                self._run_async(
+                    "parallel web-search completion",
+                    model,
+                    lambda model=model: acompletion(
+                        model=model,
+                        messages=messages,
+                        web_search_options={
+                            "search_context_size": search_context_size
+                        },
+                        drop_params=True,
+                        timeout=self.retry_policy.request_timeout_seconds,
+                        **kwargs,
+                    ),
                 )
-                tasks.append(
-                    self._run_async(
-                        "parallel web-search completion",
-                        model,
-                        lambda model=model, effort=effort: acompletion(
-                            model=model,
-                            messages=messages,
-                            web_search_options={
-                                "search_context_size": search_context_size
-                            },
-                            drop_params=True,
-                            timeout=self.retry_policy.request_timeout_seconds,
-                            **_effort_kwargs(effort),
-                            **kwargs,
-                        ),
-                    )
-                )
+                for model in resolved_models
+            ]
             return [self._content(item) for item in await asyncio.gather(*tasks)]
 
         return asyncio.run(_run())

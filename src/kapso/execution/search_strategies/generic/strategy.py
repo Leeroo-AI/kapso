@@ -10,17 +10,11 @@
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via MCP tools
 
-import glob
-import json
-import logging
 import os
-import re
-import shutil
-import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple
 
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
@@ -32,404 +26,63 @@ from kapso.execution.fidelity import (
     FULL_PASSTHROUGH,
     PROFILE_VALIDATE,
     ComparabilityClass,
-    EvaluationAttempt,
     FidelityDecision,
     project_score,
     select_committed_candidate,
 )
-from kapso.execution.evaluation_integrity import verify_data_manifest
-from kapso.execution.evaluation_maintainer.maintainer import (
-    MANIFEST_MARKER,
-    evaluation_command,
-    parse_manifest_line,
-)
-import shlex
-import subprocess
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from kapso.execution.search_strategies.generic import codex_ideation
+from kapso.execution.search_strategies.generic.expansion_lanes import (
+    lane_env_overlay,
+    normalize_node_expansion,
+    pick_representative,
+    render_lane_brief,
+    validate_node_expansion_config,
+)
+from kapso.execution.search_strategies.generic.feedback_flow import (
+    extract_agent_result,
+    generate_feedback,
+)
+from kapso.execution.search_strategies.generic.ideation import (
+    ENSEMBLE_CANDIDATES_PER_MEMBER,
+    build_ideation_prompt,
+    campaign_state_brief,
+    generate_solution,
+    generate_solution_ensemble,
+    normalize_ensemble_member,
+    normalize_ensemble_time_split,
+    normalize_ideation_ensemble,
+    salvage_ideation_output,
+    select_from_candidates,
+)
+from kapso.execution.search_strategies.generic.implementation import (
+    build_implementation_prompt,
+    ensure_technical_difficulties,
+    run_implementation,
+)
+from kapso.execution.search_strategies.generic.lens_planning import (
+    design_axes_brief,
+    normalize_design_axes,
+    normalize_ideation_lens_planner,
+    resolve_member_lenses,
+    run_lens_planner_session,
+    validate_lens_planner_against_ensemble,
+)
+from kapso.execution.search_strategies.generic.registered_evaluation import (
+    await_registered_evaluation,
+    evaluation_instructions,
+    execute_registered_evaluation,
+    manifest_of_record,
+    manifest_score_of_record,
+    record_evaluation_attempt,
+    sync_registered_evaluation,
+)
 from kapso.execution.search_strategies.generic.shared_cache import (
     SHARED_CACHE_ENV_VAR,
     build_shared_artifacts_brief,
 )
-from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.core.prompt_loader import load_prompt, render_prompt
-from kapso.execution.search_strategies.generic.difficulties_generator import (
-    generate_technical_difficulties,
-)
 
-if TYPE_CHECKING:
-    from kapso.execution.search_strategies.generic import FeedbackGenerator
-
-logger = logging.getLogger(__name__)
-
-# Enforcement mechanic (mirrors the coding-agent adapter's deadline grace):
-# time granted between SIGTERM and SIGKILL when a frame run overruns.
-_FRAME_RUN_KILL_GRACE_SECONDS = 2.0
 
 PARENT_POLICIES = frozenset({"best", "baseline"})
-
-# A deadline-killed ideation whose streamed text is shorter than this holds
-# no consumable plan; the explicit fallback is more honest than salvage.
-# The implementation output contract's terminal tags: a result event
-# carrying ALL of these means the session declared itself complete (drives
-# the adapter's linger-reap and truthful end-mode classification).
-IMPLEMENTATION_COMPLETION_MARKERS = ["</score>", "</technical_difficulties>"]
-
-MIN_IDEATION_SALVAGE_CHARS = 200
-
-# Ensemble ideation: members run in parallel, so the member share is
-# wall-clock for the whole fan-out; the selector gets the remainder with a
-# floor below which a read-verify-choose session cannot do useful work.
-ENSEMBLE_MEMBER_TIME_FRACTION = 0.7
-ENSEMBLE_SELECTOR_TIME_FRACTION = 0.3
-ENSEMBLE_SELECTOR_MIN_SECONDS = 240
-ENSEMBLE_CANDIDATES_PER_MEMBER = 3
-
-# Extraction artifacts (prompt echoes, stream duplicates) are shorter than
-# any real plan; drop them before the selector sees the pool.
-MIN_ENSEMBLE_CANDIDATE_CHARS = 80
-
-# A candidate that is all headers and [placeholders] is a format skeleton,
-# not a plan — require this much real content after stripping them.
-MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS = 40
-
-
-def is_degenerate_ensemble_candidate(text: str) -> bool:
-    """True for skeleton/echo artifacts that must never reach the selector."""
-    stripped = text.strip()
-    if len(stripped) < MIN_ENSEMBLE_CANDIDATE_CHARS:
-        return True
-    content = re.sub(r"^\s*#.*$", "", stripped, flags=re.MULTILINE)
-    content = re.sub(r"\[[^\]]*\]", "", content)
-    content = re.sub(r"\s+", "", content)
-    return len(content) < MIN_ENSEMBLE_CANDIDATE_CONTENT_CHARS
-
-DEFAULT_MEMBER_LENS = "no specific lens — judge freely"
-
-MAX_NODE_EXPANSION = 8
-
-
-def normalize_node_expansion(params: Mapping[str, Any]) -> Tuple[int, Optional[List[Dict[str, str]]]]:
-    """Validate node_expansion_value and the optional per-lane env overlays."""
-    raw = params.get("node_expansion_value", 1)
-    if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= MAX_NODE_EXPANSION:
-        raise ValueError(
-            f"node_expansion_value must be an int in [1, {MAX_NODE_EXPANSION}]"
-        )
-    lane_env = params.get("expansion_lane_env")
-    if lane_env is not None:
-        if not isinstance(lane_env, list) or not all(
-            isinstance(e, dict) and all(
-                isinstance(k, str) and isinstance(v, str) for k, v in e.items()
-            )
-            for e in lane_env
-        ):
-            raise ValueError(
-                "expansion_lane_env must be a list of {str: str} mappings "
-                "(one per lane, e.g. CUDA_VISIBLE_DEVICES pins)"
-            )
-    return raw, lane_env
-
-
-def validate_node_expansion_config(
-    expansion: int,
-    ensemble: Optional[List[Dict[str, str]]],
-    selector: Optional[Dict[str, str]],
-) -> None:
-    """K>1 requires the ensemble+selector flow (the selector emits the K)."""
-    if expansion > 1 and (not ensemble or selector is None):
-        raise ValueError(
-            "node_expansion_value > 1 requires ideation_ensemble and "
-            "ideation_selector (the selector emits the top-K solutions)"
-        )
-
-
-def render_lane_brief(
-    lane_index: int,
-    lane_count: int,
-    lane_env: Optional[Mapping[str, str]],
-) -> str:
-    """Prompt block announcing this lane's env assignment.
-
-    An env pin is a fence the agent cannot see: the session inherits it,
-    but hardware probes (nvidia-smi) ignore it and per-command exports
-    silently override it — the first K=2 flight had a lane discover the
-    "idle" sibling GPU that way. Empty/absent lane env renders nothing.
-    """
-    if not lane_env:
-        return ""
-    pins = "\n".join(f"- `{key}={value}`" for key, value in lane_env.items())
-    if lane_count > 1:
-        return (
-            "## Parallel Lane Assignment (read first)\n\n"
-            f"You are implementation lane {lane_index} of {lane_count} — "
-            f"{lane_count - 1} sibling lane(s) are running CONCURRENTLY on "
-            "this machine, implementing different solutions on their own "
-            "branches.\n\n"
-            "Your session environment carries these lane-exclusive "
-            "overrides:\n"
-            f"{pins}\n\n"
-            "Each sibling lane received DIFFERENT values for the same "
-            "variables — they partition this machine's resources between "
-            "lanes. Treat yours as an exclusive assignment:\n"
-            "- Do NOT override, unset, or widen these variables in your own "
-            "commands; plain commands already inherit them.\n"
-            "- Do NOT claim resources outside your assignment even if they "
-            "look idle — hardware probes (e.g. `nvidia-smi`) list ALL "
-            "physical devices, including your siblings'.\n"
-            "- Task-level shared directories (artifacts, submission) are "
-            "visible to every lane: namespace the files you create and "
-            "follow the task's promotion protocol exactly."
-        )
-    return (
-        "## Session Environment Pins\n\n"
-        "The orchestrator set these run-level environment overrides for "
-        "this session:\n"
-        f"{pins}\n\n"
-        "Do not override or unset them in your commands; plain commands "
-        "already inherit them."
-    )
-
-
-def parse_selected_solutions(output: str, expansion_count: int) -> List[str]:
-    """Extract the selector's ranked solutions.
-
-    K=1 keeps today's single <solution> contract. K>1 reads <solution_N>
-    tags in rank order, skipping empty/missing slots (a short list degrades
-    the round to fewer lanes — loud, never fatal); if no numbered tag
-    parsed, a single legacy <solution> tag still yields one lane.
-    """
-    text = output or ""
-    if expansion_count <= 1:
-        match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
-        return [match.group(1).strip()] if match and match.group(1).strip() else []
-    solutions = []
-    for i in range(1, expansion_count + 1):
-        match = re.search(
-            rf"<solution_{i}>(.*?)</solution_{i}>", text, re.DOTALL
-        )
-        if match and match.group(1).strip():
-            solutions.append(match.group(1).strip())
-        else:
-            logger.warning(
-                f"[GenericSearch] Selector omitted <solution_{i}> — "
-                "round degrades to fewer lanes"
-            )
-    if not solutions:
-        match = re.search(r"<solution>(.*?)</solution>", text, re.DOTALL)
-        if match and match.group(1).strip():
-            solutions.append(match.group(1).strip())
-    return solutions
-
-_LENS_PLANNER_KEYS = frozenset({"cli", "model", "effort", "timeout"})
-LENS_PLAN_FILENAME = "lens_plan.json"
-LENS_PLAN_HISTORY_FILENAME = "lens_plan_history.jsonl"
-
-
-DESIGN_AXES_DEFAULT: Tuple[str, ...] = (
-    "input representation — the features/joins/encodings fed to the model",
-    "training distribution — example construction, augmentation, weighting",
-    "model mechanism — estimator family, objectives, ensembling",
-    "decoding / post-processing — calibration, constraints, blending",
-    "validation protocol — splits/origins, gates, generalization estimation",
-)
-
-
-def normalize_design_axes(value: Any) -> Tuple[str, ...]:
-    """Task-declared design axes of the solution space.
-
-    The axes feed the lens planner/replanner axis-coverage contract and the
-    feedback generator's axis-frontier report. None selects the generic
-    default set; a task supplies its own vocabulary via the mode config.
-    """
-    if value is None:
-        return DESIGN_AXES_DEFAULT
-    if not isinstance(value, list) or not value:
-        raise ValueError("design_axes must be a non-empty list of strings")
-    axes: List[str] = []
-    for item in value:
-        if not isinstance(item, str) or not item.strip():
-            raise ValueError("design_axes entries must be non-empty strings")
-        axes.append(item.strip())
-    return tuple(axes)
-
-
-def normalize_ideation_lens_planner(value: Any) -> Optional[Dict[str, Any]]:
-    """Validate the optional task-aware lens planner config block."""
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise ValueError("ideation_lens_planner must be a mapping")
-    unknown = sorted(set(value) - _LENS_PLANNER_KEYS)
-    if unknown:
-        raise ValueError(
-            f"ideation_lens_planner has unknown keys: {', '.join(unknown)}"
-        )
-    if value.get("cli") != "claude_code":
-        raise ValueError(
-            "ideation_lens_planner.cli must be claude_code (the planner "
-            "needs the CLI's native WebSearch/WebFetch tools)"
-        )
-    model = value.get("model")
-    if not isinstance(model, str) or not model.strip():
-        raise ValueError("ideation_lens_planner.model must be a non-empty string")
-    timeout = value.get("timeout")
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
-        raise ValueError("ideation_lens_planner.timeout must be a positive number")
-    return dict(value)
-
-
-def validate_lens_planner_against_ensemble(
-    planner: Optional[Dict[str, Any]],
-    ensemble: Optional[List[Dict[str, str]]],
-) -> None:
-    """The planner owns every lens: static member lenses are forbidden with it."""
-    if planner is None:
-        return
-    if not ensemble:
-        raise ValueError(
-            "ideation_lens_planner requires ideation_ensemble (there are no "
-            "members to design lenses for)"
-        )
-    lensed = [i for i, member in enumerate(ensemble) if "lens" in member]
-    if lensed:
-        raise ValueError(
-            "ideation_ensemble members "
-            f"{', '.join(str(i) for i in lensed)} carry static lens keys — "
-            "remove them (the lens planner designs every lens) or disable "
-            "ideation_lens_planner"
-        )
-
-
-def parse_lens_plan(output: str, expected_count: int) -> Dict[str, Any]:
-    """Extract <lens_N> tags (member order) + <sources> from planner output."""
-    lenses = []
-    for i in range(1, expected_count + 1):
-        match = re.search(
-            rf"<lens_{i}>(.*?)</lens_{i}>", output, re.DOTALL
-        )
-        if not match or not match.group(1).strip():
-            raise ValueError(
-                f"lens planner output missing a non-empty <lens_{i}> tag "
-                f"(expected {expected_count} lenses)"
-            )
-        lenses.append(" ".join(match.group(1).split()))
-    sources_match = re.search(r"<sources>(.*?)</sources>", output, re.DOTALL)
-    return {
-        "lenses": lenses,
-        "sources": sources_match.group(1).strip() if sources_match else "",
-    }
-
-
-def parse_lens_revision(output: str, expected_count: int) -> Dict[str, Any]:
-    """Classify a keep-or-revise replanner output; never raises.
-
-    Returns one of:
-      {"kind": "keep", "rationale": str}
-      {"kind": "revise", "lenses": [...], "sources": str, "rationale": str}
-      {"kind": "invalid", "reason": str}
-    `invalid` is a first-class outcome: the caller records it loudly and the
-    previous validated plan stays in force — a mid-flight campaign must
-    never die on a malformed revision.
-    """
-    text = output or ""
-    keep = re.search(r"<keep>(.*?)</keep>", text, re.DOTALL)
-    if keep and keep.group(1).strip():
-        return {"kind": "keep", "rationale": " ".join(keep.group(1).split())}
-    lenses = []
-    for i in range(1, expected_count + 1):
-        match = re.search(rf"<lens_{i}>(.*?)</lens_{i}>", text, re.DOTALL)
-        if not match or not match.group(1).strip():
-            return {
-                "kind": "invalid",
-                "reason": (
-                    "neither a non-empty <keep> nor a complete lens set "
-                    f"(missing <lens_{i}> of {expected_count})"
-                ),
-            }
-        lenses.append(" ".join(match.group(1).split()))
-    rationale = re.search(
-        r"<revision_rationale>(.*?)</revision_rationale>", text, re.DOTALL
-    )
-    sources = re.search(r"<sources>(.*?)</sources>", text, re.DOTALL)
-    return {
-        "kind": "revise",
-        "lenses": lenses,
-        "sources": sources.group(1).strip() if sources else "",
-        "rationale": (
-            " ".join(rationale.group(1).split())
-            if rationale and rationale.group(1).strip()
-            else ""
-        ),
-    }
-
-
-ENSEMBLE_MEMBER_CLIS = frozenset({"claude_code", "codex", "oss_claude_code"})
-_ENSEMBLE_MEMBER_KEYS = frozenset({"cli", "model", "effort", "lens"})
-# oss_claude_code members additionally carry their endpoint wiring; the
-# secret itself stays out of config (auth_token_env is the VAR NAME).
-_OSS_MEMBER_KEYS = frozenset({"base_url", "auth_token_env"})
-
-
-def normalize_ensemble_member(value: Any, role: str) -> Dict[str, str]:
-    """Validate one ideation-ensemble member (or selector) config entry."""
-    if not isinstance(value, dict):
-        raise ValueError(f"{role} must be a mapping, got {type(value).__name__}")
-    unknown = sorted(set(value) - _ENSEMBLE_MEMBER_KEYS - _OSS_MEMBER_KEYS)
-    if unknown:
-        raise ValueError(f"{role} has unknown keys: {', '.join(unknown)}")
-    cli = value.get("cli")
-    if cli not in ENSEMBLE_MEMBER_CLIS:
-        allowed = ", ".join(sorted(ENSEMBLE_MEMBER_CLIS))
-        raise ValueError(f"{role}.cli must be one of: {allowed}")
-    model = value.get("model")
-    if not isinstance(model, str) or not model.strip():
-        raise ValueError(f"{role}.model must be a non-empty string")
-    oss_keys_present = sorted(_OSS_MEMBER_KEYS & set(value))
-    if cli == "oss_claude_code":
-        for key in sorted(_OSS_MEMBER_KEYS):
-            if not isinstance(value.get(key), str) or not value[key].strip():
-                raise ValueError(
-                    f"{role}.{key} must be a non-empty string for "
-                    "cli=oss_claude_code"
-                )
-    elif oss_keys_present:
-        raise ValueError(
-            f"{role} keys {', '.join(oss_keys_present)} are only valid for "
-            "cli=oss_claude_code"
-        )
-    return dict(value)
-
-
-def normalize_ideation_ensemble(value: Any) -> Optional[List[Dict[str, str]]]:
-    """Validate the ideation_ensemble param (None keeps single-session mode)."""
-    if value is None:
-        return None
-    if not isinstance(value, list) or not value:
-        raise ValueError(
-            "ideation_ensemble must be a non-empty list of member mappings "
-            "(omit it entirely for single-session ideation)"
-        )
-    return [
-        normalize_ensemble_member(member, role=f"ideation_ensemble[{i}]")
-        for i, member in enumerate(value)
-    ]
-
-# Byte-identical to the pre-maintainer template text: rendered whenever no
-# maintainer-registered evaluation exists, keeping default prompts unchanged.
-DEFAULT_EVALUATION_INSTRUCTIONS = """You MUST build and run evaluation in `kapso_evaluation/` directory:
-
-1. **Create evaluation script**: `kapso_evaluation/evaluate.py` (or similar)
-2. **Evaluation should**:
-   - Test your solution against the goal criteria
-   - Output a clear score or success/failure indication
-   - Be fair and actually test what it claims to test
-   - NOT be hardcoded or trivially pass
-
-3. **Run the evaluation**: Execute your evaluation script and capture output.
-
-4. **Retry on crash**: If evaluation crashes, fix the issue and retry (max 3 attempts)."""
 
 
 def normalize_parent_policy(value: Any) -> str:
@@ -474,8 +127,11 @@ class GenericSearch(SearchStrategy):
           (default: bedrock, preserving the existing generic strategy behavior)
         - use_bedrock: Deprecated compatibility alias for auth_mode
         - aws_region: AWS region (default: us-east-1)
-        - ideation_timeout: Timeout for ideation in seconds (default: 300)
-        - implementation_timeout: Timeout for implementation in seconds (default: 600)
+        - ideation_timeout: Ideation session deadline in seconds. Default
+          None: no deadline — the session is bounded only by an explicit
+          time budget, when one is set.
+        - implementation_timeout: Implementation session deadline in
+          seconds. Default None: no deadline (budget-bounded only).
         - gate_failure_policy: Missing gate capability behavior: skip, warn, or error
           (default: warn)
         - effort: Optional reasoning effort for both agent sessions
@@ -488,12 +144,20 @@ class GenericSearch(SearchStrategy):
           (default)
         - ideation_selector: Required with ideation_ensemble — the
           selector-critic session {cli: claude_code|codex, model, effort?}
+        - ensemble_time_split: Optional {member_fraction, selector_fraction,
+          selector_min_seconds?} carving the ensemble's ideation clamp
+          between the member fan-out and the selector. Default absent = NO
+          split — each role gets the full clamped ideation timeout, the
+          selector's clamp recomputed after the members finish.
         - parent_policy: Parent branch selection: best or baseline (default: best).
           Under `best`, before any validly evaluated node exists, the latest
           committed non-error, non-tampered node is used so in-progress work
           continues in place; `main` only when no committed work exists.
         - ideation_gates: MCP gates for ideation (default: ["research", "experiment_history", "repo_memory", "leeroopedia"])
         - implementation_gates: MCP gates for implementation (default: ["research", "repo_memory", "leeroopedia"])
+        - implementation_web: Live-web access in implementation sessions —
+          claude WebSearch/WebFetch and codex --search (default: True).
+          Independent of the ideation `web_search` knob.
     """
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
@@ -517,7 +181,9 @@ class GenericSearch(SearchStrategy):
         else:
             self._claude_auth_settings = {"auth_mode": "bedrock"}
         self.aws_region = self.params.get("aws_region", "us-east-1")
-        self.ideation_timeout = self.params.get("ideation_timeout", 300)
+        # None (the default) means no session deadline: sessions run to
+        # completion, bounded only by the time budget when one exists.
+        self.ideation_timeout = self.params.get("ideation_timeout")
         # Ideation web access: gates the codex member's --search AND the lens
         # planner's WebSearch/WebFetch tools. Default True (Claude members and
         # implementation never had web). Set False for leakage-safe harvest
@@ -542,6 +208,12 @@ class GenericSearch(SearchStrategy):
         # env; ambient wrapper values keep precedence). Carries the Bash-tool
         # clock policy so blocking evaluations are possible (finding 14).
         self.env_defaults = dict(self.params.get("session_env_defaults", {}))
+        # Knowledge-bank serving (serving-agentic-redesign.md): the KAPSO_*
+        # env mapping the bank gate resolves on, staged by the campaign
+        # launcher (prepare_campaign_serving). None = serving off. Threads
+        # into ideation, implementation, and lens-planner sessions — never
+        # the feedback judge.
+        self.bank_serving = self.params.get("bank_serving")
         # Durable-archive recovery root for the registered evaluation (glob
         # of run archive parents, e.g. "tmp/relbench/*/runs"). None disables
         # archive recovery; the live-process wait still applies.
@@ -570,6 +242,11 @@ class GenericSearch(SearchStrategy):
                 "ideation_selector.cli must be claude_code or codex (the "
                 "selector reads the worktree to verify candidates)"
             )
+        # Optional member/selector ideation time split (design #5). Default
+        # None = NO split: each role gets the full clamped ideation timeout.
+        self.ensemble_time_split = normalize_ensemble_time_split(
+            self.params.get("ensemble_time_split")
+        )
         # Optional task-aware lens planning: a web-enabled Claude session
         # designs the member lenses for THIS task at iteration 1, then a
         # keep-or-revise session re-judges the plan against the campaign
@@ -610,6 +287,14 @@ class GenericSearch(SearchStrategy):
         )
         # Which CLI runs implementation sessions. Both mount the gate MCP
         # servers; codex reports no cost telemetry (ledger undercounts).
+        # A crashed implementation session (provider safety classifier, CLI
+        # abort) leaves the lane's remaining time unused. When set, a crash
+        # retries ONCE on this model — contest 5 (2026-08-06) lost both lanes
+        # to codex's "flagged for possible cybersecurity risk" kill on an
+        # adversarial-robustness task.
+        self.implementation_fallback_model = self.params.get(
+            "implementation_fallback_model"
+        )
         self.implementation_cli = str(
             self.params.get("implementation_cli", "claude_code")
         )
@@ -618,14 +303,25 @@ class GenericSearch(SearchStrategy):
                 "implementation_cli must be claude_code or codex, got "
                 f"{self.implementation_cli!r}"
             )
-        self.implementation_timeout = self.params.get("implementation_timeout", 600)
+        # Web access in implementation sessions (independent of the ideation
+        # `web_search` knob): gates the claude whitelist's WebSearch/WebFetch
+        # AND the codex --search flag. Default True; benchmarks whose
+        # protocol forbids live web during implementation (e.g. relbench's
+        # temporal-leakage rules) set false in their mode config.
+        self.implementation_web = self.params.get("implementation_web", True)
+        self.ideation_candidates_per_member = int(
+            self.params.get(
+                "ideation_candidates_per_member", ENSEMBLE_CANDIDATES_PER_MEMBER
+            )
+        )
+        if self.ideation_candidates_per_member < 1:
+            raise ValueError(
+                "ideation_candidates_per_member must be >= 1, got "
+                f"{self.ideation_candidates_per_member}"
+            )
+        self.implementation_timeout = self.params.get("implementation_timeout")
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
-        # Knowledge-bank pull tools (learn-from-trajectories §5.1): the
-        # campaign runner passes the KAPSO_* env mapping when serving is on;
-        # None leaves the "bank" gate unresolvable (skip). Ideation +
-        # implementation only — the feedback judge never mounts gates.
-        self.bank_serving = self.params.get("bank_serving")
         self.parent_policy = parent_policy
         
         # Experiment history path (set by orchestrator)
@@ -921,7 +617,9 @@ class GenericSearch(SearchStrategy):
                 f"score={node.score}, should_stop={node.should_stop}"
             )
 
-        representative = self._pick_representative(nodes)
+        representative = pick_representative(
+            nodes, self.problem_handler.maximize_scoring
+        )
         if lane_count > 1:
             representative.should_stop = any(n.should_stop for n in nodes)
             print(
@@ -931,414 +629,72 @@ class GenericSearch(SearchStrategy):
             )
         return representative
 
-    def _pick_representative(self, nodes: List[SearchNode]) -> SearchNode:
-        """Best-scoring node of the round; scoreless nodes rank last."""
-        if len(nodes) == 1:
-            return nodes[0]
-
-        def sort_key(node: SearchNode):
-            if node.score is None:
-                return (0, 0.0)
-            return (
-                1,
-                node.score
-                if self.problem_handler.maximize_scoring
-                else -node.score,
-            )
-        return max(nodes, key=sort_key)
-
     def _generate_solution(
         self, problem: str, parent_branch: str
     ) -> Tuple[List[str], List[str], Dict[str, float]]:
-        """
-        Generate solution using Claude Code with MCP gates.
-        
-        Uses Claude Code as ideation agent with:
-        - Read-only access to repo (Read, MCP tools for repo_memory)
-        - RepoMemory via CLI
-        - Idea/Code/Research/ExperimentHistory gates via MCP
-        
-        Args:
-            problem: Problem description
-            parent_branch: Git branch to base ideation on
-
-        Returns:
-            Tuple of (solutions, sections_consulted, phase_telemetry) —
-            solutions is rank-ordered, length <= node_expansion_value
-            (single-session ideation always yields exactly one).
-        """
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from kapso.gated_mcp import get_mcp_config
-        
-        # 1. Load RepoMemory (read-only)
-        repo_memory_doc = RepoMemoryManager.load_from_git_branch(
-            self.workspace.repo, parent_branch
-        ) or {}
-        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(
-            repo_memory_doc, max_chars=2500
-        )
-        
-        # Materialize the selected ref without changing the root workspace's
-        # checkout. Every read-only ideation surface points at this same tree.
-        with self.workspace.materialize_ref(parent_branch) as ideation_dir:
-            # 2. Configure gates against the selected parent tree. Keep the
-            # history path absolute because the MCP process may run elsewhere.
-            mcp_servers, mcp_tools = get_mcp_config(
-                gates=self.ideation_gates,
-                experiment_history_path=os.path.abspath(
-                    self.experiment_history_path
-                ),
-                experiment_embedding_model=(
-                    self.llm.resolve_model(None, default_role="embedding")
-                    if self.llm is not None
-                    else None
-                ),
-                repo_root=ideation_dir,
-                include_base_tools=False,
-                gate_failure_policy=self.gate_failure_policy,
-                bank_serving=self.bank_serving,
-            )
-
-            # 3. Build restricted tool set (read-only for ideation).
-            ideation_allowed_tools = [
-                "Read",
-                *[t for t in mcp_tools if t.startswith("mcp__")],
-            ]
-
-            logger.info(
-                f"[GenericSearch] Ideation tools: {ideation_allowed_tools}"
-            )
-
-            if self.ideation_ensemble:
-                return self._generate_solution_ensemble(
-                    problem=problem,
-                    repo_memory_brief=repo_memory_brief,
-                    ideation_dir=ideation_dir,
-                    mcp_servers=mcp_servers,
-                    ideation_allowed_tools=ideation_allowed_tools,
-                )
-
-            # 4. Configure Claude Code for ideation (read-only mode).
-            config = CodingAgentConfig(
-                agent_type="claude_code",
-                model=self.idea_generation_model,
-                debug_model=self.idea_generation_model,
-                agent_specific={
-                    **self._claude_auth_settings,
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "mcp_servers": mcp_servers,
-                    "allowed_tools": ideation_allowed_tools,
-                    "disallowed_tools": self._web_disallowed_tools,
-                    "timeout": self._clamped_timeout(self.ideation_timeout),
-                    "streaming": True,
-                    "planning_mode": False,
-                    "effort": self.session_effort,
-                },
-            )
-
-            # 5. Build the ideation prompt.
-            prompt = self._build_ideation_prompt(
-                problem=problem,
-                repo_memory_brief=repo_memory_brief,
-            )
-
-            # 6. Run Claude Code from the selected parent worktree.
-            print("[GenericSearch] Running Claude Code ideation...")
-            agent = ClaudeCodeCodingAgent(config)
-            agent.initialize(ideation_dir)
-
-            phase_started = time.monotonic()
-            try:
-                result = agent.generate_code(prompt)
-                telemetry = {
-                    "cost_usd": agent.get_cumulative_cost(),
-                    "duration_seconds": time.monotonic() - phase_started,
-                }
-
-                if not result.success:
-                    logger.warning(
-                        f"[GenericSearch] Ideation failed: {result.error}"
-                    )
-                    salvaged = self._salvage_ideation_output(result)
-                    if salvaged is not None:
-                        print(
-                            "[GenericSearch] Salvaged partial output "
-                            f"({len(salvaged)} chars) from the "
-                            "deadline-terminated ideation session"
-                        )
-                        return (
-                            [salvaged],
-                            self._extract_sections_consulted(result.output),
-                            telemetry,
-                        )
-                    return [self._fallback_solution(problem)], [], telemetry
-
-                solution = self._extract_solution_from_output(result.output)
-                sections_consulted = self._extract_sections_consulted(
-                    result.output
-                )
-
-                print(
-                    "[GenericSearch] Ideation complete, sections consulted: "
-                    f"{sections_consulted}"
-                )
-                return [solution], sections_consulted, telemetry
-            finally:
-                agent.cleanup()
-    
-    def _design_axes_brief(self) -> str:
-        return "\n".join(
-            f"{i}. {axis}" for i, axis in enumerate(self.design_axes, 1)
-        )
-
-    def _member_roster_brief(self) -> str:
-        return "\n".join(
-            f"- member {i + 1}: cli={m['cli']}, model={m['model']}"
-            + (
-                " (has native web search during ideation)"
-                if m["cli"] == "codex"
-                else ""
-            )
-            for i, m in enumerate(self.ideation_ensemble)
+        """Generate solution(s) using Claude Code with MCP gates; returns
+        (solutions, sections_consulted, phase_telemetry)."""
+        return generate_solution(
+            problem,
+            parent_branch,
+            workspace=self.workspace,
+            llm=self.llm,
+            experiment_history_path=self.experiment_history_path,
+            ideation_gates=self.ideation_gates,
+            gate_failure_policy=self.gate_failure_policy,
+            bank_serving=self.bank_serving,
+            ideation_web_search=self.ideation_web_search,
+            ideation_ensemble=self.ideation_ensemble,
+            idea_generation_model=self.idea_generation_model,
+            claude_auth_settings=self._claude_auth_settings,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            aws_region=self.aws_region,
+            web_disallowed_tools=self._web_disallowed_tools,
+            clamped_timeout=self._clamped_timeout,
+            ideation_timeout=self.ideation_timeout,
+            session_effort=self.session_effort,
+            build_prompt=self._build_ideation_prompt,
+            run_ensemble=self._generate_solution_ensemble,
         )
 
     def _run_lens_planner_session(self, prompt: str, ideation_dir: str):
         """One planner/replanner claude session; returns (result, cost_usd)."""
-        planner = self.ideation_lens_planner
-
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from kapso.gated_mcp import get_mcp_config
-
-        # The planner is the campaign's direction-setter, so it gets the
-        # bank tools (serving-agentic-redesign.md §5): the index as a map
-        # of directions, and the per-lens `bank:` declaration contract in
-        # its prompt. Serving off -> bank gate unresolved -> plain session.
-        mcp_servers, mcp_tools = get_mcp_config(
-            gates=["bank"],
-            include_base_tools=False,
-            gate_failure_policy="skip",
+        return run_lens_planner_session(
+            prompt,
+            ideation_dir,
+            planner=self.ideation_lens_planner,
             bank_serving=self.bank_serving,
+            claude_auth_settings=self._claude_auth_settings,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            aws_region=self.aws_region,
+            web_disallowed_tools=self._web_disallowed_tools,
+            ideation_web_search=self.ideation_web_search,
+            session_effort=self.session_effort,
+            artifacts_dir=self._ideation_artifacts_dir(),
         )
-        print(
-            f"[GenericSearch] Lens planner starting: {planner['model']} "
-            f"({'web-enabled' if self.ideation_web_search else 'web-OFF'}"
-            f"{', bank-served' if mcp_servers else ''})"
-        )
-        config = CodingAgentConfig(
-            agent_type="claude_code",
-            model=planner["model"],
-            debug_model=planner["model"],
-            agent_specific={
-                **self._claude_auth_settings,
-                "env_strip": self.env_strip,
-                "env_defaults": self.env_defaults,
-                "aws_region": self.aws_region,
-                "mcp_servers": mcp_servers,
-                "allowed_tools": [
-                    "Read", "WebSearch", "WebFetch",
-                    *[t for t in mcp_tools if t.startswith("mcp__")],
-                ],
-                "disallowed_tools": self._web_disallowed_tools,
-                "timeout": planner.get("timeout", 600),
-                "streaming": True,
-                "planning_mode": False,
-                "effort": planner.get("effort", self.session_effort),
-            },
-        )
-        agent = ClaudeCodeCodingAgent(config)
-        agent.initialize(ideation_dir)
-        result = agent.generate_code(prompt)
-        cost = agent.get_cumulative_cost()
-        agent.cleanup()
-        return result, cost
-
-    def _append_lens_history(self, history_path: str, record: Dict[str, Any]) -> None:
-        os.makedirs(os.path.dirname(history_path), exist_ok=True)
-        with open(history_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record) + "\n")
-
-    def _write_lens_plan(self, plan_path: str, plan: Dict[str, Any]) -> None:
-        os.makedirs(os.path.dirname(plan_path), exist_ok=True)
-        with open(plan_path, "w", encoding="utf-8") as f:
-            json.dump(plan, f, indent=2)
 
     def _resolve_member_lenses(
         self, problem: str, ideation_dir: str
     ) -> tuple:
-        """Task-aware lenses, replanned per iteration; returns (lenses, cost).
-
-        (None, 0.0) when no planner block is configured (static config
-        lenses). Iteration 1 runs the full research planner — fail-loud, a
-        restart is cheap. Every LATER iteration runs a keep-or-revise session
-        over the campaign evidence (state brief, recent judge feedback, the
-        champion's solution): the plan is re-aimed when the evidence says the
-        current angles are exhausted, kept when they still carry the highest
-        credible return toward the bar. A failed or unparseable revision
-        falls back LOUDLY to the previous validated plan — it never kills a
-        mid-flight campaign. The current plan lives in .kapso/lens_plan.json
-        (keyed by the iteration that last confirmed it, so a same-iteration
-        resume reuses it without a session); every planner decision appends
-        to .kapso/lens_plan_history.jsonl as the audit trail.
-        """
+        """Task-aware lenses, replanned per iteration; returns (lenses, cost)."""
         if not self.ideation_lens_planner:
             return None, 0.0
-        expected = len(self.ideation_ensemble)
-        kapso_dir = os.path.join(self.workspace_dir, ".kapso")
-        plan_path = os.path.join(kapso_dir, LENS_PLAN_FILENAME)
-        history_path = os.path.join(kapso_dir, LENS_PLAN_HISTORY_FILENAME)
-
-        plan = None
-        if os.path.isfile(plan_path):
-            with open(plan_path, encoding="utf-8") as f:
-                plan = json.load(f)
-            if len(plan["lenses"]) != expected:
-                raise ValueError(
-                    f"{plan_path} holds {len(plan['lenses'])} lenses for "
-                    f"{expected} ensemble members — delete it to replan"
-                )
-            if plan.get("iteration") == self.iteration_count:
-                return plan["lenses"], 0.0
-
-        planner = self.ideation_lens_planner
-        roster = self._member_roster_brief()
-
-        if plan is None:
-            prompt = render_prompt(
-                load_prompt(
-                    "execution/search_strategies/generic/prompts/ideation_lens_planner.md"
-                ),
-                {
-                    "problem": problem,
-                    "member_roster": roster,
-                    "lens_count": str(expected),
-                    "shared_artifacts_brief": self.shared_artifacts_brief,
-                    "design_axes": self._design_axes_brief(),
-                },
-            )
-            result, cost = self._run_lens_planner_session(prompt, ideation_dir)
-            if not result.success:
-                raise RuntimeError(
-                    f"lens planner session failed: {result.error}"
-                )
-            parsed = parse_lens_plan(result.output, expected)
-            plan = {
-                "lenses": parsed["lenses"],
-                "sources": parsed["sources"],
-                "planner_model": planner["model"],
-                "iteration": self.iteration_count,
-                "decision": "initial",
-                "rationale": "",
-            }
-            self._write_lens_plan(plan_path, plan)
-            self._append_lens_history(history_path, plan)
-            for i, lens in enumerate(plan["lenses"], 1):
-                print(f"[GenericSearch] Lens {i}: {lens}")
-            return plan["lenses"], cost
-
-        # Keep-or-revise: the replanner judges the plan against the campaign
-        # evidence. Judge feedbacks and the champion solution go in FULL —
-        # content bound for a model call is never truncated.
-        feedbacks = [
-            node.feedback
-            for node in self.node_history
-            if getattr(node, "feedback", None)
-        ]
-        recent_feedback = (
-            "\n\n---\n\n".join(feedbacks[-2:])
-            if feedbacks
-            else "(no judge feedback yet)"
+        return resolve_member_lenses(
+            problem,
+            ideation_dir,
+            ideation_lens_planner=self.ideation_lens_planner,
+            ideation_ensemble=self.ideation_ensemble,
+            workspace_dir=self.workspace_dir,
+            iteration_count=self.iteration_count,
+            shared_artifacts_brief=self.shared_artifacts_brief,
+            design_axes=self.design_axes,
+            node_history=self.node_history,
+            campaign_state_brief=self._campaign_state_brief,
+            get_best_experiment=self.get_best_experiment,
+            run_planner_session=self._run_lens_planner_session,
         )
-        best = self.get_best_experiment()
-        champion_solution = (
-            best.solution
-            if best is not None and best.solution
-            else "(no scored champion yet)"
-        )
-        previous_lenses = "\n".join(
-            f"lens {i}: {lens}" for i, lens in enumerate(plan["lenses"], 1)
-        )
-        prompt = render_prompt(
-            load_prompt(
-                "execution/search_strategies/generic/prompts/ideation_lens_replanner.md"
-            ),
-            {
-                "problem": problem,
-                "member_roster": roster,
-                "lens_count": str(expected),
-                "shared_artifacts_brief": self.shared_artifacts_brief,
-                "design_axes": self._design_axes_brief(),
-                "campaign_state": self._campaign_state_brief(),
-                "plan_iteration": str(plan.get("iteration", "?")),
-                "previous_lenses": previous_lenses,
-                "previous_sources": plan.get("sources") or "(none recorded)",
-                "previous_rationale": plan.get("rationale") or "(none recorded)",
-                "recent_feedback": recent_feedback,
-                "champion_solution": champion_solution,
-            },
-        )
-        result, cost = self._run_lens_planner_session(prompt, ideation_dir)
-        revision = (
-            parse_lens_revision(result.output, expected)
-            if result.success
-            else {"kind": "invalid", "reason": f"session failed: {result.error}"}
-        )
-        if revision["kind"] == "revise":
-            plan = {
-                "lenses": revision["lenses"],
-                "sources": revision["sources"],
-                "planner_model": planner["model"],
-                "iteration": self.iteration_count,
-                "decision": "revise",
-                "rationale": revision["rationale"],
-            }
-            self._write_lens_plan(plan_path, plan)
-            self._append_lens_history(history_path, plan)
-            print(
-                f"[GenericSearch] Lens plan REVISED (iteration "
-                f"{self.iteration_count}): {plan['rationale']}"
-            )
-            for i, lens in enumerate(plan["lenses"], 1):
-                print(f"[GenericSearch] Lens {i}: {lens}")
-            return plan["lenses"], cost
-        if revision["kind"] == "keep":
-            plan["iteration"] = self.iteration_count
-            plan["decision"] = "keep"
-            plan["rationale"] = revision["rationale"]
-            self._write_lens_plan(plan_path, plan)
-            self._append_lens_history(
-                history_path,
-                {
-                    "iteration": self.iteration_count,
-                    "decision": "keep",
-                    "rationale": revision["rationale"],
-                    "lenses": plan["lenses"],
-                },
-            )
-            print(
-                f"[GenericSearch] Lens plan kept (iteration "
-                f"{self.iteration_count}): {revision['rationale']}"
-            )
-            return plan["lenses"], cost
-        # invalid: loud fallback to the previous validated plan. The plan
-        # file's iteration is NOT bumped, so a same-iteration retry replans.
-        logger.warning(
-            "[GenericSearch] Lens revision invalid "
-            f"({revision['reason']}); keeping previous plan"
-        )
-        self._append_lens_history(
-            history_path,
-            {
-                "iteration": self.iteration_count,
-                "decision": "failed",
-                "reason": revision["reason"],
-                "raw_output": result.output or "",
-            },
-        )
-        return plan["lenses"], cost
 
     def _generate_solution_ensemble(
         self,
@@ -1348,282 +704,35 @@ class GenericSearch(SearchStrategy):
         mcp_servers: Dict[str, Any],
         ideation_allowed_tools: List[str],
     ) -> Tuple[str, List[str], Dict[str, float]]:
-        """Fan out ideation across CLI members, then select one solution.
-
-        Members run in parallel (they are API-bound, never GPU-bound) inside
-        the same read-only worktree; a selector-critic session chooses among
-        the pooled <solution> candidates. Fail-soft ladder: selector failure
-        -> first claude_code candidate -> any candidate -> template fallback.
-        """
-        phase_started = time.monotonic()
-
-        base_prompt = self._build_ideation_prompt(
-            problem=problem, repo_memory_brief=repo_memory_brief
-        )
-        addendum_template = load_prompt(
-            "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
-        )
-
-        member_lenses, lens_planner_cost = self._resolve_member_lenses(
-            problem, ideation_dir
-        )
-
-        # Deadlines are computed AFTER the planner session so its wall time
-        # squeezes this iteration's members instead of overflowing the phase.
-        clamp = self._clamped_timeout(self.ideation_timeout)
-        member_deadline = max(60.0, clamp * ENSEMBLE_MEMBER_TIME_FRACTION)
-        selector_deadline = max(
-            ENSEMBLE_SELECTOR_MIN_SECONDS, clamp * ENSEMBLE_SELECTOR_TIME_FRACTION
-        )
-
-        def run_member(member: Dict[str, str], lens: str) -> Dict[str, Any]:
-            prompt = base_prompt + "\n\n" + render_prompt(
-                addendum_template,
-                {
-                    "lens": lens,
-                    "candidate_count": str(ENSEMBLE_CANDIDATES_PER_MEMBER),
-                },
-            )
-            label = f"{member['cli']}:{member['model']}"
-            print(f"[GenericSearch] Ensemble ideation member starting: {label}")
-            if member["cli"] == "codex":
-                artifacts_dir = os.path.join(
-                    self.workspace_dir, ".kapso", "ideation",
-                    f"iter{self.iteration_count}",
-                )
-
-                def run_codex_once(attempt_deadline: float) -> tuple:
-                    return codex_ideation.run_codex_ideation(
-                        prompt=prompt,
-                        model=member["model"],
-                        cwd=ideation_dir,
-                        timeout_seconds=attempt_deadline,
-                        effort=member.get("effort"),
-                        artifacts_dir=artifacts_dir,
-                        web_search=self.ideation_web_search,
-                    )
-
-                def extract(output: str) -> list:
-                    found = re.findall(
-                        r"<solution>(.*?)</solution>", output, re.DOTALL
-                    )
-                    # Echo-drop: anything that appears verbatim in OUR OWN
-                    # prompt is the transcript echoing the format example
-                    # back (run #8's "blank template" candidate), never a
-                    # model contribution.
-                    return [
-                        c.strip() for c in found
-                        if c.strip() and c.strip() not in prompt
-                    ]
-
-                output, timed_out, duration, meta = run_codex_once(member_deadline)
-                candidates = extract(output)
-                if not candidates and not timed_out:
-                    # Transient turn failure (run #8 iters 1-2: empty final
-                    # message on the first calls after auth shipping). One
-                    # retry inside the remaining member window self-heals it.
-                    remaining = max(60.0, member_deadline - duration)
-                    logger.warning(
-                        f"[GenericSearch] member {label} returned no "
-                        f"candidates (last_message_empty="
-                        f"{meta['last_message_empty']}); retrying once "
-                        f"({remaining:.0f}s left). Stream tail: "
-                        f"{meta['stream_tail'][-200:]!r}"
-                    )
-                    output, timed_out, _dur2, meta = run_codex_once(remaining)
-                    candidates = extract(output)
-                if (
-                    not candidates
-                    and timed_out
-                    and len(output.strip()) >= MIN_IDEATION_SALVAGE_CHARS
-                ):
-                    candidates = [
-                        "# Salvaged from a deadline-terminated ideation session\n"
-                        + self._extract_solution_from_output(output.strip())
-                    ]
-                return {
-                    "label": label,
-                    "cli": "codex",
-                    "candidates": candidates,
-                    "sections": [],
-                    "cost_usd": 0.0,
-                    "duration_seconds": duration,
-                    "timed_out": timed_out,
-                    "detail": (
-                        "last_message_empty" if meta["last_message_empty"] else "ok"
-                    ),
-                }
-
-            from kapso.execution.coding_agents.base import CodingAgentConfig
-            from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-            from kapso.execution.coding_agents.adapters.oss_claude_code_agent import OssClaudeCodeCodingAgent
-
-            is_oss = member["cli"] == "oss_claude_code"
-            agent_specific = {
-                "env_strip": self.env_strip,
-                "env_defaults": self.env_defaults,
-                "aws_region": self.aws_region,
-                "mcp_servers": mcp_servers,
-                "allowed_tools": ideation_allowed_tools,
-                "disallowed_tools": self._web_disallowed_tools,
-                "timeout": member_deadline,
-                "streaming": True,
-                "planning_mode": False,
-                "effort": member.get("effort", self.session_effort),
-            }
-            if is_oss:
-                # Endpoint wiring replaces first-party auth entirely.
-                agent_specific["base_url"] = member["base_url"]
-                agent_specific["auth_token_env"] = member["auth_token_env"]
-            else:
-                agent_specific.update(self._claude_auth_settings)
-            config = CodingAgentConfig(
-                agent_type=member["cli"],
-                model=member["model"],
-                debug_model=member["model"],
-                agent_specific=agent_specific,
-            )
-            agent_class = OssClaudeCodeCodingAgent if is_oss else ClaudeCodeCodingAgent
-            agent = agent_class(config)
-            agent.initialize(ideation_dir)
-            result = agent.generate_code(prompt)
-            cost = agent.get_cumulative_cost()
-            agent.cleanup()
-            if not result.success:
-                logger.warning(
-                    f"[GenericSearch] Ensemble member {label} failed: {result.error}"
-                )
-                salvaged = self._salvage_ideation_output(result)
-                candidates = [salvaged] if salvaged is not None else []
-            else:
-                candidates = [
-                    c.strip()
-                    for c in re.findall(
-                        r"<solution>(.*?)</solution>", result.output, re.DOTALL
-                    )
-                ] or [self._extract_solution_from_output(result.output)]
-            return {
-                "label": label,
-                "cli": "claude_code",
-                "candidates": candidates,
-                "sections": self._extract_sections_consulted(result.output),
-                "cost_usd": cost,
-            }
-
-        members = self.ideation_ensemble
-        resolved_lenses = (
-            member_lenses
-            if member_lenses is not None
-            else [m.get("lens", DEFAULT_MEMBER_LENS) for m in members]
-        )
-        with ThreadPoolExecutor(max_workers=len(members)) as executor:
-            member_results = list(
-                executor.map(run_member, members, resolved_lenses)
-            )
-
-        pool: List[Dict[str, str]] = []
-        sections: List[str] = []
-        total_cost = lens_planner_cost
-        for member_result in member_results:
-            total_cost += member_result["cost_usd"]
-            for section in member_result["sections"]:
-                if section not in sections:
-                    sections.append(section)
-            kept = 0
-            dropped = 0
-            for candidate in member_result["candidates"]:
-                # Hygiene observed live: skeleton/echo artifacts and
-                # duplicated final messages must never reach the selector.
-                if is_degenerate_ensemble_candidate(candidate):
-                    dropped += 1
-                    continue
-                if any(candidate == pooled["text"] for pooled in pool):
-                    dropped += 1
-                    continue
-                kept += 1
-                pool.append(
-                    {"source": member_result["label"], "cli": member_result["cli"], "text": candidate}
-                )
-            detail = member_result.get("detail", "ok")
-            duration = member_result.get("duration_seconds")
-            timing = f", {duration:.0f}s" if duration is not None else ""
-            print(
-                f"[GenericSearch] member {member_result['label']}: "
-                f"candidates={kept}/{ENSEMBLE_CANDIDATES_PER_MEMBER} "
-                f"(dropped {dropped}){timing}, "
-                f"timed_out={member_result.get('timed_out', False)}, {detail}"
-            )
-            if kept < ENSEMBLE_CANDIDATES_PER_MEMBER:
-                logger.warning(
-                    f"[GenericSearch] member {member_result['label']} "
-                    f"under-delivered: {kept} of "
-                    f"{ENSEMBLE_CANDIDATES_PER_MEMBER} candidates"
-                )
-
-        telemetry = {
-            "cost_usd": total_cost,
-            "duration_seconds": time.monotonic() - phase_started,
-        }
-        print(
-            f"[GenericSearch] Ensemble ideation pooled {len(pool)} candidates "
-            f"from {len(members)} members"
-        )
-        if not pool:
-            return [self._fallback_solution(problem)], sections, telemetry
-        if len(pool) == 1:
-            print("[GenericSearch] Single candidate — selector skipped")
-            return [pool[0]["text"]], sections, telemetry
-
-        chosen = self._select_from_candidates(
+        """Fan out ideation across CLI members, then select solution(s)."""
+        return generate_solution_ensemble(
             problem=problem,
             repo_memory_brief=repo_memory_brief,
-            pool=pool,
             ideation_dir=ideation_dir,
-            selector_deadline=selector_deadline,
+            mcp_servers=mcp_servers,
+            ideation_allowed_tools=ideation_allowed_tools,
+            ideation_ensemble=self.ideation_ensemble,
+            ideation_candidates_per_member=self.ideation_candidates_per_member,
+            ensemble_time_split=self.ensemble_time_split,
+            ideation_web_search=self.ideation_web_search,
+            claude_auth_settings=self._claude_auth_settings,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            aws_region=self.aws_region,
+            web_disallowed_tools=self._web_disallowed_tools,
+            session_effort=self.session_effort,
+            clamped_timeout=self._clamped_timeout,
+            ideation_timeout=self.ideation_timeout,
+            artifacts_dir=self._ideation_artifacts_dir(),
+            build_prompt=self._build_ideation_prompt,
+            resolve_lenses=self._resolve_member_lenses,
+            select_candidates=self._select_from_candidates,
         )
-        telemetry["cost_usd"] += chosen["cost_usd"]
-        telemetry["duration_seconds"] = time.monotonic() - phase_started
-        return chosen["solutions"], sections, telemetry
 
     def _campaign_state_brief(self) -> str:
-        """Factual campaign trajectory for the selector's return judgment.
-
-        The selector prompt values candidates by expected return against the
-        GOAL's bar; this supplies the other half of that arithmetic — where
-        the campaign currently stands and whether progress has stalled.
-        """
-        scored = [
-            n
-            for n in self.node_history
-            if not n.had_error and n.evaluation_valid and n.score is not None
-        ]
-        if not scored:
-            return (
-                "No scored experiments yet — the pool below is the campaign's "
-                "first swing; judge return against the GOAL's published bar."
-            )
-        maximize = self.problem_handler.maximize_scoring
-        champion = max(n.score for n in scored) if maximize else min(
-            n.score for n in scored
-        )
-        recent = [float(f"{n.score:.6g}") for n in scored[-5:]]
-        stagnation = 0
-        running_best: Optional[float] = None
-        for node in scored:
-            improved = running_best is None or (
-                node.score > running_best if maximize else node.score < running_best
-            )
-            if improved:
-                running_best = node.score
-                stagnation = 0
-            else:
-                stagnation += 1
-        return (
-            f"Scored experiments: {len(scored)}; champion score: {champion:.6g}; "
-            f"last {len(recent)} scores: {recent}; consecutive experiments "
-            f"without strict improvement: {stagnation}. The GOAL above states "
-            "the published bar — judge every candidate's return against the "
-            "remaining gap to THAT bar, not against the champion."
+        """Factual campaign trajectory for the selector's return judgment."""
+        return campaign_state_brief(
+            self.node_history, self.problem_handler.maximize_scoring
         )
 
     def _select_from_candidates(
@@ -1634,126 +743,23 @@ class GenericSearch(SearchStrategy):
         ideation_dir: str,
         selector_deadline: float,
     ) -> Dict[str, Any]:
-        """Run the selector-critic session over the pooled candidates.
-
-        Returns {"solutions": List[str] (rank order, len<=node_expansion_value),
-        "cost_usd": float}. With expansion 1 this is today's single pick.
-        """
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-
-        expansion = self.node_expansion_value
-        candidates_block = "\n\n".join(
-            f"### Candidate {i} (from {c['source']})\n{c['text']}"
-            for i, c in enumerate(pool, 1)
+        """Run the selector-critic session over the pooled candidates."""
+        return select_from_candidates(
+            problem=problem,
+            repo_memory_brief=repo_memory_brief,
+            pool=pool,
+            ideation_dir=ideation_dir,
+            selector_deadline=selector_deadline,
+            ideation_selector=self.ideation_selector,
+            node_expansion_value=self.node_expansion_value,
+            campaign_state=self._campaign_state_brief(),
+            claude_auth_settings=self._claude_auth_settings,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            aws_region=self.aws_region,
+            session_effort=self.session_effort,
+            artifacts_dir=self._ideation_artifacts_dir(),
         )
-        prompt = render_prompt(
-            load_prompt(
-                "execution/search_strategies/generic/prompts/ideation_selector.md"
-            ),
-            {
-                "problem": problem,
-                "repo_memory_brief": repo_memory_brief
-                or "(No repo memory available)",
-                "campaign_state": self._campaign_state_brief(),
-                "candidates": candidates_block,
-            },
-        )
-        if expansion > 1:
-            # Appended override keeps the K=1 selector prompt byte-identical.
-            prompt += "\n\n" + render_prompt(
-                load_prompt(
-                    "execution/search_strategies/generic/prompts/"
-                    "ideation_selector_expansion_addendum.md"
-                ),
-                {"expansion_count": str(expansion)},
-            )
-        selector = self.ideation_selector
-        if selector["cli"] == "codex":
-            from kapso.execution.search_strategies.generic.codex_ideation import (
-                run_codex_ideation,
-            )
-            from kapso.execution.coding_agents.base import CodingResult
-
-            # web on: selection verifies candidate claims — a cited repo,
-            # pretrained model, or dataset must exist and plausibly do what
-            # the candidate says before it can win selection.
-            output, timed_out, _duration, _meta = run_codex_ideation(
-                prompt=prompt,
-                model=selector["model"],
-                cwd=ideation_dir,
-                timeout_seconds=selector_deadline,
-                effort=selector.get("effort"),
-                # Durable workspace home, not the temp ideation worktree —
-                # the selector's pool + reasoning must outlive selection
-                # (trajectory bundle contract, learning design §3.4.1).
-                artifacts_dir=os.path.join(
-                    self.workspace_dir, ".kapso", "ideation",
-                    f"iter{self.iteration_count}", "selector",
-                ),
-                web_search=True,
-            )
-            result = CodingResult(
-                success=not timed_out and bool(output.strip()),
-                output=output,
-                error="selector session timed out" if timed_out else None,
-            )
-            cost = 0.0
-        else:
-            config = CodingAgentConfig(
-                agent_type="claude_code",
-                model=selector["model"],
-                debug_model=selector["model"],
-                agent_specific={
-                    **self._claude_auth_settings,
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "allowed_tools": ["Read", "WebSearch", "WebFetch"],
-                    "timeout": selector_deadline,
-                    "streaming": True,
-                    "planning_mode": False,
-                    "effort": selector.get("effort", self.session_effort),
-                },
-            )
-            agent = ClaudeCodeCodingAgent(config)
-            agent.initialize(ideation_dir)
-            result = agent.generate_code(prompt)
-            cost = agent.get_cumulative_cost()
-            agent.cleanup()
-
-        reasoning = re.search(
-            r"<selection_reasoning>(.*?)</selection_reasoning>",
-            result.output or "",
-            re.DOTALL,
-        )
-        if reasoning:
-            print(
-                "[GenericSearch] Selector reasoning:\n"
-                + reasoning.group(1).strip()
-            )
-        solutions = (
-            parse_selected_solutions(result.output, expansion)
-            if result.success
-            else []
-        )
-        if solutions:
-            return {"solutions": solutions, "cost_usd": cost}
-
-        # Fail-soft: the pooled work must not die with the selector. Fill
-        # rank order from the pool (claude candidates first), up to K.
-        logger.warning(
-            "[GenericSearch] Selector failed "
-            f"({result.error or 'no solution tags'}); falling back to the "
-            "pooled candidates"
-        )
-        ordered = [c for c in pool if c["cli"] == "claude_code"] + [
-            c for c in pool if c["cli"] != "claude_code"
-        ]
-        return {
-            "solutions": [c["text"] for c in ordered[:expansion]],
-            "cost_usd": cost,
-        }
 
     def _build_ideation_prompt(
         self,
@@ -1761,94 +767,17 @@ class GenericSearch(SearchStrategy):
         repo_memory_brief: str,
     ) -> str:
         """Build the ideation prompt for Claude Code."""
-        # Load and render the prompt template
-        template = load_prompt("execution/search_strategies/generic/prompts/ideation_claude_code.md")
-        return render_prompt(
-            template,
-            {
-                "problem": problem or "(No problem description provided)",
-                "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
-                "budget_status": self._render_budget_status(),
-                "shared_artifacts_brief": self.shared_artifacts_brief,
-            },
+        return build_ideation_prompt(
+            problem,
+            repo_memory_brief,
+            budget_status=self._render_budget_status(),
+            shared_artifacts_brief=self.shared_artifacts_brief,
         )
-    
-    def _extract_solution_from_output(self, output: str) -> str:
-        """Extract solution from Claude Code output."""
-        # Look for <solution>...</solution> tags
-        match = re.search(r'<solution>(.*?)</solution>', output, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        
-        # Fallback: look for markdown headers that indicate a solution
-        # Try to find "# Core Idea" section
-        core_idea_match = re.search(r'#\s*Core Idea.*', output, re.DOTALL)
-        if core_idea_match:
-            return core_idea_match.group(0).strip()
-        
-        # Last resort: return entire output (may contain useful info)
-        logger.warning("[GenericSearch] Could not extract solution tags, using full output")
-        return output
-    
-    def _extract_sections_consulted(self, output: str) -> List[str]:
-        """Extract RepoMemory sections consulted from Claude Code output."""
-        # Look for repo_memory cli get-section calls
-        sections = re.findall(r'repo_memory\.cli\s+get-section\s+(\S+)', output)
-        # Also look for direct section references in tool calls
-        sections.extend(re.findall(r'get-section\s+["\']?(\S+?)["\']?\s', output))
-        # Deduplicate while preserving order
-        seen = set()
-        result = []
-        for s in sections:
-            # Clean up section ID (remove quotes, trailing punctuation)
-            s = s.strip('"\'.,;:')
-            if s and s not in seen:
-                seen.add(s)
-                result.append(s)
-        return result
-    
+
     def _salvage_ideation_output(self, result) -> Optional[str]:
-        """Recover a deadline-terminated ideation's partial output.
-
-        Only deadline kills are salvageable: the session was mid-work and
-        its streamed text is the research and draft plan produced so far —
-        discarding it forces the next phase to redo that work (a live run
-        lost 30 minutes of research exactly this way). Non-deadline
-        failures keep the fallback path: their output is error noise, not
-        a plan.
-        """
-        if not result.metadata.get("deadline_exceeded"):
-            return None
-        partial = (result.output or "").strip()
-        if len(partial) < MIN_IDEATION_SALVAGE_CHARS:
-            return None
-        return (
-            "# Salvaged from a deadline-terminated ideation session\n"
-            "The ideation agent hit its deadline before emitting a final "
-            "solution. The notes below are its partial output: treat them "
-            "as research findings plus a draft plan, and turn them into an "
-            "implementation directly instead of re-deriving them.\n\n"
-            f"{self._extract_solution_from_output(partial)}"
-        )
-
-    def _fallback_solution(self, problem: str) -> str:
-        """Generate a fallback solution when Claude Code ideation fails."""
-        return f"""# Core Idea
-Implement a baseline solution for the given problem.
-
-# Solution Steps
-1. Analyze the problem requirements
-2. Implement a straightforward solution
-3. Add basic error handling
-4. Create evaluation metrics
-
-# Hyperparameters
-- Use default values from the problem description
-
-# Rationale
-Fallback solution due to ideation failure. Focus on correctness over optimization.
-
-Problem: {problem}"""
+        """Recover a deadline-terminated ideation's partial output
+        (None for crashes and near-empty kills)."""
+        return salvage_ideation_output(result)
 
     def _implement(
         self,
@@ -1859,237 +788,59 @@ Problem: {problem}"""
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
         lane_index: int = 0,
     ) -> Tuple[str, Dict[str, float], Optional[str]]:
-        """
-        Implementation using Claude Code with MCP gates (code, research).
-        
-        Overrides base class to use Claude Code with Bedrock and MCP gates
-        instead of the default coding agent from config.
-        
-        Args:
-            solution: Solution description to implement
-            problem: Problem description
-            branch_name: Git branch for this experiment
-            parent_branch_name: Parent branch to inherit code from
-            ideation_repo_memory_sections_consulted: RepoMemory sections used during ideation
-
-        Returns:
-            Tuple of (agent output string, phase telemetry with cost/duration)
-        """
-        from kapso.execution.coding_agents.base import CodingAgentConfig
-        from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-        from kapso.gated_mcp import get_mcp_config
-        from kapso.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
-        
-        # Create experiment session (handles git branching)
-        session = self.workspace.create_experiment_session(branch_name, parent_branch_name, llm=self.llm)
-
-        # A maintainer-registered evaluation is versioned on the workspace
-        # root, but sessions inherit their parent branch's tree — which may
-        # predate a re-registration. Frame-sync the registered tree in so
-        # every candidate runs (and is integrity-checked against) the head.
-        if self.registered_evaluation_manifest:
-            self._sync_registered_evaluation(session.session_folder)
-        
-        # 1. Load RepoMemory
-        repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
-        repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=2500)
-        
-        # 2. Get MCP config for code + research + repo_memory gates (not idea)
-        mcp_servers, mcp_tools = get_mcp_config(
-            gates=self.implementation_gates,
-            repo_root=session.session_folder,
-            include_base_tools=False,
-            gate_failure_policy=self.gate_failure_policy,
-            bank_serving=self.bank_serving,
-        )
-        
-        # 3. Build full tool set for implementation (includes Write, Edit)
-        # Bash is kept for running evaluation scripts, not for repo_memory access
-        implementation_allowed_tools = [
-            "Read", "Write", "Edit", "Bash",
-            *[t for t in mcp_tools if t.startswith("mcp__")],
-        ]
-        
-        logger.info(f"[GenericSearch] Implementation tools: {implementation_allowed_tools}")
-        
-        # 4. Configure Claude Code for implementation
-        lane_env = (
-            self.expansion_lane_env[lane_index]
-            if self.expansion_lane_env
-            and lane_index < len(self.expansion_lane_env)
-            else None
-        )
-        if self.implementation_cli == "codex":
-            config = CodingAgentConfig(
-                agent_type="codex",
-                model=self.implementation_model,
-                debug_model=self.implementation_model,
-                agent_specific={
-                    **({"env_overrides": lane_env} if lane_env else {}),
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "mcp_servers": mcp_servers,
-                    "timeout": self._clamped_timeout(self.implementation_timeout),
-                    # Lane 0 tees the live transcript to the console, same
-                    # policy as the claude path.
-                    "streaming": lane_index == 0,
-                    "effort": self.session_effort,
-                    # Transcript stream persisted for the difficulties
-                    # fallback's forensics, same as the claude path.
-                    "stream_artifact_path": self._session_stream_path(branch_name),
-                },
-            )
-        else:
-            config = CodingAgentConfig(
-                agent_type="claude_code",
-                model=self.implementation_model,
-                debug_model=self.implementation_model,
-                agent_specific={
-                    **self._claude_auth_settings,
-                    **({"env_overrides": lane_env} if lane_env else {}),
-                    "env_strip": self.env_strip,
-                    "env_defaults": self.env_defaults,
-                    "aws_region": self.aws_region,
-                    "mcp_servers": mcp_servers,
-                    "allowed_tools": implementation_allowed_tools,
-                    "timeout": self._clamped_timeout(self.implementation_timeout),
-                    # Under node expansion only lane 0 streams to the console;
-                    # other lanes stay buffered (their raw streams still land in
-                    # per-branch stream_artifact_path files).
-                    "streaming": lane_index == 0,
-                    "effort": self.session_effort,
-                    # Per-session process record: raw stream-json events land
-                    # here as they arrive, so a killed session still leaves its
-                    # forensics behind (feeds the difficulties fallback).
-                    "stream_artifact_path": self._session_stream_path(branch_name),
-                    # Declared-completion contract: lets the adapter reap a CLI
-                    # that delivered its full final report but lingers alive.
-                    "completion_markers": IMPLEMENTATION_COMPLETION_MARKERS,
-                }
-            )
-
-        # 5. Build implementation prompt
-        repo_memory_detail_access_instructions = (
-            "For detailed section content (architecture, gotchas, invariants, etc.),\n"
-            "use the MCP tool: `get_repo_memory_section(section_id=\"core.architecture\")`\n"
-            "Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies\n"
-            "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
-        )
-        
-        prompt = self._build_implementation_prompt(
+        """Implementation session with MCP gates; returns (agent output,
+        phase telemetry, recovered manifest line)."""
+        lane_env = lane_env_overlay(self.expansion_lane_env, lane_index)
+        return run_implementation(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
-            repo_memory_brief=repo_memory_brief,
-            repo_memory_detail_access_instructions=repo_memory_detail_access_instructions,
-            previous_errors="\n".join(str(e) for e in self.previous_errors[-self.recent_error_count:]),
+            parent_branch_name=parent_branch_name,
+            ideation_repo_memory_sections_consulted=(
+                ideation_repo_memory_sections_consulted
+            ),
+            lane_index=lane_index,
+            workspace=self.workspace,
+            llm=self.llm,
+            registered_evaluation_manifest=self.registered_evaluation_manifest,
+            sync_registered_evaluation=self._sync_registered_evaluation,
+            implementation_gates=self.implementation_gates,
+            gate_failure_policy=self.gate_failure_policy,
+            bank_serving=self.bank_serving,
+            implementation_cli=self.implementation_cli,
+            implementation_model=self.implementation_model,
+            implementation_fallback_model=self.implementation_fallback_model,
+            implementation_web=self.implementation_web,
+            claude_auth_settings=self._claude_auth_settings,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            aws_region=self.aws_region,
+            lane_env=lane_env,
+            session_effort=self.session_effort,
+            clamped_timeout=self._clamped_timeout,
+            implementation_timeout=self.implementation_timeout,
+            session_stream_path=self._session_stream_path,
+            build_prompt=self._build_implementation_prompt,
+            previous_errors_text="\n".join(
+                str(e)
+                for e in self.previous_errors[-self.recent_error_count:]
+            ),
             lane_brief=render_lane_brief(
                 lane_index, self.node_expansion_value, lane_env
             ),
-        )
-        
-        # 6. Run the implementation session
-        print(f"[GenericSearch] Running {self.implementation_cli} implementation...")
-        if self.implementation_cli == "codex":
-            from kapso.execution.coding_agents.factory import CodingAgentFactory
-
-            agent = CodingAgentFactory.create(config)
-        else:
-            agent = ClaudeCodeCodingAgent(config)
-        agent.initialize(session.session_folder)
-
-        phase_started = time.monotonic()
-        phase_cost = 0.0
-        try:
-            self._last_session_started_ts = time.time()
-            result = agent.generate_code(prompt)
-            phase_cost = agent.get_cumulative_cost()
-            agent_output = result.output if result.output else ""
-
-            # Ground truth about HOW the session ended, for the feedback
-            # judge (run #8: a self-inflicted SIGTERM was misdiagnosed as
-            # the time limit, so the footgun was never named).
-            meta = result.metadata or {}
-            if meta.get("completed_reaped"):
-                end_facts = (
-                    "implementation session COMPLETED its final report; the "
-                    "CLI process lingered and was reaped after a short grace "
-                    "— this was a successful session, not a failure"
+            note_session_started=(
+                lambda: setattr(
+                    self, "_last_session_started_ts", time.time()
                 )
-            elif meta.get("deadline_exceeded") and meta.get(
-                "completed_before_kill"
-            ):
-                end_facts = (
-                    "implementation session COMPLETED its final report "
-                    "before the deadline kill — the kill reflects a lingering "
-                    "process, not unfinished work"
+            ),
+            note_session_end_facts=(
+                lambda facts: setattr(
+                    self, "_pending_session_end_facts", facts
                 )
-            elif result.success:
-                end_facts = "implementation session ended naturally"
-            elif meta.get("deadline_exceeded"):
-                end_facts = (
-                    "implementation session was KILLED BY ITS OWN DEADLINE "
-                    f"after {meta.get('elapsed_seconds', 0):.0f}s"
-                )
-            else:
-                end_facts = (
-                    f"implementation session died prematurely ({result.error}); "
-                    "the deadline was NOT reached — suspect an external or "
-                    "self-inflicted kill"
-                )
-            if meta.get("last_tool"):
-                end_facts += f"; last tool call before end: {meta['last_tool']}"
-            self._pending_session_end_facts = end_facts
-
-            if not result.success:
-                logger.warning(f"[GenericSearch] Implementation failed: {result.error}")
-                agent_output = f"Implementation failed: {result.error}\n\n{agent_output}"
-        finally:
-            agent.cleanup()
-        telemetry = {
-            "cost_usd": phase_cost,
-            "duration_seconds": time.monotonic() - phase_started,
-        }
-        
-        # 7. Update RepoMemory for this experiment branch
-        run_result_payload = {
-            "score": 0,
-            "run_had_error": False,
-            "error_message": "",
-            "error_details": "",
-            "feedbacks": "",
-            "ideation_repo_memory_sections_consulted": ideation_repo_memory_sections_consulted or [],
-        }
-        
-        # Extract sections consulted from changes.log
-        sections_consulted = []
-        try:
-            changes_log_path = os.path.join(session.session_folder, "changes.log")
-            if os.path.exists(changes_log_path):
-                with open(changes_log_path, "r", encoding="utf-8", errors="replace") as f:
-                    sections_consulted = extract_repo_memory_sections_consulted(f.read())
-        except Exception:
-            sections_consulted = []
-        run_result_payload["repo_memory_sections_consulted"] = sections_consulted
-        
-        # Schedule RepoMemory update for session close
-        session.schedule_repo_memory_update(
-            solution_spec=solution,
-            run_result=run_result_payload,
-        )
-        
-        # 8. Registered-evaluation teardown guard: wait for a live grader
-        # and stash any durable-archive recovery BEFORE finalize's rmtree.
-        recovered_manifest_line = self._await_registered_evaluation(
-            agent_output
+            ),
+            await_registered_evaluation=self._await_registered_evaluation,
         )
 
-        # 9. Finalize session (commits changes; push serialized by the
-        # workspace repo_lock — lane-safe under node expansion)
-        self.workspace.finalize_session(session)
-
-        return agent_output, telemetry, recovered_manifest_line
-    
     def _build_implementation_prompt(
         self,
         solution: str,
@@ -2101,82 +852,45 @@ Problem: {problem}"""
         lane_brief: str = "",
     ) -> str:
         """Build the implementation prompt for Claude Code."""
-        template = load_prompt("execution/search_strategies/generic/prompts/implementation_claude_code.md")
-        return render_prompt(
-            template,
-            {
-                "solution": solution or "(No solution provided)",
-                "problem": problem or "(No problem description provided)",
-                "branch_name": branch_name,
-                "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
-                "repo_memory_detail_access_instructions": repo_memory_detail_access_instructions,
-                "previous_errors": previous_errors or "(No previous errors)",
-                "budget_status": self._render_budget_status(),
-                "evaluation_instructions": self._evaluation_instructions(),
-                "shared_artifacts_brief": self.shared_artifacts_brief,
-                "lane_brief": lane_brief,
-            },
+        return build_implementation_prompt(
+            solution=solution,
+            problem=problem,
+            branch_name=branch_name,
+            repo_memory_brief=repo_memory_brief,
+            repo_memory_detail_access_instructions=(
+                repo_memory_detail_access_instructions
+            ),
+            previous_errors=previous_errors,
+            budget_status=self._render_budget_status(),
+            evaluation_instructions=self._evaluation_instructions(),
+            shared_artifacts_brief=self.shared_artifacts_brief,
+            lane_brief=lane_brief,
         )
 
     def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:
-        """The granted-class manifest from the session's last manifest line.
-
-        Registered mode only: the wrapper contractually prints one
-        machine-readable KAPSO_EVAL_MANIFEST line per run, so an LLM never
-        has to be the parser of record (two live nodes lost real
-        measurements to a killed feedback call). The line is model
-        output: a present-but-malformed manifest raises. A well-formed
-        line for a different class — the agent ran a custom fraction or
-        the wrong fidelity — is not this node's canonical measurement and
-        returns None (documented default).
-        """
+        """The granted-class manifest from the session's last manifest line."""
         if not self.registered_evaluation_command:
             return None
-        output = node.evaluation_output or ""
-        last_line = None
-        for line in output.splitlines():
-            if line.strip().startswith(MANIFEST_MARKER):
-                last_line = line.strip()
-        if last_line is None:
-            return None
-        manifest = parse_manifest_line(last_line)
-        decision = self.fidelity_decision
-        granted_fidelity = (
-            decision.eval_fidelity if decision is not None else "full"
+        return manifest_of_record(
+            node,
+            registered_evaluation_command=self.registered_evaluation_command,
+            fidelity_decision=self.fidelity_decision,
+            registered_subsample_seed=self.registered_subsample_seed,
         )
-        granted_fraction = (
-            decision.eval_fraction if decision is not None else 1.0
-        )
-        if (
-            manifest["fidelity"] != granted_fidelity
-            or abs(float(manifest["fraction"]) - granted_fraction) > 1e-9
-            or int(manifest["seed"]) != self.registered_subsample_seed
-        ):
-            print(
-                "[GenericSearch] Manifest class mismatch: granted "
-                f"{granted_fidelity}/{granted_fraction}/"
-                f"{self.registered_subsample_seed}, session ran "
-                f"{manifest['fidelity']}/{manifest['fraction']}/"
-                f"{manifest['seed']} — no mechanical score of record"
-            )
-            return None
-        if "score" not in manifest:
-            return None
-        return manifest
 
     def _manifest_score_of_record(self, node: SearchNode) -> Optional[float]:
         """The granted-class score from the session's last manifest line."""
-        manifest = self._manifest_of_record(node)
-        if manifest is None:
+        if not self.registered_evaluation_command:
             return None
-        return float(manifest["score"])
+        return manifest_score_of_record(
+            node,
+            registered_evaluation_command=self.registered_evaluation_command,
+            fidelity_decision=self.fidelity_decision,
+            registered_subsample_seed=self.registered_subsample_seed,
+        )
 
     def _record_evaluation_attempt(self, node: SearchNode) -> None:
-        """Append the node's measurement under the registered evaluator.
-
-        Only trustworthy measurements become attempts: a registered
-        evaluator must exist and the node must carry a valid score.
-        """
+        """Append the node's measurement under the registered evaluator."""
         if (
             not self.registered_evaluator_id
             or node.score is None
@@ -2184,21 +898,12 @@ Problem: {problem}"""
             or not node.evaluation_valid
         ):
             return
-        decision = self.fidelity_decision
-        fraction = decision.eval_fraction if decision is not None else 1.0
-        commit_sha = self.workspace.repo.commit(node.branch_name).hexsha
-        node.evaluation_attempts.append(
-            EvaluationAttempt(
-                commit_sha=commit_sha,
-                evaluator_id=self.registered_evaluator_id,
-                fidelity=node.eval_fidelity,
-                fraction=fraction,
-                seed=self.registered_subsample_seed,
-                score=node.score,
-                duration_seconds=node.phase_telemetry.get(
-                    "implementation", {}
-                ).get("duration_seconds"),
-            )
+        record_evaluation_attempt(
+            node,
+            registered_evaluator_id=self.registered_evaluator_id,
+            fidelity_decision=self.fidelity_decision,
+            registered_subsample_seed=self.registered_subsample_seed,
+            workspace=self.workspace,
         )
 
     def _execute_registered_evaluation(
@@ -2209,117 +914,19 @@ Problem: {problem}"""
         fraction: float,
         deadline_seconds: Optional[float],
     ) -> Optional[float]:
-        """Frame-run the registered evaluation on an existing artifact.
-
-        This is the staged-execution-ownership step from the design: the
-        eval-only runs whose integrity matters most execute under Kapso's
-        own deadline-bounded subprocess, not inside an agent session. The
-        deadline is the affordability window and an overrun is an
-        operational outcome, never a campaign failure: the process group
-        is killed and the attempt reports None, exactly like a non-zero
-        exit. Timing estimates gate admission; they do not kill campaigns.
-        """
-        command = shlex.split(
-            evaluation_command(
-                fidelity=fidelity,
-                fraction=fraction,
-                seed=self.registered_subsample_seed,
-            )
+        """Frame-run the registered evaluation on an existing artifact."""
+        return execute_registered_evaluation(
+            target,
+            fidelity=fidelity,
+            fraction=fraction,
+            deadline_seconds=deadline_seconds,
+            registered_evaluator_id=self.registered_evaluator_id,
+            registered_subsample_seed=self.registered_subsample_seed,
+            registered_data_manifest=self.registered_data_manifest,
+            workspace=self.workspace,
+            workspace_dir=self.workspace_dir,
+            record_eval_duration=self.record_eval_duration,
         )
-        run_started = time.monotonic()
-        with self.workspace.materialize_ref(target.branch_name) as worktree:
-            # The branch's own evaluation tree is whatever version its
-            # session ran under — a frame run trusting it would execute a
-            # RETIRED evaluator while labeling the attempt with the head's
-            # id (observed live: a bridge labeled v2 executed the branch's
-            # v1 tree). The registered head is the only ruler frame runs
-            # execute.
-            self._sync_registered_evaluation(worktree)
-            if self.registered_data_manifest:
-                data_problem = verify_data_manifest(
-                    worktree, self.registered_data_manifest
-                )
-                if data_problem:
-                    print(
-                        "[GenericSearch] Registered evaluation refused: "
-                        f"{data_problem}"
-                    )
-                    return None
-            # Spooled files, never PIPE: an evolved evaluator may emit
-            # per-window progress lines, and an undrained 64KB pipe
-            # deadlocks the child mid-write while this loop sleeps
-            # (observed live: rel-event/user-ignore froze 6h inside
-            # _emit_process_line, 2026-08-12).
-            stdout_file = tempfile.TemporaryFile(mode="w+")
-            stderr_file = tempfile.TemporaryFile(mode="w+")
-            process = subprocess.Popen(
-                command,
-                cwd=worktree,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                text=True,
-                start_new_session=True,
-            )
-            while process.poll() is None:
-                overran = (
-                    deadline_seconds is not None
-                    and time.monotonic() - run_started >= deadline_seconds
-                )
-                if overran:
-                    os.killpg(process.pid, signal.SIGTERM)
-                    grace = time.monotonic() + _FRAME_RUN_KILL_GRACE_SECONDS
-                    while process.poll() is None and time.monotonic() < grace:
-                        time.sleep(0.2)
-                    if process.poll() is None:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    process.wait()
-                    stdout_file.close()
-                    stderr_file.close()
-                    print(
-                        "[GenericSearch] Registered evaluation exceeded its "
-                        f"{deadline_seconds:.0f}s affordability window; "
-                        "recorded as a failed attempt"
-                    )
-                    return None
-                time.sleep(0.5)
-            process.wait()
-            stdout_file.seek(0)
-            stdout = stdout_file.read()
-            stdout_file.close()
-            stderr_file.seek(0)
-            stderr = stderr_file.read()
-            stderr_file.close()
-        duration = time.monotonic() - run_started
-        if process.returncode != 0:
-            print(
-                "[GenericSearch] Registered evaluation failed "
-                f"(exit {process.returncode}): {stderr}"
-            )
-            return None
-        manifest = parse_manifest_line(stdout)
-        score = float(manifest["score"])
-        target.evaluation_attempts.append(
-            EvaluationAttempt(
-                commit_sha=self.workspace.repo.commit(
-                    target.branch_name
-                ).hexsha,
-                evaluator_id=self.registered_evaluator_id,
-                fidelity=fidelity,
-                fraction=fraction,
-                seed=self.registered_subsample_seed,
-                score=score,
-                duration_seconds=duration,
-            )
-        )
-        if self.record_eval_duration is not None:
-            # Feed the measured duration back into the timing model: real
-            # full-scale runs replace calibration extrapolation (samples
-            # persist in the registry; the provider-backed policy sees the
-            # tightened upper immediately).
-            self.record_eval_duration(
-                fraction=fraction, duration_seconds=duration
-            )
-        return score
 
     def _run_validate(self, decision: FidelityDecision) -> SearchNode:
         """Execute a VALIDATE grant: one full measurement of the target."""
@@ -2391,191 +998,57 @@ Problem: {problem}"""
 
     def _sync_registered_evaluation(self, session_folder: str) -> None:
         """Overwrite the session's evaluation tree with the registered one."""
-        source = os.path.join(self.workspace_dir, "kapso_evaluation")
-        destination = os.path.join(session_folder, "kapso_evaluation")
-        shutil.rmtree(destination, ignore_errors=True)
-        shutil.copytree(source, destination)
+        sync_registered_evaluation(session_folder, self.workspace_dir)
 
     def _evaluation_instructions(self) -> str:
         """Registered-evaluation contract when a maintainer owns evaluation;
         the historical build-your-own instructions otherwise."""
-        if not self.registered_evaluation_command:
-            return DEFAULT_EVALUATION_INSTRUCTIONS
-        return f"""The evaluation is maintained by the system and is read-and-execute only.
-
-1. **Run the registered evaluation**: `{self.registered_evaluation_command}`
-   and capture its full output, including the KAPSO_EVAL_MANIFEST line.
-2. **Run it in the FOREGROUND and stay alive until it finishes.** Your
-   session exists only while you are actively working: the moment you stop
-   responding, the session ends and every process it started is killed. No
-   background job survives you, and no completion notification can ever
-   reach you — there is no later. Never launch the registered evaluation
-   with `&`, `nohup`, or a background task. Full-fidelity builds taking
-   many minutes is normal and expected: run the command blocking with a
-   generous tool timeout, and if a single call hits its cap, keep
-   re-issuing blocking foreground waits until KAPSO_EVAL_MANIFEST is in
-   your transcript. Only then write your final response. An evaluation you
-   background and abandon scores nothing — the entire iteration is wasted.
-3. **Never alter evaluation behavior — at rest or at runtime.** Editing
-   anything under `kapso_evaluation/`, rewriting protected data inputs,
-   monkey-patching or hooking evaluation modules from your own code
-   (e.g. via imports, `sys.modules`, or wrappers), or otherwise
-   circumventing any evaluation check all count as tampering: the score
-   is voided and the experiment loses. There is no sanctioned bypass.
-4. **If you believe the evaluation itself is defective — broken OR
-   mismeasuring — do not fix it, patch it, or route around it.** Broken
-   means crashes or wrong wiring. MISMEASURING means the score ranks
-   candidates in an order that will not hold, and you can detect it with
-   two cheap checks that never touch test data:
-   (a) Resolution — bootstrap the validation metric on your best candidate
-   (resample rows with replacement, ~100 draws) to get its standard error,
-   and measure how much your candidates' PREDICTIONS actually differ (mean
-   pairwise rank correlation over validation rows). If materially different
-   candidates score within about two standard errors of each other,
-   validation is not separating them and its argmax is close to a coin
-   flip.
-   (b) Representativeness — when validation is a single time slice, compare
-   its event volume and label rate against surrounding history and the
-   prediction period. An irregular slice (calendar shock, outage) can rank
-   candidates in the WRONG ORDER, not merely with less precision, and no
-   amount of tuning fixes an inverted ordering.
-   In either case file a request by including this tag in your final
-   response:
-   <evaluation_change_request>the defect, with measured evidence — numbers,
-   not suspicion — and a concrete remedy, e.g. additional validation
-   windows generated by the task's own label-generating code over
-   training-era timestamps, each window closing before the prediction
-   period, aggregated so no single slice decides the
-   ranking</evaluation_change_request>
-   Then still report your results from the run you attempted. Requests are
-   triaged adversarially against your evidence and the budget is small (a
-   few per campaign): file once, with your best case.
-   TIMING — file at the FIRST confirmation, never the last iteration. Run
-   both diagnostics during your first iteration, before optimizing against
-   the score, and the moment they confirm a defect put the request in that
-   same final response. Do not wait to build a stronger case: a later
-   transition voids every measurement made under the old evaluation
-   (scores never cross evaluator versions), so each candidate measured
-   before you file adds to what the change throws away — filed in the
-   first iteration it voids almost nothing; filed at the end it voids the
-   campaign's rankings with no budget left to re-measure them.
-   REMEDY SHAPE — propose the least-breaking remedy that fixes the defect,
-   and say which kind yours is: (1) rescore stored outputs — a better
-   metric, weighting, or aggregation over predictions every run already
-   archives, so all prior candidates re-rank for free; (2) same-contract
-   re-measurement — new windows, slices, or seeds prepared by the
-   evaluator in the standard input layout and fed through the UNCHANGED
-   candidate entrypoint, so prior candidates stay measurable at compute
-   cost; (3) contract-breaking — candidates must produce outputs they
-   never produced, orphaning all prior work; propose it only when nothing
-   less fixes the defect.
-   A confirmed defect is fixed, your work is re-measured first under the
-   corrected evaluation, and every score is re-ranked under it — prior
-   champions losing rank afterwards is the system working, not a
-   regression. If a transition already happened, earlier designs whose
-   scores now show as unmeasured were measured under the superseded
-   evaluation: porting the strongest of them to the current evaluation
-   contract and archiving the port is often the highest-value experiment
-   available.
-5. **Retry on transient crashes** of your own code (max 3 attempts)."""
+        return evaluation_instructions(self.registered_evaluation_command)
 
     def _ensure_technical_difficulties(self, node) -> None:
         """Run the fallback reconstruction when the implementor's
-        technical_difficulties tag is missing (crashed or deadline-killed
-        session, or simply omitted)."""
+        technical_difficulties tag is missing (purely mechanical trigger —
+        never score/outcome-based)."""
         if (node.technical_difficulties or "").strip():
             return
-        print(
-            "[GenericSearch] technical_difficulties missing — "
-            "running fallback reconstruction"
-        )
-        node.technical_difficulties = generate_technical_difficulties(
-            model=self.implementation_model,
+        ensure_technical_difficulties(
+            node,
+            implementation_model=self.implementation_model,
             claude_auth_settings=self._claude_auth_settings,
             aws_region=self.aws_region,
             env_strip=self.env_strip,
-            effort=self.session_effort,
-            timeout_seconds=self._clamped_timeout(self.ideation_timeout),
-            workspace_dir=node.workspace_dir or self.workspace_dir,
-            solution=node.solution,
-            stream_artifact_path=self._session_stream_path(node.branch_name),
+            session_effort=self.session_effort,
+            clamped_timeout=self._clamped_timeout,
+            ideation_timeout=self.ideation_timeout,
+            workspace_dir=self.workspace_dir,
+            session_stream_path=self._session_stream_path,
         )
 
     def _await_registered_evaluation(self, output_text: str):
-        """Teardown guard for the registered evaluation (relbench finding 14 /
-        Issue 2). MUST run BEFORE finalize_session: its rmtree destroys a
-        still-running grader's working tree. If the session ended without a
-        manifest in its output while the registered evaluation process is
-        alive, wait for it (bounded by the live budget clamp). Then attempt
-        recovery from the durable run archive — the grader archives the run
-        (including manifest.txt) OUTSIDE the workspace before printing the
-        manifest line — and return the recovered manifest line (or None).
-        """
-        if not self.registered_evaluation_command:
-            return None
-        if MANIFEST_MARKER in (output_text or ""):
-            return None
+        """Teardown guard for the registered evaluation: wait for a live
+        grader, then recover the manifest line from the durable run archive
+        (must run BEFORE finalize_session's rmtree)."""
+        return await_registered_evaluation(
+            output_text,
+            registered_evaluation_command=self.registered_evaluation_command,
+            registered_evaluation_archive_glob=(
+                self.registered_evaluation_archive_glob
+            ),
+            clamped_timeout=self._clamped_timeout,
+            implementation_timeout=self.implementation_timeout,
+            session_started_ts=getattr(
+                self, "_last_session_started_ts", 0.0
+            ),
+        )
 
-        # A distinctive fragment of the registered command for /proc matching:
-        # prefer the script path token; fall back to the full command string.
-        tokens = [
-            t for t in self.registered_evaluation_command.split() if ".py" in t
-        ]
-        needle = tokens[0] if tokens else self.registered_evaluation_command
-
-        def _live_eval_pid():
-            for pid in os.listdir("/proc"):
-                if not pid.isdigit():
-                    continue
-                cmdline_path = os.path.join("/proc", pid, "cmdline")
-                if not os.path.exists(cmdline_path):
-                    continue
-                with open(cmdline_path, "rb") as fh:
-                    cmdline = fh.read().replace(b"\0", b" ").decode(
-                        "utf-8", "replace"
-                    )
-                if needle in cmdline:
-                    return int(pid)
-            return None
-
-        bound = self._clamped_timeout(self.implementation_timeout)
-        waited = 0.0
-        pid = _live_eval_pid()
-        if pid is not None:
-            print(
-                f"[GenericSearch] Registered evaluation still running "
-                f"(pid {pid}) after session end — waiting up to {bound:.0f}s "
-                "before teardown"
-            )
-        while pid is not None and waited < bound:
-            time.sleep(5)
-            waited += 5
-            pid = _live_eval_pid()
-
-        if not self.registered_evaluation_archive_glob:
-            return None
-        started = getattr(self, "_last_session_started_ts", 0.0)
-        candidates = []
-        for runs_root in glob.glob(self.registered_evaluation_archive_glob):
-            for entry in glob.glob(os.path.join(runs_root, "run_*")):
-                if os.path.isdir(entry) and os.path.getmtime(entry) > started:
-                    candidates.append(entry)
-        for run_dir in sorted(
-            candidates, key=os.path.getmtime, reverse=True
-        ):
-            manifest_path = os.path.join(run_dir, "manifest.txt")
-            if not os.path.isfile(manifest_path):
-                continue
-            with open(manifest_path, "r", encoding="utf-8") as fh:
-                line = fh.read().strip()
-            if not line.startswith(MANIFEST_MARKER):
-                continue
-            print(
-                "[GenericSearch] Recovered registered-evaluation manifest "
-                f"from durable archive: {run_dir}"
-            )
-            return line
-        return None
+    def _ideation_artifacts_dir(self) -> str:
+        """Where this iteration's ideation transcripts live (lens planner,
+        every ensemble member, selector). Under the workspace, so they survive
+        the materialized ref the phase runs in."""
+        return os.path.join(
+            self.workspace_dir, ".kapso", "ideation",
+            f"iter{self.iteration_count}",
+        )
 
     def _session_stream_path(self, branch_name: str) -> str:
         """Per-session stream artifact location (survives session kills)."""
@@ -2585,8 +1058,14 @@ Problem: {problem}"""
         os.makedirs(stream_dir, exist_ok=True)
         return os.path.join(stream_dir, "stream.jsonl")
 
-    def _clamped_timeout(self, configured_seconds: float) -> float:
+    def _clamped_timeout(
+        self, configured_seconds: Optional[float]
+    ) -> Optional[float]:
         """Bound an agent deadline by the searchable budget, when known.
+
+        ``configured_seconds`` None means the phase has no configured
+        deadline: the result is the budget remainder when a budget exists,
+        and None (unbounded) otherwise.
 
         The snapshot is frozen at iteration start; the monotonic anchor
         discounts whatever this iteration's earlier phases already burned,
@@ -2768,188 +1247,28 @@ Problem: {problem}"""
     # =========================================================================
 
     def _generate_feedback(self, node: SearchNode) -> SearchNode:
-        """
-        Generate feedback for a node using the FeedbackGenerator.
-        
-        Updates the node in-place with feedback, score, and should_stop.
-        
-        Args:
-            node: SearchNode with solution, evaluation_output, code_changes_summary populated
-            
-        Returns:
-            The same node with feedback, score, should_stop populated
-        """
-        if self.feedback_generator is None:
-            print("[GenericSearch] No feedback generator configured, skipping feedback")
-            return node
-        
-        if not self.goal:
-            print("[GenericSearch] Warning: No goal set, skipping feedback generation")
-            return node
-        
-        print(f"[GenericSearch] Generating feedback for node {node.node_id}...")
-        
-        try:
-            feedback_result = self.feedback_generator.generate(
-                goal=self.goal,
-                idea=node.solution,
-                code_changes_summary=node.code_changes_summary,
-                base_branch=node.parent_branch_name,
-                head_branch=node.branch_name,
-                evaluation_script_path=node.evaluation_script_path,
-                evaluation_result=node.evaluation_output,
-                workspace_dir=node.workspace_dir,
-                design_axes=self._design_axes_brief(),
-                session_end_facts=getattr(
-                    self, "_pending_session_end_facts", ""
-                ),
-                timeout_seconds=self._clamped_timeout(
-                    self.feedback_generator.configured_timeout_seconds
-                ),
-            )
-
-            # Update node with feedback results
-            node.feedback = feedback_result.feedback
-            node.evaluation_valid = feedback_result.evaluation_valid
-            node.score = (
-                feedback_result.score
-                if feedback_result.evaluation_valid
-                else None
-            )
-            # In registered mode the manifest line is the score of record;
-            # the judge's extraction is a cross-check, and the judge keeps
-            # its validity power (an invalid evaluation stays scoreless).
-            manifest_of_record = self._manifest_of_record(node)
-            manifest_score = (
-                float(manifest_of_record["score"])
-                if manifest_of_record is not None
-                else None
-            )
-            if manifest_score is not None and node.evaluation_valid:
-                if (
-                    node.score is not None
-                    and abs(node.score - manifest_score) > 1e-6
-                ):
-                    print(
-                        "[GenericSearch] Score cross-check: feedback "
-                        f"extracted {node.score}, the manifest says "
-                        f"{manifest_score}; the manifest is the score "
-                        "of record"
-                    )
-                node.score = manifest_score
-            if manifest_of_record is not None:
-                # Label the archive: the of-record run becomes this
-                # session's registered final (or is marked invalid on a
-                # judge veto / integrity flag); its intermediate siblings
-                # are superseded. Handlers without run archives no-op.
-                self.problem_handler.finalize_run_selection(
-                    manifest_of_record,
-                    bool(
-                        node.evaluation_valid
-                        and not node.evaluation_integrity_error
-                    ),
-                )
-            node.should_stop = (
-                feedback_result.stop and feedback_result.evaluation_valid
-            )
-            if feedback_result.duration_seconds is not None:
-                node.phase_telemetry["feedback"] = {
-                    "cost_usd": feedback_result.cost_usd,
-                    "duration_seconds": feedback_result.duration_seconds,
-                }
-            
-            print(f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}")
-            
-        except Exception as e:
-            print(f"[GenericSearch] Error generating feedback: {e}")
-            node.feedback = f"Error generating feedback: {e}"
-            node.should_stop = False
-        
-        return node
+        """Judge one node with the FeedbackGenerator (updates the node
+        in-place with feedback, score, and should_stop)."""
+        return generate_feedback(
+            node,
+            feedback_generator=self.feedback_generator,
+            goal=self.goal,
+            design_axes=design_axes_brief(self.design_axes),
+            session_end_facts=getattr(
+                self, "_pending_session_end_facts", ""
+            ),
+            clamped_timeout=self._clamped_timeout,
+            manifest_of_record=self._manifest_of_record,
+            finalize_run_selection=(
+                lambda manifest, valid:
+                self.problem_handler.finalize_run_selection(manifest, valid)
+            ),
+        )
 
     def _extract_agent_result(self, agent_output: str) -> dict:
-        """
-        Extract structured result from agent output using XML tags.
-        
-        The agent is instructed to return results in XML tags:
-        <code_changes_summary>...</code_changes_summary>
-        <evaluation_script_path>...</evaluation_script_path>
-        <evaluation_output>...</evaluation_output>
-        <score>...</score>
-        <technical_difficulties>...</technical_difficulties>
-        
-        Args:
-            agent_output: Raw output from the developer agent
-            
-        Returns:
-            dict with keys: code_changes_summary, evaluation_script_path, evaluation_output, score
-            Returns empty dict if extraction fails
-        """
-        result = {}
-        
-        # Extract each tag
-        tags = ["code_changes_summary", "evaluation_script_path", "evaluation_output", "score", "technical_difficulties"]
-        
-        for tag in tags:
-            pattern = rf'<{tag}>\s*(.*?)\s*</{tag}>'
-            match = re.search(pattern, agent_output, re.DOTALL)
-            if match:
-                value = match.group(1).strip()
-                # Handle score specially - convert to float
-                if tag == "score":
-                    try:
-                        if value.lower() == "null" or value == "":
-                            result[tag] = None
-                        else:
-                            result[tag] = float(value)
-                    except ValueError:
-                        result[tag] = None
-                else:
-                    result[tag] = value
-        
-        if result:
-            print(f"[GenericSearch] Extracted agent result from XML tags: {list(result.keys())}")
-            return result
-        
-        # Fallback: try JSON extraction for backward compatibility
-        return self._extract_agent_result_json_fallback(agent_output)
-    
-    def _extract_agent_result_json_fallback(self, agent_output: str) -> dict:
-        """
-        Fallback JSON extraction for backward compatibility.
-        """
-        # Look for JSON in code blocks (```json ... ```)
-        json_pattern = r'```json\s*(\{.*?\})\s*```'
-        matches = re.findall(json_pattern, agent_output, re.DOTALL)
-        
-        if matches:
-            # Take the last JSON block (final result)
-            for json_str in reversed(matches):
-                try:
-                    result = json.loads(json_str)
-                    # Validate it has expected keys
-                    if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
-                        print(f"[GenericSearch] Extracted agent result from JSON block (fallback)")
-                        return result
-                except json.JSONDecodeError:
-                    continue
-        
-        # Fallback: try to find raw JSON object at the end
-        try:
-            # Find last occurrence of {...}
-            start = agent_output.rfind('{')
-            end = agent_output.rfind('}') + 1
-            if start != -1 and end > start:
-                json_str = agent_output[start:end]
-                result = json.loads(json_str)
-                if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
-                    print(f"[GenericSearch] Extracted agent result from raw JSON (fallback)")
-                    return result
-        except json.JSONDecodeError:
-            pass
-        
-        print(f"[GenericSearch] Warning: Could not extract result from agent output")
-        return {}
+        """Extract the structured XML-tag result from agent output
+        (empty dict when nothing parses)."""
+        return extract_agent_result(agent_output)
 
     # =========================================================================
     # Checkpoint Methods

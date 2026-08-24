@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leeroo-kapso"
-version = "0.1.5"
+version = "0.2.0"
 description = "A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,11 +39,19 @@ dependencies = [
     "litellm==1.75.0",
     "PyYAML",
     "python-dotenv",
-    # MCP SDK — required by kapso.gated_mcp (gate server + all gates)
-    "mcp>=1.0.0",
+    # MCP SDK — required by kapso.gated_mcp (gate server + all gates).
+    # <2 is load-bearing: mcp 2.0 removed the 1.x low-level Server decorator
+    # API (Server.list_tools et al.), and an unpinned box install pulled 2.0.0
+    # — the gate server then crashed at startup in EVERY box session while
+    # dev (1.26.0) kept passing. Found 2026-08-03; migrate server.py to the
+    # 2.x API before lifting the ceiling.
+    "mcp>=1.9,<2",
     "neo4j",
-    # Vector database for semantic search
+    # Vector database for the knowledge-base KG search (kg_graph_search); the
+    # experiment store no longer uses it (embeddings live in its JSON store).
     "weaviate-client>=4.0.0",
+    # Token-count cap for embedding inputs (core/llm.py create_embedding)
+    "tiktoken",
     # OpenAI embeddings API
     "openai>=1.0.0",
     # Pin cryptography to avoid cffi>=2.0.0 requirement (conflicts with aider-chat)

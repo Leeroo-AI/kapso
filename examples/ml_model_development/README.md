@@ -19,6 +19,16 @@ cd /path/to/kapso
 pip install -e .
 ```
 
+Authenticate the two model providers the default config uses:
+
+```bash
+# Claude Code sessions (ideation, implementation, feedback): log in once
+claude login   # or: export CLAUDE_CODE_OAUTH_TOKEN=...
+
+# utility / research models
+export OPENAI_API_KEY=your_key_here
+```
+
 ## Problem Description
 
 The Spaceship Titanic competition asks you to predict which passengers were transported to an alternate dimension during a collision with a spacetime anomaly.

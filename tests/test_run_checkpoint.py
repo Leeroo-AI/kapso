@@ -63,6 +63,8 @@ class FakeLLM:
 
 
 class FakeProblemHandler:
+    honor_agent_stop = True
+
     def get_problem_context(self) -> str:
         return "Solve the support problem"
 
@@ -481,6 +483,27 @@ def test_one_iteration_then_resume_restores_feedback_and_state(
     assert checkpoint.completed_iterations == 2
     assert checkpoint.current_feedback == "feedback-1"
     assert checkpoint.cumulative_cost == 2.0
+
+
+def test_advisory_stop_runs_to_the_budget_when_handler_says_so(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Open-ended maximization (competitions): a judge's stop vote is advisory
+    # — the radar rehearsal ended 25 min early on one. The handler contract
+    # honor_agent_stop=False keeps the campaign running to its budget.
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch, stop_next=True)
+
+    orchestrator = _orchestrator(workspace)
+    orchestrator.problem_handler.honor_agent_stop = False
+    result = orchestrator.solve(experiment_max_iter=2)
+    checkpoint = RunCheckpointStore(str(workspace)).load()
+
+    assert result.iterations_run == 2          # every stop vote ignored
+    assert result.stopped_reason != "goal_achieved"
+    assert checkpoint.status != "completed"    # resumable, not declared done
 
 
 def test_goal_achieved_checkpoint_is_saved_before_stop(

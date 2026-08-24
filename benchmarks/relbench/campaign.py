@@ -7,12 +7,13 @@ from the repo's own data files.
     PYTHONPATH=src:. python -m benchmarks.relbench.campaign \
         --hours-per-task 10 --goal beat-best --hardware gpu [--dry-run]
 
-Per task: select (queue ∩ hardware ∩ not-done ∩ not regime-gated) → derive the
-val target from data/sota.json / data/baselines.json → run the runner with the
-time budget threaded into the mode config → on exit regenerate RESULTS.md via
-the scorecard and print the goal verdict. Git commits stay with the operator.
+Per task: select (queue ∩ hardware ∩ not-done ∩ not regime-gated) → run the
+runner with the time budget threaded into the mode config → print the goal
+verdict. Git commits stay with the operator. Symbolic goal targets and the
+scorecard were retired with the campaign's reference data (claims/ and the
+sota/baseline snapshots live in GCS + git history).
 
-The ROI/CPU queues live here as data; the scorecard imports them (single
+The ROI/CPU queues live here as data (single
 source — the old scripts/run_relbench_campaign.sh regex parsing is gone).
 """
 
@@ -93,40 +94,36 @@ CPU_SAFE_DATASETS = {"rel-f1", "rel-salt", "rel-event", "rel-arxiv", "rel-avito"
 CPU_LOCAL_QUEUE = [t for t in ROI_QUEUE if t.split("/")[0] in CPU_SAFE_DATASETS]
 
 
+PROTOCOL_SENSITIVE_TASKS = {
+    "rel-f1/driver-position",
+    "rel-f1/driver-dnf",
+    "rel-f1/driver-top3",
+}
+
+# Rolling harness verified per task (campaign gate opens only for these):
+# driver-position — full acceptance 2026-07-29: reference B-rolling through the
+#   real grader+cascade scored test MAE 2.6516 (band 2.653±0.015; bar 2.731);
+# driver-dnf / driver-top3 — cascade invariants verified same day: every test
+#   snapshot leak-clean, snapshot-relabeled train == official labels exactly.
+ROLLING_VERIFIED = set(PROTOCOL_SENSITIVE_TASKS)
+
+
 def derive_goal(task_id: str, goal_spec: str) -> tuple:
-    """Return (target_in_val_units, description). Board units are converted to
-    the runner's raw primary-metric units (NMAE -> raw MAE via the stored
-    train-std divisors; AUROC/acc/MAP percentages pass through)."""
-    baselines = json.loads((DATA_DIR / "baselines.json").read_text())
-    divisors = baselines["_meta"]["train_std_divisors_nmae"]
+    """Return (target_in_val_units, description).
 
-    if goal_spec not in ("beat-best", "beat-kumo"):
-        return float(goal_spec), f"explicit {goal_spec}"
-
-    if goal_spec == "beat-kumo":
-        ku = baselines["kumorfm_fine_tuned"]
-        if task_id in ku["v1_regression_mae"]:
-            return float(ku["v1_regression_mae"][task_id]["test"]), "KumoRFM-ft raw MAE"
-        if task_id in ku["v1_classification_auroc_pct"]:
-            return float(ku["v1_classification_auroc_pct"][task_id]), "KumoRFM-ft AUROC %"
-        if task_id in ku["v1_recommendation_map_pct"]:
-            return float(ku["v1_recommendation_map_pct"][task_id]), "KumoRFM-ft MAP %"
-        raise ValueError(f"{task_id}: no KumoRFM-ft baseline recorded — use --goal beat-best or a number")
-
-    sota = json.loads((DATA_DIR / "sota.json").read_text())
-    if task_id not in sota:
-        raise ValueError(f"{task_id}: no sota.json entry — pass an explicit --goal value")
-    entry = sota[task_id]
-    value, metric = float(entry["value"]), entry["metric"]
-    if metric == "nmae":
-        return value * float(divisors[task_id]), f"best-known {entry.get('method', '?')} (NMAE->raw MAE)"
-    return value, f"best-known {entry.get('method', '?')} ({metric})"
+    Only explicit numeric targets remain: the symbolic beat-best/beat-kumo
+    specs were retired with data/sota.json + data/baselines.json (the board
+    snapshots live in git history; run archives in GCS)."""
+    if goal_spec in ("beat-best", "beat-kumo"):
+        raise ValueError(
+            f"{task_id}: goal spec {goal_spec!r} was retired with the "
+            "sota/baseline snapshots — pass an explicit value in raw val units"
+        )
+    return float(goal_spec), f"explicit {goal_spec}"
 
 
 def select_tasks(queue: list, hardware: str, work_root: Path,
                  allow_sensitive: bool, explicit: list | None) -> list:
-    from benchmarks.relbench.scorecard import PROTOCOL_SENSITIVE_TASKS, ROLLING_VERIFIED
-
     blocked = PROTOCOL_SENSITIVE_TASKS - ROLLING_VERIFIED
     chosen = []
     pool = explicit if explicit else queue
@@ -246,10 +243,6 @@ def run_one(task_id: str, args) -> dict:
         report = json.loads(report_path.read_text())
         verdict.update({"status": "done", "val": report.get("val_metrics"),
                         "test": report.get("test_metrics"), "target": target})
-    subprocess.run(
-        [sys.executable, "-m", "benchmarks.relbench.scorecard", "--reference"],
-        cwd=REPO_ROOT,
-    )
     if verdict["status"] == "done":
         verdict["trajectory_id"] = _harvest_trajectory(ds, task, args.lane, workspace, log_path)
     print(f"  VERDICT: {json.dumps(verdict, default=str)}")
@@ -260,8 +253,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--hours-per-task", type=float, required=True)
-    parser.add_argument("--goal", type=str, default="beat-best",
-                        help="beat-best | beat-kumo | none (budget-bound, no early stop) | explicit value in raw val units")
+    parser.add_argument("--goal", type=str, default="none",
+                        help="none (budget-bound, no early stop) | explicit value in raw val units")
     parser.add_argument("--hardware", type=str, choices=["cpu", "gpu"], required=True)
     parser.add_argument("--tasks", type=str, default=None,
                         help="comma-separated task ids; default = ROI queue")

@@ -67,15 +67,15 @@ You can read this file in the workspace to see the full evaluation code.
    comparable-or-larger evaluation, make banking that artifact the FIRST
    action of your feedback.
 6. **Grade the time allocation (contest economics)** — reconstruct where the
-   session's wall-clock and GPU actually went (critical-path artifact growth
+   session's wall-clock and compute actually went (critical-path artifact growth
    vs confirmations / insurance / safety overhead) and grade three axes:
    - time-to-first-strong-score: when did the first competitive score land?
    - critical-path velocity: growth rate of VALIDATED artifacts
      (fidelity-gated units per minute), not raw output volume.
-   - confirmation overhead: GPU-minutes spent re-verifying vs building.
+   - confirmation overhead: compute-minutes spent re-verifying vs building.
    Write a one-line counterfactual ledger with concrete numbers (e.g.
-   "22 GPU-min of mid-run confirms ≈ 70 foregone table columns ≈ −0.02
-   final: net-negative"). Praise bold, correct allocation explicitly;
+   "22 compute-min of mid-run confirms ≈ one unexplored input-representation
+   family ≈ −0.02 final: net-negative"). Praise bold, correct allocation explicitly;
    intermediate stability beyond one cheap insurance point earns no credit.
    Also check the session's PLAN.md TIME ALLOCATION: grade adherence, and
    treat undeclared drift (not deliberate, stated revision) as a finding.

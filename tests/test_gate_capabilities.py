@@ -240,3 +240,26 @@ def test_embedding_model_is_forwarded_to_experiment_history_gate(tmp_path):
         "EXPERIMENT_EMBEDDING_MODEL"
         not in servers_without["gated-knowledge"]["env"]
     )
+
+
+def test_mcp_sdk_matches_the_server_api_and_stays_pinned():
+    """mcp 2.0 removed the 1.x low-level decorator API; an unpinned box install
+    pulled it and the gate server crashed at startup in every production
+    session (AttributeError: 'Server' object has no attribute 'list_tools')
+    while dev environments kept passing — all gates silently dead, 2026-08-03.
+    """
+    from mcp.server import Server
+
+    server = Server("contract-probe")
+    for decorator in ("list_tools", "call_tool"):
+        assert hasattr(server, decorator), (
+            f"mcp SDK lacks Server.{decorator} — the installed mcp is "
+            "incompatible with kapso.gated_mcp.server (2.x API?); migrate "
+            "server.py before lifting the pyproject ceiling"
+        )
+
+    import pathlib
+    pyproject = pathlib.Path(__file__).parent.parent / "pyproject.toml"
+    assert '"mcp>=1.9,<2"' in pyproject.read_text(), (
+        "the mcp<2 ceiling left pyproject without a server.py migration"
+    )

@@ -1,9 +1,0 @@
-Implementation lane 3: Causal Drift-Adapted Dual-Horizon LightGBM
-RepoMemory sections consulted: core.architecture, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-Added an explicitly projected legal document frame using all four database tables without selecting removed columns.
-Added four causal frozen-label histories with last/mode labels, 30/90/365-day distributions, support, staleness, purity, switching, and unlabeled bridge activity.
-Added one deterministic 0–153-day pseudo-cutoff per training query, 180-day all-history and nine-month tail LightGBM fits, two train-only forward origins, day-causal Saerens EM, and a support/staleness soft last-label gate.
-Added distinct train-only Model A validation predictions and train-plus-validation Model B test predictions, including an on-disk validation checksum guard.
-Persisted the permitted-input measurement profile in eval_profile.md because kapso_evaluation is immutable by task rule.
-Debug gate: 30,000 rows, 80 trees, EM disabled; complete contract-valid path finished in 40.0 seconds after the final pseudo-cutoff revision.
-Full attempt 1 was manually aborted at 25:42 because an isolation check showed Numba defaulted to 48 threads despite OMP_NUM_THREADS=11; the orphaned candidate PID 975088 was terminated specifically and Numba is now explicitly capped to the inherited 11-thread assignment.

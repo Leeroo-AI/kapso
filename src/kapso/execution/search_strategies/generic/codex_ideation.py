@@ -32,6 +32,17 @@ _POLL_INTERVAL_SECONDS = 0.5
 STREAM_TAIL_CHARS = 400
 
 
+def ideation_stream_path(artifacts_dir: str, cli: str, model: str) -> str:
+    """Transcript path for one ideation member: <cli>_<model>.stream.txt.
+
+    Shared by every member CLI so an ideation directory is uniform whoever ran
+    the session; model ids carry slashes (accounts/fireworks/models/...) so
+    they are slugged.
+    """
+    safe_model = re.sub(r"[^A-Za-z0-9._-]", "_", model)
+    return os.path.join(artifacts_dir, f"{cli}_{safe_model}.stream.txt")
+
+
 def run_codex_ideation(
     prompt: str,
     model: str,
@@ -58,7 +69,7 @@ def run_codex_ideation(
         os.makedirs(artifacts_dir, exist_ok=True)
         safe_model = re.sub(r"[^A-Za-z0-9._-]", "_", model)
         last_path = os.path.join(artifacts_dir, f"codex_{safe_model}.last.txt")
-        out_path = os.path.join(artifacts_dir, f"codex_{safe_model}.stream.txt")
+        out_path = ideation_stream_path(artifacts_dir, "codex", model)
         open(last_path, "w").close()
         persist = True
     else:

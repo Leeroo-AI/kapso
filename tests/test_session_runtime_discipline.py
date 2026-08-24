@@ -22,7 +22,6 @@ DISCIPLINE_MARKERS = [
 
 HANDLER_PATHS = [
     Path(__file__).parent.parent / "benchmarks" / "posttrain" / "handler.py",
-    Path(__file__).parent.parent / "benchmarks" / "ioai" / "handler.py",
 ]
 
 

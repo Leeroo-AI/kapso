@@ -7,7 +7,12 @@ all candidates. Your assigned lens:
 **{{lens}}**
 
 Bias your exploration and your solutions toward this lens; deviate only when
-you find something clearly superior.
+you find something clearly superior. Before designing candidates, a few
+searches into how similar problems were won pay for themselves: if the
+problem context names a knowledge bank, that is your FIRST search priority
+(start from its INDEX.md and follow it as the problem context directs); the
+open web is second — any source is fine. Read the winners through your lens
+and carry across what did the work.
 
 Produce exactly {{candidate_count}} candidate solutions. Each candidate must:
 - be fully self-contained (no references to your other candidate or to
@@ -54,4 +59,8 @@ the champion should be replaced before you submit it.
 
 Constraint: do NOT propose generating training data or task artifacts with
 third-party LLM APIs (e.g. the OpenAI API) — scaffold reasoning is allowed,
-API-produced training artifacts are not.
+API-produced training artifacts are not. EXCEPTION: when the task context
+itself authorizes hosted-LLM use (e.g. feature extraction over the task's
+own text, or distilling hosted-model rationales for fine-tuning), the task
+context takes precedence — this constraint then forbids only fabricating
+task data the dataset does not contain.

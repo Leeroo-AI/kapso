@@ -1,160 +1,76 @@
 # RelBench Integration
 
-This module integrates Kapso with [RelBench](https://relbench.stanford.edu) (Stanford/Kumo's
-relational deep learning benchmark, [v2 paper](https://arxiv.org/abs/2602.12606)): **11
-databases, 66 tasks** across four families — entity classification (AUROC), entity
-regression (MAE/NMAE, some R²), recommendation (MAP@K), and autocomplete (new in v2).
+Every company's most valuable data has the same shape: customers, orders, events, and records
+spread across linked tables. [RelBench](https://relbench.stanford.edu) (Stanford/Kumo,
+[v2 paper](https://arxiv.org/abs/2602.12606)) turns that shape into a benchmark: 11 real
+relational databases (SAP sales orders, H&M retail transactions, clinical trials, e-commerce
+reviews, classified ads, ICU records, …) and 66 prediction tasks: who churns, what sells,
+which trial succeeds, what to recommend next.
 
-A model receives a temporal relational database plus seed rows (entity id, seed time) and
-must predict future outcomes, missing attributes, or ranked future links — with every
-feature and sampled neighborhood censored at each row's seed time.
+Kapso attacks each task the way a research team would: an experimentation loop of
+**ideation → implementation → judged feedback**, every iteration scored on the official
+validation metric, every lesson compounding into the next round. Ideas are grounded in two
+knowledge sources: a **knowledge bank** of measured lessons from its own past campaigns,
+and **Leeroopedia**, Leeroo's curated ML knowledge base.
 
-## Why RelBench is winnable (state of play, July 2026)
+## Results
 
-- The [official leaderboard](https://huggingface.co/spaces/relbench/leaderboard) covers
-  only 31 of 66 tasks and is curated from papers (a redesigned board with submissions is
-  announced). **All 23 autocomplete tasks and most new v2 tasks have no leaderboard** —
-  the de facto SOTA is the v2 paper's own GraphSAGE baseline, several of which are at or
-  below random (negative R², ~50 AUROC).
-- The recommendation board is stale: published ContextGNN/KumoRFM numbers beat it 2-3×
-  on several tasks but were never added.
-- The closest competitor archetype, RelAgent (GPT-5.2 SQL+GBDT agent,
-  [arXiv:2605.07840](https://arxiv.org/abs/2605.07840)), holds board bests on 2 regression
-  tasks using only 5 rollouts and tree models — no GNNs, no ensembling.
+[KumoRFM-v2](https://arxiv.org/abs/2604.12596) is the strongest foundational model for
+relational data: one pretrained model, queried in context on any database. It is the bar to
+beat in outcome prediction and forecasting. Recommendation tasks are the gap in its coverage
+(the model does not support them), so there Kapso is measured against the best reported
+result per task. Kapso beats both bars:
 
-Kapso's edge: many more search iterations, GNN+GBDT+heuristic diversity in one loop,
-official-metric scoring every run, and a per-task SOTA bar injected into ideation
-(`data/sota.json`).
+![Kapso vs KumoRFM-v2](assets/kapso_vs_best_published.png)
 
-## How the integration works
+All scores come from the official RelBench evaluator. The same solutions also beat a frontier
+coding agent (Claude Code, Fable-5) under an identical budget: see
+[`claude_code_baseline/`](claude_code_baseline/).
 
-```
-benchmarks/relbench/
-├── runner.py        # CLI entry: one task per run
-├── handler.py       # RelBenchHandler: executes candidates, scores VAL, hides TEST
-├── context.py       # problem-context builder (schema, task SQL, contract, playbooks)
-├── task_specs.py    # task families, primary metrics (incl. R²/NMAE routing), timeouts
-├── sandbox.py       # sanitized read-only data cache builder (leak-proofing)
-├── config.yaml      # search modes (RELBENCH_CONFIGS / HEAVY_EXPERIMENTATION / MINIMAL)
-├── BASELINES.md     # verified per-task numbers + protocols for RelAgent & KumoRFM-ft
-├── RESULTS.md       # THE reference: agent results vs baselines, hardware, status (auto-generated)
-├── scorecard.py     # category tables (clf/reg/rec) + RESULTS.md generator (--reference)
-└── data/
-    ├── sota.json    # per-task best published numbers (the bar shown to ideation)
-    ├── baselines.json # machine-readable verified baseline numbers (see BASELINES.md)
-    ├── leaderboard_snapshot.json # full official board (all methods x tasks, 2026-07-14)
-    └── starter_kit/ # -> workspace kapso_datasets/: contract, self-check, helpers,
-                     #    vendored official RelBench examples
-```
+## How it stays honest
 
-Per experiment, the tree search has a coding agent implement a solution on a git branch,
-then the handler runs it (`python main.py --debug`, then full) and scores it:
+1. **Sanitized cache**: `sandbox.py` builds a per-task database copy with everything
+   test-derivable physically removed; the agent-visible test table carries only
+   (entity, seed-time) rows.
+2. **Search**: the Kapso platform iterates ideation → implementation → judged feedback
+   against official *validation* scores: `--strategy generic` (the campaign standard, with
+   the provided immutable grader) or `--strategy tree` (handler-scored).
+3. **Selection**: the best run is chosen on validation and scored **once** on test by the
+   handler, followed by a code audit for leakage patterns.
 
-- The candidate's process sees **only a sanitized, read-only RelBench cache**
-  (`RELBENCH_CACHE_DIR`): the database is physically truncated at the test cutoff
-  (forecasting/recommendation) or has post-cutoff target values blanked (autocomplete);
-  the test task table carries only entity ids + timestamps. Test labels cannot be read,
-  even deliberately — this also fixes two upstream relbench leaks (the masked
-  recommendation test table retains ground-truth destination lists; the on-disk DB cache
-  retains post-test rows).
-- The candidate writes `val_predictions.npy` + `test_predictions.npy` to
-  `$KAPSO_RUN_DATA_DIR`. The handler validates shapes/dtypes, computes **official
-  validation metrics** (search score = the task's primary metric), and computes test
-  metrics **privately** (never shown to the agent or the search).
-- `final_evaluate` selects the best-by-validation run, replays a static anti-leakage
-  audit over its code, and writes a leaderboard-ready `final_report.json` with val + test
-  metrics — i.e. tune-on-val / report-test-once, exactly the RelBench protocol.
-- `$KAPSO_SHARED_CACHE_DIR` persists across experiments for text embeddings,
-  materialized graphs, and per-model predictions (cheap late-stage ensembling).
+Temporal-regime details, including the rolling per-tick harness for windowed tasks, live in
+[`EVALUATION_PROTOCOL.md`](EVALUATION_PROTOCOL.md).
 
-## Prerequisites
-
-1. **Core Kapso** (repo root): `pip install -r requirements.txt`
-2. **Evaluation layer**: `pip install relbench duckdb pooch pyarrow scikit-learn`
-3. **Modeling stack** (GPU machine; generated code shares the interpreter):
-   ```bash
-   pip install torch --index-url https://download.pytorch.org/whl/cu124
-   pip install "relbench[full]" sentence-transformers lightgbm xgboost catboost tqdm
-   ```
-4. **API keys** in `.env`: `OPENAI_API_KEY` (aider + ideation), optionally
-   `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` for other coding agents.
-
-Datasets download automatically into `~/.cache/relbench` on first use (rel-amazon and
-rel-hm are multi-GB). `rel-mimic` requires credentialed PhysioNet + BigQuery access.
-
-## Usage
+## Quickstart
 
 ```bash
-# List all native tasks
-PYTHONPATH=. python -m benchmarks.relbench.runner --list
-
-# Smoke test on the smallest database
-PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-f1 -t driver-position -i 3 -m MINIMAL
-
-# Full run on one task
-PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-hm -t user-item-purchase -i 25
-
-# Heavy mode with Claude Code as the coding agent
-PYTHONPATH=. python -m benchmarks.relbench.runner \
-    -s rel-trial -t site-sponsor-run -i 30 -m HEAVY_EXPERIMENTATION -d claude_code
-
-# Stop early once a validation bar is reached
-PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-salt -t sales-payterms --target-val 0.60
+# from the repository root
+pip install -e .
+pip install -r benchmarks/relbench/requirements.txt
 ```
 
-## CLI options
+Run one task:
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-s, --dataset` / `-t, --task` | RelBench dataset/task | required |
-| `-i, --iterations` | Max search iterations | 20 |
-| `-m, --mode` | Config mode | `RELBENCH_CONFIGS` |
-| `-d, --coding-agent` | aider, gemini, claude_code, openhands | from config |
-| `--target-val` | Early-stop validation bar | none |
-| `--workspace` / `--resume` | Reuse/resume a workspace | fresh |
-| `--rebuild-cache` | Rebuild the sanitized cache | cached |
-| `--knowledge-file` | Extra context markdown | none |
-| `--no-kg` | Disable knowledge graph | enabled |
+```bash
+expert-relbench -s rel-f1 -t driver-position \
+    --strategy generic -m RELBENCH_GENERIC --time-budget-hours 4
+```
 
-## Campaign plan to rank first
+Multi-task campaign (task queue, hardware gating, budget threading):
 
-Priority order (impact ÷ compute), given the July 2026 landscape:
+```bash
+PYTHONPATH=src:. python -m benchmarks.relbench.campaign \
+    --hours-per-task 10 --hardware gpu
+```
 
-1. **Autocomplete sweep (23 tasks, no leaderboard)** — many near-random baselines
-   (`rel-salt sales-group` 15.8 acc, `sales-payterms` 37.5, `rel-amazon review-rating`
-   R² < 0, `rel-event event_interest-*` ≈ random). Most are join-lookup/GBDT problems;
-   small databases → cheap iterations.
-2. **Uncontested v2 tasks** — `rel-ratebeer` (3 rec + 4 entity), `rel-arxiv` (4 tasks):
-   only v2 baselines exist.
-3. **Recommendation board** — reproduce-and-tune the hybrid pairwise/two-tower recipe +
-   candidate-generation+GBDT rankers; the board is stale even against published numbers.
-4. **Soft classification/regression cells** — `rel-avito ad-ctr` & `rel-trial
-   study-adverse` (agent-held records), `site-success` (widest spread), `user-clicks`,
-   `driver-position`, `user-attendance` (zero-inflation trick ≈ 10× NMAE).
-5. **Foundation-model strongholds last** (`KumoRFM-ft` 81.1 mean AUROC, `RT-ft` 0.2328
-   mean NMAE) — needed only for mean-level #1, not per-task wins.
+## Layout
 
-Leaderboard entry is currently by team curation: publish results (val+test metrics per
-task, seeds, code, `final_report.json` audit) and contact the maintainers via the
-[RelBench Google Group](https://groups.google.com/forum/#!forum/relbench) /
-[GitHub](https://github.com/stanford-star/relbench) ahead of the redesigned submission
-flow.
-
-## Environment variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | ideation + aider | required |
-| `CUDA_DEVICE` | GPU id for generated code | `0` |
-| `RELBENCH_FULL_TIMEOUT` | full-run cap (s) | per-dataset tier (2h/4h/8h) |
-| `RELBENCH_DEBUG_TIMEOUT` | debug-run cap (s) | tier (15/20/30 min) |
-| `RELBENCH_PRISTINE_CACHE_DIR` | source cache for sanitizer | `~/.cache/relbench` |
-
-## Protocol & integrity guarantees
-
-- Search optimizes official **validation** metrics only; test metrics are computed once
-  per run and quarantined in `tmp/relbench/<task>/runs/*/private/` until `final_evaluate`.
-- Candidates physically cannot read test labels (sanitized cache is complete for
-  train/val work and read-only; `download=True` fails loudly).
-- `final_report.json` includes a static audit of the winning code for forbidden access
-  patterns — reproduce the winner cleanly before publishing numbers.
+| path | role |
+|---|---|
+| `handler.py` | benchmark handler: sanitized-cache contract, val-scored runs, final selection + leakage audit |
+| `runner.py` / `campaign.py` | single-task CLI / multi-task campaign driver |
+| `sandbox.py` | sanitized + rolling cache builder |
+| `context.py` / `task_specs.py` | problem-context builder / per-task metadata |
+| `config.yaml` | benchmark modes (`RELBENCH_GENERIC` is the campaign standard) |
+| `data/` | agent-facing starter kit, provided evaluator, seed baseline |
+| `claude_code_baseline/` | the frontier-coding-agent baseline: prompt, harness, results |

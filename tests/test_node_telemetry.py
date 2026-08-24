@@ -174,7 +174,7 @@ def test_feedback_generator_measures_its_call_as_a_cumulative_delta(
         classmethod(lambda cls, config: agent),
     )
     generator = FeedbackGenerator(
-        coding_agent_config=SimpleNamespace(agent_type="stub")
+        coding_agent_config=SimpleNamespace(agent_type="stub", agent_specific={})
     )
     monkeypatch.setattr(
         generator, "_get_commit_message", lambda workspace_dir, branch: ""

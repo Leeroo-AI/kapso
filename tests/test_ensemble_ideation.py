@@ -12,23 +12,28 @@ from types import SimpleNamespace
 import pytest
 
 import kapso.execution.coding_agents.adapters.claude_code_agent as claude_module
+import kapso.execution.coding_agents.adapters.oss_claude_code_agent as oss_module
 import kapso.execution.search_strategies.generic.codex_ideation as codex_module
 import kapso.gated_mcp as gated_mcp_module
 from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.execution.search_strategies.generic.strategy import (
-    GenericSearch,
+from kapso.execution.search_strategies.generic.ideation import (
+    ENSEMBLE_CANDIDATES_PER_MEMBER,
+    ENSEMBLE_SPLIT_SELECTOR_MIN_SECONDS,
     normalize_ensemble_member,
+    normalize_ensemble_time_split,
     normalize_ideation_ensemble,
 )
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 CODEX_MEMBER = {"cli": "codex", "model": "gpt-5.6-sol", "effort": "xhigh", "lens": "data"}
 CLAUDE_MEMBER = {"cli": "claude_code", "model": "claude-fable-5", "effort": "xhigh", "lens": "recipe"}
 SELECTOR = {"cli": "claude_code", "model": "claude-fable-5", "effort": "xhigh"}
 
 # Real candidates are plans, not phrases; keep test candidates above the
-# degenerate-artifact floor.
+# degenerate-artifact floor AND the selector's malformed-emission floor
+# (MIN_SELECTED_SOLUTION_CHARS).
 def _plan(name):
-    return (f"# Core Idea\n{name}: " + "concrete codable step. " * 5).strip()
+    return (f"# Core Idea\n{name}: " + "concrete codable step. " * 10).strip()
 
 
 
@@ -68,6 +73,21 @@ def test_ensemble_requires_selector_and_selector_cli_is_validated():
                     params={
                         "ideation_ensemble": [dict(CLAUDE_MEMBER)],
                         "ideation_selector": {"cli": "gemini", "model": "m"},
+                    }
+                )
+            )
+        # A valid MEMBER cli that cannot read the worktree is still no
+        # selector: oss_claude_code endpoints fail the selector-specific
+        # check, not member validation.
+        with pytest.raises(ValueError, match="claude_code or codex"):
+            GenericSearch(
+                SimpleNamespace(
+                    params={
+                        "ideation_ensemble": [dict(CLAUDE_MEMBER)],
+                        "ideation_selector": {
+                            "cli": "oss_claude_code", "model": "m",
+                            "base_url": "http://x", "auth_token_env": "K",
+                        },
                     }
                 )
             )
@@ -151,6 +171,7 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
         return codex_output, codex_timed_out, 1.0, meta
 
     monkeypatch.setattr(claude_module, "ClaudeCodeCodingAgent", FakeAgent)
+    monkeypatch.setattr(oss_module, "OssClaudeCodeCodingAgent", FakeAgent)
     monkeypatch.setattr(codex_module, "run_codex_ideation", fake_codex)
     monkeypatch.setattr(
         gated_mcp_module, "get_mcp_config", lambda **kw: ({}, [])
@@ -194,6 +215,8 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     strategy.expansion_lane_env = None
     strategy.shared_cache_dir = None
     strategy.shared_artifacts_brief = "No shared-cache artifacts registered yet."
+    strategy.ideation_candidates_per_member = ENSEMBLE_CANDIDATES_PER_MEMBER
+    strategy.ensemble_time_split = None
     return strategy, events
 
 
@@ -207,12 +230,12 @@ def test_fanout_pools_candidates_and_selector_choice_wins(tmp_path, monkeypatch)
         codex_output=f"noise <solution>{_plan('codex A')}</solution> noise",
         selector_output=(
             "<selection_reasoning>codex A is time-fit</selection_reasoning>"
-            "<solution>the synthesized winner</solution>"
+            f"<solution>{_plan('the synthesized winner')}</solution>"
         ),
     )
     (solution,), sections, telemetry = strategy._generate_solution("problem", "main")
 
-    assert solution == "the synthesized winner"
+    assert solution == _plan("the synthesized winner")
     # selector prompt carried every pooled candidate
     selector_prompts = [p for is_sel, p in events["claude_prompts"] if is_sel]
     assert len(selector_prompts) == 1
@@ -282,6 +305,127 @@ def test_codex_timeout_salvages_substantive_output(tmp_path, monkeypatch):
     (solution,), _, _ = strategy._generate_solution("problem", "main")
     assert "Salvaged from a deadline-terminated ideation session" in solution
     assert "research notes" in solution
+
+
+# ---------------------------------------------------------------------------
+# Ensemble time split (design #5): default = NO split, each role gets the
+# full ideation clamp; the optional knob restores the fractional carve-up.
+# ---------------------------------------------------------------------------
+
+def _run_two_member_round(strategy):
+    """One ensemble round with a 3-candidate pool, so the selector runs."""
+    return strategy._generate_solution("problem", "main")
+
+
+def _timing_fixture(tmp_path, monkeypatch):
+    return make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('claude A')}</solution>"
+                      f"<solution>{_plan('claude B')}</solution>",
+        codex_output=f"<solution>{_plan('codex A')}</solution>",
+        selector_output=f"<solution>{_plan('the winner')}</solution>",
+    )
+
+
+def test_no_split_gives_each_role_the_full_clamp(tmp_path, monkeypatch):
+    strategy, events = _timing_fixture(tmp_path, monkeypatch)
+    # Distinct values per clamp call prove WHEN each role's deadline is
+    # computed: members take the pre-fan-out clamp, the selector recomputes
+    # its own AFTER the members finish (seeing budget they did not spend).
+    clamp_values = iter([600.0, 333.0])
+    strategy._clamped_timeout = lambda seconds: next(clamp_values)
+
+    _run_two_member_round(strategy)
+
+    assert events["codex_calls"][0]["timeout"] == 600.0
+    member_configs = [
+        c for c in events["configs"] if "mcp_servers" in c.agent_specific
+    ]
+    selector_configs = [
+        c for c in events["configs"] if "mcp_servers" not in c.agent_specific
+    ]
+    assert [c.agent_specific["timeout"] for c in member_configs] == [600.0]
+    assert [c.agent_specific["timeout"] for c in selector_configs] == [333.0]
+
+
+def test_split_carves_the_prefanout_clamp_with_the_floor(tmp_path, monkeypatch):
+    strategy, events = _timing_fixture(tmp_path, monkeypatch)
+    strategy.ensemble_time_split = normalize_ensemble_time_split(
+        {"member_fraction": 0.7, "selector_fraction": 0.3}
+    )
+    calls = []
+
+    def counting_clamp(seconds):
+        calls.append(seconds)
+        return 600.0
+
+    strategy._clamped_timeout = counting_clamp
+
+    _run_two_member_round(strategy)
+
+    # 600 * 0.7 = 420 for members; 600 * 0.3 = 180 loses to the 240 floor.
+    assert events["codex_calls"][0]["timeout"] == 420.0
+    member_configs = [
+        c for c in events["configs"] if "mcp_servers" in c.agent_specific
+    ]
+    selector_configs = [
+        c for c in events["configs"] if "mcp_servers" not in c.agent_specific
+    ]
+    assert [c.agent_specific["timeout"] for c in member_configs] == [420.0]
+    assert [c.agent_specific["timeout"] for c in selector_configs] == [240.0]
+    # Split semantics: ONE frozen pre-fan-out clamp, no selector recompute.
+    assert calls == [600]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not-a-mapping",
+        {"member_fraction": 0.7},
+        {"selector_fraction": 0.3},
+        {"member_fraction": 0.7, "selector_fraction": 0.3, "extra": 1},
+        {"member_fraction": 0.0, "selector_fraction": 0.3},
+        {"member_fraction": 7, "selector_fraction": 0.3},
+        {"member_fraction": True, "selector_fraction": 0.3},
+        {"member_fraction": 0.7, "selector_fraction": 0.3,
+         "selector_min_seconds": -1},
+    ],
+)
+def test_malformed_ensemble_time_split_raises(bad):
+    with pytest.raises(ValueError, match="ensemble_time_split"):
+        normalize_ensemble_time_split(bad)
+
+
+def test_ensemble_time_split_normalization():
+    assert normalize_ensemble_time_split(None) is None
+    # The selector floor defaults from its single sourced home.
+    assert normalize_ensemble_time_split(
+        {"member_fraction": 0.7, "selector_fraction": 0.3}
+    ) == {
+        "member_fraction": 0.7,
+        "selector_fraction": 0.3,
+        "selector_min_seconds": float(ENSEMBLE_SPLIT_SELECTOR_MIN_SECONDS),
+    }
+    assert normalize_ensemble_time_split(
+        {"member_fraction": 0.5, "selector_fraction": 0.5,
+         "selector_min_seconds": 60}
+    )["selector_min_seconds"] == 60.0
+
+
+def test_malformed_ensemble_time_split_raises_at_init():
+    with _patched_super_init():
+        with pytest.raises(ValueError, match="ensemble_time_split"):
+            GenericSearch(
+                SimpleNamespace(
+                    params={
+                        "ideation_ensemble": [dict(CLAUDE_MEMBER)],
+                        "ideation_selector": dict(SELECTOR),
+                        "ensemble_time_split": {"member_fraction": 0.7},
+                    }
+                )
+            )
 
 
 def test_no_ensemble_config_keeps_single_session_path(tmp_path, monkeypatch):
@@ -475,7 +619,7 @@ def test_prompt_echo_candidates_are_dropped(tmp_path, monkeypatch):
 
 
 def test_skeleton_candidates_never_reach_selector(tmp_path, monkeypatch):
-    from kapso.execution.search_strategies.generic.strategy import (
+    from kapso.execution.search_strategies.generic.ideation import (
         is_degenerate_ensemble_candidate,
     )
     skeleton = (
@@ -518,6 +662,51 @@ def test_codex_artifacts_persist_when_dir_given(tmp_path, monkeypatch):
     assert open(meta["last_path"]).read() == "<solution>persisted</solution>"
 
 
+def test_member_sessions_get_native_web_tools_when_web_is_on(tmp_path, monkeypatch):
+    # claude_code and oss_claude_code members research with the CLIs' own
+    # WebSearch/WebFetch — present in the whitelist exactly when ideation
+    # web access is on (codex members carry --search instead).
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CLAUDE_MEMBER)], selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('web on')}</solution>",
+        codex_output="", selector_output="",
+    )
+    strategy._generate_solution("problem", "main")
+    member_tools = events["configs"][0].agent_specific["allowed_tools"]
+    assert "WebSearch" in member_tools and "WebFetch" in member_tools
+
+    strategy2, events2 = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CLAUDE_MEMBER)], selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('web off')}</solution>",
+        codex_output="", selector_output="",
+    )
+    strategy2.ideation_web_search = False
+    strategy2._web_disallowed_tools = ["WebSearch", "WebFetch"]
+    strategy2._generate_solution("problem", "main")
+    member_tools2 = events2["configs"][0].agent_specific["allowed_tools"]
+    assert "WebSearch" not in member_tools2 and "WebFetch" not in member_tools2
+
+
+def test_oss_members_get_webfetch_but_never_websearch(tmp_path, monkeypatch):
+    # WebSearch is server-executed; an OSS endpoint 400s any request whose
+    # tools array carries it (verified live on Fireworks kimi-k3-fast).
+    # OSS members keep client-side WebFetch only.
+    oss = {"cli": "oss_claude_code", "model": "m", "effort": "max",
+           "base_url": "http://x", "auth_token_env": "K"}
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[oss], selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('oss web')}</solution>",
+        codex_output="", selector_output="",
+    )
+    strategy._generate_solution("problem", "main")
+    member_tools = events["configs"][0].agent_specific["allowed_tools"]
+    assert "WebFetch" in member_tools
+    assert "WebSearch" not in member_tools
+
+
 def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeypatch):
     strategy, events = make_ensemble_strategy(
         tmp_path, monkeypatch,
@@ -542,10 +731,10 @@ def test_env_strip_reaches_member_and_selector_session_configs(tmp_path, monkeyp
         assert config.agent_specific["env_strip"] == ["OPENAI_API_KEY"]
 
 
-def test_codex_selector_runs_web_off_and_choice_wins(tmp_path, monkeypatch):
-    """A codex selector judges the pool via run_codex_ideation (web OFF —
-    parity with the claude selector's Read-only toolset); its <solution>
-    choice wins and no claude selector session runs."""
+def test_codex_selector_runs_web_on_and_choice_wins(tmp_path, monkeypatch):
+    """A codex selector judges the pool via run_codex_ideation with web ON
+    (selection verifies candidate claims against the live web); its
+    <solution> choice wins and no claude selector session runs."""
     strategy, events = make_ensemble_strategy(
         tmp_path, monkeypatch,
         ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],

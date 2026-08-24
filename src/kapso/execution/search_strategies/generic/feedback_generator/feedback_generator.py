@@ -104,19 +104,20 @@ class FeedbackGenerator:
                 }
             )
 
+        # Absent timeout means no judge deadline: pin the explicit None so
+        # the adapter runs unbounded instead of applying its own default.
+        coding_agent_config.agent_specific.setdefault("timeout", None)
+
         self.coding_agent_config = coding_agent_config
 
         # Create the coding agent
         self.agent = CodingAgentFactory.create(coding_agent_config)
 
     @property
-    def configured_timeout_seconds(self) -> float:
-        """The block-configured call timeout, for budget clamping."""
-        return float(
-            self.coding_agent_config.agent_specific.get(
-                "timeout", self.DEFAULT_TIMEOUT_SECONDS
-            )
-        )
+    def configured_timeout_seconds(self) -> Optional[float]:
+        """The block-configured call timeout (None = no deadline)."""
+        configured = self.coding_agent_config.agent_specific.get("timeout")
+        return None if configured is None else float(configured)
     
     def generate(
         self,

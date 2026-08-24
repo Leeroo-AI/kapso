@@ -227,6 +227,7 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.env_strip = []
     strategy.env_defaults = {}
     strategy._web_disallowed_tools = []
+    strategy.ideation_web_search = True
     strategy.ideation_ensemble = None
     strategy.llm = None
 

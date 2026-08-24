@@ -59,7 +59,6 @@ modes:
     models:
       utility: "gpt-5.6-luna"
       reasoning: "gpt-5.6-sol"
-      embedding: "text-embedding-3-small"
 
     knowledge_search:
       type: "kg_llm_navigation"
@@ -111,6 +110,8 @@ modes:
         # the claude single-session ideation fallback.
         implementation_model: "gpt-5.6-sol"
         implementation_cli: "codex"
+        # Temporal-leakage protocol: the test window's future exists on the web.
+        implementation_web: false
         auth_mode: "oauth"
         effort: "xhigh"
         gate_failure_policy: "skip"
@@ -190,6 +191,10 @@ modes:
           cli: "codex"
           model: "gpt-5.6-sol"
           effort: "xhigh"
+        # Member/selector carve-up of the ideation clamp, tuned under the
+        # split model (the campaign's proven timing; platform default is
+        # no split — each role would get the full clamp).
+        ensemble_time_split: {member_fraction: 0.7, selector_fraction: 0.3}
         # Design axes for the anti-freeze contract: the lens replanner must
         # status each axis (ACTIVE / SATURATED-with-evidence / DEFERRED)
         # every iteration, and the feedback generator reports the per-axis
@@ -225,6 +230,11 @@ modes:
       # --debug mode; must fit the debug-tier cap.
       calibration_timeout_seconds: 1200
       max_change_requests: 3
+      # Late-transition freeze: past this fraction of the time budget,
+      # evaluator change requests are deferred — a ruler change near the
+      # deadline orphans final selection (2026-08-16: a transition at 92%
+      # budget left one eligible final from a 12h ladder).
+      transition_freeze_fraction: 0.85
 
     coding_agent:
       type: "codex"
@@ -256,8 +266,6 @@ modes:
         reasoning_effort: "xhigh"
       web_search:
         model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      embedding: "text-embedding-3-small"
 
     retry:
       max_attempts: 5
@@ -302,7 +310,6 @@ modes:
     models:
       utility: "gpt-5.6-luna"
       reasoning: "gpt-5.6-sol"
-      embedding: "text-embedding-3-small"
 
     knowledge_search:
       type: "kg_llm_navigation"

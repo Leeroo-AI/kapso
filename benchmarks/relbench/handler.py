@@ -260,7 +260,7 @@ class RelBenchHandler(ProblemHandler):
     def final_evaluate(self, file_path: str = "", **kwargs) -> Dict:
         """Max rescored validation among head-stamped final runs -> report.
 
-        Thin wrapper over the framework selector (EVALUATION_GOVERNANCE.md):
+        Thin wrapper over the framework selector (docs/research/evaluation-governance.md):
         the pool is each session's registered "final" (voided/invalid runs
         never compete — the user-ignore incident shipped a self-disqualified
         leaky intermediate precisely because the old pool was every archived

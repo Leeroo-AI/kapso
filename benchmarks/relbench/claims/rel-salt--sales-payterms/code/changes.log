@@ -1,5 +1,0 @@
-RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-2026-08-01: Characterized immutable scoring mechanics and legal-column input distributions in eval_profile.md; no evaluator files modified.
-2026-08-01: Implemented legal all-table document extraction, frozen hierarchical histories, cap-16 candidate generation, 217-feature LambdaRank episodes, internal forward-fold selection, cold-start LightGBM, and separated train-only/train-plus-validation serving chains.
-2026-08-01: Registered full run_0008 scored accuracy=0.9379337363, macro_f1=0.8119110712, micro_f1=0.9379337363, mrr=0.9581695795.
-2026-08-01: Audited horizon semantics; rejected a 305-feature all-level seed-relative expansion after internal instability and retained scalar seed horizon/overall staleness additions, yielding internal mean=0.939376 with fold best iterations 185/181.

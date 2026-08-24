@@ -51,6 +51,9 @@ modes:
         ideation_timeout: 1800
         # One experiment = write pipeline + train + evaluate. Multi-hour.
         implementation_timeout: 18000
+        # No web in implementation sessions (preserves the campaign's no-web
+        # behavior; benchmark-rules sensitivity).
+        implementation_web: false
         # Only local, dependency-free gates. `research` and `leeroopedia`
         # need external backends we don't ship in the container. The coding
         # agent still has Claude Code's built-in WebSearch/WebFetch, which is
@@ -83,6 +86,10 @@ modes:
           cli: "claude_code"
           model: "claude-fable-5"
           effort: "xhigh"
+        # Member/selector carve-up of the ideation clamp, tuned under the
+        # split model (the campaign's proven timing; platform default is
+        # no split — each role would get the full clamp).
+        ensemble_time_split: {member_fraction: 0.7, selector_fraction: 0.3}
 
     # Wall-clock shaping, read by benchmarks/posttrain/runner.py (not by
     # kapso core): per-session deadlines scale with the run size so a fixed
@@ -127,13 +134,6 @@ modes:
       # never fall through to a default route.
       web_search:
         model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      # Experiment-store semantic search: solutions embedded at write time
-      # (orchestrator process, key bridged by solve.sh); the ideation
-      # gate's query-side call only works where its process env carries
-      # credentials — inside the container it fails loud and agents use
-      # top/recent instead.
-      embedding: "text-embedding-3-small"
     retry:
       max_attempts: 5
       initial_delay_seconds: 5

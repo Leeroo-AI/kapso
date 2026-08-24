@@ -1,2 +1,0 @@
-Iteration 1 initialized: profiled evaluation mechanics, input split sizes, document aggregation loss, monthly label drift, and validation staleness strata.
-RepoMemory sections consulted: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies

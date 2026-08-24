@@ -3,7 +3,11 @@
 scipy
 
 # LLM API wrapper - supports OpenAI, Anthropic, Google, etc.
-litellm>=1.0.0
+# Pinned to match pyproject.toml (==1.75.0): newer litellm capability maps null
+# out reasoning_effort for gpt-5.6 models on the chat route (R9-I-2), which breaks
+# the repo-memory / utility-role calls in-container while local stays green. Bump
+# only after re-running the live luna sanity call on the new version.
+litellm==1.75.0
 
 # Git operations for developer agent
 GitPython
@@ -14,8 +18,11 @@ aider-chat>=0.35.0
 # Knowledge graph database client
 neo4j
 
-# Vector database for semantic search
+# Vector database for the knowledge-base KG search (kg_graph_search)
 weaviate-client>=4.0.0
+
+# Token-count cap for embedding inputs (core/llm.py create_embedding)
+tiktoken
 
 # OpenAI embeddings API
 openai>=1.0.0

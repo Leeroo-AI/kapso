@@ -15,7 +15,7 @@ import pytest
 
 import kapso.execution.evaluation_maintainer.maintainer as maintainer_module
 import kapso.execution.orchestrator as orchestrator_module
-import kapso.execution.search_strategies.generic.strategy as strategy_module
+import kapso.execution.search_strategies.generic.registered_evaluation as registered_evaluation_module
 from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
@@ -104,7 +104,7 @@ class FakeEvalPopen:
 
 
 def fake_eval_subprocess(payload, returncode: int = 0):
-    """A strategy_module.subprocess stand-in emitting one manifest line.
+    """A registered_evaluation.subprocess stand-in emitting one manifest line.
 
     Mirrors the live contract: the strategy hands Popen spooled FILES
     (never PIPE — an undrained pipe deadlocked a chatty evaluator live),
@@ -178,7 +178,7 @@ def test_bridge_skips_missing_artifacts_and_appends_on_success(
         "score": 0.37,
     }
     monkeypatch.setattr(
-        strategy_module, "subprocess", fake_eval_subprocess(payload)
+        registered_evaluation_module, "subprocess", fake_eval_subprocess(payload)
     )
     # The live requester arrived with evaluation_valid=False (the feedback
     # generator had voided its measurement under the defective evaluator);
@@ -551,3 +551,64 @@ def test_unsound_measurement_bridges_but_tampering_never_does(
     # The tampering node (score 0.9) never bridges; the unsound-measurement
     # requester does, and first.
     assert [call["node_id"] for call in strategy.bridge_calls] == [1]
+
+
+# =========================================================================
+# Late-transition freeze: past the freeze fraction of a time budget, change
+# requests are deferred — a ruler change near the deadline orphans final
+# selection (2026-08-16: a transition at 92% budget left one eligible final
+# from a 12h ladder).
+# =========================================================================
+
+
+def test_change_requests_freeze_late_in_a_time_budget(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_mode_config", maintainer_mode_config
+    )
+    orchestrator = _orchestrator(workspace)
+    assert orchestrator._transition_freeze_fraction == 0.85
+
+    orchestrator.budget_spec = SimpleNamespace(time_budget_seconds=3600.0)
+    filings = []
+    orchestrator.evaluation_maintainer.handle_change_request = (
+        lambda request: filings.append(request)
+        or SimpleNamespace(accepted=False, reason="filed", new_version=None)
+    )
+    candidate = SimpleNamespace(
+        node_id=7,
+        agent_output=(
+            "<evaluation_change_request>late ruler change"
+            "</evaluation_change_request>"
+        ),
+        evaluation_output="",
+    )
+
+    # Past the freeze fraction: the request is deferred, never filed.
+    monkeypatch.setattr(
+        type(orchestrator), "get_elapsed_seconds", lambda self: 3240.0
+    )
+    orchestrator._route_change_requests([candidate])
+    assert filings == []
+    assert orchestrator._change_requests_filed == 0
+
+    # Before the freeze fraction the same request files normally.
+    monkeypatch.setattr(
+        type(orchestrator), "get_elapsed_seconds", lambda self: 1000.0
+    )
+    orchestrator._route_change_requests([candidate])
+    assert len(filings) == 1
+    assert orchestrator._change_requests_filed == 1
+
+    # Without a time budget the freeze never engages.
+    orchestrator.budget_spec = SimpleNamespace(time_budget_seconds=None)
+    monkeypatch.setattr(
+        type(orchestrator), "get_elapsed_seconds", lambda self: 10**9
+    )
+    orchestrator._route_change_requests([candidate])
+    assert len(filings) == 2

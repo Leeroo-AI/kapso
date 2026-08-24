@@ -496,7 +496,7 @@ def test_evaluation_instructions_demand_early_filing_and_low_tiers():
     remedy, and point post-transition sessions at porting voided designs."""
     source = (
         Path(__file__).parents[1]
-        / "src/kapso/execution/search_strategies/generic/strategy.py"
+        / "src/kapso/execution/search_strategies/generic/registered_evaluation.py"
     ).read_text()
     assert "TIMING — file at the FIRST confirmation" in source
     assert "REMEDY SHAPE — propose the least-breaking remedy" in source

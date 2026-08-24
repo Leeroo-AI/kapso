@@ -46,6 +46,14 @@ class ProblemHandler(ABC):
     
     # Whether higher scores are better (used by search strategies)
     maximize_scoring: bool = True
+
+    # Whether the feedback judge's <stop>true</stop> ends the campaign. True
+    # fits goal-directed tasks (reach X, then stop). Open-ended maximization
+    # tasks (competitions) set False: there is no "fully achieved" score, so
+    # the campaign runs to its time budget and a stop vote is advisory — the
+    # radar rehearsal ended 25 min early on a judge's "no further iteration
+    # is required" while sitting 0.0056 under the leader.
+    honor_agent_stop: bool = True
     
     def __init__(self, additional_context: str = ""):
         """
