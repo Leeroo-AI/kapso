@@ -185,18 +185,79 @@ The stall rule is identical everywhere: stale heart ⇒ `STALLED?` banner
 ⇒ `--follow` or the run dir named in `recent` ⇒ resume/redo. One habit,
 three operations.
 
+## 4b. The Python surface — the same layer from inside a script
+
+A Python caller lives in one of two positions, and each gets exactly one
+affordance (no background-execution machinery — deferred):
+
+**Inside the blocking call — the `on_status` hook.** All three long
+operations gain one kwarg:
+
+```python
+solution = kapso.evolve(goal=..., time_budget_minutes=240,
+                        on_status=my_progress_fn)
+lesson   = kapso.learn(solution, on_status=my_progress_fn)
+```
+
+`on_status(status: dict)` is invoked synchronously after every status
+write and heartbeat — the SAME dict the file carries, so the hook and
+the file can never disagree. This is the notebook/pipeline integration
+point: drive a tqdm bar off `budget.elapsed_min`, mirror `recent` lines
+into your own logger, push a Slack ping on `state == "done"`. Exceptions
+from the hook PROPAGATE immediately (Rule 2): it is caller-owned code,
+and a swallowed callback error is how silent corruption starts — wrap
+your own try/except if your progress bar may fail.
+
+**Outside the call — `Kapso.status()`.** Any other process, notebook
+cell, or script reads the same file through a typed view (the
+`MemoryStatus`/`LessonResult` idiom the facade already has):
+
+```python
+view = Kapso.status("./campaign")     # workspace, status file, or dir
+view.alive          # heartbeat fresher than the configured interval
+view.state          # starting | running | done | failed
+view.phase, view.phase_elapsed_min
+view.budget         # {"elapsed_min": 142.5, "total_min": 240.0}
+view.best           # {"score": 0.89, "node_id": 5, ...} (evolve)
+view.recent         # the 10-line ring
+print(view.explain())                 # the watch screen, as a string
+```
+
+`Kapso.status` is a classmethod — no constructed agent needed to observe
+one — and `view.explain()` reuses the SAME renderer `kapso watch` uses,
+so the CLI and Python show one truth. Polling loops are caller code
+(`while not (v := Kapso.status(p)).state == "done": sleep(30)`); the
+facade ships the reader, not a scheduler.
+
+**The closed loop in a notebook:**
+
+```python
+k = Kapso()
+sol = k.evolve(goal=GOAL, time_budget_minutes=240,
+               on_status=lambda s: bar.update(s["budget"]["elapsed_min"]))
+print(Kapso.status(sol.metadata["status_path"]).explain())   # durable last frame
+lesson = k.learn(sol, on_status=print)
+```
+
 ## 5. Implementation map (one sitting, +~40 lines over v2)
 
 1. `observability.py`: `OperationStatus` base + the three profiles +
-   renderer blocks.
-2. Wiring per §2 (evolve ~8 sites; learn 5; learn_knowledge 3).
+   renderer blocks + `OperationStatusView` (the typed reader,
+   `alive`/`explain()`; one parser shared by CLI watch and
+   `Kapso.status`).
+2. Wiring per §2 (evolve ~8 sites; learn 5; learn_knowledge 3); the
+   `on_status` kwarg threads caller hooks into the base class's write
+   path (§4b).
 3. Config: `learning.status_dir: learning/status` (Rule 1, one key).
-4. `cli.py`: `watch` (path resolution + per-operation block); result
-   metadata pointers in the three facades.
+4. `cli.py`: `watch` (path resolution + per-operation block);
+   `Kapso.status` classmethod; result metadata pointers in the three
+   facades.
 5. Tests (Rule 9): base mechanics once (atomic write under concurrent
    update, ring cap, heartbeat staleness, phase-timer reset, daemon
    start/stop); per-profile phase-legality; watch `--json` passthrough;
-   renderer smoke per operation on fixture files.
+   renderer smoke per operation on fixture files; `on_status` receives
+   the file's dict and its exceptions propagate; `Kapso.status`
+   resolves workspace/file/dir and `alive` flips on staleness.
 6. Live proof: one short evolve + one `learn()` watched from a second
    terminal; kill one mid-phase for the STALLED banner.
 
