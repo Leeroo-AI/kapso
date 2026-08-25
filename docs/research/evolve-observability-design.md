@@ -39,8 +39,14 @@ class EvolveStatus(OperationStatus):
     OPERATION = "evolve"
     PHASES = ("lens_planning", "ideation", "implementation",
               "evaluation", "feedback")
-    # payload: budget{elapsed/total/cost}, best{score,node,branch},
+    # payload: budget{elapsed_min,total_min}, best{score,node,branch},
     #          last{score,node}, iteration, active_stream
+    # TIME ONLY, no cost fields (user decision 2026-08-25): cost
+    # accounting is unreliable at the source — codex sessions report
+    # $0.00, so any displayed dollar figure would be a lie for the
+    # platform's default implementor. Wall-clock is the honest meter
+    # every operation has; the ledger keeps its internal numbers, the
+    # observability surface just never shows them.
 
 class LessonStatus(OperationStatus):
     OPERATION = "learn"
@@ -116,8 +122,27 @@ sessions, ingestion sessions) through the adapter's existing formatter;
 
 ## 4. The flows, assuming it is implemented
 
-**evolve** — unchanged from v2 (§4 of that version): the lunch check-in,
-`--follow`, the STALLED diagnosis in one command, the CI one-liner.
+**evolve** — the lunch check-in:
+
+```
+$ kapso watch ./campaign
+┌─ campaign ./campaign ────────────────────────────────────────────┐
+│ RUNNING ♥ 9s ago          iteration 7      pid 41211             │
+│ phase: implementation — 18m elapsed (started 14:13)              │
+│ budget: ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░ 142/240 min                           │
+│ best: 0.89  node 5 (generic_exp_5)      last: 0.87  node 6       │
+│ nodes: 1:0.61  2:0.74  3:0.74  4:0.81  5:0.89  6:0.87  7:…       │
+│ recent:                                                          │
+│   14:29 node 6 completed score=0.87                              │
+│   14:31 iteration 7 started (budget 59%)                         │
+│   14:31 implementation started on generic_exp_7 (codex)          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Plus `--follow` into the live transcript, the STALLED banner when the
+heartbeat goes stale (diagnosis in one command instead of ssh+pgrep),
+and the CI one-liner:
+`kapso watch ./campaign --json | jq -r '[.state, .best.score] | @tsv'`.
 
 **learn** — the engineer feeds yesterday's campaign back:
 
