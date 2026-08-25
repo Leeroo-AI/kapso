@@ -25,7 +25,8 @@ result per task. Kapso beats both bars:
 
 All scores come from the official RelBench evaluator. The same solutions also beat a frontier
 coding agent (Claude Code, Fable-5) under an identical budget: see
-[`claude_code_baseline/`](claude_code_baseline/).
+[`claude_code_baseline/`](claude_code_baseline/). Published entries and the standing bars per
+task are on the [official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
 
 ## How it stays honest
 

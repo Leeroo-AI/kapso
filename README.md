@@ -30,7 +30,7 @@
 ## News
 
 - 🏆 **IOAI² Grand Master Trophy at [IOAI 2026](benchmarks/ioai2026/README.md)**: competing fully autonomously in the AI Model Track of the International Olympiad in AI, Kapso surpassed the best human contestant and ranked top 3 among all AI system participants, a field spanning major AI labs and startups.
-- **Beats the best foundation model on [RelBench](benchmarks/relbench/README.md)**: on Stanford's benchmark for predictive ML over enterprise data, Kapso passes KumoRFM-v2 in outcome prediction and forecasting, and the best reported results in recommendations.
+- **Beats the best foundation model on [RelBench](benchmarks/relbench/README.md)**: on Stanford's benchmark for predictive ML over enterprise data, Kapso passes KumoRFM-v2 in outcome prediction and forecasting, and the best reported results in recommendations. Published results live on the [official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
 
   <img src="benchmarks/relbench/assets/kapso_vs_best_published.png" alt="RelBench Results" width="600">
 
