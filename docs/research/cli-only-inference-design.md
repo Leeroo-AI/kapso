@@ -177,13 +177,22 @@ not the semantics.
    E2E's stage timings against the API-path baseline recorded in
    learning/e2e-facade/.
 
-## 8. Open questions for the review
+## 8. Open questions — RESOLVED (user, 2026-08-25)
 
-1. **Judge on codex while implementation also runs codex** — same account,
-   same quota window, and the judge is the one role that must never be
-   starved. Reserve a separate account, or accept contention?
-2. **KG rerank latency**: is §4b's one-session-per-query acceptable, or
-   should KG search keep the API path as a documented exception?
-3. **Fallback policy**: when the CLI is unavailable (not installed, auth
-   expired), do we fail loud everywhere (Rule 2, my recommendation) or
-   keep an emergency API path behind an explicit config flag?
+1. **Judge account contention** — RESOLVED: keep codex as the judge's
+   default, sharing the account with the codex implementor. Accepted
+   consequence: judge scoring and implementation draw on one quota
+   window, so a starved account degrades scoring and building together.
+   Operational note for the runbook: a codex-quota probe now covers the
+   judge too, and if contention ever bites, the fix is a second codex
+   account in the judge's role spec — a config change, not a redesign.
+2. **KG rerank / navigation latency** — RESOLVED: convert them like
+   everything else; the CLI is the inference path, no API exception.
+   §4b's batching (one session per query rather than per hop) is the
+   implementation, so the contract stays CLI-only while the loop cost
+   stays bounded.
+3. **CLI-unavailable fallback** — RESOLVED: fail loud (Rule 2). No
+   emergency API path, no config flag to re-enable one: a missing or
+   unauthenticated CLI raises at construction with the fix named. The
+   API-path code is deleted rather than left dormant (Rule 7). Revisit
+   only if a real deployment need appears.
