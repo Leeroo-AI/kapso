@@ -347,8 +347,10 @@ class OperationStatusView:
         if self.recent:
             lines.append("recent:")
             lines.extend(f"  {line}" for line in self.recent)
-        width = max(len(line) for line in lines) + 2
         title = f" {self.operation} {self.path} "
+        width = max(
+            [len(line) for line in lines] + [len(title)]
+        ) + 2
         bordered = [f"┌─{title}".ljust(width + 1, "─") + "┐"]
         bordered.extend(f"│ {line}".ljust(width + 1) + "│" for line in lines)
         bordered.append("└" + "─" * width + "┘")
