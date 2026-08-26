@@ -46,7 +46,7 @@ from kapso.researcher import ResearchMode, ResearchDepth
 
 
 # Available coding agents
-AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
+AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "codex", "openhands"]
 
 # Available deploy strategies
 DEPLOY_STRATEGIES = ["auto", "local", "docker", "modal", "bentoml", "langgraph"]
