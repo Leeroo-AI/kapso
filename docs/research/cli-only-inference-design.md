@@ -187,12 +187,23 @@ prompt shape.
    (parsers under session narration + truncation), routing tests
    re-ported to the embedding-only surface (8b37a3e7). Judge-tag
    robustness was already pinned in test_feedback_generator.
-7. Live smoke: `examples/ml_model_development/run_cli_inference_smoke.py`
-   (research → small learn_knowledge → 25-min evolve) with stage
-   timings vs the API baseline in learning/e2e-facade/20260825T223634
-   (research 76s, evolve1 15m26s). Direct probe already green: plain
-   commit-message session 5.0s, web-search research session 18.0s,
-   correct outputs, cost reported 0.0 (codex OAuth).
+7. ✅ Live smoke green (build 8b37a3e7, sandbox
+   learning/e2e-facade/20260826T043027-cli-smoke, exit 0). Direct probe:
+   plain commit-message session 5.0s, web-search session 18.0s, correct
+   outputs, cost reported 0.0 (codex OAuth). Full loop vs the API
+   baseline (20260825T223634, build 91dffcf8):
+   - research: 325s vs 76s (4.3× — the accepted §6.2 latency trade;
+     17KB of well-formed sourced findings).
+   - learn_knowledge: 5912s/39 pages ≈ 152s/page vs 8136s/69 ≈
+     118s/page (~1.3× — the stage was already dominated by CLI wiki
+     authoring; the converted merger/rerank calls add modestly).
+   - evolve: 1340s at a 25-min budget, score 0.89 — EQUAL to the
+     baseline's 0.89 (45-min budget). Seam evidence in the campaign
+     workspace: repo_memory.json built+updated by CLI sessions (+1336
+     lines), a real code-aware conventional commit (`feat(train):
+     forward-screened cryo/HomePlanet/Side ensemble…` — not the retired
+     `chore: update code` fallback), judge parsed a score, and zero
+     "CLI inference session failed"/LLMRetryError lines in the run log.
 
 ## 8. Open questions — RESOLVED (user, 2026-08-25)
 
