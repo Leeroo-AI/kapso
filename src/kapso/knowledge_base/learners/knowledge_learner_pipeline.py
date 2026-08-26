@@ -161,29 +161,39 @@ class KnowledgePipeline:
         self,
         *sources,
         skip_merge: bool = False,
+        status=None,
     ) -> PipelineResult:
         """
         Run the complete knowledge pipeline.
-        
+
         Args:
             *sources: One or more Source objects (Source.Repo, Source.Solution)
             skip_merge: If True, only extract (same as ingest_only but returns PipelineResult)
-            
+            status: Optional KnowledgeStatus (observability §2) — receives
+                per-source ingest progress and the merge phase.
+
         Returns:
             PipelineResult with statistics and any errors
         """
         result = PipelineResult()
-        
+
         if not sources:
             result.errors.append("No sources provided")
             return result
-        
+
         # Stage 1: Ingest all sources
         all_pages = []
         source_urls = []
         last_staging_dir = None  # Track the most recent staging directory
-        
-        for source in sources:
+
+        for source_index, source in enumerate(sources):
+            if status is not None:
+                status.phase(
+                    "ingest",
+                    sources={"done": source_index, "total": len(sources)},
+                    current_source=str(source),
+                    pages_extracted=len(all_pages),
+                )
             try:
                 logger.info(f"Ingesting source: {source}")
                 
@@ -216,14 +226,26 @@ class KnowledgePipeline:
         
         result.total_pages_extracted = len(all_pages)
         result.extracted_pages = all_pages
-        
+        if status is not None:
+            status.note(
+                f"ingest done: {len(all_pages)} pages from "
+                f"{result.sources_processed}/{len(sources)} sources",
+                sources={
+                    "done": result.sources_processed,
+                    "total": len(sources),
+                },
+                pages_extracted=len(all_pages),
+            )
+
         # If no pages extracted or skip_merge, return early
         if not all_pages or skip_merge:
             if not all_pages:
                 logger.warning("No pages extracted from any source")
             return result
-        
+
         # Stage 2: Merge into KG
+        if status is not None:
+            status.phase("merge")
         try:
             # Run merge (Stage 2) — pass staging_dir so the agent can
             # read candidate page files from disk on demand

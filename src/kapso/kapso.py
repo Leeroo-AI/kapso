@@ -20,6 +20,7 @@
 import json
 import os
 import subprocess
+import sys
 import uuid
 
 import yaml
@@ -31,6 +32,11 @@ from typing import Any, Dict, List, Optional, Union
 from dotenv import load_dotenv
 load_dotenv()
 
+from kapso.execution.observability import (
+    KnowledgeStatus,
+    LessonStatus,
+    OperationStatusView,
+)
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.solution import SolutionResult
 from kapso.execution.iteration_evaluator import IterationEvaluator
@@ -41,7 +47,7 @@ from kapso.knowledge_base.search.base import KGIndexMetadata
 from kapso.knowledge_base.learners import Source, KnowledgePipeline
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
-from kapso.core.config import load_config
+from kapso.core.config import load_config, load_mode_config
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.lesson_result import LessonResult, MemoryStatus
 from kapso.learning.mining import MiningFrame
@@ -418,6 +424,7 @@ class Kapso:
         kg_index: Optional[str] = None,
         github_org: Optional[str] = None,
         is_private: bool = True,
+        on_status: Optional[Any] = None,
     ) -> "PipelineResult":
         """
         Learn from one or more knowledge sources.
@@ -524,7 +531,37 @@ class Kapso:
             ingestor_params=ingestor_params,
             merger_params=final_merger_params,
         )
-        result = pipeline.run(*sources, skip_merge=skip_merge)
+
+        # Observability (design §2): ingestion sessions run long between
+        # natural updates, so the base-class daemon carries liveness; the
+        # pipeline reports per-source progress and the merge phase.
+        heartbeat_seconds = self._status_heartbeat_seconds()
+        status = KnowledgeStatus(
+            self._status_file("learn_knowledge"),
+            heartbeat_seconds=heartbeat_seconds,
+            daemon=bool(heartbeat_seconds),
+            on_status=on_status,
+        )
+        print(f"status: {status.path}")
+        try:
+            result = self._learn_knowledge_chain(
+                pipeline, sources, skip_merge, resolved_wiki_dir, status
+            )
+        finally:
+            in_flight = sys.exc_info()[1]
+            if in_flight is not None:
+                status.failed(in_flight)
+        return result
+
+    def _learn_knowledge_chain(
+        self,
+        pipeline: "KnowledgePipeline",
+        sources: tuple,
+        skip_merge: bool,
+        resolved_wiki_dir: str,
+        status: KnowledgeStatus,
+    ) -> "PipelineResult":
+        result = pipeline.run(*sources, skip_merge=skip_merge, status=status)
 
         # The merge wrote pages into the KG backends AND an .index beside
         # the wiki dir. Record that index as this agent's knowledge
@@ -564,6 +601,12 @@ class Kapso:
             f"errors={len(result.errors)}"
         )
 
+        status.done(
+            pages_extracted=result.total_pages_extracted,
+            created=result.created,
+            edited=result.edited,
+            errors=len(result.errors),
+        )
         return result
     
 
@@ -617,6 +660,38 @@ class Kapso:
             ),
         )
 
+    # =========================================================================
+    # Observability (evolve-observability-design.md v3)
+    # =========================================================================
+
+    @staticmethod
+    def status(path: str) -> OperationStatusView:
+        """Read any operation's status file — a workspace, a status file,
+        or a directory of them. A classmethod on purpose: observing a run
+        needs no constructed agent. `view.explain()` renders the same
+        screen `kapso watch` shows."""
+        return OperationStatusView(path)
+
+    def _status_heartbeat_seconds(self) -> Optional[float]:
+        """The status daemons' beat, from the resolved mode config's
+        budget block (the same key that paces evolve's durable clock)."""
+        interval = (
+            load_mode_config(self.config_path).get("budget") or {}
+        ).get("checkpoint_heartbeat_seconds")
+        return float(interval) if interval else None
+
+    def _status_file(self, operation: str) -> Path:
+        status_dir = (self._config.get("learning") or {}).get("status_dir")
+        if status_dir is None:
+            # Sourced from the canonical config, never re-hardcoded
+            # (Rule 1): caller configs that omit the key inherit the
+            # packaged default from its single home.
+            status_dir = load_config(DEFAULT_CONFIG_PATH)["learning"][
+                "status_dir"
+            ]
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        return Path(status_dir).expanduser() / f"{operation}-{stamp}.json"
+
     def learn(
         self,
         source: Union[SolutionResult, str],
@@ -625,6 +700,7 @@ class Kapso:
         learner_version: Optional[str] = None,
         exam: bool = True,
         push: Optional[bool] = None,
+        on_status: Optional[Any] = None,
     ) -> LessonResult:
         """Learn from one finished campaign: import it into the trajectory
         store, mine it, grade the bank on it (exam-before-lesson), then run
@@ -644,6 +720,9 @@ class Kapso:
                 head first. False is for development replays only.
             push: Push the bank commit to learning.bank.remote. None means
                 "push exactly when a remote is configured".
+            on_status: Optional hook called with the status dict after
+                every status write and heartbeat (observability §4b).
+                Exceptions from the hook propagate.
 
         Returns:
             LessonResult — what changed in the bank and the paper trail.
@@ -662,6 +741,40 @@ class Kapso:
             or learning_config["update_crew"]["default_version"]
         )
         store = TrajectoryStore.from_config(self._config)
+
+        # Observability (design §2): crew sessions run 30+ minutes between
+        # updates, so the base-class daemon carries liveness.
+        heartbeat_seconds = self._status_heartbeat_seconds()
+        status = LessonStatus(
+            self._status_file("learn"),
+            heartbeat_seconds=heartbeat_seconds,
+            daemon=bool(heartbeat_seconds),
+            on_status=on_status,
+        )
+        print(f"status: {status.path}")
+        try:
+            return self._learn_chain(
+                source, trajectory_id, version, exam, push, started,
+                store, learning_config, status,
+            )
+        finally:
+            in_flight = sys.exc_info()[1]
+            if in_flight is not None:
+                status.failed(in_flight)
+
+    def _learn_chain(
+        self,
+        source: Union[SolutionResult, str],
+        trajectory_id: Optional[str],
+        version: str,
+        exam: bool,
+        push: Optional[bool],
+        started: datetime,
+        store: TrajectoryStore,
+        learning_config: Dict[str, Any],
+        status: LessonStatus,
+    ) -> LessonResult:
+        status.phase("harvest")
 
         # --- dispatch (design §2) ---
         if isinstance(source, SolutionResult):
@@ -800,12 +913,18 @@ class Kapso:
                 upload=None,
             )
             print(f"  Harvested into store: {trajectory_id}")
+            status.note(
+                f"harvested into store ({trajectory_id})",
+                trajectory_id=trajectory_id,
+            )
 
         # --- mine (idempotent: skip when the view exists) ---
+        status.phase("mine", trajectory_id=trajectory_id)
         manifest = store.manifest(trajectory_id)
         if not manifest.get("derived", {}).get("mined"):
             mined_dir = MiningFrame.from_config(self._config).mine(trajectory_id)
             print(f"  Mined view: {mined_dir}")
+            status.note(f"mined view written ({mined_dir})")
 
         # --- the exam pin: clone + record the head BEFORE the lesson ---
         graders_root = Path(
@@ -826,8 +945,13 @@ class Kapso:
             check=True, capture_output=True, text=True,
         ).stdout.strip()
 
+        status.note(
+            f"pinned pre-lesson bank head {bank_head_before[:8]}",
+            bank_head_before=bank_head_before,
+        )
         exam_report_path: Optional[str] = None
         if exam:
+            status.phase("exam")
             grading = GradingFrame(store, self._config)
             learn_set_ids = [
                 row["id"] for row in store.list_manifests()
@@ -839,8 +963,10 @@ class Kapso:
                 str(graders_root), learn_set_ids,
             ))
             print(f"  Exam report: {exam_report_path}")
+            status.note(f"exam graded ({exam_report_path})")
 
         # --- the lesson ---
+        status.phase("lesson")
         frame = UpdateFrame(store, self._config)
         run_dir = frame.run_update(
             [{"trajectory": trajectory_id,
@@ -863,7 +989,7 @@ class Kapso:
                 check=True, capture_output=True, text=True,
             ).stdout.splitlines()
             for line in diff:
-                status, _, path = line.partition("\t")
+                change_status, _, path = line.partition("\t")
                 if not path.endswith(".md") or path.endswith("index.md"):
                     continue
                 # insights/<name>.md -> stem; procedures/<name>/card.md
@@ -874,12 +1000,19 @@ class Kapso:
                     if parts[0] == "procedures" and parts[-1] == "card.md"
                     else Path(path).stem
                 )
-                if status.startswith("A"):
+                if change_status.startswith("A"):
                     cards_created.append(name)
-                elif status.startswith("M"):
+                elif change_status.startswith("M"):
                     cards_updated.append(name)
 
+        status.note(
+            f"lesson landed: {len(cards_created)} created, "
+            f"{len(cards_updated)} updated; bank "
+            f"{bank_head_before[:8]} -> {bank_head_after[:8]}"
+        )
+
         # --- push (config-determined by default) ---
+        status.phase("push")
         remote = learning_config["bank"].get("remote")
         should_push = bool(remote) if push is None else push
         pushed = False
@@ -896,6 +1029,14 @@ class Kapso:
             pushed = True
 
         duration = (datetime.now(timezone.utc) - started).total_seconds()
+        status.done(
+            cards={
+                "created": sorted(cards_created),
+                "updated": sorted(cards_updated),
+            },
+            bank_head_after=bank_head_after,
+            pushed=pushed,
+        )
         return LessonResult(
             trajectory_id=trajectory_id,
             bank_head_before=bank_head_before,
@@ -908,6 +1049,7 @@ class Kapso:
                 "learner_version": version,
                 "pushed": pushed,
                 "duration_minutes": round(duration / 60, 1),
+                "status_path": str(status.path),
             },
         )
 
@@ -934,6 +1076,8 @@ class Kapso:
         additional_context: str = "",
         # --- Experience serving (design §4/§8) ---
         serving_scope: Optional[Dict[str, str]] = None,
+        # --- Observability (design §4b) ---
+        on_status: Optional[Any] = None,
     ) -> SolutionResult:
         """
         Evolve a solution for the given goal.
@@ -1127,6 +1271,7 @@ class Kapso:
             time_budget_minutes=time_budget_minutes,
             cost_budget=cost_budget,
             finalization_reserve_minutes=finalization_reserve_minutes,
+            on_status=on_status,
         )
         
         # Collect results
@@ -1159,6 +1304,8 @@ class Kapso:
                 "stop_detail": solve_result.stop_detail,
                 "best_branch": best_branch,
                 "resumed": resume,
+                # Observability (design §1): the durable last frame.
+                "status_path": str(orchestrator.operation_status.path),
                 # Memory provenance (design §8.2): the exact stores this
                 # solution drew on.
                 "kg_index": self._kg_index_path,

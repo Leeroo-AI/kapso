@@ -448,6 +448,7 @@ class GenericSearch(SearchStrategy):
 
         # Step 1: Generate solution(s). With node_expansion_value > 1 the
         # selector emits a ranked top-K; each entry becomes one lane.
+        self._status_phase("ideation")
         solutions, ideation_sections, ideation_telemetry = self._generate_solution(
             problem,
             parent.branch_name,
@@ -514,6 +515,7 @@ class GenericSearch(SearchStrategy):
             f"(from {parent.branch_name})"
         )
 
+        self._status_phase("implementation")
         agent_output, implementation_telemetry, recovered = self._implement(
             solution=solution,
             problem=problem,
@@ -615,6 +617,7 @@ class GenericSearch(SearchStrategy):
 
         # Post-barrier: integrity + feedback serialized in node-id order —
         # deterministic history, no interleaved feedback sessions.
+        self._status_phase("feedback")
         for node in nodes:
             if self.enforce_evaluation_integrity(node):
                 self._generate_feedback(node)
@@ -683,7 +686,8 @@ class GenericSearch(SearchStrategy):
 
     def _run_lens_planner_session(self, prompt: str, ideation_dir: str):
         """One planner/replanner claude session; returns (result, cost_usd)."""
-        return run_lens_planner_session(
+        self._status_phase("lens_planning")
+        result = run_lens_planner_session(
             prompt,
             ideation_dir,
             planner=self.ideation_lens_planner,
@@ -697,6 +701,10 @@ class GenericSearch(SearchStrategy):
             session_effort=self.session_effort,
             artifacts_dir=self._ideation_artifacts_dir(),
         )
+        # Planning runs inside the ideation step; flip the live phase back
+        # so the sessions that follow are not reported as still planning.
+        self._status_phase("ideation")
+        return result
 
     def _resolve_member_lenses(
         self, problem: str, ideation_dir: str
@@ -939,6 +947,7 @@ class GenericSearch(SearchStrategy):
         deadline_seconds: Optional[float],
     ) -> Optional[float]:
         """Frame-run the registered evaluation on an existing artifact."""
+        self._status_phase("evaluation")
         return execute_registered_evaluation(
             target,
             fidelity=fidelity,

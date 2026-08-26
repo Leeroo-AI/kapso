@@ -18,8 +18,10 @@
 #     kapso index_kg --wiki-dir ./data/wikis --save-to ./data/indexes/ml.index
 
 import argparse
+import json
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -170,7 +172,6 @@ def cmd_research(args) -> None:
     
     # Save to file if requested
     if args.output:
-        import json
         output_data = {
             "objective": objective,
             "mode": modes,
@@ -431,7 +432,6 @@ def cmd_deploy(args) -> None:
     if args.interactive:
         print("\nSoftware deployed. Press Ctrl+C to stop.")
         try:
-            import time
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
@@ -467,6 +467,27 @@ def cmd_index_kg(args) -> None:
     print("INDEX COMPLETE")
     print("=" * 60)
     print(f"Index saved to: {index_path}")
+
+
+def cmd_watch(args) -> None:
+    """One watch command for evolve / learn / learn_knowledge status files
+    (observability design §3). Pure reader — never writes."""
+    view = Kapso.status(args.path)
+    if args.json:
+        print(json.dumps(view.data, indent=1))
+        return
+    if not args.follow:
+        print(view.explain())
+        return
+    # Follow: re-render at the operation's own heartbeat cadence (falls
+    # back to a display-structural 5s when the file records none).
+    interval = float(view.data.get("heartbeat_seconds") or 5)
+    while True:
+        view = Kapso.status(args.path)
+        print("\x1b[2J\x1b[H" + view.explain(), flush=True)
+        if view.state in ("done", "failed"):
+            return
+        time.sleep(interval)
 
 
 def main():
@@ -744,7 +765,36 @@ Examples:
     index_parser.add_argument("--save-to", type=str, required=True, help="Path to save .index file")
     index_parser.add_argument("--search-type", type=str, help="Search backend type (kg_graph_search, kg_llm_navigation)")
     index_parser.add_argument("--force", action="store_true", help="Clear existing data before indexing")
-    
+
+    # =========================================================================
+    # WATCH command (observability design §3)
+    # =========================================================================
+    watch_parser = subparsers.add_parser(
+        "watch",
+        help="Watch a running evolve / learn / learn_knowledge operation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  kapso watch ./campaign                 # a workspace (-> .kapso/status.json)
+  kapso watch learning/status            # newest status file in a directory
+  kapso watch learning/status/learn-20260826T120000.json
+  kapso watch ./campaign --follow        # live re-render until terminal
+  kapso watch ./campaign --json | jq -r '[.state] | @tsv'
+""",
+    )
+    watch_parser.add_argument(
+        "path",
+        help="Workspace, status file, or directory of status files",
+    )
+    watch_parser.add_argument(
+        "--json", action="store_true",
+        help="Print the status file once, as JSON",
+    )
+    watch_parser.add_argument(
+        "--follow", action="store_true",
+        help="Re-render on each heartbeat until the operation ends",
+    )
+
     # =========================================================================
     # Parse and execute
     # =========================================================================
@@ -766,6 +816,8 @@ Examples:
         cmd_deploy(args)
     elif args.command == "index_kg":
         cmd_index_kg(args)
+    elif args.command == "watch":
+        cmd_watch(args)
     else:
         parser.print_help()
         print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg)")

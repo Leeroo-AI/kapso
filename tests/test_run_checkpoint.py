@@ -530,6 +530,40 @@ def test_goal_achieved_checkpoint_is_saved_before_stop(
         _orchestrator(workspace, resume=True)
 
 
+def test_solve_writes_the_observability_status_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Observability wiring (design §2): solve() creates the campaign's
+    # status file, attaches it to the strategy for phase markers, records
+    # iteration/node progress in the recent ring, and closes the state
+    # machine on exit — the durable last frame kapso watch reads.
+    import json as json_module
+
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch, stop_next=True)
+
+    frames = []
+    orchestrator = _orchestrator(workspace)
+    orchestrator.solve(experiment_max_iter=1, on_status=frames.append)
+
+    status = json_module.loads(
+        (workspace / ".kapso" / "status.json").read_text()
+    )
+    assert status["operation"] == "evolve"
+    assert status["state"] == "done"
+    assert status["stopped_reason"] == "goal_achieved"
+    assert status["iteration"] == 1
+    assert any("node" in line and "score" in line
+               for line in status["recent"])
+    assert orchestrator.search_strategy.operation_status is (
+        orchestrator.operation_status
+    )
+    # The hook saw the same frames the file carried, ending terminal.
+    assert frames and frames[-1]["state"] == "done"
+
+
 def test_budget_exhaustion_pauses_resumably_with_last_stop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -659,6 +693,9 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
         def __init__(self, handler: Any, **kwargs: Any):
             captured.update(kwargs)
             self.search_strategy = PublicFakeStrategy()
+            self.operation_status = SimpleNamespace(
+                path="fake/.kapso/status.json"
+            )
 
         def solve(
             self,
@@ -666,6 +703,7 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
             time_budget_minutes=None,
             cost_budget=None,
             finalization_reserve_minutes=None,
+            on_status=None,
         ) -> SolveResult:
             assert experiment_max_iter == 1
             return SolveResult(

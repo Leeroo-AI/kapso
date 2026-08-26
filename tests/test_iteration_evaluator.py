@@ -499,6 +499,9 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
         def __init__(self, handler: Any, **kwargs: Any):
             captured.update(kwargs)
             self.search_strategy = PublicFakeStrategy()
+            self.operation_status = SimpleNamespace(
+                path="fake/.kapso/status.json"
+            )
 
         def solve(
             self,
@@ -506,6 +509,7 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
             time_budget_minutes=None,
             cost_budget=None,
             finalization_reserve_minutes=None,
+            on_status=None,
         ) -> SolveResult:
             return SolveResult(
                 best_experiment=selected,

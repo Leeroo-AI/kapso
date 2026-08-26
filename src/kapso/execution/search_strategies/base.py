@@ -626,6 +626,15 @@ class SearchStrategy(ABC):
         """Store the executive's granted profile for this iteration."""
         self.fidelity_decision = decision
 
+    def _status_phase(self, phase: str) -> None:
+        """Record the live phase on the campaign status file when the
+        orchestrator attached one (observability §2). Read via getattr,
+        never an __init__ attribute: many test harnesses build strategies
+        through __new__ and would miss it."""
+        status = getattr(self, "operation_status", None)
+        if status is not None:
+            status.phase(phase)
+
     def dump_evaluation_integrity_state(self) -> Dict[str, Any]:
         """Return the provided-suite baseline stored with strategy state."""
         return {

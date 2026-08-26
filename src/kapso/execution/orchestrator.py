@@ -12,11 +12,12 @@
 
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from kapso.knowledge_base.search import (
     KnowledgeSearch,
@@ -45,6 +46,7 @@ from kapso.execution.evaluation_integrity import (
     manifest_fingerprint,
     verify_data_manifest,
 )
+from kapso.execution.observability import EvolveStatus
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
     RunCheckpointError,
@@ -227,6 +229,10 @@ class OrchestratorAgent:
         self.checkpoint_store: Optional[RunCheckpointStore] = None
         self._checkpoint_lock = threading.Lock()
         self._heartbeat_stop = threading.Event()
+        # Observability (design §2): created by solve() once the budget is
+        # resolved; lives at <workspace>/.kapso/status.json.
+        self.operation_status: Optional[EvolveStatus] = None
+        self._status_budget_total_min: Optional[float] = None
         self._resume_checkpoint: Optional[RunCheckpoint] = None
         self.completed_iterations = 0
         self._prior_cost = 0.0
@@ -985,10 +991,23 @@ class OrchestratorAgent:
         with self._checkpoint_lock:
             self.checkpoint_store.save(checkpoint)
 
+    def _status_budget_view(self) -> Dict[str, Any]:
+        """The status file's time-only budget payload (observability §1)."""
+        return {
+            "elapsed_min": round(self.get_elapsed_seconds() / 60, 1),
+            "total_min": self._status_budget_total_min,
+        }
+
     def _run_checkpoint_heartbeat(self, interval_seconds: float) -> None:
         """Daemon loop: keep the durable clock fresh between boundary
-        checkpoints so a preemption cannot rewind the budget on resume."""
+        checkpoints so a preemption cannot rewind the budget on resume.
+        The same beat refreshes the observability status file — evolve's
+        liveness signal rides this existing daemon (observability §2)."""
         while not self._heartbeat_stop.wait(interval_seconds):
+            if self.operation_status is not None:
+                self.operation_status.heartbeat(
+                    budget=self._status_budget_view()
+                )
             if self.checkpoint_store is None:
                 continue
             with self._checkpoint_lock:
@@ -1112,6 +1131,7 @@ class OrchestratorAgent:
         time_budget_minutes: Optional[float] = None,
         cost_budget: Optional[float] = None,
         finalization_reserve_minutes: Optional[float] = None,
+        on_status: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> SolveResult:
         """
         Run the main experimentation loop.
@@ -1188,6 +1208,26 @@ class OrchestratorAgent:
         # restarting the campaign (and re-buying the maintainer setup).
         self._save_run_checkpoint(status="running")
         heartbeat_seconds = self._config_budget.get("checkpoint_heartbeat_seconds")
+
+        # Observability (design §1/§2): the status file lives with the
+        # campaign's artifacts; the checkpoint-heartbeat daemon below is
+        # its liveness signal, so no separate daemon thread is started.
+        self._status_budget_total_min = (
+            round(budget_spec.time_budget_seconds / 60, 1)
+            if budget_spec.time_budget_seconds is not None else None
+        )
+        self.operation_status = EvolveStatus(
+            Path(self.search_strategy.workspace.workspace_dir)
+            / ".kapso" / "status.json",
+            heartbeat_seconds=(
+                float(heartbeat_seconds) if heartbeat_seconds else None
+            ),
+            on_status=on_status,
+            budget=self._status_budget_view(),
+        )
+        self.search_strategy.operation_status = self.operation_status
+        print(f"status: {self.operation_status.path}")
+
         if heartbeat_seconds and self.checkpoint_store is not None:
             threading.Thread(
                 target=self._run_checkpoint_heartbeat,
@@ -1357,7 +1397,13 @@ class OrchestratorAgent:
                 self.search_strategy.observe_fidelity(decision)
 
                 iterations_run = i + 1
-                
+                self.operation_status.note(
+                    f"iteration {iterations_run} started "
+                    f"(budget {budget_progress:.0f}%)",
+                    iteration=iterations_run,
+                    budget=self._status_budget_view(),
+                )
+
                 # Build context with problem and feedback
                 # Experiment history is accessed via MCP tools by the agent
                 context = problem
@@ -1421,6 +1467,19 @@ class OrchestratorAgent:
                 print(f"  - Should stop: {node.should_stop}")
                 print(f"  - Evaluation valid: {node.evaluation_valid}")
                 print(f"  - Feedback: {node.feedback or ''}")
+
+                best_node = self.search_strategy.get_best_experiment()
+                self.operation_status.note(
+                    f"node {node.node_id} completed score={node.score}",
+                    last={"score": node.score, "node": node.node_id},
+                    best=(
+                        {
+                            "score": getattr(best_node, "score", None),
+                            "node": getattr(best_node, "node_id", None),
+                        }
+                        if best_node is not None else None
+                    ),
+                )
                 
                 # Store feedback result for return value
                 if node.feedback:
@@ -1543,6 +1602,21 @@ class OrchestratorAgent:
                 self._save_run_checkpoint(status="running")
         finally:
             self._heartbeat_stop.set()
+            # Terminal status without an except: sys.exc_info() inside a
+            # finally sees any in-flight exception, so the state machine
+            # closes on both paths and the error still propagates
+            # unhandled (Rule 2).
+            in_flight = sys.exc_info()[1]
+            if in_flight is not None:
+                self.operation_status.failed(
+                    in_flight, budget=self._status_budget_view()
+                )
+            else:
+                self.operation_status.done(
+                    stopped_reason=stopped_reason,
+                    stop_detail=stop_detail,
+                    budget=self._status_budget_view(),
+                )
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
 
             # Close knowledge search only if the orchestrator created it.

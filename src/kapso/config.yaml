@@ -57,6 +57,12 @@ defaults:
   models:
     # Embeddings route (experiment-store semantic search, knowledge search).
     embedding: "text-embedding-3-small"
+  budget:
+    # Durable-clock + status heartbeat interval. Feeds the orchestrator's
+    # checkpoint heartbeat daemon (elapsed_seconds stays fresh between
+    # boundary checkpoints) and the observability layer's liveness signal:
+    # a status file whose heartbeat is 3 intervals stale renders STALLED.
+    checkpoint_heartbeat_seconds: 60
   retry:
     # Hard per-request wall clock handed to the provider client. Without it
     # a connection the server abandons mid-stream blocks the calling thread
@@ -205,6 +211,10 @@ learning:
   # Import reports land under the run-dir home (doubt D6: repo-root
   # `learning/`, gitignored, synced to the artifacts bucket).
   import_report_dir: learning/imports
+  # Status files for learn / learn_knowledge (observability design §1);
+  # evolve's lives with its workspace at W/.kapso/status.json. Watch any
+  # of them with `kapso watch <path>`.
+  status_dir: learning/status
   harvest:
     # Campaign drivers save finished campaigns into the store under the
     # strict contract (P1.G — the evolve->learn bridge). Store stays

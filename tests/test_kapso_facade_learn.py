@@ -29,6 +29,7 @@ def facade_config(tmp_path) -> str:
             "trajectory_store": {"local": str(tmp_path / "store"),
                                  "remote": None},
             "import_report_dir": str(tmp_path / "imports"),
+            "status_dir": str(tmp_path / "status"),
             "harvest": {"enabled": True},
             "serving": {"enabled": False},
             "bank": {"local_path": str(tmp_path / "bank-home.git"),
@@ -258,6 +259,9 @@ def test_evolve_serving_staging_and_disabled_byte_identity(
                 iteration_evaluations=[],
                 ideation_gates=list(FakeOrchestrator.gates),
             )
+            self.operation_status = SimpleNamespace(
+                path=str(tmp_path / "ws" / ".kapso" / "status.json")
+            )
 
         def solve(self, **kwargs):
             return SimpleNamespace(
@@ -310,7 +314,7 @@ def test_learn_knowledge_flattens_research_output(tmp_path, monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def run(self, *sources, skip_merge=False):
+        def run(self, *sources, skip_merge=False, status=None):
             captured["sources"] = sources
             return SimpleNamespace(
                 sources_processed=len(sources), total_pages_extracted=1,
@@ -372,7 +376,7 @@ def test_learn_knowledge_records_the_index_it_wrote(tmp_path, monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def run(self, *sources, skip_merge=False):
+        def run(self, *sources, skip_merge=False, status=None):
             return SimpleNamespace(
                 sources_processed=1, total_pages_extracted=3,
                 created=3, edited=0, errors=[],
