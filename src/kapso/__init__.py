@@ -18,6 +18,14 @@
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
+# litellm's import-time async-client cleanup warns "There is no current
+# event loop" on plain sync imports — third-party noise, not ours.
+# Matched by message: the module= form misses it because the warning is
+# attributed to asyncio's frame, not litellm's.
+warnings.filterwarnings(
+    "ignore", category=DeprecationWarning,
+    message="There is no current event loop",
+)
 
 # All public symbols are loaded lazily via __getattr__.
 #

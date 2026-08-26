@@ -56,7 +56,7 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 | Pillar | Method | Description |
 |--------|--------|-------------|
 | **Evolve** | `.evolve()` | Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions. |
-| **Learn** | `.learn()` | Ingest knowledge from repositories, past solutions, or research results. Extracts patterns and best practices into the Knowledge Graph. |
+| **Learn** | `.learn()` / `.learn_knowledge()` | Two memories: `learn()` mines your own finished campaigns into evidence-priced knowledge cards (experience); `learn_knowledge()` ingests repositories and research into the Knowledge Graph (imported knowledge). |
 | **Research** | `.research()` | Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions. |
 | **Deploy** | `.deploy()` | Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal. |
 
@@ -64,43 +64,61 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 
 ### Installation
 
-**From PyPI (recommended)**
+**1. Prerequisites.** Kapso runs its inference through coding-agent CLIs
+(there is no direct-API fallback), so you need Node.js and both agent
+CLIs logged in before anything works:
+
+```bash
+# Node.js 18+ (https://nodejs.org), then:
+npm install -g @openai/codex            # research, judging, utilities
+codex login
+
+npm install -g @anthropic-ai/claude-code  # ideation + implementation (default mode)
+claude auth login
+```
+
+Add an OpenAI key for embeddings (memory and knowledge-search indexing):
+
+```bash
+echo 'OPENAI_API_KEY=sk-...' >> .env
+```
+
+**2. Install the package** (Python 3.10+):
 
 ```bash
 pip install leeroo-kapso
 ```
 
-**Coding-agent CLI (required)** — every Kapso inference call (judging,
-research, knowledge search, commit messages) runs as a coding-agent CLI
-session; there is no direct-API fallback. Install and authenticate the
-default agent, [Codex CLI](https://github.com/openai/codex), before
-running anything:
+**3. Verify the setup:**
 
 ```bash
-npm install -g @openai/codex
-codex login
+kapso doctor
 ```
 
-An `OPENAI_API_KEY` in `.env` is still needed for embeddings (memory and
-knowledge-search indexing).
+`doctor` checks the CLIs, their logins, and the key, and tells you the
+exact fix for anything missing. The optional items it reports (docker,
+Weaviate, Neo4j) matter only for the knowledge-graph features below.
+
+**Knowledge-graph backends (optional)** — `learn_knowledge()` and
+`kg_index` store into local Weaviate + Neo4j. From a source checkout:
+
+```bash
+bash scripts/start_infra.sh   # starts both via docker
+```
 
 **From source (for development or to access wiki knowledge data)**
 
 ```bash
 git clone https://github.com/leeroo-ai/kapso.git
 cd kapso
+git lfs install && git lfs pull    # wiki knowledge data
 
-# Pull Git LFS files (wiki knowledge data)
-git lfs install
-git lfs pull
-
-# Create conda environment (recommended)
-conda create -n kapso python=3.12
-conda activate kapso
-
-# Install in development mode
+conda create -n kapso python=3.12 && conda activate kapso
 pip install -e .
 ```
+
+The legacy aider adapter is an extra (`pip install "leeroo-kapso[aider]"`,
+Python <3.13); the default claude/codex agents need no extras.
 
 **Leeroopedia MCP (optional)** — connect Kapso to [Leeroopedia](https://leeroopedia.com), a curated ML/AI knowledge base. Sign up at [leeroopedia.com](https://leeroopedia.com) for an API key, then:
 
@@ -111,43 +129,66 @@ echo 'LEEROOPEDIA_API_KEY=kpsk_your_key_here' >> .env
 
 ### Basic Usage
 
+The core loop needs nothing beyond the prerequisites above:
+
 ```python
-from kapso import Kapso, Source, DeployStrategy
+from kapso import Kapso
 
-# Initialize Kapso
-# If you have a Knowledge Graph, pass kg_index; otherwise just use Kapso()
-kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
+kapso = Kapso()   # no knowledge graph needed to start
 
-# Research: Gather domain-specific techniques from the web
-# mode: "idea" | "implementation" | "study" (can pass multiple as list)
-# depth: "light" | "deep" (default: "deep")
+# Evolve: build a solution through experimentation. The campaign prints
+# `status: <path>` at launch — watch it live from another terminal with
+#     kapso watch ./campaign
+solution = kapso.evolve(
+    goal="Optimize the model in train.py; target accuracy > 0.80 on evaluate.py",
+    initial_repo="./my_project",         # or omit to start from scratch
+    output_path="./campaign",
+    time_budget_minutes=120,
+)
+print(solution.explain())
 
+# Learn from the campaign you just ran: mine the trajectory, grade the
+# lessons, and bank evidence-priced knowledge cards.
+lesson = kapso.learn(solution)
+print(lesson.explain())
+
+# Evolve again — with `learning.serving.enabled: true` in your config,
+# the next campaign is served the cards it just earned.
+solution2 = kapso.evolve(goal="...", output_path="./campaign2")
+```
+
+With the knowledge-graph backends running, you can also import outside
+knowledge and serve it to campaigns:
+
+```python
+from kapso import Kapso, Source
+
+kapso = Kapso()
+
+# Research the web, then ingest findings + a repository into the KG
 findings = kapso.research(
     "RLHF and DPO fine-tuning for legal contract analysis",
     mode=["idea", "implementation"],
-    depth="deep",
 )
-
-# Learn: Ingest knowledge from repositories and research into the KG
-kapso.learn(
+kapso.learn_knowledge(
     Source.Repo("https://github.com/huggingface/trl"),
-    *findings.ideas,           # List[Source.Idea]
-    *findings.implementations, # List[Source.Implementation]
+    findings.ideas,
+    findings.implementations,
     wiki_dir="data/wikis",
 )
 
-# Evolve: Build a solution through experimentation
-# Use research results as context via to_string()
-solution = kapso.evolve(
-    goal="Fine-tune Llama-3.1-8B for legal clause risk classification, target F1 > 0.85",
-    data_dir="./data/cuad_dataset", 
-    output_path="./models/legal_risk_v1",
-    context=[findings.to_string()],
-)
+# Campaigns on this Kapso now consult the knowledge graph automatically
+solution = kapso.evolve(goal="Fine-tune Llama-3.1-8B for clause risk classification")
+```
 
-# Deploy: Turn solution into running deployed_program
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-deployed_program.stop()
+And to turn a solution into running software:
+
+```python
+from kapso import DeployStrategy
+
+deployed = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = deployed.run({"input": "data"})
+deployed.stop()
 ```
 
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.

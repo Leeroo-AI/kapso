@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Union
 from dotenv import load_dotenv
 load_dotenv()
 
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.observability import (
     KnowledgeStatus,
     LessonStatus,
@@ -171,6 +172,10 @@ class Kapso:
         """
         self.config_path = config_path or DEFAULT_CONFIG_PATH
         self._config = load_config(self.config_path)
+        # By construction time every dependency import has settled, so
+        # this atexit registration lands last (LIFO-first at exit) and
+        # keeps third-party exit-time warning noise out of user output.
+        CodingAgentFactory.register_quiet_exit()
 
         # The agent's memory resolves ONCE here (design §8.2): knowledge =
         # the KG connection below; experience = the bank home. Every later

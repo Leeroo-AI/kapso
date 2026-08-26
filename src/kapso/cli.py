@@ -19,6 +19,7 @@
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -465,6 +466,108 @@ def cmd_index_kg(args) -> None:
     print(f"Index saved to: {index_path}")
 
 
+def _doctor_checks() -> list:
+    """Environment checks behind `kapso doctor` (onboarding audit
+    2026-08-26). Returns [(ok, required, label, hint)] — pure probes, no
+    state changes. Kept CLI-local: the subprocess/socket probes are the
+    doctor's own concern, not platform code."""
+    import shutil as shutil_module
+    import socket
+
+    checks = []
+
+    def probe_port(host, port):
+        try:
+            with socket.create_connection((host, port), timeout=2):
+                return True
+        except OSError:
+            return False
+
+    def claude_authenticated():
+        if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            return True
+        result = subprocess.run(
+            ["claude", "auth", "status"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return False
+        status = json.loads(result.stdout)
+        return bool(status.get("loggedIn"))
+
+    # --- required: the inference CLIs (every completion is a session) ---
+    node = shutil_module.which("node")
+    checks.append((
+        bool(node), True, "node / npm",
+        "install Node.js (https://nodejs.org) — both agent CLIs ship via npm",
+    ))
+    codex = shutil_module.which("codex")
+    checks.append((
+        bool(codex), True, "codex CLI",
+        "npm install -g @openai/codex",
+    ))
+    if codex:
+        codex_auth = (Path.home() / ".codex" / "auth.json").is_file()
+        checks.append((
+            codex_auth, True, "codex authenticated",
+            "codex login",
+        ))
+    claude = shutil_module.which("claude")
+    checks.append((
+        bool(claude), True, "claude CLI",
+        "npm install -g @anthropic-ai/claude-code "
+        "(the default GENERIC mode ideates and implements with claude)",
+    ))
+    if claude:
+        checks.append((
+            claude_authenticated(), True, "claude authenticated",
+            "claude auth login  (or set CLAUDE_CODE_OAUTH_TOKEN)",
+        ))
+    checks.append((
+        bool(os.environ.get("OPENAI_API_KEY")), True,
+        "OPENAI_API_KEY (embeddings)",
+        "put OPENAI_API_KEY in .env — memory and knowledge search embed "
+        "through the OpenAI API",
+    ))
+
+    # --- optional: knowledge-graph infrastructure ---
+    checks.append((
+        bool(shutil_module.which("docker")), False, "docker",
+        "needed to run the KG backends locally (scripts/start_infra.sh)",
+    ))
+    checks.append((
+        probe_port("localhost", 8080), False, "Weaviate (localhost:8080)",
+        "bash scripts/start_infra.sh — required for learn_knowledge()/kg_index",
+    ))
+    checks.append((
+        probe_port("localhost", 7687), False, "Neo4j (localhost:7687)",
+        "bash scripts/start_infra.sh — required for the kg_llm_navigation backend",
+    ))
+    return checks
+
+
+def cmd_doctor(args) -> None:
+    """Check the machine is ready to run Kapso; exit 1 on missing
+    requirements."""
+    checks = _doctor_checks()
+    required_failures = 0
+    print("kapso doctor\n" + "=" * 60)
+    for ok, required, label, hint in checks:
+        mark = "OK " if ok else ("FAIL" if required else "-- ")
+        print(f"  [{mark}] {label}")
+        if not ok:
+            print(f"         fix: {hint}")
+            if required:
+                required_failures += 1
+    print("=" * 60)
+    if required_failures:
+        print(f"{required_failures} required check(s) failed — fix the "
+              "items above, then rerun `kapso doctor`.")
+        sys.exit(1)
+    print("Required checks passed. Optional items above only matter for "
+          "the knowledge-graph features.")
+
+
 def cmd_watch(args) -> None:
     """One watch command for evolve / learn / learn_knowledge status files
     (observability design §3). Pure reader — never writes."""
@@ -487,6 +590,7 @@ def cmd_watch(args) -> None:
 
 
 def main():
+    CodingAgentFactory.register_quiet_exit()
     # Main parser
     parser = argparse.ArgumentParser(
         description="Kapso Agent - Build robust software from goals",
@@ -499,6 +603,7 @@ Commands:
   deploy     Deploy solutions as running software
   index_kg   Index knowledge graph from wiki or JSON data
   watch      Watch a running evolve / learn / learn_knowledge operation
+  doctor     Check this machine is ready to run Kapso
 
 Examples:
   # Evolve a solution
@@ -793,6 +898,20 @@ Examples:
     )
 
     # =========================================================================
+    # DOCTOR command (onboarding)
+    # =========================================================================
+    subparsers.add_parser(
+        "doctor",
+        help="Check this machine is ready to run Kapso",
+        description=(
+            "Probes the required tooling (node, codex + login, claude + "
+            "login, OPENAI_API_KEY) and the optional knowledge-graph "
+            "infrastructure (docker, Weaviate, Neo4j). Exits non-zero "
+            "when a required item is missing."
+        ),
+    )
+
+    # =========================================================================
     # Parse and execute
     # =========================================================================
     args = parser.parse_args()
@@ -815,9 +934,11 @@ Examples:
         cmd_index_kg(args)
     elif args.command == "watch":
         cmd_watch(args)
+    elif args.command == "doctor":
+        cmd_doctor(args)
     else:
         parser.print_help()
-        print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg, watch)")
+        print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg, watch, doctor)")
         sys.exit(1)
 
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leeroo-kapso"
-version = "0.3.0"
+version = "0.3.1"
 description = "A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,13 +25,14 @@ classifiers = [
 ]
 keywords = ["ai", "ml", "optimization", "code-generation", "llm", "agents"]
 
-# Core dependencies
-# NOTE: aider-chat has strict pinned dependencies (litellm, openai, cffi, etc.)
-# that conflict with openhands and browser-use. Do not install those packages
-# in the same environment. See requirements.txt for details.
+# Core dependencies — deliberately lean (onboarding audit 2026-08-26):
+# inference runs through the npm coding-agent CLIs, so the pip core is
+# config/orchestration + the embedding path + the KG clients. The aider
+# adapter moved to an optional extra: it blocked Python 3.13 installs
+# outright (no py3.13 aider-chat release) and carried most of a 777MB
+# footprint for an agent no production mode uses.
 dependencies = [
     "GitPython",
-    "aider-chat>=0.35.0",
     # Embeddings only since the CLI-inference conversion (2026-08-26);
     # the old reasoning_effort pin rationale died with the completion path.
     "litellm==1.75.0",
@@ -52,11 +53,17 @@ dependencies = [
     "tiktoken",
     # OpenAI embeddings API
     "openai>=1.0.0",
-    # Pin cryptography to avoid cffi>=2.0.0 requirement (conflicts with aider-chat)
-    "cryptography<46.0.0",
 ]
 
 [project.optional-dependencies]
+# The aider adapter (legacy; requires Python <3.13). Its pinned deps
+# (litellm, openai, cffi) conflict with openhands and browser-use — do
+# not install those in the same environment.
+aider = [
+    "aider-chat>=0.35.0",
+    # cffi<2 pin aider needs; kept beside it so the core stays unpinned.
+    "cryptography<46.0.0",
+]
 mle = [
     "neo4j",
     "openai",

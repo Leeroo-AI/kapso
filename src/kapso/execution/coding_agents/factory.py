@@ -10,10 +10,14 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
 
+import atexit
 import importlib
+import logging
 import yaml
 from pathlib import Path
 from typing import Dict, Type, List, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from kapso.execution.coding_agents.base import CodingAgentInterface, CodingAgentConfig
 
@@ -57,9 +61,12 @@ class CodingAgentFactory:
         """
         name_lower = name.lower()
         if name_lower in cls._registry:
-            print(f"[CodingAgentFactory] Warning: Overwriting agent '{name}'")
+            logger.warning("Overwriting registered agent %r", name)
         cls._registry[name_lower] = agent_class
-        print(f"[CodingAgentFactory] Registered agent: {name}")
+        # Registration is import-time plumbing, not user output: six print
+        # lines on EVERY `import kapso` was the first thing a new engineer
+        # saw (onboarding audit 2026-08-26). --list-agents stays printed.
+        logger.debug("Registered agent: %s", name)
     
     @classmethod
     def create(cls, config: CodingAgentConfig) -> CodingAgentInterface:
@@ -201,6 +208,11 @@ class CodingAgentFactory:
         return sorted(cls._registry.keys())
     
     @classmethod
+    def register_quiet_exit(cls) -> None:
+        """Suppress third-party exit-time warning noise (idempotent)."""
+        register_quiet_exit()
+
+    @classmethod
     def is_available(cls, name: str) -> bool:
         """
         Check if an agent type is registered.
@@ -324,12 +336,35 @@ def _register_from_yaml() -> None:
             agent_class = getattr(module, class_name)
             CodingAgentFactory.register(agent_name, agent_class)
         except ImportError as e:
-            # Dependency not installed - this is expected for some agents
-            print(f"[CodingAgentFactory] {agent_name} not available (import): {e}")
+            # Dependency not installed — expected for optional-extra agents
+            # (e.g. aider); `kapso doctor` and --list-agents surface it.
+            logger.info("%s not available (import): %s", agent_name, e)
         except AttributeError as e:
-            # Class not found in module
-            print(f"[CodingAgentFactory] {agent_name} not available (class): {e}")
+            logger.warning("%s not available (class): %s", agent_name, e)
 
 
 # Auto-register on module import
 _register_from_yaml()
+
+# litellm's atexit cleanup warns "There is no current event loop" AT
+# PROCESS EXIT, and dependency imports keep prepending warning filters
+# that shadow the package-level ignore. The fix must be the LAST atexit
+# registration (LIFO runs it first, re-asserting the filter right before
+# litellm's hook fires) — so entry points call register_quiet_exit()
+# AFTER all imports settle (cli main, Kapso.__init__), not import time.
+_QUIET_EXIT_REGISTERED = False
+
+
+def _reassert_exit_warning_filter() -> None:
+    warnings.filterwarnings(
+        "ignore", category=DeprecationWarning,
+        message="There is no current event loop",
+    )
+
+
+def register_quiet_exit() -> None:
+    """Suppress third-party exit-time warning noise; idempotent."""
+    global _QUIET_EXIT_REGISTERED
+    if not _QUIET_EXIT_REGISTERED:
+        atexit.register(_reassert_exit_warning_filter)
+        _QUIET_EXIT_REGISTERED = True
