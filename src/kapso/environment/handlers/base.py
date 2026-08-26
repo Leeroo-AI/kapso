@@ -19,7 +19,7 @@ class ProblemRunResult:
     """
     Result of running code on a problem.
     
-    DEPRECATED: This class is kept for backward compatibility with benchmarks.
+    The benchmark handlers' run-result contract (relbench/mle/ale).
     In the new design, the developer agent handles evaluation and returns
     results via kapso_evaluation/result.json.
     """

@@ -13,7 +13,6 @@ from kapso.execution.search_strategies.base import (
 )
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
-from kapso.core.llm import LLMBackend
 
 if TYPE_CHECKING:
     from kapso.execution.search_strategies.generic import FeedbackGenerator
@@ -103,7 +102,7 @@ class SearchStrategyFactory:
         cls,
         strategy_type: str,
         problem_handler: ProblemHandler,
-        llm: LLMBackend,
+        llm: Any,
         coding_agent_config: CodingAgentConfig,
         params: Optional[Dict[str, Any]] = None,
         preset: Optional[str] = None,

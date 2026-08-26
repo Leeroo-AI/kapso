@@ -1,5 +1,5 @@
 """
-Research Gate - Deep web research using OpenAI's web_search.
+Research Gate - Deep web research (live web-search session).
 
 Provides tools for research_idea, research_implementation, and research_study.
 """
@@ -19,7 +19,7 @@ class ResearchGate(ToolGate):
     """Research gate for deep web research using OpenAI's web_search."""
     
     name = "research"
-    description = "Deep web research using OpenAI's web_search"
+    description = "Deep web research (live web-search session)"
     
     def get_tools(self) -> List[Tool]:
         """Return research tools."""

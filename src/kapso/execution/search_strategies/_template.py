@@ -163,7 +163,7 @@ class MyStrategy(SearchStrategy):
         """
         
         response = self.llm.llm_completion(
-            model="utility",  # Or use an explicit model from strategy params
+            role=None,  # Or a role from the config's inference.roles
             messages=[{"role": "user", "content": prompt}],
         )
         

@@ -58,29 +58,16 @@ class OpenHandsCodingAgent(CodingAgentInterface):
     
     def _init_llm(self):
         """Initialize the OpenHands LLM interface."""
-        try:
-            from openhands.llm import LLM
-            
-            # Create LLM instance with model configuration
-            self.llm = LLM(
-                model=self.config.model,
-                temperature=self._temperature,
-                max_output_tokens=self._max_tokens,
-            )
-        except ImportError:
-            # Fall back to litellm directly if openhands.llm not available
-            try:
-                import litellm
-                self._use_litellm_directly = True
-            except ImportError:
-                raise ImportError(
-                    "Neither openhands.llm nor litellm available. "
-                    "Run: pip install openhands-ai or pip install litellm"
-                )
-        except Exception as e:
-            # If LLM init fails, we'll use litellm directly
-            self._use_litellm_directly = True
-    
+        # One path, fail loud (Rule 7): the silent litellm fallback made
+        # a missing openhands install look like a working agent.
+        from openhands.llm import LLM
+
+        self.llm = LLM(
+            model=self.config.model,
+            temperature=self._temperature,
+            max_output_tokens=self._max_tokens,
+        )
+
     def initialize(self, workspace: str) -> None:
         """
         Initialize OpenHands agent for the workspace.
@@ -124,10 +111,7 @@ class OpenHandsCodingAgent(CodingAgentInterface):
             full_prompt = system_prompt + "\n\n" + prompt
             
             # Generate response
-            if hasattr(self, '_use_litellm_directly') and self._use_litellm_directly:
-                output_text, cost = self._generate_with_litellm(model, full_prompt)
-            else:
-                output_text, cost = self._generate_with_openhands(model, full_prompt)
+            output_text, cost = self._generate_with_openhands(model, full_prompt)
             
             # Parse code blocks and write to files
             files_changed = self._parse_and_write_files(output_text)
@@ -169,29 +153,6 @@ class OpenHandsCodingAgent(CodingAgentInterface):
         
         # Estimate cost
         cost = self._estimate_cost(len(prompt), len(output_text))
-        
-        return output_text, cost
-    
-    def _generate_with_litellm(self, model: str, prompt: str) -> tuple:
-        """Fallback: Generate using litellm directly."""
-        import litellm
-        
-        response = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=self._temperature,
-            max_tokens=self._max_tokens,
-        )
-        
-        output_text = response.choices[0].message.content
-        
-        # Get cost from response if available
-        cost = 0.0
-        if hasattr(response, 'usage'):
-            # Rough estimate based on token counts
-            input_tokens = response.usage.prompt_tokens
-            output_tokens = response.usage.completion_tokens
-            cost = (input_tokens * 0.001 + output_tokens * 0.002) / 1000
         
         return output_text, cost
     

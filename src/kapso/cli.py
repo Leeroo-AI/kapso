@@ -498,6 +498,7 @@ Commands:
   learn      Trajectory learning (store, mining, updating, grading)
   deploy     Deploy solutions as running software
   index_kg   Index knowledge graph from wiki or JSON data
+  watch      Watch a running evolve / learn / learn_knowledge operation
 
 Examples:
   # Evolve a solution
@@ -816,7 +817,7 @@ Examples:
         cmd_watch(args)
     else:
         parser.print_help()
-        print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg)")
+        print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg, watch)")
         sys.exit(1)
 
 

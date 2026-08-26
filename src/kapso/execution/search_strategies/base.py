@@ -22,7 +22,6 @@ from kapso.execution.types import ContextData
 from kapso.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
-from kapso.core.llm import LLMBackend
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.execution.fidelity import (
     FIDELITIES,
@@ -335,7 +334,7 @@ class ExperimentResult:
                 + (f"\n\n  # Feedbacks: {self.feedbacks} \n" if self.feedbacks else "")
             )
     
-    def get_embedding(self, llm: LLMBackend) -> List[float]:
+    def get_embedding(self, llm: Any) -> List[float]:
         if self.embedding is None:
             self.embedding = llm.create_embedding(self.__str__())
         return self.embedding
@@ -374,7 +373,7 @@ class ExperimentResult:
 class SearchStrategyConfig:
     """Configuration passed to search strategies."""
     problem_handler: ProblemHandler
-    llm: LLMBackend
+    llm: Any
     coding_agent_config: CodingAgentConfig
     # Strategy-specific params (from YAML config)
     params: Dict[str, Any] = field(default_factory=dict)
@@ -405,7 +404,6 @@ class SearchStrategy(ABC):
     - Workspace creation and management
     - RepoMemory bootstrap
     - Kapso directory setup (eval_dir, data_dir)
-    - Optional legacy checkpoint hooks for trusted migration
     """
     
     WORKSPACE_FOLDER_BASE = 'tmp/search_strategy_workspace'

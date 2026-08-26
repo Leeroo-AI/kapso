@@ -332,7 +332,7 @@ class BudgetSnapshot:
 
     @property
     def progress_percent(self) -> float:
-        """Identical arithmetic to the legacy budget_progress float."""
+        """Budget consumed, as a 0-100 percentage."""
         return (
             max(
                 self.iteration_index / self.max_iterations

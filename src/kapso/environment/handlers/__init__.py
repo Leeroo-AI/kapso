@@ -15,7 +15,7 @@ from kapso.environment.handlers.generic import GenericProblemHandler
 __all__ = [
     # Base
     "ProblemHandler",
-    "ProblemRunResult",  # Deprecated, kept for benchmark compatibility
+    "ProblemRunResult",  # Benchmark handlers' run-result contract (live)
     # Generic handler
     "GenericProblemHandler",
 ]

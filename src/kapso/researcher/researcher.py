@@ -1,6 +1,6 @@
 # Researcher
 #
-# A wrapper around OpenAI's `web_search` tool for deep public web research.
+# Deep public web research as a coding-agent CLI session (codex --search).
 #
 # Design goals:
 # - Support three modes: idea, implementation, study

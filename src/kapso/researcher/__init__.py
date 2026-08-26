@@ -3,7 +3,7 @@
 # This package provides deep public web research utilities.
 #
 # Exports:
-# - Researcher: main entry point (OpenAI Responses API + web_search tool)
+# - Researcher: main entry point (CLI web-search session)
 # - ResearchMode: "idea" | "implementation" | "study"
 # - ResearchModeInput: single mode or list of modes
 # - ResearchDepth: "light" | "deep"

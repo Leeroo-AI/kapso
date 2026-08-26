@@ -146,7 +146,7 @@ src/knowledge/search/
 ├── base.py              # Abstract classes and data structures
 ├── factory.py           # Factory for creating search backends
 ├── kg_graph_search.py   # Weaviate + Neo4j + LLM reranker (includes wiki parser)
-├── kg_llm_navigation_search.py  # LLM navigation implementation (legacy)
+├── kg_llm_navigation_search.py  # LLM navigation implementation
 └── knowledge_search.yaml        # Configuration presets
 ```
 

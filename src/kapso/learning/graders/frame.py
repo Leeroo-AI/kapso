@@ -61,7 +61,6 @@ class GradingFrame:
         self.learning_config = config["learning"]
         self.graders_config = self.learning_config["graders"]
         self.crew_config = self.graders_config["crew"]
-        self.retriever_config = self.learning_config["retriever"]
         self.agent_factory = agent_factory
 
     # ------------------------------------------------------------- sessions

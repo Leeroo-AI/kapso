@@ -13,7 +13,7 @@
 # Handlers
 from kapso.environment.handlers import (
     ProblemHandler,
-    ProblemRunResult,  # Deprecated, kept for benchmark compatibility
+    ProblemRunResult,  # Benchmark handlers' run-result contract (live)
     GenericProblemHandler,
 )
 

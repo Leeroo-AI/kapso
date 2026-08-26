@@ -415,7 +415,7 @@ class Kapso:
         skip_merge: bool = False,
         kg_index: Optional[str] = None,
         github_org: Optional[str] = None,
-        is_private: bool = True,
+        is_private: Optional[bool] = None,
         on_status: Optional[Any] = None,
     ) -> "PipelineResult":
         """
@@ -441,7 +441,9 @@ class Kapso:
                 into the KG backends (Stage 2). This avoids requiring Neo4j/Weaviate.
             github_org: Optional GitHub organization to push workflow repos to.
                 If not provided, repos are created under the authenticated user's account.
-            is_private: Whether to create private repos (default: True).
+            is_private: Whether to create private repos. None (default)
+                defers to the config's github_repo_visibility (private
+                when unset).
                 Set to False to create public repos.
             
         Example:
@@ -513,9 +515,15 @@ class Kapso:
         # These take precedence over config.yaml values
         if github_org is not None:
             ingestor_params["github_org"] = github_org
-        # is_private overrides github_repo_visibility from config
-        # Convert is_private (bool) to visibility string for backward compatibility
-        ingestor_params["github_repo_visibility"] = "private" if is_private else "public"
+        # An explicitly passed is_private wins; otherwise the config's
+        # github_repo_visibility applies (the old unconditional overwrite
+        # made the config key a lie — stale-code audit 2026-08-26, A1).
+        if is_private is not None:
+            ingestor_params["github_repo_visibility"] = (
+                "private" if is_private else "public"
+            )
+        else:
+            ingestor_params.setdefault("github_repo_visibility", "private")
 
         # Merge config merger params with kg_index_path (kg_index_path takes precedence)
         final_merger_params = {**config_merger_params, **merger_params}
