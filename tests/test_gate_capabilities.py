@@ -47,12 +47,6 @@ def test_registry_declares_environment_and_command_requirements():
     assert GATES["leeroopedia"].required_commands == ["leeroopedia-mcp"]
 
 
-def test_legacy_env_keys_are_folded_into_required_environment():
-    definition = GateDefinition(tools=["tool"], env_keys=["LEGACY_KEY"])
-
-    assert definition.required_env == ["LEGACY_KEY"]
-
-
 def test_resolution_preserves_order_deduplicates_and_reports_every_gate():
     resolution = resolve_gates(
         ["repo_memory", "research", "repo_memory"],

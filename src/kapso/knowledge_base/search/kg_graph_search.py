@@ -68,25 +68,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # ID Normalization
 # =============================================================================
-# Page IDs use underscores throughout (derived from filenames).
-# Wiki links also use underscores: [[step::Principle:Unslothai_Unsloth_LoRA_Configuration]]
-# This function is kept as a pass-through for backward compatibility.
-# Previously it converted underscores to spaces, which broke Neo4j edges.
-
-def normalize_page_id(page_id: str) -> str:
-    """
-    Normalize a page ID for consistent matching.
-    
-    Returns the page ID as-is. Both filenames and wiki links use underscores,
-    so no conversion is needed.
-    
-    Example: "Principle/Unslothai_Unsloth_LoRA_Configuration" 
-          -> "Principle/Unslothai_Unsloth_LoRA_Configuration"  (unchanged)
-    """
-    return page_id
-
-
-# =============================================================================
 # Wiki Parser Functions
 # =============================================================================
 
@@ -565,14 +546,12 @@ class KGGraphSearch(KnowledgeSearch):
                 - weaviate_collection: Weaviate collection name
                 - include_connected_pages: Whether to include graph connections
                 - use_llm_reranker: Whether to use LLM reranker
-                - reranker_model: LLM model for reranking
         """
         super().__init__(params=params)
         
         # Extract params (defaults come from knowledge_search.yaml via factory)
         self.embedding_model = self.params.get("embedding_model")
         self.weaviate_collection = self.params.get("weaviate_collection")
-        self.reranker_model = self.params.get("reranker_model")
         self.include_connected_pages = self.params.get("include_connected_pages", True)
         self.use_llm_reranker = self.params.get("use_llm_reranker", True)
         
@@ -691,7 +670,7 @@ class KGGraphSearch(KnowledgeSearch):
                 models=self.params.get("models"),
                 retry_policy=self.params.get("retry"),
             )
-            logger.info(f"LLM reranker initialized (model: {self.reranker_model})")
+            logger.info("LLM reranker initialized (kg_rerank role spec)")
     
     # =========================================================================
     # Index Methods
@@ -799,7 +778,7 @@ class KGGraphSearch(KnowledgeSearch):
             
             # Construct target page ID (normalize preserves underscores)
             raw_target_id = f"{target_type}/{target_id}"
-            target_page_id = normalize_page_id(raw_target_id)
+            target_page_id = raw_target_id
             
             # Map edge types to Neo4j relationship types
             neo4j_rel_type = self._map_edge_type(edge_type)
@@ -1099,7 +1078,6 @@ Only include pages that would actually help answer the query.
 
         try:
             response = self._llm_backend.llm_completion_with_system_prompt(
-                model=self.reranker_model,
                 system_prompt=system_prompt,
                 user_message=user_message,
                 role="kg_rerank",
@@ -1119,7 +1097,7 @@ Only include pages that would actually help answer the query.
                     result.score = max(0.1, min(1.0, (result.score + rank_score) / 2))
                     reranked.append(result)
             
-            logger.info(f"Reranked {len(results)} results -> {len(reranked)} (model: {self.reranker_model})")
+            logger.info(f"Reranked {len(results)} results -> {len(reranked)}")
             return reranked
             
         except Exception as e:
@@ -1593,74 +1571,6 @@ Only include pages that would actually help answer the query.
         
         return True
     
-    def _format_page_as_markdown(self, page: WikiPage) -> str:
-        """
-        Format a WikiPage as markdown content for source file.
-        
-        DEPRECATED: This method is no longer used. Pages should be written
-        with their content directly, as it should already be in the correct
-        MediaWiki format (following sections_definition.md structure).
-        
-        This method is kept for potential edge cases where structured data
-        needs to be converted to a file format, but the preferred approach
-        is to have ingestors produce properly formatted content.
-        
-        Creates a structured markdown file with metadata table,
-        overview section, and main content.
-        """
-        parts = []
-        
-        # Title (derived from page ID)
-        parts.append(f"# {page.id}")
-        parts.append("")
-        
-        # Metadata table
-        parts.append("| Property | Value |")
-        parts.append("|----------|-------|")
-        parts.append(f"| **Type** | {page.page_type} |")
-        
-        if page.domains:
-            domain_links = ", ".join(f"[[domain::{d}]]" for d in page.domains)
-            parts.append(f"| **Domains** | {domain_links} |")
-        
-        if page.last_updated:
-            parts.append(f"| **Last Updated** | [[last_updated::{page.last_updated}]] |")
-        
-        parts.append("")
-        
-        # Sources section (if any)
-        if page.sources:
-            parts.append("## Knowledge Sources")
-            for src in page.sources:
-                src_type = src.get("type", "Doc")
-                src_title = src.get("title", "")
-                src_url = src.get("url", "")
-                parts.append(f"* [[source::{src_type}|{src_title}|{src_url}]]")
-            parts.append("")
-        
-        # Overview section
-        parts.append("## Overview")
-        parts.append(page.overview)
-        parts.append("")
-        
-        # Main content
-        parts.append("## Content")
-        parts.append(page.content)
-        parts.append("")
-        
-        # Outgoing links section (if any)
-        if page.outgoing_links:
-            parts.append("## Related Pages")
-            for link in page.outgoing_links:
-                edge_type = link.get("edge_type", "related")
-                target_type = link.get("target_type", "")
-                target_id = link.get("target_id", "")
-                parts.append(f"* [[{edge_type}::{target_type}:{target_id}]]")
-            parts.append("")
-        
-        return "\n".join(parts)
-    
-    
     def _index_single_page_to_weaviate(self, page: WikiPage) -> bool:
         """
         Index a single page to Weaviate.
@@ -2076,7 +1986,7 @@ Only include pages that would actually help answer the query.
                     
                     # Normalize ID (pass-through, keeps underscores)
                     raw_target_id = f"{target_type}/{target_id}"
-                    target_page_id = normalize_page_id(raw_target_id)
+                    target_page_id = raw_target_id
                     
                     neo4j_rel_type = self._map_edge_type(edge_type)
                     
@@ -2232,73 +2142,3 @@ Only include pages that would actually help answer the query.
 # =============================================================================
 # CLI Test
 # =============================================================================
-
-if __name__ == "__main__":
-    """Test the KG Graph Search with data/wikis."""
-    print("=" * 60)
-    print("KG Graph Search Test")
-    print("=" * 60)
-    
-    # Initialize search
-    search = KGGraphSearch(params={})
-    
-    # Check for command line argument
-    if len(sys.argv) > 1 and sys.argv[1] == "--skip-index":
-        print("\nSkipping indexing (--skip-index flag)")
-    else:
-        # Index data/wikis
-        wiki_dir = Path("data/wikis")
-        
-        if wiki_dir.exists():
-            print(f"\nIndexing wiki pages from {wiki_dir}...")
-            search.index(KGIndexInput(
-                wiki_dir=wiki_dir,
-            ))
-        else:
-            print(f"\nWarning: {wiki_dir} not found")
-            sys.exit(1)
-    
-    # Test queries
-    test_cases = [
-        # (query, expected_type, page_types_filter)
-        ("How to fine-tune LLM with limited GPU memory?", "Workflow", ["Workflow"]),
-        ("preference learning for AI alignment", "Principle", None),
-        ("LoRA rank selection best practices", "Heuristic", ["Heuristic"]),
-        ("training configuration hyperparameters", None, None),
-    ]
-    
-    print("\n" + "=" * 60)
-    print("Running Test Queries")
-    print("=" * 60)
-    
-    for query, expected_type, page_types in test_cases:
-        print(f"\n{'─' * 60}")
-        print(f"Query: {query}")
-        if page_types:
-            print(f"Filter: page_types={page_types}")
-        
-        filters = KGSearchFilters(
-            top_k=3,
-            page_types=page_types,
-        )
-        
-        result = search.search(query, filters)
-        
-        print(f"\nResults ({result.total_found} found):")
-        for item in result:
-            print(f"  - {item.id} ({item.page_type})")
-            print(f"    Score: {item.score:.3f}")
-            if item.metadata.get("connected_pages"):
-                conn_count = len(item.metadata["connected_pages"])
-                print(f"    Connected: {conn_count} pages")
-        
-        if expected_type and result.top_result:
-            if result.top_result.page_type == expected_type:
-                print(f"  ✓ Expected type '{expected_type}' found")
-            else:
-                print(f"  ✗ Expected '{expected_type}', got '{result.top_result.page_type}'")
-    
-    # Cleanup
-    print("\n" + "=" * 60)
-    search.close()
-    print("Test complete!")

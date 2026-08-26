@@ -22,7 +22,6 @@ searches:
           navigation_steps: 3
           expansion_limit: 3
           search_node_type: "specialization"
-          navigations_model: "gpt-5-mini"
       
       # Deep search - more exploration for complex problems
       DEEP_SEARCH:
@@ -59,7 +58,6 @@ searches:
     # Default values used when params are not specified
     defaults:
       embedding_model: "text-embedding-3-large"
-      reranker_model: "gpt-5-nano"
       weaviate_collection: "KapsoKG"
       include_connected_pages: true
       use_llm_reranker: false
@@ -75,7 +73,6 @@ searches:
           weaviate_collection: "KapsoKG"
           include_connected_pages: true
           use_llm_reranker: true
-          reranker_model: "gpt-5-nano"
           reranker_overview_max_chars: 300
       
       # Fast preset - no reranking, no graph enrichment
@@ -94,40 +91,9 @@ searches:
           weaviate_collection: "KapsoKG"
           include_connected_pages: false
           use_llm_reranker: true
-          reranker_model: "gpt-5-nano"
           reranker_overview_max_chars: 300
     
     default_preset: "DEFAULT"
-
-  # =========================================================================
-  # Agentic KG Search (Claude Code agent with read-only KG MCP tools)
-  # =========================================================================
-  agentic_kg_search:
-    description: "Claude Code agent with read-only KG MCP tools for synthesized answers"
-
-    # Claude Code agent configuration
-    agent:
-      agent_type: "claude_code"
-      model: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-      auth_mode: "bedrock"
-      aws_region: "us-east-1"
-      timeout: 300
-      allowed_tools:
-        - "Read"
-        - "mcp__kg-graph-search__search_knowledge"
-        - "mcp__kg-graph-search__get_wiki_page"
-        - "mcp__kg-graph-search__get_page_structure"
-
-    # MCP server configuration for the KG gate
-    mcp_server:
-      name: "kg-graph-search"
-      command: "python"
-      args: ["-m", "kapso.gated_mcp.server"]
-      env:
-        MCP_ENABLED_GATES: "kg"
-
-    defaults:
-      kg_index_path: "data/wikis/.index"
 
   # =========================================================================
   # RAG Search (Future - Template)

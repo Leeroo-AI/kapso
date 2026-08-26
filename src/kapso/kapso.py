@@ -58,11 +58,6 @@ from kapso.learning.serving_launch import (
 from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
 from kapso.learning.update_frame import UpdateFrame
 
-# Placeholder types for unimplemented learning
-class KnowledgeChunk:
-    pass
-
-LearnerFactory = None  # Learning not implemented yet
 from kapso.deployment import (
     Software,
     DeployConfig,
@@ -188,9 +183,6 @@ class Kapso:
         self._bank_home: Optional[Path] = (
             Path(bank_path).expanduser() if bank_path else None
         )
-        
-        # Track learned knowledge chunks (in-memory for MVP)
-        self._learned_chunks: List[KnowledgeChunk] = []
         
         # Initialize knowledge search
         if kg_index:
@@ -486,14 +478,16 @@ class Kapso:
                 "learn_knowledge() received only empty source lists"
             )
 
-        # Backward-compatible handling: if a URL is provided, fall back to the default local wiki dir.
-        resolved_wiki_dir = wiki_dir
+        # URL wiki targets are not supported: silently rewriting the
+        # caller's destination to an unrelated local path was how pages
+        # landed somewhere the caller never chose (stale-code audit
+        # 2026-08-26, B2). Fail loud instead.
         if isinstance(wiki_dir, str) and wiki_dir.startswith(("http://", "https://")):
-            print(
-                f"Warning: URL wiki_dir not supported yet ({wiki_dir}). "
-                "Using local wiki_dir='data/wikis' instead."
+            raise ValueError(
+                f"URL wiki_dir is not supported ({wiki_dir}); pass a local "
+                "directory path"
             )
-            resolved_wiki_dir = "data/wikis"
+        resolved_wiki_dir = wiki_dir
 
         # Optional: propagate an existing `.index` file path into the merge agent.
         #

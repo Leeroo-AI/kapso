@@ -79,7 +79,6 @@ class ExperimentSession:
         self._repo_memory_update_scheduled: bool = False
         self._repo_memory_solution_spec: str = ""
         self._repo_memory_run_result: Dict[str, Any] = {}
-        self._repo_memory_llm_model: Optional[str] = None
         self._repo_memory_failure_policy = (
             RepoMemoryManager.normalize_failure_policy(
                 repo_memory_failure_policy
@@ -196,7 +195,6 @@ class ExperimentSession:
         *,
         solution_spec: str,
         run_result: Dict[str, Any],
-        llm_model: Optional[str] = None,
     ) -> None:
         """
         Schedule a RepoMemory update to run at session close.
@@ -209,7 +207,6 @@ class ExperimentSession:
         self._repo_memory_update_scheduled = True
         self._repo_memory_solution_spec = solution_spec or ""
         self._repo_memory_run_result = run_result or {}
-        self._repo_memory_llm_model = llm_model
     
     def set_solution_context(self, solution_summary: str) -> None:
         """
@@ -335,7 +332,6 @@ class ExperimentSession:
                     base_commit_sha=getattr(self, "base_commit_sha", ""),
                     solution_spec=self._repo_memory_solution_spec,
                     run_result=self._repo_memory_run_result,
-                    llm_model=self._repo_memory_llm_model,
                     max_retries=self._repo_memory_max_retries,
                 )
 

@@ -40,14 +40,6 @@ class GateDefinition:
     command: Optional[str] = None
     required_env: List[str] = field(default_factory=list)
     required_commands: List[str] = field(default_factory=list)
-    # Deprecated construction alias retained for downstream registries.
-    env_keys: List[str] = field(default_factory=list, repr=False)
-
-    def __post_init__(self) -> None:
-        self.required_env = list(
-            dict.fromkeys([*self.required_env, *self.env_keys])
-        )
-        self.env_keys = list(self.required_env)
 
 
 @dataclass(frozen=True)

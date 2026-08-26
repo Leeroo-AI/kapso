@@ -31,7 +31,7 @@ import yaml
 from dotenv import load_dotenv
 load_dotenv()
 
-from kapso.kapso import Kapso, Source, DeployStrategy, DEFAULT_CONFIG_PATH
+from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
@@ -44,7 +44,6 @@ from kapso.learning.graders.split import assert_batch_disjoint, load_split, vali
 from kapso.learning.update_frame import UpdateFrame, init_bank
 from kapso.learning.mining import MiningFrame
 from kapso.learning.trajectory_store import TrajectoryStore
-from kapso.researcher import ResearchMode, ResearchDepth
 
 
 # Available coding agents
@@ -52,9 +51,6 @@ AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
 
 # Available deploy strategies
 DEPLOY_STRATEGIES = ["auto", "local", "docker", "modal", "bentoml", "langgraph"]
-
-# Research modes
-RESEARCH_MODES = ["idea", "implementation", "study"]
 
 # Research depths
 RESEARCH_DEPTHS = ["light", "deep"]

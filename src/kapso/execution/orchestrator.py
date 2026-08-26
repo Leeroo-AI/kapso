@@ -447,8 +447,8 @@ class OrchestratorAgent:
                 coding_agent_specific = coding_config.get('agent_specific')
             else:
                 coding_agent_type = 'aider'
-                coding_agent_model = mode_config.get('developer_model')
-                coding_agent_debug_model = mode_config.get('developer_debug_model')
+                coding_agent_model = None
+                coding_agent_debug_model = None
                 coding_agent_specific = None
         
         # Build coding agent config
@@ -492,45 +492,11 @@ class OrchestratorAgent:
                 },
             )
 
-        return (
-            "generic",
-            {
-                "reasoning_effort": mode_config.get(
-                    "reasoning_effort", "medium"
-                ),
-                "code_debug_tries": mode_config.get(
-                    "code_debug_tries", 5
-                ),
-                "node_expansion_limit": mode_config.get(
-                    "node_expansion_limit", 2
-                ),
-                "node_expansion_new_childs_count": mode_config.get(
-                    "node_expansion_new_childs_count", 5
-                ),
-                "idea_generation_steps": mode_config.get(
-                    "idea_generation_steps", 1
-                ),
-                "first_experiment_factor": mode_config.get(
-                    "first_experiment_factor", 1
-                ),
-                "experimentation_per_run": mode_config.get(
-                    "experimentation_per_run", 1
-                ),
-                "per_step_maximum_solution_count": mode_config.get(
-                    "per_step_maximum_solution_count", 10
-                ),
-                "exploration_budget_percent": mode_config.get(
-                    "exploration_budget_percent", 30
-                ),
-                "idea_generation_model": mode_config.get(
-                    "idea_generation_model", "reasoning"
-                ),
-                "idea_generation_ensemble_models": mode_config.get(
-                    "idea_generation_ensemble_models", ["reasoning"]
-                ),
-                **self._strategy_params_overrides,
-            },
-        )
+        # A mode without a search_strategy block gets the same plain
+        # generic default as running with no mode config at all. (The old
+        # branch here resolved eleven mode-level tree-search knobs that no
+        # config ever defined — stale-code audit 2026-08-26, R1.)
+        return "generic", dict(self._strategy_params_overrides)
 
     def _create_knowledge_search(
         self,
@@ -558,36 +524,10 @@ class OrchestratorAgent:
             resolved_config["params"] = resolved_params
             return KnowledgeSearchFactory.create_from_config(resolved_config)
         
-        # Check for legacy knowledge_retriever config
-        kr_config = mode_config.get('knowledge_retriever', {})
-        
-        if kr_config:
-            # Convert legacy config to new format
-            resolved_params = dict(kr_config.get("params") or {})
-            resolved_params.setdefault("models", mode_config.get("models"))
-            resolved_params.setdefault("retry", mode_config.get("retry"))
-            return KnowledgeSearchFactory.create_from_config({
-                "type": "kg_llm_navigation",
-                "enabled": kr_config.get("enabled", True),
-                "params": resolved_params,
-                "preset": kr_config.get("preset"),
-            })
-        
-        # Check use_knowledge_graph flag
-        if 'use_knowledge_graph' in mode_config:
-            kg_enabled = mode_config.get('use_knowledge_graph', False)
-            if kg_enabled or is_kg_active:
-                return KnowledgeSearchFactory.create(
-                    search_type="kg_llm_navigation",
-                    params={
-                        "models": mode_config.get("models"),
-                        "retry": mode_config.get("retry"),
-                    },
-                )
-            else:
-                return KnowledgeSearchFactory.create_null()
-        
-        # Fall back to is_kg_active parameter
+        # No knowledge_search block: the caller's is_kg_active decides.
+        # (The knowledge_retriever / use_knowledge_graph legacy config
+        # shapes died here — stale-code audit 2026-08-26, R3: no config
+        # anywhere defined either.)
         if is_kg_active:
             return KnowledgeSearchFactory.create(
                 search_type="kg_llm_navigation",

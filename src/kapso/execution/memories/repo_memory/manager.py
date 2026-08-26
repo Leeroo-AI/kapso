@@ -44,7 +44,6 @@ class RepoMemoryManager:
     MEMORY_REL_PATH = os.path.join(KAPSO_DIR, MEMORY_FILE)
 
     # Default model for repo-model inference.
-    DEFAULT_REPO_MODEL_LLM = "utility"
     DEFAULT_FAILURE_POLICY = "warn"
     DEFAULT_MAX_RETRIES = 2
     FAILURE_POLICIES = {"warn", "fail"}
@@ -673,7 +672,6 @@ GeneratedAt: {doc.get('generated_at')}
         repo_root: str,
         llm: LLMLike,
         initial_repo: Optional[str] = None,
-        llm_model: Optional[str] = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         """
@@ -692,10 +690,8 @@ GeneratedAt: {doc.get('generated_at')}
         doc["repo_map"] = build_repo_map(repo_root)
         doc["generated_at"] = cls._now_iso()
 
-        llm_model = llm_model or cls.DEFAULT_REPO_MODEL_LLM
         model = infer_repo_model_with_retry(
             llm=llm,
-            model=llm_model,
             repo_root=repo_root,
             repo_map=doc["repo_map"],
             max_retries=max_retries,
@@ -738,7 +734,6 @@ GeneratedAt: {doc.get('generated_at')}
         base_commit_sha: str,
         solution_spec: str,
         run_result: Dict[str, Any],
-        llm_model: Optional[str] = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         """
@@ -792,7 +787,6 @@ GeneratedAt: {doc.get('generated_at')}
         )
 
         # 3) Update semantic RepoModel via LLM.
-        llm_model = llm_model or cls.DEFAULT_REPO_MODEL_LLM
         # Builders update the public RepoMemory V2 semantic model (summary + sections).
         # We also keep a legacy `repo_model` view for backward compatibility, so for updates
         # we derive the semantic model from `doc["book"]`.
@@ -813,16 +807,14 @@ GeneratedAt: {doc.get('generated_at')}
         if not (previous_model_v2.get("summary") or "").strip() and prev_claim_count == 0:
             updated_model = infer_repo_model_with_retry(
                 llm=llm,
-                model=llm_model,
-                repo_root=repo_root,
+                    repo_root=repo_root,
                 repo_map=doc["repo_map"],
                 max_retries=max_retries,
             )
         else:
             updated_model = infer_repo_model_update(
                 llm=llm,
-                model=llm_model,
-                repo_root=repo_root,
+                    repo_root=repo_root,
                 repo_map=doc["repo_map"],
                 previous_model=previous_model_v2,
                 diff_summary=diff_summary[:8000],

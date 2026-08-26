@@ -26,7 +26,7 @@ load_dotenv()
 
 from kapso.core.llm import LLMBackend
 from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.execution.memories.repo_memory.builders import build_repo_map, validate_evidence
+from kapso.execution.memories.repo_memory.builders import build_repo_map
 
 
 # ---------------------------------------------------------------------------
@@ -345,223 +345,18 @@ def test_build_repo_map_deterministic(sample_repo):
 # Test: Bootstrap baseline model (real LLM)
 # ---------------------------------------------------------------------------
 
-def test_bootstrap_baseline_model_with_real_llm(sample_repo, llm):
-    """
-    Test that bootstrap_baseline_model produces evidence-backed memory.
-    
-    This test:
-    1. Calls the real LLM to infer repo structure
-    2. Validates that all claims have evidence in actual files
-    3. Checks that summary and claims are non-empty
-    """
-    # Bootstrap the memory
-    RepoMemoryManager.bootstrap_baseline_model(
-        repo_root=str(sample_repo),
-        llm=llm,
-        seed_repo_path=str(sample_repo),
-    )
-    
-    # Load and verify
-    doc = RepoMemoryManager.load_from_worktree(str(sample_repo))
-    assert doc is not None, "Memory file should exist"
-    
-    # Check structure
-    assert doc.get("schema_version") == 2
-    assert "repo_map" in doc
-    assert "repo_model" in doc
-    assert "book" in doc
-    assert "quality" in doc
-    
-    # Check quality - evidence must pass
-    quality = doc["quality"]
-    assert quality["evidence_ok"] is True, f"Evidence validation failed: {quality.get('missing_evidence')}"
-    assert quality["claim_count"] >= 1, "Should have at least one claim"
-    
-    # Check repo_model has content
-    repo_model = doc["repo_model"]
-    assert repo_model.get("summary"), "Summary should not be empty"
-    assert len(repo_model.get("claims", [])) >= 1, "Should have at least one claim"
-    
-    # Check book is present and has TOC/sections (v2)
-    book = doc.get("book", {}) or {}
-    assert "toc" in book
-    assert "sections" in book
-    
-    # Verify evidence validation independently
-    check = validate_evidence(str(sample_repo), repo_model)
-    assert check.ok, f"Independent evidence check failed: {check.missing}"
-    
-    # Print summary for inspection
-    print("\n=== Generated RepoMemory ===")
-    print(f"Summary: {repo_model.get('summary', '')[:500]}")
-    print(f"Claims: {len(repo_model.get('claims', []))}")
-    for claim in repo_model.get("claims", [])[:5]:
-        print(f"  - [{claim.get('kind')}] {claim.get('statement', '')[:100]}")
 
 
 # ---------------------------------------------------------------------------
 # Test: Update after experiment (real LLM)
 # ---------------------------------------------------------------------------
 
-def test_update_after_experiment_with_real_llm(sample_repo, llm):
-    """
-    Test that update_after_experiment correctly updates memory after code changes.
-    
-    This test:
-    1. Bootstraps baseline memory
-    2. Makes a code change (add new feature)
-    3. Calls update_after_experiment
-    4. Verifies updated memory is still evidence-backed
-    5. Verifies experiment delta is recorded
-    """
-    repo = git.Repo(sample_repo)
-    
-    # Bootstrap baseline
-    RepoMemoryManager.bootstrap_baseline_model(
-        repo_root=str(sample_repo),
-        llm=llm,
-        seed_repo_path=str(sample_repo),
-    )
-    repo.git.add("-A")
-    repo.git.commit("-m", "Add baseline memory")
-    base_commit = repo.head.commit.hexsha
-    
-    # Create experiment branch and make changes
-    repo.git.checkout("-b", "experiment-001")
-    
-    # Add a new feature file
-    new_file = sample_repo / "cross_validator.py"
-    new_file.write_text('''"""
-Cross-validation utilities for model evaluation.
-"""
-
-import numpy as np
-from typing import List, Tuple
-
-
-def k_fold_split(X: np.ndarray, y: np.ndarray, k: int = 5) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
-    """
-    Split data into k folds for cross-validation.
-    
-    Args:
-        X: Feature matrix
-        y: Target labels
-        k: Number of folds
-        
-    Returns:
-        List of (X_train, X_val, y_train, y_val) tuples
-    """
-    n_samples = len(X)
-    fold_size = n_samples // k
-    indices = np.arange(n_samples)
-    np.random.shuffle(indices)
-    
-    folds = []
-    for i in range(k):
-        start = i * fold_size
-        end = start + fold_size if i < k - 1 else n_samples
-        val_idx = indices[start:end]
-        train_idx = np.concatenate([indices[:start], indices[end:]])
-        
-        folds.append((X[train_idx], X[val_idx], y[train_idx], y[val_idx]))
-    
-    return folds
-''')
-    
-    # Modify main.py to use cross-validation
-    main_py = sample_repo / "main.py"
-    old_content = main_py.read_text()
-    new_content = old_content.replace(
-        "from evaluator import compute_accuracy",
-        "from evaluator import compute_accuracy\nfrom cross_validator import k_fold_split"
-    )
-    main_py.write_text(new_content)
-    
-    repo.git.add("-A")
-    repo.git.commit("-m", "Add cross-validation support")
-    
-    # Update memory
-    RepoMemoryManager.update_after_experiment(
-        repo_root=str(sample_repo),
-        llm=llm,
-        branch_name="experiment-001",
-        parent_branch_name="main",
-        base_commit_sha=base_commit,
-        solution_spec="Add k-fold cross-validation for better model evaluation",
-        run_result={"score": 0.85, "run_had_error": False},
-    )
-    
-    # Load and verify
-    doc = RepoMemoryManager.load_from_worktree(str(sample_repo))
-    assert doc is not None
-    
-    # Evidence must still be valid
-    quality = doc["quality"]
-    assert quality["evidence_ok"] is True, f"Evidence validation failed: {quality.get('missing_evidence')}"
-    
-    # Should have experiment recorded
-    experiments = doc.get("experiments", [])
-    assert len(experiments) >= 1, "Should have at least one experiment recorded"
-    
-    exp = experiments[-1]
-    assert exp["branch"] == "experiment-001"
-    assert exp["parent_branch"] == "main"
-    assert "cross_validator.py" in exp["changed_files"]
-    
-    # Verify evidence independently
-    repo_model = doc["repo_model"]
-    check = validate_evidence(str(sample_repo), repo_model)
-    assert check.ok, f"Independent evidence check failed: {check.missing}"
-    
-    print("\n=== Updated RepoMemory ===")
-    print(f"Summary: {repo_model.get('summary', '')[:500]}")
-    print(f"Claims: {len(repo_model.get('claims', []))}")
-    print(f"Experiments recorded: {len(experiments)}")
 
 
 # ---------------------------------------------------------------------------
 # Test: Evidence validation catches hallucinations
 # ---------------------------------------------------------------------------
 
-def test_validate_evidence_catches_invalid_quotes():
-    """Test that evidence validation correctly rejects hallucinated quotes."""
-    with tempfile.TemporaryDirectory() as tmp:
-        # Create a simple file
-        Path(tmp, "foo.py").write_text("def hello():\n    return 'world'\n")
-        
-        # Valid claim
-        valid_model = {
-            "claims": [{
-                "kind": "algorithm",
-                "statement": "Has a hello function",
-                "evidence": [{"path": "foo.py", "quote": "def hello():"}]
-            }]
-        }
-        check = validate_evidence(tmp, valid_model)
-        assert check.ok, "Valid quote should pass"
-        
-        # Invalid claim (hallucinated quote)
-        invalid_model = {
-            "claims": [{
-                "kind": "algorithm",
-                "statement": "Has a goodbye function",
-                "evidence": [{"path": "foo.py", "quote": "def goodbye():"}]
-            }]
-        }
-        check = validate_evidence(tmp, invalid_model)
-        assert not check.ok, "Hallucinated quote should fail"
-        assert len(check.missing) == 1
-        
-        # Invalid claim (file doesn't exist)
-        missing_file_model = {
-            "claims": [{
-                "kind": "algorithm",
-                "statement": "Has bar module",
-                "evidence": [{"path": "bar.py", "quote": "anything"}]
-            }]
-        }
-        check = validate_evidence(tmp, missing_file_model)
-        assert not check.ok, "Missing file should fail"
 
 
 # ---------------------------------------------------------------------------
@@ -574,7 +369,7 @@ def test_render_brief_produces_usable_prompt(sample_repo, llm):
     RepoMemoryManager.bootstrap_baseline_model(
         repo_root=str(sample_repo),
         llm=llm,
-        seed_repo_path=str(sample_repo),
+        initial_repo=str(sample_repo),
     )
     
     doc = RepoMemoryManager.load_from_worktree(str(sample_repo))

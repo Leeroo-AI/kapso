@@ -27,7 +27,7 @@ from kapso.core.prompt_loader import load_prompt, render_prompt
 class LLMLike(Protocol):
     """Minimal interface we need for repo-model inference (enables deterministic testing)."""
 
-    def llm_completion(self, model: str, messages: List[Dict[str, str]], **kwargs) -> str: ...
+    def llm_completion(self, messages: List[Dict[str, str]], **kwargs) -> str: ...
 
 
 class RepoMemoryResponseError(ValueError):
@@ -350,7 +350,6 @@ def _validate_repo_model(model: Dict[str, Any]) -> Dict[str, Any]:
 def _complete_repo_model(
     *,
     llm: LLMLike,
-    model: str,
     prompt: str,
     max_retries: int,
 ) -> Dict[str, Any]:
@@ -367,7 +366,6 @@ def _complete_repo_model(
         # temperature is left at the backend default: reasoning-first models
         # (e.g. the gpt-5.6 family) reject explicit temperature=0.
         response = llm.llm_completion(
-            model=model,
             messages=messages,
             role="repo_memory",
         )
@@ -397,7 +395,6 @@ def _complete_repo_model(
 
 def plan_files_to_read(
     llm: LLMLike,
-    model: str,
     repo_map: Dict[str, Any],
     max_files_to_read: int = 20,
 ) -> List[str]:
@@ -419,8 +416,8 @@ def plan_files_to_read(
     # Deterministic planning: this output is structural JSON, not creative writing.
     data = _extract_json(
         llm.llm_completion(
-            model=model,
             messages=[{"role": "user", "content": prompt}],
+            role="repo_memory",
         )
     )
     chosen = []
@@ -451,7 +448,6 @@ def plan_files_to_read(
 
 def infer_repo_model_initial(
     llm: LLMLike,
-    model: str,
     repo_root: str,
     repo_map: Dict[str, Any],
     max_file_chars: int = 20000,
@@ -465,7 +461,6 @@ def infer_repo_model_initial(
     """
     files_to_read = plan_files_to_read(
         llm,
-        model=model,
         repo_map=repo_map,
         max_files_to_read=max_files_to_read,
     )
@@ -487,7 +482,6 @@ def infer_repo_model_initial(
     )
     return _complete_repo_model(
         llm=llm,
-        model=model,
         prompt=prompt,
         max_retries=max_retries,
     )
@@ -495,7 +489,6 @@ def infer_repo_model_initial(
 
 def infer_repo_model_with_retry(
     llm: LLMLike,
-    model: str,
     repo_root: str,
     repo_map: Dict[str, Any],
     max_file_chars: int = 20000,
@@ -510,7 +503,6 @@ def infer_repo_model_with_retry(
     """
     return infer_repo_model_initial(
         llm=llm,
-        model=model,
         repo_root=repo_root,
         repo_map=repo_map,
         max_file_chars=max_file_chars,
@@ -521,7 +513,6 @@ def infer_repo_model_with_retry(
 
 def infer_repo_model_update(
     llm: LLMLike,
-    model: str,
     repo_root: str,
     repo_map: Dict[str, Any],
     previous_model: Dict[str, Any],
@@ -553,7 +544,6 @@ def infer_repo_model_update(
     )
     return _complete_repo_model(
         llm=llm,
-        model=model,
         prompt=prompt,
         max_retries=max_retries,
     )

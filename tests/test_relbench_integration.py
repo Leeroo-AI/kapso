@@ -462,7 +462,11 @@ class TestGenericModeConfig:
         assert mode["evaluation_maintainer"]["type"] == "codex"
         assert mode["feedback_generator"]["type"] == "codex"
         assert mode["search_strategy"]["params"]["ideation_selector"]["cli"] == "codex"
-        assert mode["models"]["utility"]["reasoning_effort"] == "xhigh"
+        # No mode-level model routes: the CLI-only conversion made
+        # ModelRouter embedding-only (stale-code audit 2026-08-26) —
+        # a utility/reasoning block here would ValueError at
+        # orchestrator construction.
+        assert "models" not in mode
         # K=4 expansion (user-directed 2026-07-29): four GPU-pinned lanes,
         # 10h budget, 5h session caps; threads sized for the on-demand
         # a2-highgpu-4g fallback (48 vCPU -> 11/lane).

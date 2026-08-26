@@ -3,12 +3,10 @@
 Owns the post-implementation judgment feature: the FeedbackGenerator
 session over a node's evidence, the manifest-of-record score cross-check,
 the handler's finalize_run_selection call at score-of-record time, and the
-structured agent-result extraction (XML tags with the legacy JSON
-fallback). Stateless functions only — GenericSearch assembles arguments
-from its state and delegates here.
+structured agent-result extraction (XML tags). Stateless functions only —
+GenericSearch assembles arguments from its state and delegates here.
 """
 
-import json
 import re
 from typing import Any, Callable, Dict, Optional
 
@@ -167,44 +165,9 @@ def extract_agent_result(agent_output: str) -> dict:
     if result:
         print(f"[GenericSearch] Extracted agent result from XML tags: {list(result.keys())}")
         return result
-    
-    # Fallback: try JSON extraction for backward compatibility
-    return extract_agent_result_json_fallback(agent_output)
 
-
-def extract_agent_result_json_fallback(agent_output: str) -> dict:
-    """
-    Fallback JSON extraction for backward compatibility.
-    """
-    # Look for JSON in code blocks (```json ... ```)
-    json_pattern = r'```json\s*(\{.*?\})\s*```'
-    matches = re.findall(json_pattern, agent_output, re.DOTALL)
-    
-    if matches:
-        # Take the last JSON block (final result)
-        for json_str in reversed(matches):
-            try:
-                result = json.loads(json_str)
-                # Validate it has expected keys
-                if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
-                    print(f"[GenericSearch] Extracted agent result from JSON block (fallback)")
-                    return result
-            except json.JSONDecodeError:
-                continue
-    
-    # Fallback: try to find raw JSON object at the end
-    try:
-        # Find last occurrence of {...}
-        start = agent_output.rfind('{')
-        end = agent_output.rfind('}') + 1
-        if start != -1 and end > start:
-            json_str = agent_output[start:end]
-            result = json.loads(json_str)
-            if any(k in result for k in ["code_changes_summary", "evaluation_output", "evaluation_script_path"]):
-                print(f"[GenericSearch] Extracted agent result from raw JSON (fallback)")
-                return result
-    except json.JSONDecodeError:
-        pass
-    
+    # The shipped prompts mandate XML tags; there is no other format to
+    # fall back to (the JSON extractor served a prompt generation that no
+    # longer ships — stale-code audit 2026-08-26, B7).
     print(f"[GenericSearch] Warning: Could not extract result from agent output")
     return {}
