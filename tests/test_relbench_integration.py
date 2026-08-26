@@ -2,7 +2,7 @@
 
 Fast, network-free tests: prediction-contract validation, audit scoping,
 primary-metric routing, and the candidate-materialization fix in
-benchmark_tree_search. Tests that need a populated relbench cache are skipped
+the generic strategy. Tests that need a populated relbench cache are skipped
 unless the cache exists.
 """
 
@@ -162,58 +162,6 @@ class TestMetricRouting:
         assert handler._is_better(0.3, 0.4)
 
 
-class TestCandidateMaterialization:
-    """The benchmark strategy must evaluate the node's committed branch."""
-
-    def test_run_handler_materializes_branch(self):
-        from kapso.execution.search_strategies.benchmark_tree_search import (
-            BenchmarkTreeSearch,
-        )
-
-        strategy = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-        strategy.workspace_dir = "/ws"
-
-        @contextmanager
-        def fake_materialize(ref):
-            assert ref == "experiment_3"
-            yield "/tmp/candidate_xyz"
-
-        strategy.workspace = SimpleNamespace(materialize_ref=fake_materialize)
-        handler = MagicMock()
-        strategy.problem_handler = handler
-        node = SimpleNamespace(branch_name="experiment_3")
-
-        strategy._run_handler_on_candidate(node, "sol", "/ws/kapso_evaluation")
-        handler.run.assert_called_once_with(
-            file_path="/tmp/candidate_xyz",
-            run_data_dir="/ws/kapso_evaluation",
-            solution="sol",
-        )
-
-    def test_falls_back_to_workspace_on_unknown_ref(self):
-        from kapso.execution.search_strategies.benchmark_tree_search import (
-            BenchmarkTreeSearch,
-        )
-
-        strategy = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-        strategy.workspace_dir = "/ws"
-
-        @contextmanager
-        def raise_materialize(ref):
-            raise ValueError("Unknown Git ref")
-            yield  # pragma: no cover
-
-        strategy.workspace = SimpleNamespace(materialize_ref=raise_materialize)
-        handler = MagicMock()
-        strategy.problem_handler = handler
-        node = SimpleNamespace(branch_name="missing")
-
-        strategy._run_handler_on_candidate(node, "sol", "/rd")
-        handler.run.assert_called_once_with(
-            file_path="/ws", run_data_dir="/rd", solution="sol"
-        )
-
-
 RELBENCH_CACHE = Path(
     os.environ.get("RELBENCH_PRISTINE_CACHE_DIR", os.path.expanduser("~/.cache/relbench"))
 )
@@ -245,123 +193,6 @@ class TestSandboxOnRealData:
         races = pd.read_parquet(dest / "rel-f1" / "db" / "races.parquet")
         assert str(races["date"].max()) < "2010-01-02"
         assert not os.access(dest / "rel-f1" / "db" / "races.parquet", os.W_OK)
-
-
-class TestExperimentHistoryDigest:
-    """Fix B: node history must reach ideation/selection via additional_info."""
-
-    def _strategy_with_history(self):
-        from kapso.execution.search_strategies.benchmark_tree_search import (
-            BenchmarkTreeSearch,
-        )
-        import threading
-
-        s = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-        s.node_history_lock = threading.Lock()
-        s.problem_handler = SimpleNamespace(maximize_scoring=False)
-        failed = SimpleNamespace(
-            branch_name="experiment_0", node_id=13, had_error=True, score=1e18,
-            error_message="Debug execution took 900s (exceeded 15 minute limit).",
-            evaluation_output="", solution="Stacked LightGBM with cutoff emulation",
-        )
-        scored = SimpleNamespace(
-            branch_name="experiment_1", node_id=18, had_error=False, score=2.71,
-            error_message="",
-            evaluation_output="stuff\nOFFICIAL VALIDATION METRICS (harness-computed): "
-            '{"mae": 2.71}\nmore',
-            solution="CatBoost sequence + state-space model",
-        )
-        s.node_history = [failed, scored]
-        return s
-
-    def test_digest_contains_failures_scores_and_direction(self):
-        digest = self._strategy_with_history()._experiment_history_digest()
-        assert "lower is better" in digest
-        assert "experiment_0 FAILED" in digest and "15 minute limit" in digest
-        assert "experiment_1 score=2.71" in digest
-        assert "OFFICIAL VALIDATION METRICS" in digest
-        assert "Stacked LightGBM" in digest
-
-    def test_empty_history_yields_empty_digest(self):
-        s = self._strategy_with_history()
-        s.node_history = []
-        assert s._experiment_history_digest() == ""
-
-
-class TestSelectionLineageAndReasoning:
-    """Findings 5+8: candidates carry lineage; LLM reasoning is logged."""
-
-    def _tree(self):
-        from kapso.execution.search_strategies.benchmark_tree_search import (
-            BenchmarkTreeSearch,
-            TreeSearchNode,
-        )
-
-        parent_scored = TreeSearchNode(
-            node_id=1, branch_name="experiment_1", solution="scored parent"
-        )
-        parent_scored.score = 2.684
-        parent_unscored = TreeSearchNode(node_id=2, solution="unscored parent")
-        child_a = TreeSearchNode(
-            node_id=10, parent_node=parent_scored, solution="child of the winner"
-        )
-        child_b = TreeSearchNode(
-            node_id=11, parent_node=parent_unscored, solution="child of unknown"
-        )
-        parent_scored.children.append(child_a)
-        parent_unscored.children.append(child_b)
-
-        strategy = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-        strategy.nodes = [parent_scored, parent_unscored, child_a, child_b]
-        strategy.idea_generation_model = "test-model"
-        strategy.reasoning_effort = "low"
-        strategy.experimentation_count = 3
-        return strategy, child_a, child_b
-
-    def test_candidate_line_lineage_cases(self):
-        strategy, child_a, child_b = self._tree()
-        root_line = strategy._candidate_line(strategy.nodes[0])
-        assert "[root]" in root_line
-        scored_line = strategy._candidate_line(child_a)
-        assert "child of experiment_1, parent score 2.684" in scored_line
-        unscored_line = strategy._candidate_line(child_b)
-        assert "child of unscored node 2" in unscored_line
-
-    def test_select_prompt_carries_lineage_and_logs_reasoning(self, capsys):
-        strategy, child_a, child_b = self._tree()
-        captured = {}
-
-        def fake_llm(**kwargs):
-            captured.update(kwargs)
-            return (
-                "Reason for solution id 10: strongest lineage.\n"
-                "<output>\n[10]\n</output>"
-            )
-
-        strategy.llm = SimpleNamespace(llm_completion_with_system_prompt=fake_llm)
-        picked = strategy.select(
-            SimpleNamespace(problem="p", additional_info="", kg_results=""),
-            top_k=1,
-        )
-        assert picked == [child_a]
-        assert "parent score 2.684" in captured["user_message"]
-        assert "child of unscored node 2" in captured["user_message"]
-        out = capsys.readouterr().out
-        assert "selection (top_k=1) reasoning" in out
-        assert "strongest lineage" in out
-
-    def test_prune_logs_reasoning_and_terminates(self, capsys):
-        strategy, child_a, child_b = self._tree()
-
-        def fake_llm(**kwargs):
-            return "Reason 11: dead end.\n<output>\n[11]\n</output>"
-
-        strategy.llm = SimpleNamespace(llm_completion_with_system_prompt=fake_llm)
-        strategy.prune_bad_solutions(
-            SimpleNamespace(problem="p", additional_info="", kg_results="")
-        )
-        assert child_b.is_terminated and not child_a.is_terminated
-        assert "pruning reasoning" in capsys.readouterr().out
 
 
 class TestRepoMemoryMcpMount:
@@ -412,33 +243,6 @@ class TestRepoMemoryMcpMount:
         mounted = ExperimentSession._mount_repo_memory_mcp(config, str(tmp_path))
         assert mounted is False
         assert "mcp_servers" not in config.agent_specific
-
-    def test_implement_instructions_follow_mount_state(self, tmp_path):
-        from kapso.execution.search_strategies.benchmark_tree_search import (
-            BenchmarkTreeSearch,
-        )
-
-        strategy = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-        strategy.previous_errors = []
-        strategy.recent_error_count = 10
-        context = SimpleNamespace(problem="p", kg_code_results="")
-        prompts = {}
-
-        def session(mounted):
-            return SimpleNamespace(
-                session_folder=str(tmp_path),
-                branch_name="experiment_x",
-                repo_memory_mcp_mounted=mounted,
-                generate_code=lambda prompt: (
-                    prompts.__setitem__("last", prompt),
-                    SimpleNamespace(output="done"),
-                )[1],
-            )
-
-        strategy.implement_solution("sol", context, session(True))
-        assert "use the MCP tool" in prompts["last"]
-        strategy.implement_solution("sol", context, session(False))
-        assert "read: `.kapso/repo_memory.json`" in prompts["last"]
 
 
 RELBENCH_CACHE = Path(

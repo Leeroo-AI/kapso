@@ -17,7 +17,7 @@ from mlebench.grade import validate_submission, grade_csv
 from mlebench.registry import registry
 
 from kapso.environment.handlers.base import ProblemHandler, ProblemRunResult
-from kapso.core import llm as llm_utils
+from kapso.core.cli_inference import CliInference
 
 CUDA_DEVICE = int(os.getenv('CUDA_DEVICE', '0'))
 MLE_SEED = int(os.getenv('MLE_SEED', '1'))
@@ -29,7 +29,7 @@ class MleBenchHandler(ProblemHandler):
     def __init__(self, competition_id="spooky-author-identification", fetch_huggingface_models: bool = True):
         # No additional context needed - problem context is dynamically generated
         super().__init__(additional_context="")
-        self.llm = llm_utils.LLMBackend()
+        self.llm = CliInference()
         self.competition_id = competition_id
         self.problem_id = competition_id
         self.fetch_huggingface_models = fetch_huggingface_models
@@ -305,7 +305,7 @@ class MleBenchHandler(ProblemHandler):
         cleaned_lines = [line for line in lines if 'warning' not in line.lower() and 'warn' not in line.lower() and 'info' not in line.lower()]
         no_warning_output =  '\n'.join(cleaned_lines)
         return self.llm.llm_completion(
-            model="gpt-5-mini",
+            role="benchmark_utility",
             messages=[
                 {
                     "role": "system",
@@ -379,8 +379,8 @@ class MleBenchHandler(ProblemHandler):
         return competition.description
 
     def _generate_problem_context(self, problem_description):
-        return llm_utils.LLMBackend().llm_completion(
-            model="gpt-5",
+        return self.llm.llm_completion(
+            role="benchmark_utility",
             messages=[
                 {
                     "role": "system", 
@@ -521,53 +521,16 @@ class MleBenchHandler(ProblemHandler):
                 ]
             } \n """ + f"Problem statement: \n\n + {self.raw_problem_context}"
         
-        messages = [{"role": "user", "content": prompt}]
-        
-        # Use unified LLM layer with web search - parallel calls with different reasoning efforts
-        responses = self.llm.llm_multiple_completions_with_web_search(
-            models=["gpt-4o-search-preview", "gpt-4o-search-preview", "gpt-4o-search-preview"],
-            messages=messages,
-            search_context_size="high",
-        )
+        prompt += """
+            - Return ONE dictionary only: deduplicate models and datasets
+              across everything you find before answering."""
 
-        cleaned_output = "".join([self._remove_links(r) for r in responses])
-        
-        # Final cleanup call (no web search needed)
-        final_response = self.llm.llm_completion(
-            model="gpt-4.1-mini",
-            messages=[{
-                "role": "user", 
-                "content": cleaned_output + """
-                clean the above outputs, remove repeating models, datasets but keep everything else specially content. 
-                your final output must be a single dictionary like below:
-                {
-                    "models": [
-                        {
-                            "name": "model_name",
-                            "description": "summary of the model",
-                            "number_of_parameters": number of parameters of the model,
-                            "usage": "python code of usage",
-                        },
-                        {
-                            "name": "model_name",
-                            "description": "summary of the model",
-                            "number_of_parameters": number of parameters of the model,
-                            "usage": "python code of usage",
-                        }
-                    ],
-                    "datasets": [
-                        {
-                            "name": "dataset_name",
-                            "description": "dataset_description",
-                        },
-                        {
-                            "name": "dataset_name",
-                            "description": "dataset_description",
-                        },
-                    ]
-            """
-            }]
+        response = self.llm.llm_completion_with_web_search(
+            messages=[{"role": "user", "content": prompt}],
+            search_context_size="high",
+            role="research",
         )
+        final_response = self._remove_links(response)
 
         return final_response   
     

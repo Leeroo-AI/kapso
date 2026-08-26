@@ -16,7 +16,7 @@ Options:
     --dataset, -s        Dataset name (e.g. rel-f1)
     --task, -t           Task name (e.g. driver-position)
     --iterations, -i     Maximum search iterations (default: 20)
-    --mode, -m           Config mode: RELBENCH_CONFIGS, HEAVY_EXPERIMENTATION, MINIMAL
+    --mode, -m           Config mode: RELBENCH_GENERIC (default), FAST_DEBUG, MINIMAL
     --coding-agent, -d   Coding agent: aider, gemini, claude_code, openhands
     --no-kg              Disable knowledge graph
     --workspace          Reuse/name a workspace dir (enables resuming archives)
@@ -103,17 +103,13 @@ def solve_task(args) -> dict:
         rebuild_sanitized_cache=args.rebuild_cache,
     )
 
-    # Strategy selection:
-    # - tree (default): handler-scored benchmark_tree_search. No eval_dir —
-    #   the handler computes official metrics itself, and passing a provided
-    #   suite would turn on the integrity check against agents writing their
-    #   own scripts into kapso_evaluation/.
-    # - generic: champion-chain search with code-reading agentic ideation.
-    #   Our provided grader (data/generic_eval) becomes the maintainer-
-    #   registered evaluation entrypoint; in-loop scoring is val-only by
-    #   construction (the sanitized cache holds no test labels).
-    generic = args.strategy == "generic"
-    mode = args.mode or ("RELBENCH_GENERIC" if generic else None)
+    # Generic is the only strategy (benchmark_tree_search was deleted —
+    # stale-code audit 2026-08-26): champion-chain search with code-reading
+    # agentic ideation. Our provided grader (data/generic_eval) becomes the
+    # maintainer-registered evaluation entrypoint; in-loop scoring is
+    # val-only by construction (the sanitized cache holds no test labels).
+    generic = True
+    mode = args.mode or "RELBENCH_GENERIC"
 
     # Serving live (learn-from-trajectories §5.3, config-gated): pin the
     # bank, compile the push brief into the problem context, stage the
@@ -209,12 +205,6 @@ def main() -> None:
     parser.add_argument("--no-kg", action="store_true")
     parser.add_argument("--workspace", type=str, default=None)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument(
-        "--strategy", type=str, choices=["tree", "generic"], default="generic",
-        help="generic = champion-chain search with the provided grader (default, "
-        "campaign standard since the R5 A/B); tree = handler-scored "
-        "benchmark_tree_search",
-    )
     parser.add_argument(
         "--initial-repo", type=str, default=None,
         help="Seed the workspace from an existing repo (e.g. a scout's winning branch)",

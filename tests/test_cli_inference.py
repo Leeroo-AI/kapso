@@ -190,11 +190,11 @@ def test_packaged_config_defines_every_role_the_code_selects():
     for key in ("cli", "model", "effort", "sandbox", "timeout_seconds"):
         assert key in config["default"], key
     for role in (
-        "research",       # researcher / research gate
-        "kg_rerank",      # kg_graph_search reranker
-        "kg_navigate",    # kg_llm_navigation_search
-        "repo_memory",    # repo-memory builders
-        "commit_message", # commit message generator
-        "tree_search",    # benchmark tree search
+        "research",           # researcher / research gate / HF fetch
+        "kg_rerank",          # kg_graph_search reranker
+        "kg_navigate",        # kg_llm_navigation_search
+        "repo_memory",        # repo-memory builders
+        "commit_message",     # commit message generator
+        "benchmark_utility",  # mle/ale handler cleanup calls
     ):
         assert role in config["roles"], role

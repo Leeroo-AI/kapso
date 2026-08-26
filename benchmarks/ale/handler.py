@@ -7,7 +7,7 @@ from pdb import run
 import ale_bench
 
 from kapso.environment.handlers.base import ProblemHandler, ProblemRunResult
-from kapso.core import llm as llm_utils
+from kapso.core.cli_inference import CliInference
 
 LITE_VERSION_PROBLEMS_LIST = ["ahc008", "ahc011", "ahc015", "ahc016", "ahc024", "ahc025", "ahc026", "ahc027", "ahc039", "ahc046"]
 LITE_PROBLEMS_INFO = {
@@ -40,7 +40,7 @@ class AleBench(ProblemHandler):
             run_visualization_server=False,
         )
         self.currently_running = 0
-        self.llm = llm_utils.LLMBackend()
+        self.llm = CliInference()
         self.problem_id = problem_id
         self.maximize_scoring = LITE_PROBLEMS_INFO[problem_id]['maximize_scoring']
         self._set_problem_context(problem_id)
@@ -168,8 +168,8 @@ class AleBench(ProblemHandler):
         return False
 
     def _generate_problem_context(self):
-        return llm_utils.LLMBackend().llm_completion(
-            model="gpt-5",
+        return self.llm.llm_completion(
+            role="benchmark_utility",
             messages=[
                 {
                     "role": "system", 
@@ -232,7 +232,9 @@ class AleBench(ProblemHandler):
             </test cases>
         """
         raw_feedbacks = self.llm.llm_completion_with_system_prompt(
-            model="gpt-5", system_prompt=system_prompt, user_message=user_prompt
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            role="benchmark_utility",
         )
         feedbacks = re.findall(r'<feedbacks>(.*?)</feedbacks>', raw_feedbacks, re.DOTALL)[0]
         return feedbacks

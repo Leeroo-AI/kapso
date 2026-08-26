@@ -6,7 +6,6 @@
 #
 # Available Search Strategies:
 #   - generic: Claude Code + MCP gates for ideation and implementation
-#   - benchmark_tree_search: Tree search with handler.run() for benchmarks
 #
 # Knowledge Search Backends (via KnowledgeSearchFactory):
 #   - kg_graph_search: Weaviate embeddings + Neo4j graph (for wiki pages)
@@ -42,7 +41,8 @@ inference:
     kg_navigate: {effort: "low", timeout_seconds: 300}
     repo_memory: {}
     commit_message: {effort: "low", timeout_seconds: 180}
-    tree_search: {}
+    # Benchmark handlers' utility calls (output/problem-statement cleanup).
+    benchmark_utility: {effort: "low", timeout_seconds: 600}
 
 # =============================================================================
 # Platform defaults — the base layer under every mode of every config file

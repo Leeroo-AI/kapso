@@ -1,171 +1,99 @@
 # ALE-Bench Configuration
-# Configuration for AtCoder Heuristic Contest algorithmic problems
+# Configuration for AtCoder Heuristic Contest algorithmic problems.
 #
-# Coding agents are configured in: src/agents/coding_agents/agents.yaml
-# Just specify the agent type here - defaults come from agents.yaml
+# Migrated to the generic strategy (stale-code audit 2026-08-26, user
+# direction): agentic code-reading ideation + implementation sessions;
+# the session compiles/runs the solution against the provided test cases
+# itself and reports the score, and the runner's handler grades finals.
 #
-# Available agents: aider, gemini, claude_code, openhands
-# Use --list-agents to see details
-#
-# Available search strategies:
-#   - benchmark_tree_search: Tree search with handler.run() for evaluation
-#
-# Knowledge search backends are pluggable via KnowledgeSearchFactory.
-# Available: kg_llm_navigation (more can be added via @register_knowledge_search decorator)
+# Coding agents are configured in: src/kapso/execution/coding_agents/agents.yaml
 
 # Default mode to use
-default_mode: ALE_CONFIGS
+default_mode: ALE_GENERIC
 
 # Available configuration modes
 modes:
   # ===========================================
-  # Production Modes
+  # Production Mode
   # ===========================================
-  # Production configuration for ALE-Bench
-  ALE_CONFIGS:
-    # Search strategy configuration
+  ALE_GENERIC:
     search_strategy:
-      type: "benchmark_tree_search"
+      type: "generic"
       params:
-        reasoning_effort: "high"
-        code_debug_tries: 3
-        node_expansion_limit: 3
-        node_expansion_new_childs_count: 20
-        idea_generation_steps: 1
-        first_experiment_factor: 2
-        experimentation_per_run: 15
-        per_step_maximum_solution_count: 25
-        exploration_budget_percent: 15
-        idea_generation_model: "gemini/gemini-2.5-pro"
-        idea_generation_ensemble_models:
-          - "gemini/gemini-2.5-pro"
-          - "gemini/gemini-2.5-pro"
-          - "gemini/gemini-2.5-pro"
+        idea_generation_model: "claude-opus-5"
+        # Implementation sessions on the codex CLI (subscription login).
+        implementation_model: "gpt-5.6-sol"
+        implementation_cli: "codex"
+        # Heuristic-contest problems benefit from algorithm literature;
+        # AHC allows public references during contests.
+        implementation_web: true
+        auth_mode: "oauth"
+        effort: "xhigh"
+        gate_failure_policy: "skip"
+        parent_policy: "best"
+        ideation_gates: ["research", "experiment_history", "repo_memory"]
+        implementation_gates: ["research", "repo_memory"]
+        # Local heuristic search runs must be holdable in the foreground
+        # (the CLI auto-backgrounds foreground commands at 120s otherwise).
+        session_env_defaults:
+          BASH_DEFAULT_TIMEOUT_MS: "1800000"
+          BASH_MAX_TIMEOUT_MS: "7200000"
+        implementation_timeout: 7200
 
-    # Coding agent configuration
     coding_agent:
-      type: "aider"
-      model: "gemini/gemini-2.5-pro"
-      debug_model: "gemini/gemini-2.5-flash"
-    
-    # Knowledge search configuration
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
+      agent_specific:
+        effort: "xhigh"
+        timeout: 7200
+
+    feedback_generator:
+      type: "codex"
+      model: "gpt-5.6-sol"
+      debug_model: "gpt-5.6-sol"
+      agent_specific:
+        effort: "xhigh"
+        timeout: 900
+
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
-      params:
-        search_top_k: 1
-        navigation_steps: 3
-        expansion_limit: 3
-        search_node_type: "specialization"
-    
-    # ALE uses C++, no HuggingFace models needed
-    fetch_huggingface_models: false
-  
-  # Production configuration for ALE-Bench and long competitions.
-  ALE_CONFIGS_LONG:
-    # Search strategy configuration
-    search_strategy:
-      type: "benchmark_tree_search"
-      params:
-        reasoning_effort: "high"
-        code_debug_tries: 3
-        node_expansion_limit: 3
-        node_expansion_new_childs_count: 10
-        idea_generation_steps: 1
-        first_experiment_factor: 2
-        experimentation_per_run: 7
-        per_step_maximum_solution_count: 10
-        exploration_budget_percent: 66
-        idea_generation_model: "gemini/gemini-2.5-pro"
-        idea_generation_ensemble_models:
-          - "gemini/gemini-2.5-pro"
-          - "gemini/gemini-2.5-pro"
-          - "gemini/gemini-2.5-pro"
-
-    # Coding agent configuration
-    coding_agent:
-      type: "aider"
-      model: "gemini/gemini-2.5-pro"
-      debug_model: "gemini/gemini-2.5-flash"
-    
-    # Knowledge search configuration
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: false
-      params:
-        search_top_k: 1
-        navigation_steps: 3
-        expansion_limit: 3
-        search_node_type: "specialization"
-    
-    # ALE uses C++, no HuggingFace models needed
-    fetch_huggingface_models: false
-
-  # Heavy thinking - deeper reasoning per solution
-  HEAVY_THINKING:
-    search_strategy:
-      type: "benchmark_tree_search"
-      params:
-        reasoning_effort: "high"
-        code_debug_tries: 5
-        node_expansion_limit: 2
-        node_expansion_new_childs_count: 10
-        idea_generation_steps: 1
-        first_experiment_factor: 1
-        experimentation_per_run: 1
-        per_step_maximum_solution_count: 10
-        exploration_budget_percent: 50
-        idea_generation_model: "o3"
-        idea_generation_ensemble_models:
-          - "o3"
-          - "o3"
-          - "o3"
-    
-    coding_agent:
-      type: "aider"
-      model: "gpt-4.1-mini"
-      debug_model: "gpt-4.1-mini"
-    
-    knowledge_search:
-      type: "kg_llm_navigation"
-      enabled: true
-      params:
-        search_top_k: 1
-        navigation_steps: 3
-        expansion_limit: 3
-        search_node_type: "specialization"
-    
-    fetch_huggingface_models: false
 
   # ===========================================
-  # Testing Modes
+  # Quick smoke testing
   # ===========================================
-  
-  # Minimal configuration for quick testing
   MINIMAL:
     search_strategy:
-      type: "benchmark_tree_search"
+      type: "generic"
       params:
-        reasoning_effort: "medium"
-        code_debug_tries: 2
-        node_expansion_limit: 2
-        node_expansion_new_childs_count: 3
-        idea_generation_steps: 1
-        first_experiment_factor: 1
-        experimentation_per_run: 1
-        per_step_maximum_solution_count: 3
-        exploration_budget_percent: 50
-        idea_generation_model: "gpt-4o-mini"
-        idea_generation_ensemble_models:
-          - "gpt-4o-mini"
-    
+        idea_generation_model: "claude-opus-5"
+        implementation_model: "claude-opus-5"
+        auth_mode: "oauth"
+        effort: "medium"
+        gate_failure_policy: "skip"
+        parent_policy: "best"
+        ideation_gates: ["experiment_history", "repo_memory"]
+        implementation_gates: ["repo_memory"]
+        ideation_timeout: 600
+        implementation_timeout: 1800
+
     coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-      debug_model: "gpt-4o-mini"
-    
+      type: "claude_code"
+      model: "claude-opus-5"
+      debug_model: "claude-opus-5"
+      agent_specific:
+        auth_mode: "oauth"
+        streaming: true
+
+    feedback_generator:
+      type: "claude_code"
+      model: "claude-opus-5"
+      debug_model: "claude-opus-5"
+      agent_specific:
+        auth_mode: "oauth"
+        streaming: true
+
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
-    
-    fetch_huggingface_models: false

@@ -13,7 +13,7 @@ Usage:
 Options:
     --competition, -c       Competition ID to solve
     --iterations, -i        Maximum iterations (default: 20)
-    --mode, -m              Config mode: MLE_CONFIGS, HEAVY_EXPERIMENTATION, MINIMAL
+    --mode, -m              Config mode: MLE_GENERIC (default), MINIMAL
     --coding-agent, -d      Coding agent: aider, gemini, claude_code, openhands
     --no-kg                 Disable knowledge graph
     --list                  List all available competitions
@@ -40,7 +40,7 @@ from benchmarks.mle.handler import MleBenchHandler
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 # Available coding agents
-AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
+AVAILABLE_AGENTS = CodingAgentFactory.list_available()
 
 
 def list_competitions(lite_only: bool = False) -> None:
@@ -79,7 +79,7 @@ def solve_competition(
     Args:
         competition_id: The Kaggle competition ID
         max_iterations: Maximum experiment iterations
-        mode: Config mode (MLE_CONFIGS, HEAVY_EXPERIMENTATION, MINIMAL)
+        mode: Config mode (MLE_GENERIC, MINIMAL)
         use_kg: Whether to use the knowledge graph
         coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
         
@@ -90,7 +90,7 @@ def solve_competition(
     import yaml
     with open(CONFIG_PATH, 'r') as f:
         config_data = yaml.safe_load(f)
-    active_mode = mode or config_data.get('default_mode', 'MLE_CONFIGS')
+    active_mode = mode or config_data.get('default_mode', 'MLE_GENERIC')
     mode_config = config_data.get('modes', {}).get(active_mode, {})
     fetch_huggingface = mode_config.get('fetch_huggingface_models', True)
     
@@ -178,7 +178,7 @@ def main():
         "-m", "--mode",
         type=str,
         default=None,
-        help="Configuration mode (default: MLE_CONFIGS)"
+        help="Configuration mode (default: MLE_GENERIC)"
     )
     parser.add_argument(
         "-d", "--coding-agent",

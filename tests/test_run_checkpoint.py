@@ -18,10 +18,6 @@ from kapso.execution.run_checkpoint import (
 )
 from kapso.execution.fidelity import EvaluationAttempt
 from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.benchmark_tree_search import (
-    BenchmarkTreeSearch,
-    TreeSearchNode,
-)
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 from kapso.kapso import Kapso
 
@@ -321,7 +317,7 @@ def test_structurally_invalid_json_is_rejected_as_checkpoint_error() -> None:
         ("goal", "Different goal", RunCheckpointIncompatibleError),
         (
             "strategy_type",
-            "benchmark_tree_search",
+            "some_other_strategy",
             RunCheckpointIncompatibleError,
         ),
         (
@@ -429,26 +425,6 @@ def test_search_node_rejects_invalid_runtime_types() -> None:
         SearchNode.from_dict({"node_id": 0, "should_stop": "false"})
 
 
-def test_tree_strategy_state_rebuilds_references() -> None:
-    root = TreeSearchNode(node_id=0, solution="root")
-    child = TreeSearchNode(node_id=1, parent_node=root, solution="child")
-    root.children.append(child)
-    child.score = 0.7
-
-    source = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-    source.nodes = [root, child]
-    source.node_history = [child]
-    source.experimentation_count = 1
-    source.previous_errors = ["retry this"]
-
-    restored = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-    restored.load_state(source.dump_state())
-
-    restored_root, restored_child = restored.nodes
-    assert restored_child.parent_node is restored_root
-    assert restored_root.children == [restored_child]
-    assert restored.node_history[0] is restored_child
-    assert restored.experimentation_count == 1
 
 
 def test_one_iteration_then_resume_restores_feedback_and_state(

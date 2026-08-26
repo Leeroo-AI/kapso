@@ -119,7 +119,7 @@ class SearchStrategyFactory:
         Create a search strategy instance.
         
         Args:
-            strategy_type: Name of registered strategy (e.g., "generic", "benchmark_tree_search")
+            strategy_type: Name of registered strategy (e.g., "generic")
             problem_handler: Problem handler instance
             llm: LLM backend
             coding_agent_config: Config for coding agent

@@ -13,7 +13,7 @@ Usage:
 Options:
     --problem, -p           Problem ID to solve (e.g., ahc039)
     --iterations, -i        Maximum iterations (default: 14)
-    --mode, -m              Config mode: ALE_CONFIGS, HEAVY_THINKING, MINIMAL
+    --mode, -m              Config mode: ALE_GENERIC (default), MINIMAL
     --coding-agent, -d      Coding agent: aider, gemini, claude_code, openhands
     --list                  List all available problems
     --lite                  List only lite benchmark problems
@@ -44,7 +44,7 @@ from benchmarks.ale.handler import AleBench
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 # Available coding agents
-AVAILABLE_AGENTS = ["aider", "gemini", "claude_code", "openhands"]
+AVAILABLE_AGENTS = CodingAgentFactory.list_available()
 
 
 def list_problems(lite_only: bool = False) -> None:
@@ -85,7 +85,7 @@ def solve_problem(
     Args:
         problem_id: The AtCoder problem ID (e.g., ahc039)
         max_iterations: Maximum experiment iterations
-        mode: Config mode (ALE_CONFIGS, HEAVY_THINKING, MINIMAL)
+        mode: Config mode (ALE_GENERIC (default), MINIMAL)
         coding_agent: Coding agent to use (aider, gemini, claude_code, openhands)
         use_kg: Whether to use the knowledge graph
         
@@ -96,7 +96,7 @@ def solve_problem(
     print(f"Solving: {problem_id}")
     print(f"{'='*60}")
     print(f"  Max iterations: {max_iterations}")
-    print(f"  Config mode: {mode or 'default (ALE_CONFIGS)'}")
+    print(f"  Config mode: {mode or 'default (ALE_GENERIC)'}")
     print(f"  Coding agent: {coding_agent or 'from config'}")
     print(f"  Knowledge graph: {'enabled' if use_kg else 'disabled'}")
     print()
@@ -162,7 +162,7 @@ def main():
         "-m", "--mode",
         type=str,
         default=None,
-        help="Configuration mode (default: ALE_CONFIGS)"
+        help="Configuration mode (default: ALE_GENERIC)"
     )
     parser.add_argument(
         "-d", "--coding-agent",
@@ -215,7 +215,7 @@ def main():
     try:
         with open(CONFIG_PATH, 'r') as f:
             config_data = yaml.safe_load(f)
-        mode_name = args.mode or config_data.get('default_mode', 'ALE_CONFIGS')
+        mode_name = args.mode or config_data.get('default_mode', 'ALE_GENERIC')
         mode_config = config_data.get('modes', {}).get(mode_name, {})
         use_knowledge_graph = mode_config.get('use_knowledge_graph', False)
     except Exception as e:

@@ -4,7 +4,6 @@
 #
 # Available strategies:
 # - generic: Agent-based search for general problem solving
-# - benchmark_tree_search: Tree search with handler-based evaluation
 #
 # To add a new strategy:
 # 1. Create a new file in this directory (e.g., my_strategy.py)
@@ -29,7 +28,6 @@ from kapso.execution.search_strategies.factory import (
 
 # Import strategies to register them
 from kapso.execution.search_strategies.generic import GenericSearch
-from kapso.execution.search_strategies.benchmark_tree_search import BenchmarkTreeSearch
 
 __all__ = [
     "SearchStrategy",
@@ -39,5 +37,4 @@ __all__ = [
     "SearchStrategyFactory",
     "register_strategy",
     "GenericSearch",
-    "BenchmarkTreeSearch",
 ]

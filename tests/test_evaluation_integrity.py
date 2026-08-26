@@ -26,9 +26,6 @@ from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
 )
-from kapso.execution.search_strategies.benchmark_tree_search import (
-    BenchmarkTreeSearch,
-)
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
 
@@ -275,11 +272,6 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
     generic.node_history = [invalid, valid]
     generic.problem_handler = SimpleNamespace(maximize_scoring=True)
     assert generic.get_best_experiment() is valid
-
-    tree = BenchmarkTreeSearch.__new__(BenchmarkTreeSearch)
-    tree.node_history = [invalid, valid]
-    tree.problem_handler = SimpleNamespace(maximize_scoring=True)
-    assert tree.get_best_experiment() is valid
 
     store = ExperimentHistoryStore(
         json_path=str(tmp_path / "history.json"),
