@@ -164,26 +164,35 @@ prompt shape.
    can score, research, and rerank; after this, codex (or claude) must be
    installed and authenticated. Document it as a hard requirement.
 
-## 7. Implementation plan
+## 7. Implementation plan — SHIPPED (2026-08-26)
 
-1. `src/kapso/core/cli_inference.py`: `CliInference` (§2), role
-   resolution, scratch-dir lifecycle, fail-loud on empty output.
-2. Config: `inference:` block (§3); delete the retired `models:` roles.
-3. Swap construction at the seams — `OrchestratorAgent`, `Researcher`,
-   both KG search backends, repo-memory builders, commit-message
-   generator — passing `CliInference` where `LLMBackend` went. Call sites
-   keep their method calls.
-4. Batch the KG loops into single sessions (§4b).
-5. Delete the retired `LLMBackend` methods + web-search wrapper (§5).
-6. Tests: one per converted call site asserting a CLI session was
-   constructed with the resolved role spec (codex/gpt-5.6-sol/xhigh
-   unless overridden) and that empty/failed output raises; parser
-   robustness tests for judge tags and research findings under
-   narration; a config test that `inference.roles` defaults resolve.
-7. Live smoke: one short evolve (judge + commit messages + repo memory on
-   CLI) and one `learn_knowledge` (research on CLI), then compare the
-   E2E's stage timings against the API-path baseline recorded in
-   learning/e2e-facade/.
+1. ✅ `src/kapso/core/cli_inference.py`: `CliInference` (§2), role
+   resolution, scratch-dir lifecycle, fail-loud on empty output
+   (55bbd504).
+2. ✅ Config: `inference:` block (§3); retired `models:` roles deleted
+   from both mode blocks — the defaults layer supplies
+   `models.embedding` (8a8a2e08).
+3. ✅ Seams swapped: orchestrator, researcher, both KG search backends,
+   repo-memory builders, commit-message generator (which also lost its
+   `chore: update code` swallow), benchmark tree search; the judge was
+   already a CLI session (feedback_generator) — no conversion needed.
+4. ✅ §4b resolved in place: rerank is already one session per query;
+   navigation stays per-hop (frontier depends on prior selection).
+5. ✅ `LLMBackend` shrunk to embeddings + router + cost meter; the
+   Responses-API wrapper, `RESEARCH_WEB_SEARCH_MODEL` threading, effort
+   plumbing, async retry loop, and `Researcher.model` all deleted.
+6. ✅ Tests: `tests/test_cli_inference.py` (role merge, spec→session
+   config, fail-loud, codex web-search flag, cost aggregation,
+   config/code role contract), `tests/test_research_findings_parsing.py`
+   (parsers under session narration + truncation), routing tests
+   re-ported to the embedding-only surface (8b37a3e7). Judge-tag
+   robustness was already pinned in test_feedback_generator.
+7. Live smoke: `examples/ml_model_development/run_cli_inference_smoke.py`
+   (research → small learn_knowledge → 25-min evolve) with stage
+   timings vs the API baseline in learning/e2e-facade/20260825T223634
+   (research 76s, evolve1 15m26s). Direct probe already green: plain
+   commit-message session 5.0s, web-search research session 18.0s,
+   correct outputs, cost reported 0.0 (codex OAuth).
 
 ## 8. Open questions — RESOLVED (user, 2026-08-25)
 

@@ -70,6 +70,20 @@ It automates the cycle of **designing**, **testing**, and **refining** algorithm
 pip install leeroo-kapso
 ```
 
+**Coding-agent CLI (required)** — every Kapso inference call (judging,
+research, knowledge search, commit messages) runs as a coding-agent CLI
+session; there is no direct-API fallback. Install and authenticate the
+default agent, [Codex CLI](https://github.com/openai/codex), before
+running anything:
+
+```bash
+npm install -g @openai/codex
+codex login
+```
+
+An `OPENAI_API_KEY` in `.env` is still needed for embeddings (memory and
+knowledge-search indexing).
+
 **From source (for development or to access wiki knowledge data)**
 
 ```bash
