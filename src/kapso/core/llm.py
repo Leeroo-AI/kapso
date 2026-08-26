@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import random
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Optional
 
 import tiktoken
-from litellm import acompletion, completion, embedding
+from litellm import embedding
 
 # Suppress verbose LiteLLM logs.
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
@@ -25,96 +24,20 @@ logger = logging.getLogger(__name__)
 EMBEDDING_MAX_TOKENS = 8192
 _EMBEDDING_ENCODING = "cl100k_base"
 
-MODEL_ROLES = frozenset({"utility", "reasoning", "web_search", "embedding"})
+# Embedding is the ONLY model role left: every other completion moved to
+# coding-agent CLI sessions (cli-only-inference design, 2026-08-26).
+MODEL_ROLES = frozenset({"embedding"})
 DEFAULT_MODEL_ROUTES: Dict[str, str] = {
-    "utility": "gpt-4.1-mini",
-    "reasoning": "gpt-5-mini",
-    # Web search runs through the Responses API web_search TOOL, which the
-    # retired search-preview family rejects ("not supported with the
-    # Responses API" — a gate whose subprocess fell back to this default
-    # 400'd on every call, E2E review 2026-08-24). Any current chat model
-    # works; deployments override via the config's models.web_search.
-    "web_search": "gpt-4.1-mini",
     "embedding": "text-embedding-3-small",
 }
 
 
-def _effort_kwargs(reasoning_effort: Optional[str]) -> Dict[str, Any]:
-    """Completion kwargs for a reasoning effort; empty when none is set.
-
-    A None effort must OMIT the parameter entirely: passing the kwarg with
-    a None value can reach the provider as an explicit null once litellm's
-    capability map and the allowed-params whitelist interact (run #9,
-    R9-I-2: gpt-5.6-luna rejects null with a 400).
-    """
-    if reasoning_effort is None:
-        return {}
-    return {
-        "reasoning_effort": reasoning_effort,
-        **_effort_passthrough(reasoning_effort),
-    }
-
-
-def _effort_passthrough(reasoning_effort: Optional[str]) -> Dict[str, Any]:
-    """Force reasoning_effort past litellm's static capability map.
-
-    `drop_params=True` silently discards reasoning_effort for models newer
-    than the installed litellm's model registry (e.g. the gpt-5.6 family),
-    which would quietly ignore a configured effort level. Whitelisting the
-    parameter keeps it in the request while drop_params still prunes anything
-    else unsupported.
-    """
-    if reasoning_effort is None:
-        return {}
-    return {"allowed_openai_params": ["reasoning_effort"]}
-
-
-_ANTHROPIC_ROUTE_HINTS = ("anthropic", "claude")
-
-
-def _prepare_effort(
-    model: Optional[str],
-    reasoning_effort: Optional[str],
-    kwargs: Dict[str, Any],
-) -> Tuple[Optional[str], Dict[str, Any]]:
-    """Translate effort levels litellm's Anthropic mapper does not know.
-
-    litellm maps reasoning_effort for Anthropic-routed models but raises on
-    levels outside {low, medium, high} (e.g. "xhigh"). Current Claude models
-    (Opus 4.8+) control this natively via adaptive thinking plus
-    output_config.effort — send those verbatim through Bedrock's request
-    pass-through so litellm neither validates nor rewrites them.
-    Non-Anthropic models pass through unchanged.
-    """
-    if reasoning_effort != "xhigh":
-        return reasoning_effort, kwargs
-    lowered = (model or "").lower()
-    if not any(hint in lowered for hint in _ANTHROPIC_ROUTE_HINTS):
-        return reasoning_effort, kwargs
-    # litellm forwards these into the provider request body verbatim
-    # (unknown kwargs are collected into Bedrock's additionalModelRequestFields).
-    kwargs = dict(kwargs)
-    kwargs.setdefault("thinking", {"type": "adaptive"})
-    kwargs.setdefault("output_config", {"effort": "xhigh"})
-    kwargs.setdefault("max_tokens", 16384)
-    return None, kwargs
-
-# These inputs were historically rewritten by the web-search methods. They
-# remain aliases, but now target the configured web_search role.
-LEGACY_WEB_SEARCH_ALIASES = frozenset(
-    {"gpt-5", "gpt-5.1", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini"}
-)
-
-
 class ModelRouter:
-    """Resolve semantic model roles while preserving explicit model strings.
+    """Resolve the embedding role while preserving explicit model strings.
 
-    A route value is either a bare model string or a mapping
-    {model: <str>, reasoning_effort: <str>} — the rich form attaches a
-    default reasoning effort to every call resolved through that role
-    (callers passing an explicit effort still win). This is how config
-    reaches call sites that never plumbed an effort parameter (e.g.
-    repo memory).
+    Reasoning-effort routing died with the completion surface: a CLI
+    session's model/effort come from the `inference:` role specs, so a
+    route value is just a bare model string.
     """
 
     def __init__(self, routes: Optional[Mapping[str, Any]] = None):
@@ -124,35 +47,17 @@ class ModelRouter:
             raise ValueError(f"Unknown model role(s): {', '.join(unknown)}")
 
         merged = dict(DEFAULT_MODEL_ROUTES)
-        efforts: Dict[str, str] = {}
         for role, value in supplied.items():
-            if isinstance(value, Mapping):
-                model = value.get("model")
-                extra = sorted(set(value) - {"model", "reasoning_effort"})
-                if extra:
-                    raise ValueError(
-                        f"Model route '{role}' has unknown keys: {', '.join(extra)}"
-                    )
-                effort = value.get("reasoning_effort")
-                if effort is not None:
-                    if not isinstance(effort, str) or not effort.strip():
-                        raise ValueError(
-                            f"Model route '{role}' reasoning_effort must be a non-empty string"
-                        )
-                    efforts[role] = effort.strip()
-            else:
-                model = value
-            if not isinstance(model, str) or not model.strip():
+            if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Model route '{role}' must be a non-empty string")
-            merged[role] = model.strip()
+            merged[role] = value.strip()
         self._routes = merged
-        self._efforts = efforts
 
     def resolve(
         self,
         model: Optional[str],
         *,
-        default_role: str = "utility",
+        default_role: str = "embedding",
     ) -> str:
         if default_role not in MODEL_ROLES:
             raise ValueError(f"Unknown default model role: {default_role}")
@@ -164,23 +69,7 @@ class ModelRouter:
         requested = model.strip()
         if requested in MODEL_ROLES:
             return self._routes[requested]
-        if (
-            default_role == "web_search"
-            and requested in LEGACY_WEB_SEARCH_ALIASES
-        ):
-            return self._routes["web_search"]
         return requested
-
-    def effort_for(
-        self, model: Optional[str], *, default_role: str = "utility"
-    ) -> Optional[str]:
-        """The configured effort for whichever role this call resolves to."""
-        if model is None:
-            return self._efforts.get(default_role)
-        requested = str(model).strip()
-        if requested in MODEL_ROLES:
-            return self._efforts.get(requested)
-        return None
 
     def to_dict(self) -> Dict[str, str]:
         return dict(self._routes)
@@ -346,7 +235,7 @@ def is_transient_llm_error(error: Exception) -> bool:
 
 
 class LLMBackend:
-    """LLM completions with role routing, bounded retries, and cost tracking."""
+    """Embedding backend with bounded retries and cost tracking."""
 
     def __init__(
         self,
@@ -354,7 +243,6 @@ class LLMBackend:
         retry_policy: Optional[Mapping[str, Any] | RetryPolicy] = None,
         *,
         sleep_fn: Optional[Callable[[float], None]] = None,
-        async_sleep_fn: Optional[Callable[[float], Awaitable[None]]] = None,
         random_fn: Optional[Callable[[], float]] = None,
     ):
         self.model_router = (
@@ -362,7 +250,6 @@ class LLMBackend:
         )
         self.retry_policy = RetryPolicy.from_config(retry_policy)
         self._sleep = sleep_fn or time.sleep
-        self._async_sleep = async_sleep_fn or asyncio.sleep
         self._random = random_fn or random.random
         self._cumulative_cost = 0.0
 
@@ -373,7 +260,7 @@ class LLMBackend:
         self,
         model: Optional[str],
         *,
-        default_role: str = "utility",
+        default_role: str = "embedding",
     ) -> str:
         return self.model_router.resolve(model, default_role=default_role)
 
@@ -383,10 +270,6 @@ class LLMBackend:
             cost = hidden.get("response_cost")
             if isinstance(cost, (int, float)) and not isinstance(cost, bool):
                 self._cumulative_cost += float(cost)
-
-    @staticmethod
-    def _content(response: Any) -> str:
-        return response.choices[0].message.content
 
     def _run_sync(
         self,
@@ -422,40 +305,6 @@ class LLMBackend:
                     delay,
                 )
                 self._sleep(delay)
-        raise AssertionError("retry loop exited unexpectedly")
-
-    async def _run_async(
-        self,
-        operation: str,
-        model: str,
-        call: Callable[[], Awaitable[Any]],
-    ) -> Any:
-        for attempt in range(1, self.retry_policy.max_attempts + 1):
-            try:
-                response = await call()
-                self._record_cost(response)
-                return response
-            except Exception as error:
-                if not is_transient_llm_error(error):
-                    raise
-                if attempt == self.retry_policy.max_attempts:
-                    raise LLMRetryError(
-                        operation, model, attempt, error
-                    ) from error
-                delay = self.retry_policy.delay_for_retry(
-                    attempt, self._random
-                )
-                logger.warning(
-                    "Transient %s failure for model %s (%d/%d, %s); "
-                    "retrying in %.2fs",
-                    operation,
-                    model,
-                    attempt,
-                    self.retry_policy.max_attempts,
-                    type(error).__name__,
-                    delay,
-                )
-                await self._async_sleep(delay)
         raise AssertionError("retry loop exited unexpectedly")
 
     # Completions were removed 2026-08-26 (cli-only-inference-design):
@@ -499,17 +348,3 @@ class LLMBackend:
             ),
         )
         return list(response.data[0]["embedding"])
-
-
-def main() -> None:
-    llm = LLMBackend()
-    response = llm.llm_completion(
-        model="reasoning",
-        messages=[{"role": "user", "content": "Say hello in one sentence."}],
-    )
-    print(response)
-    print(f"Cost: ${llm.get_cumulative_cost():.6f}")
-
-
-if __name__ == "__main__":
-    main()

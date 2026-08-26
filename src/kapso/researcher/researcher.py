@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any, List, Literal, Mapping, Optional, Union
 
 from kapso.core.cli_inference import CliInference
-from kapso.core.llm import LLMBackend, RetryPolicy
 from kapso.knowledge_base.types import Source, ResearchFindings
 from kapso.researcher.research_findings import (
     ResearchMode,
@@ -62,21 +61,14 @@ class Researcher:
             print(impl.to_string())
     """
 
-    # Explicit provider models remain supported for backwards compatibility.
-    # The semantic role makes the configured web-search route the default.
-    model: Optional[str] = "web_search"
-    models: Optional[Mapping[str, str]] = None
-    retry_policy: Optional[Mapping[str, Any] | RetryPolicy] = None
-    llm_backend: Optional[LLMBackend] = field(default=None, repr=False)
+    # Test seam: inject anything exposing llm_completion_with_web_search.
+    llm_backend: Optional[Any] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # CLI-only inference: research runs as a coding-agent session with
-        # the CLI's native web search. models/retry_policy feed the inner
-        # backend only for its delegated surface (embeddings/meter).
-        self._llm = self.llm_backend or CliInference(
-            models=self.models,
-            retry_policy=self.retry_policy,
-        )
+        # the CLI's native web search; the role spec carries model/effort,
+        # so there is no model parameter here anymore.
+        self._llm = self.llm_backend or CliInference()
 
     def research(
         self,
@@ -193,7 +185,6 @@ class Researcher:
         # nothing and reported success; found live 2026-08-24 by the facade
         # E2E). Genuine provider errors propagate to the caller.
         raw_text = self._llm.llm_completion_with_web_search(
-            model=self.model,
             messages=[{"role": "user", "content": prompt}],
             search_context_size=search_context_size,
         )

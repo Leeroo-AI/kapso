@@ -36,53 +36,31 @@ def no_jitter_policy(**overrides):
     return RetryPolicy(**values)
 
 
-def test_model_router_supports_roles_partial_overrides_and_explicit_models():
-    router = ModelRouter(
-        {
-            "utility": "vendor/cheap",
-            "web_search": "vendor/search",
-        }
-    )
+def test_model_router_is_embedding_only_after_cli_conversion():
+    # Every non-embedding role died with the completion surface
+    # (cli-only-inference §5); the router resolves the embedding route
+    # and preserves explicit model strings, nothing else.
+    router = ModelRouter({"embedding": "vendor/embedder"})
 
-    assert router.resolve(None) == "vendor/cheap"
-    assert router.resolve("utility") == "vendor/cheap"
-    assert router.resolve("reasoning") == "gpt-5-mini"
+    assert router.resolve(None) == "vendor/embedder"
+    assert router.resolve("embedding") == "vendor/embedder"
     assert router.resolve("vendor/custom") == "vendor/custom"
-    assert router.resolve("gpt-4.1", default_role="web_search") == (
-        "vendor/search"
-    )
-    assert router.to_dict()["web_search"] == "vendor/search"
-
-
-def test_model_router_rich_form_resolves_model_and_carries_effort():
-    router = ModelRouter(
-        {
-            "utility": {
-                "model": "openai/gpt-5.6-luna",
-                "reasoning_effort": "xhigh",
-            },
-            "reasoning": "vendor/plain",
-        }
-    )
-
-    assert router.resolve("utility") == "openai/gpt-5.6-luna"
-    assert router.resolve(None) == "openai/gpt-5.6-luna"
-    assert router.effort_for("utility") == "xhigh"
-    assert router.effort_for(None) == "xhigh"
-    # Roles configured as bare strings, and explicit model strings, carry none.
-    assert router.effort_for("reasoning") is None
-    assert router.effort_for("openai/gpt-5.6-luna") is None
+    assert router.to_dict() == {"embedding": "vendor/embedder"}
+    # Retired roles are now configuration errors, not silent routes.
+    with pytest.raises(ValueError, match="Unknown model role"):
+        ModelRouter({"utility": "vendor/cheap"})
+    with pytest.raises(ValueError, match="Unknown default model role"):
+        router.resolve(None, default_role="web_search")
 
 
 @pytest.mark.parametrize(
     "routes,match",
     [
         ({"unknown": "model"}, "Unknown model role"),
-        ({"utility": ""}, "non-empty string"),
-        ({"reasoning": None}, "non-empty string"),
-        ({"utility": {"model": "m", "oops": "x"}}, "unknown keys"),
-        ({"utility": {"reasoning_effort": "high"}}, "non-empty string"),
-        ({"utility": {"model": "m", "reasoning_effort": ""}}, "non-empty string"),
+        ({"embedding": ""}, "non-empty string"),
+        ({"embedding": None}, "non-empty string"),
+        # The rich {model, reasoning_effort} form died with completions.
+        ({"embedding": {"model": "m"}}, "non-empty string"),
     ],
 )
 def test_invalid_model_routes_fail_during_configuration(routes, match):

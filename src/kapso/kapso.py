@@ -404,12 +404,9 @@ class Kapso:
             - .report -> Source.ResearchReport (if mode="study")
         """
         if self._web_researcher is None:
-            configured_mode = self._config.get("default_mode", "GENERIC")
-            mode_config = self._config.get("modes", {}).get(configured_mode, {})
-            self._web_researcher = Researcher(
-                models=mode_config.get("models"),
-                retry_policy=mode_config.get("retry"),
-            )
+            # CLI-only inference: the researcher's session spec lives in
+            # the packaged `inference:` block, not the mode's model routes.
+            self._web_researcher = Researcher()
 
         return self._web_researcher.research(objective, mode=mode, depth=depth)
     

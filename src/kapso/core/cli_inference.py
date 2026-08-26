@@ -175,7 +175,7 @@ class CliInference:
     def create_embedding(self, text: str, model: Optional[str] = None):
         return self._backend.create_embedding(text, model)
 
-    def resolve_model(self, model: Optional[str], default_role: str = "utility"):
+    def resolve_model(self, model: Optional[str], default_role: str = "embedding"):
         return self._backend.resolve_model(model, default_role=default_role)
 
     def get_cumulative_cost(self) -> float:

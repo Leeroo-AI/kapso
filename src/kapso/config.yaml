@@ -84,10 +84,6 @@ modes:
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
-    models:
-      utility: "gpt-5.6-luna"
-      reasoning: "gpt-5.6-sol"
-      web_search: "gpt-5.6-luna"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5
@@ -150,10 +146,6 @@ modes:
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
-    models:
-      utility: "gpt-5.6-luna"
-      reasoning: "gpt-5.6-sol"
-      web_search: "gpt-5.6-luna"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5

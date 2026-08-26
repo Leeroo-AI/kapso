@@ -118,6 +118,14 @@ I recommend (b) as the *implementation* of (a): same CLI-only contract,
 one session per query instead of per hop. It changes the prompt shape,
 not the semantics.
 
+*Implemented resolution (2026-08-26):* rerank already IS one session per
+query — it ranks the whole candidate list in a single call, so (b) holds
+by construction on the latency-critical path. Navigation keeps one
+session per hop (default 2 hops): each hop's neighbor set depends on the
+previous hop's selection, so collapsing the loop would pre-expand the
+frontier and genuinely change the traversal semantics, not just the
+prompt shape.
+
 ## 5. What gets deleted (Rule 7 — no dual paths)
 
 - `LLMBackend.llm_completion`, `_with_system_prompt`,

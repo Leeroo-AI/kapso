@@ -46,7 +46,6 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         self.navigation_steps = self.params.get("navigation_steps", 3)
         self.expansion_limit = self.params.get("expansion_limit", 3)
         self.search_node_type = self.params.get("search_node_type", "specialization")
-        self.navigations_model = self.params.get("navigations_model", "reasoning")
         
         # Neo4j connection params
         self.neo4j_uri = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
@@ -392,7 +391,6 @@ class KGLLMNavigationSearch(KnowledgeSearch):
             return []
         messages = [{"role": "user", "content": query}]
         response = self._llm.llm_completion(
-            model=self.navigations_model,
             messages=messages,
             role="kg_navigate",
         )

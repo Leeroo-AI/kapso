@@ -11,9 +11,6 @@ from typing import Optional
 
 from kapso.core.cli_inference import CliInference
 
-# Lightweight semantic role for commit messages (cheap & fast).
-COMMIT_MESSAGE_MODEL = "utility"
-
 # Maximum diff length to send to LLM (to avoid token limits)
 MAX_DIFF_LENGTH = 4000
 
@@ -33,18 +30,17 @@ class CommitMessageGenerator:
     def __init__(
         self,
         llm: Optional[CliInference] = None,
-        model: Optional[str] = None,
     ):
         """
         Initialize the commit message generator.
-        
+
         Args:
             llm: Inference backend for generating messages. If None,
                 creates a CLI-inference backend (cli-only-inference design).
-            model: Explicit model override. Defaults to the utility role.
+                The session's model/effort come from the `inference:`
+                config's commit_message role spec.
         """
         self.llm = llm or CliInference()
-        self.model = model or COMMIT_MESSAGE_MODEL
     
     def generate(
         self,
@@ -134,7 +130,6 @@ Output ONLY the commit message, nothing else:"""
         # CLI inference) — a swallowed failure here used to degrade every
         # commit to "chore: update code" silently.
         message = self.llm.llm_completion(
-            model=self.model,
             messages=[{"role": "user", "content": prompt}],
             role="commit_message",
         )
