@@ -188,16 +188,15 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
     with open(memory_path) as f:
         doc = json.load(f)
     
-    # Print summary (v2 book + legacy repo_model for compatibility)
+    # Print summary (the Book is the one schema)
     book = doc.get("book", {}) or {}
-    repo_model = doc.get("repo_model", {})
     quality = doc.get("quality", {})
     experiments = doc.get("experiments", [])
     
     print(f"Generated at: {doc.get('generated_at', 'unknown')}")
     print(f"Schema: v{doc.get('schema_version')}")
     print(f"Book Summary: {(book.get('summary') or '(none)')[:200]}")
-    print(f"Legacy Claims (flattened): {len(repo_model.get('claims', []))}")
+    print(f"Claims: {quality.get('claim_count', 0)}")
     print(f"Evidence OK: {quality.get('evidence_ok', False)}")
     print(f"Experiments recorded: {len(experiments)}")
     
@@ -232,9 +231,10 @@ def dump_repo_memory(workspace_dir: str, label: str) -> dict:
                 kind = (c or {}).get("kind", "?")
                 print(f"    - [{kind}] {stmt}")
     
-    if repo_model.get("entrypoints"):
+    entrypoints = (sections.get("core.entrypoints", {}) or {}).get("content", []) or []
+    if entrypoints:
         print("\nEntrypoints:")
-        for ep in repo_model.get("entrypoints", [])[:3]:
+        for ep in entrypoints[:3]:
             if isinstance(ep, dict):
                 print(f"  - {ep.get('path')}: {ep.get('how_to_run', '')}")
             else:
@@ -271,13 +271,12 @@ def dump_branch_memory(repo, branch_name: str) -> dict:
     print(f"{'='*70}")
     
     book = doc.get("book", {}) or {}
-    repo_model = doc.get("repo_model", {})
     quality = doc.get("quality", {})
     experiments = doc.get("experiments", [])
     
     print(f"Schema: v{doc.get('schema_version')}")
     print(f"Book Summary: {(book.get('summary') or '(none)')[:200]}")
-    print(f"Legacy Claims (flattened): {len(repo_model.get('claims', []))}, Evidence OK: {quality.get('evidence_ok')}")
+    print(f"Claims: {quality.get('claim_count', 0)}, Evidence OK: {quality.get('evidence_ok')}")
     print(f"Experiments recorded: {len(experiments)}")
     
     if experiments:

@@ -11,7 +11,7 @@ This test asserts the resulting git history shape:
 - The recorded `head_commit` / `code_head_commit` inside RepoMemory matches the
   parent commit of the memory commit (the last code/data commit)
 
-NOTE: This test uses real LLM calls via `LLMBackend()` and costs money.
+NOTE: This test runs real CLI inference sessions and costs quota.
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from kapso.core.llm import LLMBackend
+from kapso.core.cli_inference import CliInference
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 
 def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
-    llm = LLMBackend()
+    llm = CliInference()
 
     # Use an agent adapter that can initialize without external deps/keys.
     agent_cfg = CodingAgentConfig(

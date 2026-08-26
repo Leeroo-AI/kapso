@@ -1,9 +1,9 @@
-"""
-Integration tests for RepoMemory Book (schema v2).
+"""RepoMemory Book — disk and git integration.
 
-These tests validate behavior across:
-- Disk persistence (v1 file upgraded on disk so coding agents can read Book/TOC)
-- Git branch loading (read memory from a branch without checkout)
+The v1→v2 auto-migration was deleted (stale-code audit 2026-08-26, B9;
+Rule 7). What these paths now guarantee: a v1 file on disk or on a
+branch FAILS LOUD instead of being silently upgraded, while a missing
+file/branch stays the documented None default.
 """
 
 from __future__ import annotations
@@ -12,55 +12,57 @@ import json
 from pathlib import Path
 
 import git
+import pytest
 
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 
 
-def test_ensure_exists_in_worktree_persists_v1_to_v2_migration(tmp_path: Path) -> None:
-    # Write a v1 memory file to disk.
-    prax = tmp_path / ".kapso"
-    prax.mkdir()
-    memory_path = prax / "repo_memory.json"
-    v1 = {
+def write_v1(root: Path) -> Path:
+    kapso_dir = root / ".kapso"
+    kapso_dir.mkdir()
+    memory_path = kapso_dir / "repo_memory.json"
+    memory_path.write_text(json.dumps({
         "schema_version": 1,
-        "generated_at": "2026-01-01T00:00:00Z",
-        "repo_model": {
-            "summary": "My repo",
-            "entrypoints": [{"path": "main.py", "how_to_run": "python main.py"}],
-            "where_to_edit": [{"path": "foo.py", "role": "core"}],
-            "claims": [],
-        },
-        "experiments": [],
-        "quality": {"evidence_ok": False, "missing_evidence": [], "claim_count": 0},
-    }
-    memory_path.write_text(json.dumps(v1, indent=2))
-
-    # ensure_exists should upgrade the file on disk (so agents can read Book/TOC).
-    doc = RepoMemoryManager.ensure_exists_in_worktree(str(tmp_path))
-    assert doc.get("schema_version") == 2
-    assert "book" in doc
-
-    reloaded = json.loads(memory_path.read_text())
-    assert reloaded.get("schema_version") == 2
-    assert "book" in reloaded
-    assert "sections" in reloaded["book"]
+        "repo_model": {"summary": "x", "claims": []},
+    }, indent=2))
+    return memory_path
 
 
-def test_load_from_git_branch_migrates_v1_doc(tmp_path: Path) -> None:
+def test_v1_file_on_disk_fails_loud_not_silently_upgraded(tmp_path: Path) -> None:
+    write_v1(tmp_path)
+    with pytest.raises(ValueError, match="not migrated"):
+        RepoMemoryManager.ensure_exists_in_worktree(str(tmp_path))
+    with pytest.raises(ValueError, match="not migrated"):
+        RepoMemoryManager.load_from_worktree(str(tmp_path))
+
+
+def test_load_from_git_branch_missing_is_none_but_v1_raises(tmp_path: Path) -> None:
     repo = git.Repo.init(tmp_path)
     (tmp_path / "README.md").write_text("# Repo\n")
-
-    prax = tmp_path / ".kapso"
-    prax.mkdir()
-    (prax / "repo_memory.json").write_text(
-        json.dumps({"schema_version": 1, "repo_model": {"summary": "x", "claims": []}}, indent=2)
-    )
-
     repo.git.add("-A")
-    repo.git.commit("-m", "init with v1 memory")
+    repo.git.commit("-m", "no memory yet")
+    # Missing file: the documented None default.
+    assert RepoMemoryManager.load_from_git_branch(
+        repo, repo.active_branch.name
+    ) is None
 
-    doc = RepoMemoryManager.load_from_git_branch(repo, repo.active_branch.name)
-    assert doc is not None
-    assert doc.get("schema_version") == 2
-    assert "book" in doc
+    write_v1(tmp_path)
+    repo.git.add("-A")
+    repo.git.commit("-m", "v1 memory")
+    # Present-but-unsupported: fail loud (Rule 2), never a silent upgrade.
+    with pytest.raises(ValueError, match="not migrated"):
+        RepoMemoryManager.load_from_git_branch(repo, repo.active_branch.name)
 
+
+def test_v2_round_trips_through_disk_and_branch(tmp_path: Path) -> None:
+    repo = git.Repo.init(tmp_path)
+    doc = RepoMemoryManager.ensure_exists_in_worktree(str(tmp_path))
+    assert "repo_model" not in doc
+    repo.git.add("-A")
+    repo.git.commit("-m", "book memory")
+    loaded = RepoMemoryManager.load_from_git_branch(
+        repo, repo.active_branch.name
+    )
+    assert loaded is not None
+    assert loaded["book"]["toc"]
+    assert "repo_model" not in loaded

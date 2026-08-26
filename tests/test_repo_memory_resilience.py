@@ -37,13 +37,10 @@ class SequenceLLM:
 
     def llm_completion(
         self,
-        model: str,
         messages: List[Dict[str, str]],
         **kwargs: Any,
     ) -> str:
-        self.calls.append(
-            {"model": model, "messages": messages, "kwargs": kwargs}
-        )
+        self.calls.append({"messages": messages, "kwargs": kwargs})
         response = next(self.responses)
         if isinstance(response, BaseException):
             raise response
@@ -181,7 +178,6 @@ def test_initial_inference_repairs_json_without_replanning(
 
     result = infer_repo_model_with_retry(
         llm=llm,
-        model="test-model",
         repo_root=str(repo_root),
         repo_map=_repo_map(),
         max_retries=2,
@@ -210,7 +206,6 @@ def test_initial_inference_stops_after_configured_retry_limit(
     with pytest.raises(RepoMemoryResponseError):
         infer_repo_model_with_retry(
             llm=llm,
-            model="test-model",
             repo_root=str(repo_root),
             repo_map=_repo_map(),
             max_retries=2,
@@ -228,7 +223,6 @@ def test_provider_failure_is_not_retried(tmp_path: Path) -> None:
     with pytest.raises(PermissionError, match="credentials"):
         infer_repo_model_with_retry(
             llm=llm,
-            model="test-model",
             repo_root=str(repo_root),
             repo_map=_repo_map(),
             max_retries=4,
@@ -243,7 +237,6 @@ def test_incremental_update_repairs_invalid_schema(tmp_path: Path) -> None:
 
     result = infer_repo_model_update(
         llm=llm,
-        model="test-model",
         repo_root=str(repo_root),
         repo_map=_repo_map(),
         previous_model={"summary": "Old", "sections": {}},

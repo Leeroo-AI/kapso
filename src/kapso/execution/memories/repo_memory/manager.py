@@ -31,13 +31,11 @@ class RepoMemoryManager:
     # Schema
     # ---------------------------------------------------------------------
     #
-    # v1 stored semantic memory in a flat `repo_model` with `claims[]`.
-    # v2 adds a "Book" view (`book.summary`, `book.toc`, `book.sections`) so prompts
-    # can stay bounded (Summary + TOC only) while agents can read full details
-    # directly from `.kapso/repo_memory.json`.
-    #
-    # IMPORTANT: We keep `repo_model` for backward compatibility and for existing
-    # consumers/tests that still read `repo_model.summary/claims/...`.
+    # The Book (`book.summary`, `book.toc`, `book.sections`) is the ONE
+    # semantic schema: prompts stay bounded (Summary + TOC) while agents
+    # read full sections from `.kapso/repo_memory.json`. Pre-release
+    # formats are not migrated (Rule 7): a v1 document (flat `repo_model`)
+    # is rejected with a clear story — start a fresh campaign.
     SCHEMA_VERSION = 2
     KAPSO_DIR = ".kapso"
     MEMORY_FILE = "repo_memory.json"
@@ -200,84 +198,6 @@ class RepoMemoryManager:
         return sections
 
     @classmethod
-    def _build_book_from_v1_repo_model(cls, repo_model: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Build a v2 `book` from a v1-style `repo_model`.
-        
-        This is used both for v1→v2 migration and as a fallback path while we
-        incrementally roll out v2 builders.
-        """
-        repo_model = repo_model or {}
-        claims = repo_model.get("claims", []) or []
-
-        # Split claims into sections by kind (simple, deterministic mapping).
-        sections: Dict[str, Any] = {}
-        sections["core.entrypoints"] = {
-            "title": cls.CORE_SECTION_META["core.entrypoints"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.entrypoints"]["one_liner"],
-            "content": repo_model.get("entrypoints", []) or [],
-        }
-        sections["core.where_to_edit"] = {
-            "title": cls.CORE_SECTION_META["core.where_to_edit"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.where_to_edit"]["one_liner"],
-            "content": repo_model.get("where_to_edit", []) or [],
-        }
-
-        architecture_claims = []
-        invariants_claims = []
-        deps_claims = []
-        gotchas_claims = []
-        testing_claims = []
-
-        for c in claims:
-            kind = (c or {}).get("kind", "") or ""
-            if kind in ("architecture", "algorithm"):
-                architecture_claims.append(c)
-            elif kind == "contract":
-                invariants_claims.append(c)
-            elif kind == "deployment":
-                deps_claims.append(c)
-            elif kind == "testing":
-                testing_claims.append(c)
-            else:
-                gotchas_claims.append(c)
-
-        sections["core.architecture"] = {
-            "title": cls.CORE_SECTION_META["core.architecture"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.architecture"]["one_liner"],
-            "claims": architecture_claims,
-        }
-        sections["core.invariants"] = {
-            "title": cls.CORE_SECTION_META["core.invariants"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.invariants"]["one_liner"],
-            "claims": invariants_claims,
-        }
-        sections["core.dependencies"] = {
-            "title": cls.CORE_SECTION_META["core.dependencies"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.dependencies"]["one_liner"],
-            "claims": deps_claims,
-        }
-        sections["core.gotchas"] = {
-            "title": cls.CORE_SECTION_META["core.gotchas"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.gotchas"]["one_liner"],
-            "claims": gotchas_claims,
-        }
-        sections["core.testing"] = {
-            "title": cls.CORE_SECTION_META["core.testing"]["title"],
-            "one_liner": cls.CORE_SECTION_META["core.testing"]["one_liner"],
-            "claims": testing_claims,
-        }
-
-        sections = cls._ensure_core_sections_present(sections)
-        toc = cls._build_toc_from_sections(sections)
-
-        return {
-            "summary": (repo_model.get("summary") or "").strip(),
-            "toc": toc,
-            "sections": sections,
-        }
-
-    @classmethod
     def _build_book_from_v2_model(cls, model: Dict[str, Any]) -> Dict[str, Any]:
         """
         Build the `book` from the LLM's RepoMemory V2 output.
@@ -299,75 +219,39 @@ class RepoMemoryManager:
         }
 
     @classmethod
-    def _legacy_repo_model_from_book(cls, book: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Derive a legacy `repo_model` view from the `book`.
-        
-        This keeps backward compatibility with existing code/tests that still read:
-        - repo_model.summary
-        - repo_model.entrypoints
-        - repo_model.where_to_edit
-        - repo_model.claims[]
-        """
-        book = book or {}
-        sections = book.get("sections", {}) if isinstance(book.get("sections"), dict) else {}
+    def _require_v2(cls, doc: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate the one supported schema and normalize the book.
 
-        entrypoints = (sections.get("core.entrypoints", {}) or {}).get("content", []) or []
-        where_to_edit = (sections.get("core.where_to_edit", {}) or {}).get("content", []) or []
-
-        # Flatten all claims across sections.
-        flat_claims: List[Dict[str, Any]] = []
-        for sec in (sections or {}).values():
-            for claim in (sec or {}).get("claims", []) or []:
-                if isinstance(claim, dict):
-                    flat_claims.append(claim)
-
-        return {
-            "summary": (book.get("summary") or "").strip(),
-            "entrypoints": entrypoints,
-            "where_to_edit": where_to_edit,
-            "claims": flat_claims,
-        }
-
-    @classmethod
-    def migrate_v1_to_v2(cls, doc: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Auto-migrate a v1 RepoMemory document to schema v2.
-        
-        Key design:
-        - Add `book` as a structured, navigable view.
-        - Preserve existing `repo_model` unchanged for backward compatibility.
-        - Migration is idempotent (safe to call multiple times).
+        Rejects other versions before field checks so a v1 file gets the
+        clear story: pre-release formats are not migrated (Rule 7) —
+        delete `.kapso/repo_memory.json` and rebuild the baseline.
         """
         doc = doc or {}
-        schema = int(doc.get("schema_version") or 1)
-
-        book = doc.get("book", None)
+        if doc.get("schema_version") != cls.SCHEMA_VERSION:
+            raise ValueError(
+                "RepoMemory schema_version "
+                f"{doc.get('schema_version')!r} is not supported "
+                f"(expected {cls.SCHEMA_VERSION}). Pre-release formats "
+                "are not migrated — delete .kapso/repo_memory.json and "
+                "rebuild the baseline."
+            )
+        book = doc.get("book")
         if not isinstance(book, dict):
-            # v1 (or malformed) doc: derive Book from legacy repo_model.
-            repo_model = doc.get("repo_model", {}) or {}
-            book = cls._build_book_from_v1_repo_model(repo_model)
-        else:
-            # Already has a Book view: ensure it has all core sections + a stable TOC.
-            sections = book.get("sections", {}) if isinstance(book.get("sections"), dict) else {}
-            sections = cls._ensure_core_sections_present(sections)
-            book["sections"] = sections
-            book["toc"] = cls._build_toc_from_sections(sections)
-
-            # Ensure a usable summary is always present.
-            if not (book.get("summary") or "").strip():
-                repo_model = doc.get("repo_model", {}) or {}
-                book["summary"] = (repo_model.get("summary") or "").strip()
-
-        doc["book"] = book
-        # Bump schema version in-memory (we keep `repo_model` for compatibility).
-        doc["schema_version"] = max(schema, 2)
-
-        # Update/extend quality metrics (do not remove old keys).
+            raise ValueError(
+                "RepoMemory document has no 'book' object — the file is "
+                "corrupt; delete .kapso/repo_memory.json and rebuild."
+            )
+        sections = (
+            book.get("sections")
+            if isinstance(book.get("sections"), dict) else {}
+        )
+        sections = cls._ensure_core_sections_present(sections)
+        book["sections"] = sections
+        book["toc"] = cls._build_toc_from_sections(sections)
         doc.setdefault("quality", {})
-        doc["quality"]["section_count"] = len((book.get("sections") or {}) if isinstance(book.get("sections"), dict) else {})
+        doc["quality"]["section_count"] = len(sections)
         doc["quality"]["claim_count"] = cls._count_claims_in_book_sections(
-            (book.get("sections") or {}) if isinstance(book.get("sections"), dict) else {}
+            sections
         )
         return doc
 
@@ -383,10 +267,7 @@ class RepoMemoryManager:
             return None
         with open(path, "r", encoding="utf-8") as f:
             doc = json.load(f)
-        # Return a v2-shaped document to callers (without writing).
-        # NOTE: `ensure_exists_in_worktree()` is responsible for persisting the
-        # migration back to disk when needed.
-        return cls.migrate_v1_to_v2(doc)
+        return cls._require_v2(doc)
 
     @classmethod
     def write_to_worktree(cls, repo_root: str, doc: Dict[str, Any]) -> None:
@@ -409,27 +290,11 @@ class RepoMemoryManager:
         
         Note: skeleton contains RepoMap but may omit RepoModel until inference.
         """
-        # If the memory file exists, load it and *persist* any v1→v2 migration.
-        #
-        # Why persist?
-        # - Coding agents read `.kapso/repo_memory.json` from disk.
-        # - If we only migrate in-memory, agents won't see the Book/TOC structure.
-        # - Persisting keeps branches consistent and auditable.
         path = cls._memory_abs_path(repo_root)
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 raw_doc = json.load(f)
-            # IMPORTANT:
-            # `migrate_v1_to_v2()` mutates the input dict in-place.
-            # If we want to decide whether to persist changes back to disk, we must
-            # snapshot the pre-migration state before calling it.
-            before = json.dumps(raw_doc, sort_keys=True, ensure_ascii=False)
-            migrated = cls.migrate_v1_to_v2(raw_doc)
-            after = json.dumps(migrated, sort_keys=True, ensure_ascii=False)
-            # If migration changed schema_version/book/sections, write it back.
-            if before != after:
-                cls.write_to_worktree(repo_root, migrated)
-            return migrated
+            return cls._require_v2(raw_doc)
 
         repo_map = build_repo_map(repo_root)
         doc: Dict[str, Any] = {
@@ -439,20 +304,9 @@ class RepoMemoryManager:
                 "initial_repo": initial_repo,
             },
             "repo_map": repo_map,
-            "repo_model": {
-                "summary": "",
-                "entrypoints": [],
-                "where_to_edit": [],
-                "claims": [],
-            },
-            # v2 Book view (keeps prompts bounded and memory navigable).
-            "book": cls._build_book_from_v1_repo_model(
-                {
-                    "summary": "",
-                    "entrypoints": [],
-                    "where_to_edit": [],
-                    "claims": [],
-                }
+            # The Book view (keeps prompts bounded and memory navigable).
+            "book": cls._build_book_from_v2_model(
+                {"summary": "", "sections": {}}
             ),
             "experiments": [],
             "quality": {
@@ -475,12 +329,10 @@ class RepoMemoryManager:
         try:
             raw = repo.git.show(f"{branch_name}:{cls.MEMORY_REL_PATH}")
         except git.GitCommandError:
+            # Missing branch or file: the documented None default. A file
+            # that EXISTS but is corrupt or v1 raises below (Rule 2).
             return None
-        try:
-            doc = json.loads(raw)
-            return cls.migrate_v1_to_v2(doc)
-        except Exception:
-            return None
+        return cls._require_v2(json.loads(raw))
 
     # ---------------------------------------------------------------------
     # Prompt rendering
@@ -491,10 +343,10 @@ class RepoMemoryManager:
         """
         Render Summary + TOC (bounded) for prompt injection.
         
-        This is the v2 replacement for injecting large `render_brief()` blobs.
+        Bounded by design — agents read full sections from the JSON file.
         Coding agents can read `.kapso/repo_memory.json` directly for details.
         """
-        doc = cls.migrate_v1_to_v2(doc or {})
+        doc = cls._require_v2(doc)
         book = doc.get("book", {}) or {}
 
         summary = (book.get("summary") or "").strip() or "(missing)"
@@ -547,7 +399,7 @@ GeneratedAt: {doc.get('generated_at')}
     @classmethod
     def list_sections(cls, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Return TOC section metadata (v2)."""
-        doc = cls.migrate_v1_to_v2(doc or {})
+        doc = cls._require_v2(doc)
         return (doc.get("book", {}) or {}).get("toc", []) or []
 
     @classmethod
@@ -557,7 +409,7 @@ GeneratedAt: {doc.get('generated_at')}
         
         This is intended for tool-style access and debugging.
         """
-        doc = cls.migrate_v1_to_v2(doc or {})
+        doc = cls._require_v2(doc)
         book = doc.get("book", {}) or {}
         sections = (book.get("sections", {}) or {}) if isinstance(book.get("sections", {}), dict) else {}
 
@@ -600,67 +452,6 @@ GeneratedAt: {doc.get('generated_at')}
 
         return f"(empty section: {section_id})"[:max_chars]
 
-    @classmethod
-    def render_brief(cls, doc: Dict[str, Any], max_chars: int = 8000) -> str:
-        """Render a compact repo-memory briefing for prompts (bounded)."""
-        repo_map = doc.get("repo_map", {}) or {}
-        repo_model = doc.get("repo_model", {}) or {}
-        quality = doc.get("quality", {}) or {}
-
-        entrypoints = repo_model.get("entrypoints") or repo_map.get("entrypoints") or []
-        where = repo_model.get("where_to_edit") or []
-        claims = repo_model.get("claims") or []
-
-        # Keep only a few claims in prompt (agents can read the full JSON if needed).
-        claims_text = "\n".join(
-            f"- [{c.get('kind','?')}] {c.get('statement','')}"
-            for c in claims[:8]
-        )
-        where_text = "\n".join(
-            f"- {w.get('path','')}: {w.get('role','')}"
-            for w in where[:10]
-        )
-        entry_text = "\n".join(
-            f"- {e.get('path','')}: {e.get('how_to_run','')}"
-            for e in entrypoints[:8]
-        ) if entrypoints and isinstance(entrypoints[0], dict) else "\n".join(f"- {p}" for p in entrypoints[:8])
-
-        text = f"""# Repo Memory (evidence-backed)
-Schema: v{doc.get('schema_version')}
-GeneratedAt: {doc.get('generated_at')}
-
-## Repo Summary
-{repo_model.get('summary','').strip() or '(missing)'}
-
-## Entrypoints
-{entry_text or '(unknown)'}
-
-## Where to edit
-{where_text or '(unknown)'}
-
-## Key claims (must have evidence in repo files)
-{claims_text or '(none)'}
-
-## Memory quality
-- evidence_ok: {bool(quality.get('evidence_ok'))}
-- claim_count: {int(quality.get('claim_count') or 0)}
-"""
-        if len(text) > max_chars:
-            return text[:max_chars] + "\n... (truncated)\n"
-        return text
-
-    @classmethod
-    def render_brief_for_branch(
-        cls,
-        repo: git.Repo,
-        branch_name: str,
-        max_chars: int = 8000,
-    ) -> str:
-        doc = cls.load_from_git_branch(repo, branch_name)
-        if not doc:
-            return ""
-        return cls.render_brief(doc, max_chars=max_chars)
-
     # ---------------------------------------------------------------------
     # Updating memory after an experiment
     # ---------------------------------------------------------------------
@@ -699,18 +490,7 @@ GeneratedAt: {doc.get('generated_at')}
         # Note: With line-number-based evidence, validation is no longer needed.
         # The model is trusted as-is.
         
-        # Builders may return either:
-        # - v1: {"summary", "entrypoints", "where_to_edit", "claims"}
-        # - v2: {"summary", "sections": {...}}
-        if isinstance((model or {}).get("sections"), dict):
-            book = cls._build_book_from_v2_model(model)
-            doc["book"] = book
-            doc["repo_model"] = cls._legacy_repo_model_from_book(book)
-        else:
-            # Store legacy v1 model for compatibility.
-            doc["repo_model"] = model  # Legacy v1 model (kept for backward compatibility)
-            # Derive v2 Book view deterministically from v1 repo_model.
-            doc["book"] = cls._build_book_from_v1_repo_model(model)
+        doc["book"] = cls._build_book_from_v2_model(model)
         doc["schema_version"] = cls.SCHEMA_VERSION
 
         doc["quality"] = {
@@ -786,10 +566,7 @@ GeneratedAt: {doc.get('generated_at')}
             }
         )
 
-        # 3) Update semantic RepoModel via LLM.
-        # Builders update the public RepoMemory V2 semantic model (summary + sections).
-        # We also keep a legacy `repo_model` view for backward compatibility, so for updates
-        # we derive the semantic model from `doc["book"]`.
+        # 3) Update the semantic model (the Book) via LLM.
         previous_book = doc.get("book", {}) if isinstance(doc.get("book"), dict) else {}
         previous_model_v2 = {
             "summary": (previous_book.get("summary") or "").strip(),
@@ -807,14 +584,14 @@ GeneratedAt: {doc.get('generated_at')}
         if not (previous_model_v2.get("summary") or "").strip() and prev_claim_count == 0:
             updated_model = infer_repo_model_with_retry(
                 llm=llm,
-                    repo_root=repo_root,
+                repo_root=repo_root,
                 repo_map=doc["repo_map"],
                 max_retries=max_retries,
             )
         else:
             updated_model = infer_repo_model_update(
                 llm=llm,
-                    repo_root=repo_root,
+                repo_root=repo_root,
                 repo_map=doc["repo_map"],
                 previous_model=previous_model_v2,
                 diff_summary=diff_summary[:8000],
@@ -825,14 +602,7 @@ GeneratedAt: {doc.get('generated_at')}
         # Note: With line-number-based evidence, validation is no longer needed.
         # The model is trusted as-is.
 
-        doc["repo_model"] = updated_model
-        if isinstance((updated_model or {}).get("sections"), dict):
-            book = cls._build_book_from_v2_model(updated_model)
-            doc["book"] = book
-            doc["repo_model"] = cls._legacy_repo_model_from_book(book)
-        else:
-            doc["repo_model"] = updated_model
-            doc["book"] = cls._build_book_from_v1_repo_model(updated_model)
+        doc["book"] = cls._build_book_from_v2_model(updated_model)
         doc["schema_version"] = cls.SCHEMA_VERSION
         doc["quality"] = {
             "evidence_ok": True,

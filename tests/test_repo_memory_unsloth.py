@@ -54,16 +54,15 @@ def main():
         print(f"\nDoc: {doc}")
         
         if doc:
-            repo_model = doc.get("repo_model", {})
+            book = doc.get("book", {}) or {}
             quality = doc.get("quality", {})
-            
+
             print(f"\n=== Results ===")
             print(f"Evidence OK: {quality.get('evidence_ok')}")
             print(f"Claim count: {quality.get('claim_count')}")
-            print(f"Summary: {repo_model.get('summary', '')[:500]}")
-            
-            # Render brief
-            brief = RepoMemoryManager.render_brief(doc)
+            print(f"Summary: {book.get('summary', '')[:500]}")
+
+            brief = RepoMemoryManager.render_summary_and_toc(doc)
             print(f"\n=== Brief ===\n{brief[:1500]}")
 
 

@@ -1,141 +1,105 @@
-"""
-Unit tests for RepoMemory "Book" (schema v2) behavior.
+"""RepoMemory Book (the one schema) — hermetic pins.
 
-These tests are intentionally lightweight:
-- No real LLM calls
-- No Neo4j/Weaviate dependencies
-- Focus on migration, TOC rendering, section access, and evidence validation
+The v1 flat `repo_model` and its migration shim were deleted (stale-code
+audit 2026-08-26, B9; Rule 7: pre-release formats are not migrated).
+These tests pin what replaced them: v1 documents are REJECTED with a
+clear story, the Book normalizes to core shells + a stable TOC, and the
+builder validator accepts only the sections shape.
 """
 
 from __future__ import annotations
 
-import json
-from typing import Dict, List
-
 import pytest
 
 from kapso.execution.memories.repo_memory import RepoMemoryManager
-from kapso.execution.memories.repo_memory.builders import validate_evidence
+from kapso.execution.memories.repo_memory.builders import (
+    RepoMemoryResponseError,
+    _validate_repo_model,
+)
 
 
-def test_migrate_v1_to_v2_preserves_data() -> None:
-    v1_doc = {
-        "schema_version": 1,
-        "generated_at": "2026-01-01T00:00:00Z",
-        "repo_model": {
-            "summary": "Test summary",
-            "entrypoints": [{"path": "main.py", "how_to_run": "python main.py"}],
-            "where_to_edit": [{"path": "src/core.py", "role": "core logic"}],
-            "claims": [
-                {
-                    "kind": "architecture",
-                    "statement": "Uses layered architecture",
-                    "confidence": 0.9,
-                    "evidence": [{"path": "README.md", "quote": "Architecture"}],
-                }
-            ],
-        },
-        "quality": {"evidence_ok": True, "missing_evidence": [], "claim_count": 1},
+def v2_doc(summary: str = "x", sections: dict | None = None) -> dict:
+    return {
+        "schema_version": 2,
+        "book": {"summary": summary, "sections": sections or {}},
     }
 
-    v2_doc = RepoMemoryManager.migrate_v1_to_v2(dict(v1_doc))
-    assert v2_doc["schema_version"] == 2
-    assert "book" in v2_doc
-    assert v2_doc["book"]["summary"] == "Test summary"
 
-    sections = v2_doc["book"]["sections"]
-    assert sections["core.entrypoints"]["content"] == v1_doc["repo_model"]["entrypoints"]
-    assert sections["core.where_to_edit"]["content"] == v1_doc["repo_model"]["where_to_edit"]
+def test_v1_document_is_rejected_with_a_clear_story() -> None:
+    v1 = {"schema_version": 1, "repo_model": {"summary": "x", "claims": []}}
+    with pytest.raises(ValueError, match="not migrated"):
+        RepoMemoryManager._require_v2(v1)
 
 
-def test_migrate_v1_to_v2_idempotent() -> None:
-    v1_doc = {"schema_version": 1, "repo_model": {"summary": "x", "claims": []}}
-    once = RepoMemoryManager.migrate_v1_to_v2(dict(v1_doc))
-    twice = RepoMemoryManager.migrate_v1_to_v2(dict(once))
-    assert twice == once
+def test_v2_without_a_book_is_rejected() -> None:
+    with pytest.raises(ValueError, match="no 'book'"):
+        RepoMemoryManager._require_v2({"schema_version": 2})
 
 
-def test_render_summary_and_toc_bounded() -> None:
-    doc = RepoMemoryManager.migrate_v1_to_v2({"schema_version": 1, "repo_model": {"summary": "x", "claims": []}})
+def test_require_v2_normalizes_core_shells_and_toc() -> None:
+    doc = RepoMemoryManager._require_v2(v2_doc())
+    sections = doc["book"]["sections"]
+    for section_id in RepoMemoryManager.CORE_SECTIONS:
+        assert section_id in sections
+    assert doc["book"]["toc"]
+    assert doc["quality"]["section_count"] == len(sections)
+    assert doc["quality"]["claim_count"] == 0
+
+
+def test_render_summary_and_toc_bounded_and_formatted() -> None:
+    doc = v2_doc()
     out = RepoMemoryManager.render_summary_and_toc(doc, max_chars=120)
     assert len(out) <= 120
-
-
-def test_render_summary_and_toc_format() -> None:
-    doc = RepoMemoryManager.migrate_v1_to_v2({"schema_version": 1, "repo_model": {"summary": "x", "claims": []}})
-    out = RepoMemoryManager.render_summary_and_toc(doc, max_chars=2000)
+    out = RepoMemoryManager.render_summary_and_toc(v2_doc(), max_chars=2000)
     assert "## Summary" in out
     assert "## Table of Contents" in out
     assert "core.architecture" in out
 
 
 def test_get_section_found_renders_claims() -> None:
-    doc = {
-        "schema_version": 2,
-        "book": {
-            "summary": "x",
-            "sections": {
-                "core.architecture": {
-                    "title": "Architecture",
-                    "one_liner": "Design",
-                    "claims": [
-                        {
-                            "kind": "architecture",
-                            "statement": "Uses plugins",
-                            "evidence": [{"path": "foo.py", "quote": "class Plugin"}],
-                        }
-                    ],
+    doc = v2_doc(sections={
+        "core.architecture": {
+            "title": "Architecture",
+            "one_liner": "Design",
+            "claims": [
+                {
+                    "kind": "architecture",
+                    "statement": "Uses plugins",
+                    "evidence": [{"path": "foo.py", "quote": "class Plugin"}],
                 }
-            },
-        },
-    }
+            ],
+        }
+    })
     out = RepoMemoryManager.get_section(doc, "core.architecture", max_chars=2000)
     assert "Uses plugins" in out
     assert "evidence:" in out
 
 
-def test_get_section_not_found() -> None:
-    doc = RepoMemoryManager.migrate_v1_to_v2({"schema_version": 1, "repo_model": {"summary": "x", "claims": []}})
-    out = RepoMemoryManager.get_section(doc, "does.not.exist", max_chars=500)
+def test_get_section_not_found_and_list_sections() -> None:
+    out = RepoMemoryManager.get_section(v2_doc(), "does.not.exist", max_chars=500)
     assert "not found" in out.lower()
-
-
-def test_list_sections_returns_toc_metadata() -> None:
-    doc = RepoMemoryManager.migrate_v1_to_v2({"schema_version": 1, "repo_model": {"summary": "x", "claims": []}})
-    toc = RepoMemoryManager.list_sections(doc)
-    assert isinstance(toc, list)
+    toc = RepoMemoryManager.list_sections(v2_doc())
     assert any(item.get("id") == "core.architecture" for item in toc)
 
 
-def test_evidence_validation_v2() -> None:
-    # Create a tiny repo in a temp dir.
-    import tempfile
-    from pathlib import Path
-
-    with tempfile.TemporaryDirectory() as tmp:
-        Path(tmp, "foo.py").write_text("class Plugin:\n    pass\n")
-        model_v2 = {
-            "summary": "x",
-            "sections": {
-                "core.architecture": {
-                    "title": "Architecture",
-                    "one_liner": "Design",
-                    "claims": [
-                        {
-                            "kind": "architecture",
-                            "statement": "Has Plugin class",
-                            "evidence": [{"path": "foo.py", "quote": "class Plugin:"}],
-                        }
-                    ],
-                }
-            },
-        }
-        check = validate_evidence(tmp, model_v2)
-        assert check.ok
+def test_bootstrap_skeleton_is_book_only(tmp_path) -> None:
+    doc = RepoMemoryManager.ensure_exists_in_worktree(str(tmp_path))
+    assert "repo_model" not in doc
+    assert doc["schema_version"] == 2
+    assert set(doc["book"]["sections"]) >= set(RepoMemoryManager.CORE_SECTIONS)
+    # And the persisted file round-trips through the strict loader.
+    loaded = RepoMemoryManager.load_from_worktree(str(tmp_path))
+    assert "repo_model" not in loaded
+    assert loaded["book"]["toc"]
 
 
-#
-# NOTE:
-# We intentionally do NOT test `infer_repo_model_initial()` here because it calls a real LLM.
-# Real LLM coverage lives in `tests/test_repo_memory.py`.
-
+def test_builder_validator_accepts_only_the_sections_shape() -> None:
+    valid = {"summary": "s", "sections": {"core.architecture": {}}}
+    assert _validate_repo_model(valid) is valid
+    # The old dual-format sniff accepted the flat v1 fields; now a
+    # sections-less response is a malformed response to REPAIR.
+    with pytest.raises(RepoMemoryResponseError, match="'sections'"):
+        _validate_repo_model({
+            "summary": "s", "entrypoints": [], "where_to_edit": [],
+            "claims": [],
+        })

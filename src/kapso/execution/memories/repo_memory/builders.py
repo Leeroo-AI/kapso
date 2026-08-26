@@ -239,21 +239,6 @@ def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
     return toc
 
 
-def _sections_to_flat_claims(sections: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Flatten v2 sections -> a single list of claims (legacy compatibility helper).
-    
-    This is useful when a consumer still expects a v1-style `repo_model.claims[]`.
-    """
-    sections = sections or {}
-    flat: List[Dict[str, Any]] = []
-    for sec in sections.values():
-        for claim in (sec or {}).get("claims", []) or []:
-            if isinstance(claim, dict):
-                flat.append(claim)
-    return flat
-
-
 def _add_line_numbers(text: str) -> str:
     """
     Add line numbers to file content for evidence referencing.
@@ -321,30 +306,20 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 
 def _validate_repo_model(model: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate the stable outer shape used by RepoMemory builders."""
+    """Validate the stable outer shape used by RepoMemory builders.
+
+    The Book is the one schema: a response without a 'sections' object is
+    a malformed response to repair, not a format to fall back to.
+    """
     if not isinstance(model.get("summary"), str):
         raise RepoMemoryResponseError(
             "RepoMemory JSON requires a string 'summary'"
         )
-
-    if "sections" in model:
-        if not isinstance(model["sections"], dict):
-            raise RepoMemoryResponseError(
-                "RepoMemory JSON field 'sections' must be an object"
-            )
-        return model
-
-    legacy_fields = {
-        "entrypoints": list,
-        "where_to_edit": list,
-        "claims": list,
-    }
-    if all(isinstance(model.get(key), expected) for key, expected in legacy_fields.items()):
-        return model
-
-    raise RepoMemoryResponseError(
-        "RepoMemory JSON requires V2 'sections' or the complete legacy fields"
-    )
+    if not isinstance(model.get("sections"), dict):
+        raise RepoMemoryResponseError(
+            "RepoMemory JSON requires a 'sections' object"
+        )
+    return model
 
 
 def _complete_repo_model(

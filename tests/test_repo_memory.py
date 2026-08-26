@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 # Load environment variables (API keys) from .env file
 load_dotenv()
 
-from kapso.core.llm import LLMBackend
+from kapso.core.cli_inference import CliInference
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.execution.memories.repo_memory.builders import build_repo_map
 
@@ -35,8 +35,8 @@ from kapso.execution.memories.repo_memory.builders import build_repo_map
 
 @pytest.fixture
 def llm():
-    """Provide real LLM backend for tests."""
-    return LLMBackend()
+    """Provide the real CLI-inference backend for tests."""
+    return CliInference()
 
 
 @pytest.fixture
@@ -363,7 +363,7 @@ def test_build_repo_map_deterministic(sample_repo):
 # Test: Render brief for prompts
 # ---------------------------------------------------------------------------
 
-def test_render_brief_produces_usable_prompt(sample_repo, llm):
+def test_render_summary_and_toc_produces_usable_prompt(sample_repo, llm):
     """Test that render_summary_and_toc produces a usable prompt summary."""
     # Bootstrap
     RepoMemoryManager.bootstrap_baseline_model(
