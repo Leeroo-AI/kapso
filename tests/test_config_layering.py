@@ -156,3 +156,24 @@ def test_kaggle_resolves_overrides_and_inherited_defaults():
     assert resolved["search_strategy"]["params"]["implementation_web"] is True
     assert resolved["retry"]["request_timeout_seconds"] == 600
     assert resolved["models"]["embedding"] == "text-embedding-3-small"
+
+
+def test_every_shipped_mode_constructs_a_model_router():
+    # Regression (stale-code audit 2026-08-26): after the CLI-only
+    # conversion made ModelRouter embedding-only, every benchmark config
+    # still carried utility/reasoning/web_search routes — a ValueError at
+    # orchestrator construction that this suite missed because it only
+    # asserted on merged dict contents, never the live construction path.
+    from kapso.core.config import load_config
+    from kapso.core.llm import ModelRouter
+
+    config_files = [
+        REPO_ROOT / "src" / "kapso" / "config.yaml",
+        *sorted(REPO_ROOT.glob("benchmarks/**/config.yaml")),
+        *sorted(REPO_ROOT.glob("examples/**/config.e2e.yaml")),
+    ]
+    assert len(config_files) >= 6  # packaged + the benchmark/example set
+    for config_file in config_files:
+        for mode in load_config(str(config_file)).get("modes") or {}:
+            resolved = load_mode_config(str(config_file), mode)
+            ModelRouter(resolved.get("models"))  # raises on retired roles

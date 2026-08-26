@@ -75,16 +75,6 @@ modes:
 
     final_eval:
       timeout_seconds: 1800
-
-    models:
-      utility:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      reasoning:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      web_search:
-        model: "gpt-5.6-luna"
     retry:
       max_attempts: 5
       initial_delay_seconds: 5

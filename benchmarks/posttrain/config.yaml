@@ -121,19 +121,6 @@ modes:
       min_iteration_seconds: 1800
 
     # Litellm roles (repo memory, insight extraction). Rich form: the role's
-    # reasoning_effort applies to every call resolved through it — these call
-    # sites never plumbed an effort parameter.
-    models:
-      utility:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      reasoning:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      # The research gate is disabled; pinned anyway so a stray call can
-      # never fall through to a default route.
-      web_search:
-        model: "gpt-5.6-luna"
     retry:
       max_attempts: 5
       initial_delay_seconds: 5

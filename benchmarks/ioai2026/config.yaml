@@ -159,16 +159,6 @@ modes:
       effort: "high"
       timeout: 1800
       web_search: true
-
-    models:
-      utility:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      reasoning:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      web_search:
-        model: "gpt-5.6-luna"
     retry:
       max_attempts: 5
       initial_delay_seconds: 5

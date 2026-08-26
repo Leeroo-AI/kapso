@@ -53,13 +53,6 @@ modes:
         auth_mode: "oauth"
 
     # Role routes for everything that asks for a role rather than a model.
-    # Repo memory uses the `utility` role (RepoMemoryManager.DEFAULT_REPO_MODEL_LLM).
-    # Note: repo-memory call sites do not plumb a reasoning-effort parameter;
-    # the model applies, provider-default effort is used there.
-    models:
-      utility: "gpt-5.6-luna"
-      reasoning: "gpt-5.6-sol"
-
     knowledge_search:
       type: "kg_llm_navigation"
       enabled: false
@@ -255,18 +248,6 @@ modes:
 
     # Rich routes: attaches reasoning_effort to call sites that never plumbed
     # an effort parameter (repo memory, insight extraction). Mirrors the
-    # posttrain deployment: luna at xhigh across all roles, web_search pinned
-    # so a stray call can never fall through to a default route.
-    models:
-      utility:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      reasoning:
-        model: "gpt-5.6-luna"
-        reasoning_effort: "xhigh"
-      web_search:
-        model: "gpt-5.6-luna"
-
     retry:
       max_attempts: 5
       initial_delay_seconds: 5
@@ -306,10 +287,6 @@ modes:
       agent_specific:
         effort: "medium"
         auth_mode: "oauth"
-
-    models:
-      utility: "gpt-5.6-luna"
-      reasoning: "gpt-5.6-sol"
 
     knowledge_search:
       type: "kg_llm_navigation"

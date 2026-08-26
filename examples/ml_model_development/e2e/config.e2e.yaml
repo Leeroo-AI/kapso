@@ -26,10 +26,6 @@ x-e2e-anchors:
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
         implementation_gates: ["research", "repo_memory", "leeroopedia"]
 
-    models:
-      utility: "gpt-4.1-mini"
-      reasoning: "gpt-5-mini"
-      web_search: "openai/gpt-4o-search-preview"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5
