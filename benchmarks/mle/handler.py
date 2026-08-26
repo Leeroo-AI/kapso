@@ -58,9 +58,9 @@ class MleBenchHandler(ProblemHandler):
             - you are participating in a kaggle competition and your goal is to solve the competition problem and get the best ranking.
             - In this problem the {"higher" if self.maximize_scoring else "lower"} score is better.
             - All the relevant training and test data to the problem are in the {self.data_dir} directory. under no circumstances apply any change to this directory.
-            - You must implement a main.py file that running it writes the final_submission.csv file in the Experiment Data Directory. the final_submission.csv file must be a csv for test.csv and test data. a small example of the output can be found on sample_submission.csv.
-            - Read and understand the data completely structure completely, and note ther might be some missed files or data in some cases.
-            - Do not run the code directly, he should only write the code.
+            - You must implement a main.py file AT THE WORKSPACE ROOT that, when run, writes the final_submission.csv file AT THE WORKSPACE ROOT (next to main.py). The final_submission.csv file must be a csv for test.csv and test data; a small example of the output can be found in sample_submission.csv. The official grader reads <workspace>/final_submission.csv from your best branch — a missing or misplaced file scores nothing.
+            - Read and understand the data structure completely, and note there might be some missed files or data in some cases.
+            - You run your own evaluation: execute `python main.py --debug` first to verify the pipeline end to end, then `python main.py` for the full run, and report the held-out validation score in the <score> tags described below.
 
             # Coding style:
             - At the start of the code you must install the necessary packages to run the code if not already installed. Do not show any output and log of the installation progress. Do not reinstall existing packages.

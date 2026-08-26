@@ -132,9 +132,11 @@ def solve_competition(
     orchestrator.search_strategy.checkout_to_best_experiment_branch()
     cost = orchestrator.get_cumulative_cost()
     
+    # The workspace is one git repo checked out at the best branch — the
+    # solution lives at the workspace root (the old per-branch directory
+    # layout is long gone; stale-code audit 2026-08-26).
     workspace = orchestrator.search_strategy.workspace.workspace_dir
-    branch = orchestrator.search_strategy.workspace.get_current_branch()
-    solution_path = f"{workspace}/{branch}"
+    solution_path = workspace
     
     print(f"\nBest solution at: {solution_path}")
     print(f"Total cost: ${cost:.3f}")

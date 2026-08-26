@@ -2,7 +2,6 @@ import os
 import random
 import re
 import time
-from pdb import run
 
 import ale_bench
 
@@ -120,6 +119,9 @@ class AleBench(ProblemHandler):
                 f.write(self.problem_context)
         self.problem_context += f""" \n\n
             You are a grandmaster algorithm designer and programmer and your goal to get the highest rank in the atcoder contest.
+            # Deliverable and evaluation contract:
+            - Your solution is ONE C++ (cpp23) program at the WORKSPACE ROOT named main.cpp. The official grader compiles and judges <workspace>/main.cpp from your best branch — a missing or misplaced file scores nothing.
+            - You run your own local evaluation: implement a small input generator and scorer exactly per the problem statement's specification (the statement defines input distributions and the score formula), compile with g++ -std=c++2b -O2, run main.cpp on at least 20 generated cases, and report the MEAN score across cases in the <score> tags described in your instructions. Watch the time limit per case.
             # Problem requirements:
             - It is critical to completely understand the problem statement and its requirements to avoid getting WA (wrong answer) and TLE (time limit exceeded).
             - Make sure to always consider highest value of inputs to avoid time limit for your code execution. The cpp23 can perform only up to 1e8 simple operations per second, so perform no more operations than (time limit seconds * 1e8).
