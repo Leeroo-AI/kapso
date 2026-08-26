@@ -263,3 +263,46 @@ def test_mcp_sdk_matches_the_server_api_and_stays_pinned():
     assert '"mcp>=1.9,<2"' in pyproject.read_text(), (
         "the mcp<2 ceiling left pyproject without a server.py migration"
     )
+
+
+def test_research_route_threads_and_failures_propagate(monkeypatch):
+    # Regression (E2E review 2026-08-26, R6): the RESEARCH_WEB_SEARCH_MODEL
+    # env var was written into the gate subprocess and read by NOTHING, so
+    # the gate ran on the library default and 400'd; and the handlers'
+    # swallows (plus the server dispatch catch) turned every failure into
+    # research-shaped prose. Pin the whole chain: presets threads the
+    # route, backends reads it into the Researcher's web_search route, and
+    # all three handlers propagate a backend failure.
+    import asyncio
+
+    import kapso.gated_mcp.backends as backends
+    from kapso.gated_mcp.gates.research_gate import ResearchGate
+    from kapso.gated_mcp.presets import get_mcp_config
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    servers, _ = get_mcp_config(
+        gates=["research"], include_base_tools=False,
+        gate_failure_policy="skip",
+        research_web_search_model="vendor/search-route",
+    )
+    assert servers["gated-knowledge"]["env"][
+        "RESEARCH_WEB_SEARCH_MODEL"
+    ] == "vendor/search-route"
+
+    monkeypatch.setenv("RESEARCH_WEB_SEARCH_MODEL", "vendor/search-route")
+    monkeypatch.setattr(backends, "_researcher_backend", None)
+    researcher = backends.get_researcher_backend()
+    assert researcher._llm.resolve_model(
+        None, default_role="web_search"
+    ) == "vendor/search-route"
+
+    class Boom:
+        def research(self, *args, **kwargs):
+            raise RuntimeError("provider 400")
+
+    monkeypatch.setattr(backends, "_researcher_backend", Boom())
+    gate = ResearchGate()
+    for tool in ("research_idea", "research_implementation", "research_study"):
+        with pytest.raises(RuntimeError, match="provider 400"):
+            asyncio.run(gate.handle_call(tool, {"query": "q"}))
+    monkeypatch.setattr(backends, "_researcher_backend", None)

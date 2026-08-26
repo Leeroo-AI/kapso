@@ -222,8 +222,11 @@ Depth options:
                 parts.append(f"{impl.content}\n")
             return [TextContent(type="text", text="".join(parts))]
         except Exception as e:
+            # Propagate (Rule 2): the MCP SDK converts this into a
+            # protocol-level tool error (isError=True) the session sees
+            # as [result:error] — never research-shaped prose.
             logger.error(f"Research implementation failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Research error: {str(e)}")]
+            raise
     
     async def _handle_study(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle research_study."""
@@ -239,4 +242,4 @@ Depth options:
             return [TextContent(type="text", text=text)]
         except Exception as e:
             logger.error(f"Research study failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Research error: {str(e)}")]
+            raise

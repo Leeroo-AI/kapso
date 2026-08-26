@@ -166,12 +166,19 @@ def create_gated_mcp_server() -> "Server":
         gate = tool_to_gate[name]
         try:
             result = await gate.handle_call(name, arguments)
-            if result is None:
-                return [TextContent(type="text", text=f"Tool '{name}' returned no result")]
-            return result
         except Exception as e:
+            # Log with traceback, then re-raise: the MCP SDK's call_tool
+            # wrapper converts handler exceptions into protocol-level
+            # tool errors (isError=True), so the calling session sees a
+            # REAL failure instead of error prose it may mistake for
+            # content. The server process survives — the SDK catches.
+            # (The old catch here re-swallowed every gate's raise; found
+            # inert by the 2026-08-26 review.)
             logger.error(f"Tool '{name}' failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Error in {name}: {str(e)}")]
+            raise
+        if result is None:
+            return [TextContent(type="text", text=f"Tool '{name}' returned no result")]
+        return result
     
     return mcp
 
