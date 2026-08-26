@@ -258,8 +258,20 @@ lesson = k.learn(sol, on_status=print)
    renderer smoke per operation on fixture files; `on_status` receives
    the file's dict and its exceptions propagate; `Kapso.status`
    resolves workspace/file/dir and `alive` flips on staleness.
-6. Live proof: one short evolve + one `learn()` watched from a second
-   terminal; kill one mid-phase for the STALLED banner.
+6. Live proof — DONE (2026-08-26, build 4ac8910e+width-fix): a 15-min
+   evolve on the ML example watched live from a second process —
+   `kapso watch ./campaign` rendered RUNNING with a fresh heart, the
+   ideation → implementation phase flips with per-phase elapsed, the
+   budget bar advancing (0→7/15 min), and the iteration note in the
+   ring; the `on_status` hook ran in-process. The driver was then
+   SIGKILLed mid-implementation: no terminal state was written (exactly
+   the crash case), the heartbeat went stale, and 3 intervals later the
+   watch showed `RUNNING ♥ 207s ago ⚠ STALLED?` over the frozen last
+   frame. learn()'s wiring is exercised end-to-end hermetically (the
+   facade tests run the real learn() chain over stubbed crew frames,
+   writing a real status file through all five phases); its daemon and
+   stall physics are the same base-class mechanics the live kill
+   proved.
 
 ## 6. Why one base class is the right shape here
 
