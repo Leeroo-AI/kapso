@@ -108,10 +108,6 @@ def run_implementation(
         gate_failure_policy=gate_failure_policy,
         bank_serving=bank_serving,
         kg_index_path=kg_index_path,
-        research_web_search_model=(
-            llm.resolve_model(None, default_role="web_search")
-            if llm is not None else None
-        ),
     )
     
     # 3. Build full tool set for implementation (includes Write, Edit)

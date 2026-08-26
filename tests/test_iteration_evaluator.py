@@ -43,6 +43,11 @@ def _init_workspace(path: Path) -> git.Repo:
 
 
 class FakeLLM:
+    # Stands in for CliInference at the orchestrator seam — accepts its
+    # constructor kwargs (models/retry_policy/inference).
+    def __init__(self, *args, **kwargs):
+        pass
+
     def get_cumulative_cost(self) -> float:
         return 0.0
 
@@ -151,7 +156,7 @@ class TwoCandidateStrategy:
 def _patch_orchestrator(monkeypatch: pytest.MonkeyPatch) -> None:
     import kapso.execution.orchestrator as orchestrator_module
 
-    monkeypatch.setattr(orchestrator_module, "LLMBackend", FakeLLM)
+    monkeypatch.setattr(orchestrator_module, "CliInference", FakeLLM)
     monkeypatch.setattr(
         orchestrator_module,
         "load_mode_config",

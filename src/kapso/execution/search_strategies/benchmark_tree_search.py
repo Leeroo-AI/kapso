@@ -445,6 +445,7 @@ class BenchmarkTreeSearch(SearchStrategy):
         )
 
         output = self.llm.llm_completion_with_system_prompt(
+            role="tree_search",
             model=self.idea_generation_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
@@ -490,6 +491,7 @@ class BenchmarkTreeSearch(SearchStrategy):
         )
 
         output = self.llm.llm_completion_with_system_prompt(
+            role="tree_search",
             model=self.idea_generation_model,
             system_prompt=system_prompt,
             user_message=user_prompt,
@@ -873,6 +875,7 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
                 try:
                     pooled.append(
                         self.llm.llm_completion_with_system_prompt(
+            role="tree_search",
                             model=ensemble_model,
                             system_prompt="You are a world class problem solver generating solutions.",
                             user_message=user_message,
@@ -897,6 +900,7 @@ Additional Knowledge: {str(getattr(context, "kg_results", "") or "")}
 
         # Select best solutions if we have too many
         final_solution = self.llm.llm_completion_with_system_prompt(
+            role="tree_search",
             model=self.idea_generation_model,
             system_prompt=f""" 
                 You are a world class problem solver. Choose {final_solution_count} best solutions from the list.

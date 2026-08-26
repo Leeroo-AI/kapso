@@ -22,6 +22,30 @@
 default_mode: GENERIC
 
 # =============================================================================
+# Inference — every non-embedding completion runs as a coding-agent CLI
+# session (docs/research/cli-only-inference-design.md; user decisions
+# 2026-08-25: convert all, default codex/gpt-5.6-sol/xhigh, fail loud with
+# no API fallback). Roles inherit `default`; entries override. Embeddings
+# stay on the API path under each mode's models.embedding.
+# =============================================================================
+inference:
+  default:
+    cli: codex
+    model: "gpt-5.6-sol"
+    effort: "xhigh"
+    sandbox: "read-only"          # inference sessions never write
+    timeout_seconds: 900
+  roles:
+    # Web research — codex --search carries the live-web tool.
+    research: {web_search: true, timeout_seconds: 1800}
+    # Retrieval loops — mechanical calls, low effort keeps latency sane.
+    kg_rerank: {effort: "low", timeout_seconds: 300}
+    kg_navigate: {effort: "low", timeout_seconds: 300}
+    repo_memory: {}
+    commit_message: {effort: "low", timeout_seconds: 180}
+    tree_search: {}
+
+# =============================================================================
 # Platform defaults — the base layer under every mode of every config file
 # =============================================================================
 # load_mode_config() resolves a mode as deep_merge(defaults, modes[<mode>]):

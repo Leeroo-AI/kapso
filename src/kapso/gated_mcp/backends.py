@@ -124,21 +124,11 @@ def get_researcher_backend():
         try:
             from kapso.researcher.researcher import Researcher
 
-            # The launching process resolves the campaign's web-search
-            # route and forwards it as RESEARCH_WEB_SEARCH_MODEL
-            # (presets.py). Without reading it here the subprocess fell
-            # back to the library default and 400'd on every call — a fix
-            # that was WRITTEN but never READ until the 2026-08-26 review
-            # caught it inert.
-            model = os.environ.get("RESEARCH_WEB_SEARCH_MODEL")
-            logger.info(
-                f"Creating Researcher backend "
-                f"(web_search route: {model or 'library default'})"
-            )
-            _researcher_backend = (
-                Researcher(models={"web_search": model}) if model
-                else Researcher()
-            )
+            # CLI-only inference: the researcher runs its web search
+            # as a coding-agent session (codex --search); no model
+            # route travels to this subprocess anymore.
+            logger.info("Creating Researcher backend (CLI inference)")
+            _researcher_backend = Researcher()
             logger.info("Researcher backend initialized successfully")
             
             return _researcher_backend

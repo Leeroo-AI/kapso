@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from neo4j import GraphDatabase
 
-from kapso.core.llm import LLMBackend
+from kapso.core.cli_inference import CliInference
 from kapso.knowledge_base.search.base import KGEditInput, KnowledgeSearch, KGOutput, KGResultItem, KGSearchFilters, WikiPage
 from kapso.knowledge_base.search.factory import register_knowledge_search
 
@@ -67,7 +67,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 self.neo4j_uri, 
                 auth=(self.neo4j_user, self.neo4j_password)
             )
-            self._llm = LLMBackend(
+            self._llm = CliInference(
                 models=self.params.get("models"),
                 retry_policy=self.params.get("retry"),
             )
@@ -394,6 +394,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
         response = self._llm.llm_completion(
             model=self.navigations_model,
             messages=messages,
+            role="kg_navigate",
         )
         return json.loads(response)
     

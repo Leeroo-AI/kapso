@@ -370,7 +370,6 @@ def get_mcp_config(
     gate_failure_policy: str = "warn",
     command_resolver: Optional[Callable[[str], Optional[str]]] = None,
     bank_serving: Optional[Dict[str, str]] = None,
-    research_web_search_model: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
@@ -418,7 +417,6 @@ def get_mcp_config(
         "EXPERIMENT_HISTORY_PATH": experiment_history_path,
         "EXPERIMENT_EMBEDDING_MODEL": experiment_embedding_model,
         "REPO_MEMORY_ROOT": repo_root,
-        "RESEARCH_WEB_SEARCH_MODEL": research_web_search_model,
         **(bank_serving or {}),
     }
     effective_env.update(
@@ -471,16 +469,6 @@ def get_mcp_config(
         mcp_env["REPO_MEMORY_ROOT"] = effective_env["REPO_MEMORY_ROOT"]
     if "bank" in internal_gates and effective_env.get("KAPSO_TASK_DATASET"):
         mcp_env["KAPSO_TASK_DATASET"] = effective_env["KAPSO_TASK_DATASET"]
-    # The research gate builds its own Researcher inside the subprocess.
-    # Without the caller's resolved route it silently fell back to the
-    # library default and 400'd on every call (E2E review 2026-08-24), so
-    # the campaign's configured web-search model travels with the gate.
-    if "research" in internal_gates and effective_env.get(
-        "RESEARCH_WEB_SEARCH_MODEL"
-    ):
-        mcp_env["RESEARCH_WEB_SEARCH_MODEL"] = effective_env[
-            "RESEARCH_WEB_SEARCH_MODEL"
-        ]
     
     # Build MCP servers config (gated-knowledge for internal gates)
     mcp_servers: Dict[str, Any] = {}

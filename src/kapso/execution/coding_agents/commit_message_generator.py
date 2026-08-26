@@ -8,7 +8,8 @@
 # <type>(<scope>): <description>
 
 from typing import Optional
-from kapso.core.llm import LLMBackend
+
+from kapso.core.cli_inference import CliInference
 
 # Lightweight semantic role for commit messages (cheap & fast).
 COMMIT_MESSAGE_MODEL = "utility"
@@ -31,17 +32,18 @@ class CommitMessageGenerator:
     
     def __init__(
         self,
-        llm: Optional[LLMBackend] = None,
+        llm: Optional[CliInference] = None,
         model: Optional[str] = None,
     ):
         """
         Initialize the commit message generator.
         
         Args:
-            llm: LLM backend for generating messages. If None, creates one.
+            llm: Inference backend for generating messages. If None,
+                creates a CLI-inference backend (cli-only-inference design).
             model: Explicit model override. Defaults to the utility role.
         """
-        self.llm = llm or LLMBackend()
+        self.llm = llm or CliInference()
         self.model = model or COMMIT_MESSAGE_MODEL
     
     def generate(
@@ -128,16 +130,15 @@ Rules:
 
 Output ONLY the commit message, nothing else:"""
 
-        try:
-            message = self.llm.llm_completion(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return self._format_message(message.strip())
-        except Exception as e:
-            # Fallback if LLM fails
-            print(f"[CommitMessageGenerator] LLM failed: {e}")
-            return "chore: update code"
+        # Fail loud (Rule 2 + user decision 2026-08-25: no API fallback for
+        # CLI inference) — a swallowed failure here used to degrade every
+        # commit to "chore: update code" silently.
+        message = self.llm.llm_completion(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            role="commit_message",
+        )
+        return self._format_message(message.strip())
     
     def _format_message(self, message: str) -> str:
         """

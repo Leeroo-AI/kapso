@@ -369,6 +369,7 @@ def _complete_repo_model(
         response = llm.llm_completion(
             model=model,
             messages=messages,
+            role="repo_memory",
         )
         try:
             return _validate_repo_model(_extract_json(response))

@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence
 
 import tiktoken
-from litellm import acompletion, aresponses, completion, embedding, responses
+from litellm import acompletion, completion, embedding
 
 # Suppress verbose LiteLLM logs.
 logging.getLogger("LiteLLM").setLevel(logging.WARNING)
@@ -458,180 +458,11 @@ class LLMBackend:
                 await self._async_sleep(delay)
         raise AssertionError("retry loop exited unexpectedly")
 
-    def llm_completion(
-        self,
-        model: Optional[str],
-        messages: List[Dict[str, str]],
-        temperature: float = 1,
-        reasoning_effort: Optional[str] = None,
-        **kwargs: Any,
-    ) -> str:
-        resolved_model = self.resolve_model(model, default_role="utility")
-        if reasoning_effort is None:
-            reasoning_effort = self.model_router.effort_for(
-                model, default_role="utility"
-            )
-        effective_effort, kwargs = _prepare_effort(
-            resolved_model, reasoning_effort, kwargs
-        )
-        response = self._run_sync(
-            "completion",
-            resolved_model,
-            lambda: completion(
-                model=resolved_model,
-                messages=messages,
-                temperature=temperature,
-                drop_params=True,
-                timeout=self.retry_policy.request_timeout_seconds,
-                **_effort_kwargs(effective_effort),
-                **kwargs,
-            ),
-        )
-        return self._content(response)
-
-    def llm_completion_with_system_prompt(
-        self,
-        model: Optional[str],
-        system_prompt: str,
-        user_message: str,
-        temperature: float = 1,
-        reasoning_effort: Optional[str] = None,
-        **kwargs: Any,
-    ) -> str:
-        return self.llm_completion(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            temperature=temperature,
-            reasoning_effort=reasoning_effort,
-            **kwargs,
-        )
-
-    def llm_multiple_completions(
-        self,
-        models: Sequence[Optional[str]],
-        messages: List[Dict[str, str]],
-        temperature: float = 1,
-        reasoning_effort: Optional[str] = None,
-        **kwargs: Any,
-    ) -> List[str]:
-        resolved_models = [
-            self.resolve_model(model, default_role="utility") for model in models
-        ]
-
-        async def _run() -> List[str]:
-            tasks = []
-            for requested, model in zip(models, resolved_models):
-                model_effort, model_kwargs = _prepare_effort(
-                    model,
-                    reasoning_effort
-                    if reasoning_effort is not None
-                    else self.model_router.effort_for(
-                        requested, default_role="utility"
-                    ),
-                    kwargs,
-                )
-                tasks.append(
-                    self._run_async(
-                        "parallel completion",
-                        model,
-                        lambda model=model, model_effort=model_effort, model_kwargs=model_kwargs: acompletion(
-                            model=model,
-                            messages=messages,
-                            temperature=temperature,
-                            drop_params=True,
-                            timeout=self.retry_policy.request_timeout_seconds,
-                            **_effort_kwargs(model_effort),
-                            **model_kwargs,
-                        ),
-                    )
-                )
-            return [self._content(item) for item in await asyncio.gather(*tasks)]
-
-        return asyncio.run(_run())
-
-    @staticmethod
-    def _responses_text(response: Any) -> str:
-        """Concatenated output_text parts of a Responses-API result."""
-        texts: List[str] = []
-        for item in getattr(response, "output", []) or []:
-            for part in getattr(item, "content", []) or []:
-                text = getattr(part, "text", None)
-                if text:
-                    texts.append(text)
-        return "\n".join(texts)
-
-    def llm_completion_with_web_search(
-        self,
-        model: Optional[str],
-        messages: List[Dict[str, str]],
-        search_context_size: str = "medium",
-        **kwargs: Any,
-    ) -> str:
-        # Web search rides the provider's Responses API `web_search` TOOL.
-        # The former chat-completions `web_search_options` parameter belongs
-        # to the retired search-preview family and 400s on current models
-        # ("Unknown parameter: 'web_search_options'", found live 2026-08-24
-        # by the facade E2E — the researcher silently returned empty
-        # findings). Depth is expressed through the tool's
-        # search_context_size.
-        resolved_model = self.resolve_model(model, default_role="web_search")
-        kwargs.pop("temperature", None)
-        prompt = "\n\n".join(str(m.get("content", "")) for m in messages)
-        response = self._run_sync(
-            "web-search completion",
-            resolved_model,
-            lambda: responses(
-                model=resolved_model,
-                input=prompt,
-                tools=[{"type": "web_search",
-                        "search_context_size": search_context_size}],
-                timeout=self.retry_policy.request_timeout_seconds,
-                **kwargs,
-            ),
-        )
-        return self._responses_text(response)
-
-    def llm_multiple_completions_with_web_search(
-        self,
-        models: Sequence[Optional[str]],
-        messages: List[Dict[str, str]],
-        search_context_size: str = "medium",
-        **kwargs: Any,
-    ) -> List[str]:
-        # Same non-reasoning search surface as the single-shot variant:
-        # reasoning effort never rides on web-search calls.
-        resolved_models = [
-            self.resolve_model(model, default_role="web_search") for model in models
-        ]
-        kwargs.pop("temperature", None)
-
-        async def _run() -> List[str]:
-            tasks = [
-                self._run_async(
-                    "parallel web-search completion",
-                    model,
-                    lambda model=model: aresponses(
-                        model=model,
-                        input="\n\n".join(
-                            str(m.get("content", "")) for m in messages
-                        ),
-                        tools=[{"type": "web_search",
-                                "search_context_size": search_context_size}],
-                        timeout=self.retry_policy.request_timeout_seconds,
-                        **kwargs,
-                    ),
-                )
-                for model in resolved_models
-            ]
-            return [
-                self._responses_text(item)
-                for item in await asyncio.gather(*tasks)
-            ]
-
-        return asyncio.run(_run())
+    # Completions were removed 2026-08-26 (cli-only-inference-design):
+    # every non-embedding completion now runs as a coding-agent CLI
+    # session via kapso.core.cli_inference.CliInference. This backend
+    # survives for embeddings, model-role resolution, and the cost
+    # meter only.
 
     def create_embedding(
         self,

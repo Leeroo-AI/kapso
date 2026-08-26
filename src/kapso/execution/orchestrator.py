@@ -29,7 +29,7 @@ from kapso.execution.search_strategies import (
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
 from kapso.environment.handlers.base import ProblemHandler
-from kapso.core.llm import LLMBackend
+from kapso.core.cli_inference import CliInference
 from kapso.core.config import load_mode_config
 from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
@@ -165,13 +165,14 @@ class OrchestratorAgent:
         self.mode_config = load_mode_config(config_path, mode)
         model_routes = self.mode_config.get("models")
         retry_config = self.mode_config.get("retry")
-        if model_routes is None and retry_config is None:
-            self.llm = LLMBackend()
-        else:
-            self.llm = LLMBackend(
-                models=model_routes,
-                retry_policy=retry_config,
-            )
+        # CLI-only inference (cli-only-inference-design.md): the object
+        # every consumer receives as `llm` runs completions as coding-agent
+        # sessions; embeddings and the cost meter delegate to the inner
+        # LLMBackend unchanged.
+        self.llm = CliInference(
+            models=model_routes,
+            retry_policy=retry_config,
+        )
         # Optional: seed experiments from an existing local repo (copy/clone into workspace).
         self.initial_repo = initial_repo
         # Optional: directories to copy into workspace

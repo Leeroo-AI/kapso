@@ -16,12 +16,15 @@ from kapso.execution.coding_agents.base import (
     CodingResult,
 )
 from kapso.execution.coding_agents.factory import CodingAgentFactory
-from kapso.execution.coding_agents.commit_message_generator import CommitMessageGenerator
+
+# CommitMessageGenerator is NOT re-exported here: it imports
+# kapso.core.cli_inference, which imports this package's factory — a
+# package-level re-export would close that loop into an import cycle.
+# Import it from its module directly.
 
 __all__ = [
     "CodingAgentInterface",
-    "CodingAgentConfig", 
+    "CodingAgentConfig",
     "CodingResult",
     "CodingAgentFactory",
-    "CommitMessageGenerator",
 ]

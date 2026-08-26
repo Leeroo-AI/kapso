@@ -265,36 +265,17 @@ def test_mcp_sdk_matches_the_server_api_and_stays_pinned():
     )
 
 
-def test_research_route_threads_and_failures_propagate(monkeypatch):
-    # Regression (E2E review 2026-08-26, R6): the RESEARCH_WEB_SEARCH_MODEL
-    # env var was written into the gate subprocess and read by NOTHING, so
-    # the gate ran on the library default and 400'd; and the handlers'
-    # swallows (plus the server dispatch catch) turned every failure into
-    # research-shaped prose. Pin the whole chain: presets threads the
-    # route, backends reads it into the Researcher's web_search route, and
-    # all three handlers propagate a backend failure.
+def test_research_gate_failures_propagate(monkeypatch):
+    # Regression (E2E review 2026-08-26, R6): the research handlers'
+    # swallows (plus the server dispatch catch) turned every backend
+    # failure into research-shaped prose the agent trusted. All three
+    # handlers must propagate. (The RESEARCH_WEB_SEARCH_MODEL route this
+    # test also pinned died with the CLI-only inference conversion —
+    # research now runs as a codex --search session, no route threading.)
     import asyncio
 
     import kapso.gated_mcp.backends as backends
     from kapso.gated_mcp.gates.research_gate import ResearchGate
-    from kapso.gated_mcp.presets import get_mcp_config
-
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    servers, _ = get_mcp_config(
-        gates=["research"], include_base_tools=False,
-        gate_failure_policy="skip",
-        research_web_search_model="vendor/search-route",
-    )
-    assert servers["gated-knowledge"]["env"][
-        "RESEARCH_WEB_SEARCH_MODEL"
-    ] == "vendor/search-route"
-
-    monkeypatch.setenv("RESEARCH_WEB_SEARCH_MODEL", "vendor/search-route")
-    monkeypatch.setattr(backends, "_researcher_backend", None)
-    researcher = backends.get_researcher_backend()
-    assert researcher._llm.resolve_model(
-        None, default_role="web_search"
-    ) == "vendor/search-route"
 
     class Boom:
         def research(self, *args, **kwargs):

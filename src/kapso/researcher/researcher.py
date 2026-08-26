@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Literal, Mapping, Optional, Union
 
+from kapso.core.cli_inference import CliInference
 from kapso.core.llm import LLMBackend, RetryPolicy
 from kapso.knowledge_base.types import Source, ResearchFindings
 from kapso.researcher.research_findings import (
@@ -69,7 +70,10 @@ class Researcher:
     llm_backend: Optional[LLMBackend] = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        self._llm = self.llm_backend or LLMBackend(
+        # CLI-only inference: research runs as a coding-agent session with
+        # the CLI's native web search. models/retry_policy feed the inner
+        # backend only for its delegated surface (embeddings/meter).
+        self._llm = self.llm_backend or CliInference(
             models=self.models,
             retry_policy=self.retry_policy,
         )

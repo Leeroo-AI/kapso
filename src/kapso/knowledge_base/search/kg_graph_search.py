@@ -60,7 +60,7 @@ from kapso.knowledge_base.search.base import (
     WikiPage,
 )
 from kapso.knowledge_base.search.factory import register_knowledge_search
-from kapso.core.llm import LLMBackend
+from kapso.core.cli_inference import CliInference
 
 logger = logging.getLogger(__name__)
 
@@ -687,7 +687,7 @@ class KGGraphSearch(KnowledgeSearch):
     def _initialize_llm(self) -> None:
         """Initialize LLM backend for reranking."""
         if self.use_llm_reranker:
-            self._llm_backend = LLMBackend(
+            self._llm_backend = CliInference(
                 models=self.params.get("models"),
                 retry_policy=self.params.get("retry"),
             )
@@ -1102,7 +1102,7 @@ Only include pages that would actually help answer the query.
                 model=self.reranker_model,
                 system_prompt=system_prompt,
                 user_message=user_message,
-                temperature=0,
+                role="kg_rerank",
             )
             
             # Parse response - extract indices
