@@ -123,10 +123,8 @@ class GenericSearch(SearchStrategy):
     Config params:
         - idea_generation_model: Model for solution generation (default: claude-opus-4-5-20251101)
         - implementation_model: Model for implementation (default: claude-opus-4-5-20251101)
-        - auth_mode: Claude authentication mode: auto, oauth, api_key, or bedrock
-          (default: bedrock, preserving the existing generic strategy behavior)
-        - use_bedrock: Deprecated compatibility alias for auth_mode
-        - aws_region: AWS region (default: us-east-1)
+        - auth_mode: Claude authentication mode: auto, oauth, or api_key
+          (default: adapter auto-resolution — API key, then subscription login)
         - ideation_timeout: Ideation session deadline in seconds. Default
           None: no deadline — the session is bounded only by an explicit
           time budget, when one is set.
@@ -170,17 +168,15 @@ class GenericSearch(SearchStrategy):
         # Config params for ideation
         self.idea_generation_model = self.params.get(
             "idea_generation_model", 
-            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+            "claude-opus-5"
         )
+        # Subscription-first (bedrock removed 2026-08-26 by user
+        # direction): an explicit auth_mode threads through; otherwise the
+        # adapter auto-resolves (API key, then the CLI subscription login).
         if self.params.get("auth_mode") is not None:
             self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
-        elif "use_bedrock" in self.params:
-            # Pass the legacy key through so the adapter can preserve its exact
-            # True/False behavior and emit the deprecation warning.
-            self._claude_auth_settings = {"use_bedrock": self.params["use_bedrock"]}
         else:
-            self._claude_auth_settings = {"auth_mode": "bedrock"}
-        self.aws_region = self.params.get("aws_region", "us-east-1")
+            self._claude_auth_settings = {}
         # None (the default) means no session deadline: sessions run to
         # completion, bounded only by the time budget when one exists.
         self.ideation_timeout = self.params.get("ideation_timeout")
@@ -286,7 +282,7 @@ class GenericSearch(SearchStrategy):
         # Config params for implementation
         self.implementation_model = self.params.get(
             "implementation_model",
-            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+            "claude-opus-5"
         )
         # Which CLI runs implementation sessions. Both mount the gate MCP
         # servers; codex reports no cost telemetry (ledger undercounts).
@@ -675,7 +671,6 @@ class GenericSearch(SearchStrategy):
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,
-            aws_region=self.aws_region,
             web_disallowed_tools=self._web_disallowed_tools,
             clamped_timeout=self._clamped_timeout,
             ideation_timeout=self.ideation_timeout,
@@ -695,7 +690,6 @@ class GenericSearch(SearchStrategy):
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,
-            aws_region=self.aws_region,
             web_disallowed_tools=self._web_disallowed_tools,
             ideation_web_search=self.ideation_web_search,
             session_effort=self.session_effort,
@@ -749,7 +743,6 @@ class GenericSearch(SearchStrategy):
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,
-            aws_region=self.aws_region,
             web_disallowed_tools=self._web_disallowed_tools,
             session_effort=self.session_effort,
             clamped_timeout=self._clamped_timeout,
@@ -787,7 +780,6 @@ class GenericSearch(SearchStrategy):
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,
-            aws_region=self.aws_region,
             session_effort=self.session_effort,
             artifacts_dir=self._ideation_artifacts_dir(),
         )
@@ -846,7 +838,6 @@ class GenericSearch(SearchStrategy):
             claude_auth_settings=self._claude_auth_settings,
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,
-            aws_region=self.aws_region,
             lane_env=lane_env,
             session_effort=self.session_effort,
             clamped_timeout=self._clamped_timeout,
@@ -1048,7 +1039,6 @@ class GenericSearch(SearchStrategy):
             node,
             implementation_model=self.implementation_model,
             claude_auth_settings=self._claude_auth_settings,
-            aws_region=self.aws_region,
             env_strip=self.env_strip,
             session_effort=self.session_effort,
             clamped_timeout=self._clamped_timeout,

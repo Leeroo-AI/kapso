@@ -71,7 +71,6 @@ def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
     text = difficulties_generator.generate_technical_difficulties(
         model="test-model",
         claude_auth_settings={"auth_mode": "oauth"},
-        aws_region="us-east-1",
         env_strip=["OPENAI_API_KEY"],
         effort="xhigh",
         timeout_seconds=600,
@@ -114,7 +113,6 @@ def test_fallback_returns_empty_on_session_failure(monkeypatch, tmp_path):
     text = difficulties_generator.generate_technical_difficulties(
         model="m",
         claude_auth_settings={"auth_mode": "oauth"},
-        aws_region="us-east-1",
         env_strip=[],
         effort=None,
         timeout_seconds=60,

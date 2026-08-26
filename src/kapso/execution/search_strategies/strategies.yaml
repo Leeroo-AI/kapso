@@ -28,11 +28,10 @@ strategies:
       # Production preset - full capabilities
       PRODUCTION:
         params:
-          idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          auth_mode: "bedrock"
+          idea_generation_model: "claude-opus-5"
+          implementation_model: "claude-opus-5"
+          auth_mode: "oauth"
           gate_failure_policy: "warn"
-          aws_region: "us-east-1"
           ideation_timeout: 300
           implementation_timeout: 600
           ideation_gates: ["research", "experiment_history", "leeroopedia"]
@@ -41,11 +40,10 @@ strategies:
       # Minimal for quick testing
       MINIMAL:
         params:
-          idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-          auth_mode: "bedrock"
+          idea_generation_model: "claude-opus-5"
+          implementation_model: "claude-opus-5"
+          auth_mode: "oauth"
           gate_failure_policy: "warn"
-          aws_region: "us-east-1"
           ideation_timeout: 180
           implementation_timeout: 300
           ideation_gates: ["research", "experiment_history", "leeroopedia"]

@@ -500,7 +500,7 @@ class Kapso:
         merger_params = {"kg_index_path": index_path} if index_path else {}
 
         # Get learner config from mode config
-        # This allows config.yaml to specify ingestor/merger params (auth_mode, aws_region, etc.)
+        # This allows config.yaml to specify ingestor/merger params (auth_mode, timeout, etc.)
         mode = self._config.get("default_mode", "GENERIC")
         mode_config = self._config.get("modes", {}).get(mode, {})
         learner_config = mode_config.get("learner", {})

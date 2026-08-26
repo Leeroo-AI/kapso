@@ -28,7 +28,6 @@ _TAG_PATTERN = re.compile(
 def generate_technical_difficulties(
     model: str,
     claude_auth_settings: dict,
-    aws_region: str,
     env_strip: list,
     effort,
     timeout_seconds: float,
@@ -64,7 +63,6 @@ def generate_technical_difficulties(
         agent_specific={
             **claude_auth_settings,
             "env_strip": env_strip,
-            "aws_region": aws_region,
             "allowed_tools": ["Read", "Bash"],
             "timeout": timeout_seconds,
             "streaming": True,

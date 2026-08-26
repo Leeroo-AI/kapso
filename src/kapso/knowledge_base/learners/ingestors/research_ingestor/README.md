@@ -54,8 +54,7 @@ for idea in ideas:
 
 ```python
 ingestor = IdeaIngestor(params={
-    "auth_mode": "bedrock",       # Explicit Claude authentication mode
-    "aws_region": "us-east-1",     # AWS region
+    "auth_mode": "oauth",          # Explicit Claude authentication mode
     "model": None,                 # Use default model (Sonnet)
     "timeout": 600,                # Agent timeout in seconds
     "wiki_dir": "data/wikis",      # Output directory
@@ -77,9 +76,7 @@ ingestor = IdeaIngestor(params={
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `timeout` | 600 | Agent timeout in seconds |
-| `auth_mode` | `api_key` | Claude auth mode: `auto`, `oauth`, `api_key`, or `bedrock` |
-| `use_bedrock` | — | Deprecated compatibility alias for `auth_mode` |
-| `aws_region` | "us-east-1" | AWS region for Bedrock |
+| `auth_mode` | `api_key` | Claude auth mode: `auto`, `oauth`, or `api_key` |
 | `model` | None | Model override (uses Sonnet by default) |
 | `wiki_dir` | "data/wikis" | Output directory for wiki pages |
 | `staging_subdir` | "_staging" | Subdirectory for staging |

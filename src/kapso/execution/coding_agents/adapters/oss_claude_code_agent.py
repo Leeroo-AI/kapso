@@ -92,7 +92,6 @@ class OssClaudeCodeCodingAgent(ClaudeCodeCodingAgent):
                 f"to authenticate against {self._base_url}"
             )
         self._auth_mode = "endpoint"
-        self._use_bedrock = False
 
     def _get_env(self) -> Dict[str, str]:
         """Child env: endpoint auth only, first-party escape hatches removed."""

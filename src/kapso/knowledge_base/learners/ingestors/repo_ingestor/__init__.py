@@ -124,11 +124,9 @@ class RepoIngestor(Ingestor):
         
         Args:
             params: Optional parameters:
-                - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
+                - model: Model ID (e.g. "claude-opus-5")
                 - timeout: Claude Code timeout in seconds (default: 1800)
-                - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-                - use_bedrock: Deprecated compatibility alias for auth_mode
-                - aws_region: AWS region for Bedrock (default: "us-east-1")
+                - auth_mode: Claude authentication mode (auto, oauth, or api_key)
                 - cleanup: Whether to cleanup cloned repos (default: True)
                 - wiki_dir: Output directory for wiki pages (default: data/wikis)
                 - staging_subdir: Where to stage phase outputs inside wiki_dir (default: "_staging")
@@ -169,10 +167,8 @@ class RepoIngestor(Ingestor):
             workspace: Path to the cloned repository
         
         Supports passing through agent_specific settings from params:
-            - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-            - use_bedrock: Deprecated compatibility alias for auth_mode
-            - aws_region: AWS region for Bedrock (default: "us-east-1")
-            - model: Model name (required, e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
+            - auth_mode: Claude authentication mode (auto, oauth, or api_key)
+            - model: Model name (required, e.g. "claude-opus-5")
         """
         # Base agent_specific config
         agent_specific = {
@@ -188,13 +184,9 @@ class RepoIngestor(Ingestor):
         
         if self.params.get("auth_mode") is not None:
             agent_specific["auth_mode"] = self.params["auth_mode"]
-        elif "use_bedrock" in self.params:
-            agent_specific["use_bedrock"] = self.params["use_bedrock"]
         else:
             # Preserve the pre-auth_mode default for this component.
             agent_specific["auth_mode"] = "api_key"
-        if self.params.get("aws_region"):
-            agent_specific["aws_region"] = self.params["aws_region"]
         
         # Build config for Claude Code with read + write tools
         config = CodingAgentFactory.build_config(
@@ -209,7 +201,7 @@ class RepoIngestor(Ingestor):
         logger.info(
             "Initialized Claude Code agent for %s (auth=%s, model=%s)",
             workspace,
-            agent_specific.get("auth_mode", agent_specific.get("use_bedrock")),
+            agent_specific.get("auth_mode"),
             model,
         )
     

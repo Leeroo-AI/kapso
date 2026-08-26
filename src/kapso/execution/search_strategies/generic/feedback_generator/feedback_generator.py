@@ -4,7 +4,7 @@
 #
 # The feedback generator is a coding agent that can be any of the coding agents
 # in src/execution/coding_agents/ (aider, gemini, claude_code, openhands).
-# Default is claude_code with Bedrock.
+# Default is claude_code (adapter-resolved auth).
 #
 # It is responsible for:
 # 1. Validating that the evaluation is fair and correct
@@ -12,7 +12,6 @@
 # 3. Extracting the evaluation score (if any)
 # 4. Generating actionable feedback for the next iteration
 
-import os
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -59,7 +58,7 @@ class FeedbackGenerator:
     
     NOTE 1: The feedback generator is a coding agent that can be any of the
     coding agents in src/execution/coding_agents/ (aider, gemini, claude_code,
-    openhands). Default is claude_code with Bedrock.
+    openhands). Default is claude_code (adapter-resolved auth).
     
     NOTE 2: The feedback generator is also responsible for extracting the exact
     value of the evaluation score (if any) from the evaluation output and
@@ -88,17 +87,16 @@ class FeedbackGenerator:
         Initialize feedback generator.
         
         Args:
-            coding_agent_config: Config for the coding agent. If None, defaults to claude_code with Bedrock.
+            coding_agent_config: Config for the coding agent. If None,
+                defaults to claude_code with adapter-resolved auth
+                (subscription-first; bedrock removed 2026-08-26).
         """
-        # Default to claude_code with Bedrock if no config provided
         if coding_agent_config is None:
             coding_agent_config = CodingAgentConfig(
                 agent_type="claude_code",
-                model="us.anthropic.claude-opus-4-5-20251101-v1:0",
-                debug_model="us.anthropic.claude-opus-4-5-20251101-v1:0",
+                model="claude-opus-5",
+                debug_model="claude-opus-5",
                 agent_specific={
-                    "auth_mode": "bedrock",
-                    "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
                     "streaming": True,
                     "timeout": self.DEFAULT_TIMEOUT_SECONDS,
                 }

@@ -57,21 +57,6 @@ def auth_status(*, logged_in=True, auth_method="claude.ai"):
     )
 
 
-def test_explicit_bedrock_uses_aws_and_removes_direct_credentials(monkeypatch):
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "access")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
-
-    agent = ClaudeCodeCodingAgent(make_config(auth_mode="bedrock"))
-    env = agent._get_env()
-
-    assert agent._auth_mode == "bedrock"
-    assert agent._use_bedrock is True
-    assert env["CLAUDE_CODE_USE_BEDROCK"] == "1"
-    assert env["AWS_REGION"] == "us-east-1"
-    assert "ANTHROPIC_API_KEY" not in env
-
-
 def test_explicit_api_key_wins_over_ambient_provider_flags(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "higher-precedence-token")
@@ -125,16 +110,6 @@ def test_oauth_token_does_not_require_status_subprocess(monkeypatch):
     assert agent._get_env()["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth"
 
 
-def test_auto_prefers_bedrock_then_api_key(monkeypatch):
-    monkeypatch.setenv("AWS_PROFILE", "kapso")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth")
-
-    agent = ClaudeCodeCodingAgent(make_config(auth_mode="auto"))
-
-    assert agent._auth_mode == "bedrock"
-
-
 def test_auto_prefers_api_key_over_oauth(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth")
@@ -178,35 +153,6 @@ def test_oauth_rejects_status_that_only_reports_an_api_key(monkeypatch):
 def test_invalid_auth_mode_is_rejected_before_credential_checks():
     with pytest.raises(ValueError, match="Invalid Claude Code auth_mode"):
         ClaudeCodeCodingAgent(make_config(auth_mode="magic"))
-
-
-@pytest.mark.parametrize(
-    ("use_bedrock", "env_name", "expected"),
-    [
-        (True, "AWS_PROFILE", "bedrock"),
-        (False, "ANTHROPIC_API_KEY", "api_key"),
-    ],
-)
-def test_use_bedrock_alias_preserves_behavior_and_warns(
-    monkeypatch, use_bedrock, env_name, expected
-):
-    monkeypatch.setenv(env_name, "configured")
-
-    with pytest.warns(DeprecationWarning, match="use_bedrock is deprecated"):
-        agent = ClaudeCodeCodingAgent(make_config(use_bedrock=use_bedrock))
-
-    assert agent._auth_mode == expected
-
-
-def test_explicit_auth_mode_wins_when_deprecated_alias_is_also_present(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
-
-    with pytest.warns(DeprecationWarning):
-        agent = ClaudeCodeCodingAgent(
-            make_config(auth_mode="api_key", use_bedrock=True)
-        )
-
-    assert agent._auth_mode == "api_key"
 
 
 def test_env_overrides_participate_in_validation_and_resolution():
@@ -280,3 +226,11 @@ def test_print_mode_dead_tools_always_disallowed(monkeypatch):
         flag_index = cmd.index("--disallowedTools")
         banned = cmd[flag_index + 1].split(",")
         assert "ScheduleWakeup" in banned
+
+
+def test_bedrock_mode_is_rejected(monkeypatch):
+    # Subscription-only platform (user direction 2026-08-26): bedrock is
+    # not an auth mode anymore — requesting it must fail at construction,
+    # not silently fall through to another provider.
+    with pytest.raises(ValueError, match="Invalid Claude Code auth_mode"):
+        ClaudeCodeCodingAgent(make_config(auth_mode="bedrock"))

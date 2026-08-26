@@ -117,7 +117,7 @@ class KnowledgeMerger:
     - Weaviate: Embeddings for semantic search
     - Source files: Ground truth .md files
     
-    Default configuration uses AWS Bedrock with Claude Opus 4.5.
+    Default auth is api_key (config.yaml's learner.merger block decides).
     
     Example:
         from kapso.knowledge_base.learners.merger import KnowledgeMerger
@@ -126,7 +126,7 @@ class KnowledgeMerger:
         # Prepare pages to merge
         pages = [WikiPage(...), ...]
         
-        # Run merge (uses Bedrock by default)
+        # Run merge
         merger = KnowledgeMerger()
         result = merger.merge(pages, wiki_dir=Path("data/wikis"))
         
@@ -145,9 +145,7 @@ class KnowledgeMerger:
             agent_config: Configuration for Claude Code agent. Supports:
                 - kg_index_path: Path to .index file for KG backend config
                 - timeout: Agent timeout in seconds (default: 3600)
-                - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-                - use_bedrock: Deprecated compatibility alias (default remains api_key)
-                - aws_region: AWS region for Bedrock
+                - auth_mode: Claude authentication mode (auto, oauth, or api_key)
                 - model: Model ID override
         """
         self._agent_config = agent_config or {}
@@ -440,12 +438,8 @@ class KnowledgeMerger:
         
         if self._agent_config.get("auth_mode") is not None:
             agent_specific["auth_mode"] = self._agent_config["auth_mode"]
-        elif "use_bedrock" in self._agent_config:
-            agent_specific["use_bedrock"] = self._agent_config["use_bedrock"]
         else:
             agent_specific["auth_mode"] = "api_key"
-        if self._agent_config.get("aws_region"):
-            agent_specific["aws_region"] = self._agent_config["aws_region"]
         
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",
@@ -458,7 +452,7 @@ class KnowledgeMerger:
         self._agent.initialize(str(workspace))
         logger.info(
             "Initialized Claude Code agent (auth=%s, model=%s, mcp=True)",
-            agent_specific.get("auth_mode", agent_specific.get("use_bedrock")),
+            agent_specific.get("auth_mode"),
             model,
         )
     

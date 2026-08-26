@@ -10,7 +10,7 @@
 #   python tests/test_learn_batch.py --batch-size 1   # sequential (same as original)
 #
 # Required environment variables:
-#   - AWS_BEARER_TOKEN_BEDROCK or AWS credentials for Bedrock
+#   - Claude subscription login (claude auth login)
 #   - AWS_REGION (defaults to us-east-1)
 
 import argparse

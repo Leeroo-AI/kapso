@@ -10,7 +10,7 @@
 # Requires:
 #   - Neo4j and Weaviate Docker containers running
 #   - data/wikis/.index present with indexed pages
-#   - AWS Bedrock credentials (or ANTHROPIC_API_KEY)
+#   - Claude subscription login (or ANTHROPIC_API_KEY)
 #
 # Run all tools:
 #   python tests/test_backend_search.py

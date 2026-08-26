@@ -191,7 +191,6 @@ def run_lens_planner_session(
     claude_auth_settings: Dict[str, Any],
     env_strip: List[str],
     env_defaults: Dict[str, str],
-    aws_region: str,
     web_disallowed_tools: List[str],
     ideation_web_search: bool,
     session_effort: Optional[str],
@@ -225,7 +224,6 @@ def run_lens_planner_session(
             **claude_auth_settings,
             "env_strip": env_strip,
             "env_defaults": env_defaults,
-            "aws_region": aws_region,
             "mcp_servers": mcp_servers,
             "allowed_tools": [
                 "Read", "WebSearch", "WebFetch",

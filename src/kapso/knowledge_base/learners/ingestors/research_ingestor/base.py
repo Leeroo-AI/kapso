@@ -48,7 +48,7 @@ class ResearchIngestorBase(Ingestor):
     Base class for agentic research ingestors.
     
     Provides:
-    - Claude Code agent initialization (Bedrock by default)
+    - Claude Code agent initialization (api_key auth by default)
     - Wiki structure loading
     - Three-phase pipeline execution (planning, writing, auditing)
     - Page collection from wiki directory
@@ -71,11 +71,9 @@ class ResearchIngestorBase(Ingestor):
         
         Args:
             params: Optional parameters:
-                - model: Model ID (e.g. "us.anthropic.claude-opus-4-5-20251101-v1:0")
+                - model: Model ID (e.g. "claude-opus-5")
                 - timeout: Agent timeout in seconds (default: 600)
-                - auth_mode: Claude authentication mode (auto, oauth, api_key, or bedrock)
-                - use_bedrock: Deprecated compatibility alias (default remains api_key)
-                - aws_region: AWS region for Bedrock (default: "us-east-1")
+                - auth_mode: Claude authentication mode (auto, oauth, or api_key)
                 - wiki_dir: Output directory (default: data/wikis)
                 - staging_subdir: Staging subdirectory (default: "_staging")
                 - cleanup_staging: Remove staging after ingest (default: False)
@@ -86,11 +84,8 @@ class ResearchIngestorBase(Ingestor):
         self._timeout = self.params.get("timeout", 600)  # 10 minutes default
         if self.params.get("auth_mode") is not None:
             self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
-        elif "use_bedrock" in self.params:
-            self._claude_auth_settings = {"use_bedrock": self.params["use_bedrock"]}
         else:
             self._claude_auth_settings = {"auth_mode": "api_key"}
-        self._aws_region = self.params.get("aws_region", "us-east-1")
         self._model = self.params.get("model")
         
         # Wiki directory configuration
@@ -126,7 +121,6 @@ class ResearchIngestorBase(Ingestor):
         model = self._model
         
         agent_specific.update(self._claude_auth_settings)
-        agent_specific["aws_region"] = self._aws_region
         
         # Build config for Claude Code
         config = CodingAgentFactory.build_config(
