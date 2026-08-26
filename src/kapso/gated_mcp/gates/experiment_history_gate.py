@@ -150,7 +150,11 @@ class ExperimentHistoryGate(ToolGate):
             return [TextContent(type="text", text=result)]
         except Exception as e:
             logger.error(f"get_top_experiments failed: {e}")
-            return [TextContent(type="text", text=f"Error getting top experiments: {e}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_get_recent(self, arguments: Dict[str, Any]) -> List["TextContent"]:
         """Handle get_recent_experiments tool call."""
@@ -163,7 +167,11 @@ class ExperimentHistoryGate(ToolGate):
             return [TextContent(type="text", text=result)]
         except Exception as e:
             logger.error(f"get_recent_experiments failed: {e}")
-            return [TextContent(type="text", text=f"Error getting recent experiments: {e}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_search_similar(self, arguments: Dict[str, Any]) -> List["TextContent"]:
         """Handle search_similar_experiments tool call."""
@@ -183,7 +191,11 @@ class ExperimentHistoryGate(ToolGate):
             return [TextContent(type="text", text=result)]
         except Exception as e:
             logger.error(f"search_similar_experiments failed: {e}")
-            return [TextContent(type="text", text=f"Error searching experiments: {e}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     def _format_experiments(self, experiments, title: str) -> str:
         """Format experiments as markdown."""

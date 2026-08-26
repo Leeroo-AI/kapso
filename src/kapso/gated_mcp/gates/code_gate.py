@@ -108,7 +108,11 @@ Example queries:
             return [TextContent(type="text", text=self._format_results(query, result, include_content))]
         except Exception as e:
             logger.error(f"Code search failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Search error: {str(e)}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     def _format_results(self, query: str, result, include_content: bool) -> str:
         """Format search results."""

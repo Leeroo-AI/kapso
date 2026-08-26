@@ -195,7 +195,11 @@ class RepoMemoryGate(ToolGate):
             return [TextContent(type="text", text=text)]
         except Exception as e:
             logger.error(f"get_repo_memory_section failed: {e}")
-            return [TextContent(type="text", text=f"Error getting section: {e}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_list_sections(self, arguments: Dict[str, Any]) -> List["TextContent"]:
         """Handle list_repo_memory_sections tool call."""
@@ -227,7 +231,11 @@ class RepoMemoryGate(ToolGate):
             return [TextContent(type="text", text="\n".join(lines))]
         except Exception as e:
             logger.error(f"list_repo_memory_sections failed: {e}")
-            return [TextContent(type="text", text=f"Error listing sections: {e}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_get_summary(self, arguments: Dict[str, Any]) -> List["TextContent"]:
         """Handle get_repo_memory_summary tool call."""
@@ -249,4 +257,8 @@ class RepoMemoryGate(ToolGate):
             return [TextContent(type="text", text=text)]
         except Exception as e:
             logger.error(f"get_repo_memory_summary failed: {e}")
-            return [TextContent(type="text", text=f"Error getting summary: {e}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise

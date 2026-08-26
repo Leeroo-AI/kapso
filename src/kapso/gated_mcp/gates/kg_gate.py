@@ -245,7 +245,11 @@ the correct structure.""",
             
         except Exception as e:
             logger.error(f"Search failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Search error: {str(e)}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_get_page(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle get_wiki_page tool call."""
@@ -269,7 +273,11 @@ the correct structure.""",
             
         except Exception as e:
             logger.error(f"Get page failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Error retrieving page: {str(e)}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_index(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle kg_index tool call."""
@@ -387,7 +395,11 @@ the correct structure.""",
             
         except Exception as e:
             logger.error(f"Index failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Index error: {str(e)}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_edit(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle kg_edit tool call."""
@@ -437,7 +449,11 @@ the correct structure.""",
             
         except Exception as e:
             logger.error(f"Edit failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Edit error: {str(e)}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     async def _handle_get_structure(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle get_page_structure tool call."""
@@ -470,7 +486,11 @@ the correct structure.""",
             
         except Exception as e:
             logger.error(f"Get page structure failed: {e}", exc_info=True)
-            return [TextContent(type="text", text=f"Error: {str(e)}")]
+            # Propagate (Rule 2; accepted-review follow-up 2026-08-26):
+            # the server dispatch re-raises and the MCP SDK returns a
+            # protocol-level tool error (isError=True) — never failure
+            # text the model can mistake for content.
+            raise
     
     def _format_search_results(self, query: str, result, include_content: bool) -> str:
         """Format search results as markdown."""
