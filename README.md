@@ -19,8 +19,6 @@
   If you like this project, please support us by giving it a star ⭐
 </p>
 
-> **Early Access**: [Sign up](https://docs.google.com/forms/d/e/1FAIpQLSfk0RjtZaZFXq3-tclZhnz40E_mNzPSI1RHhBQWzswbNwp8Ug/viewform) for the **hosted version of Kapso**.
-
 <p align="center">
   <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" width="700">
 </p>
