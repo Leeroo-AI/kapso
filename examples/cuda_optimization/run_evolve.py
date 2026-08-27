@@ -49,7 +49,6 @@ Use the `kapso` conda environment which has PyTorch, CUDA, and Triton pre-instal
     # findings = kapso.research(
     #     "Flash Attention Triton kernel optimization techniques",
     #     mode=["idea", "implementation"],
-    #     top_k=5,
     # )
     # context = [findings.to_string()]
     

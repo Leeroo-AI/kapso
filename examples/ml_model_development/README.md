@@ -19,14 +19,22 @@ cd /path/to/kapso
 pip install -e .
 ```
 
-Authenticate the two model providers the default config uses:
+Authenticate the coding-agent CLIs the default config uses, then
+verify everything with `kapso doctor`:
 
 ```bash
-# Claude Code sessions (ideation, implementation, feedback): log in once
-claude login   # or: export CLAUDE_CODE_OAUTH_TOKEN=...
+# Claude Code sessions (ideation, implementation): log in once
+npm install -g @anthropic-ai/claude-code
+claude auth login   # or: export CLAUDE_CODE_OAUTH_TOKEN=...
 
-# utility / research models
+# Codex sessions (research, judging, utilities): log in once
+npm install -g @openai/codex
+codex login
+
+# embeddings (memory and knowledge-search indexing)
 export OPENAI_API_KEY=your_key_here
+
+kapso doctor   # checks all of the above and prints fixes for misses
 ```
 
 ## Problem Description
@@ -68,6 +76,24 @@ This will:
 1. Initialize Kapso
 2. Run multiple iterations to find optimized implementations
 3. Output the best solution to `./model_optimized`
+
+Watch a running campaign live from another terminal:
+
+```bash
+kapso watch ./model_optimized
+```
+
+### Run the full production loop
+
+This example is also the reference for Kapso's complete loop — web
+research → `learn_knowledge()` → `evolve()` → `learn()` → evolve again,
+served the lessons it just earned (requires the KG backends from
+`scripts/start_infra.sh`):
+
+```bash
+python run_full_loop.py            # ~5h end to end; every stage logged
+python resume_full_loop.py --from learn   # re-enter a finished stage
+```
 
 ### Manual Evaluation
 

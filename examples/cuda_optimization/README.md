@@ -22,14 +22,22 @@ cd /path/to/kapso
 pip install -e .
 ```
 
-Authenticate the two model providers the default config uses:
+Authenticate the coding-agent CLIs the default config uses, then
+verify everything with `kapso doctor`:
 
 ```bash
-# Claude Code sessions (ideation, implementation, feedback): log in once
-claude login   # or: export CLAUDE_CODE_OAUTH_TOKEN=...
+# Claude Code sessions (ideation, implementation): log in once
+npm install -g @anthropic-ai/claude-code
+claude auth login   # or: export CLAUDE_CODE_OAUTH_TOKEN=...
 
-# utility / research models
+# Codex sessions (research, judging, utilities): log in once
+npm install -g @openai/codex
+codex login
+
+# embeddings (memory and knowledge-search indexing)
 export OPENAI_API_KEY=your_key_here
+
+kapso doctor   # checks all of the above and prints fixes for misses
 ```
 
 ## Problem Description
