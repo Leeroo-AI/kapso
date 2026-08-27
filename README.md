@@ -219,19 +219,3 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
-
-## Citation
-
-If you use Kapso in your research, please cite:
-
-```bibtex
-@misc{nadaf2026kapsoknowledgegroundedframeworkautonomous,
-      title={KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization}, 
-      author={Alireza Nadafian and Alireza Mohammadshahi and Majid Yazdani},
-      year={2026},
-      eprint={2601.21526},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2601.21526}, 
-}
-```
