@@ -104,12 +104,11 @@ Weaviate, Neo4j) matter only for the knowledge-graph features below.
 bash scripts/start_infra.sh   # starts both via docker
 ```
 
-**From source (for development or to access wiki knowledge data)**
+**From source (for development)**
 
 ```bash
 git clone https://github.com/leeroo-ai/kapso.git
 cd kapso
-git lfs install && git lfs pull    # wiki knowledge data
 
 conda create -n kapso python=3.12 && conda activate kapso
 pip install -e .
