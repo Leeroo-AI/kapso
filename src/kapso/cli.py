@@ -29,8 +29,11 @@ from typing import Optional
 
 import yaml
 
-from dotenv import load_dotenv
-load_dotenv()
+from dotenv import find_dotenv, load_dotenv
+# Resolve .env from the caller's CWD upward. The no-arg default anchors at
+# THIS file's directory — site-packages in a pip install — so the .env the
+# README tells users to create next to their project was never read.
+load_dotenv(find_dotenv(usecwd=True))
 
 from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config

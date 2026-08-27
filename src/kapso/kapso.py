@@ -29,8 +29,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 # Load environment variables from .env file (if present)
-from dotenv import load_dotenv
-load_dotenv()
+from dotenv import find_dotenv, load_dotenv
+# Resolve .env from the caller's CWD upward. The no-arg default anchors at
+# THIS file's directory — site-packages in a pip install — so the .env the
+# README tells users to create next to their project was never read.
+load_dotenv(find_dotenv(usecwd=True))
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.observability import (
