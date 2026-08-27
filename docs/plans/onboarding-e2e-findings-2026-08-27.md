@@ -121,3 +121,56 @@ docs quickstart; (b) optionally teach `kapso doctor` to probe each
 distinct `{cli, model}` pair in the active config with a one-token
 session, so a capped or unavailable model is caught before a run, not
 mid-`learn()`.
+
+---
+
+# Run record — LOOP CLOSED, all stages green
+
+The full loop completed 2026-08-27 17:55 UTC, driver exit 0, on
+**leeroo-kapso 0.3.4 from PyPI** in a fresh Python 3.13 venv.
+
+| Stage | Wall time | Result |
+|---|---|---|
+| research (light, idea) | 6 min | 16.8KB findings, one codex session |
+| learn_knowledge | 1h51m | **53 pages created**, 0 errors, merged into KG |
+| evolve #1 | 23 min (of 45 budget) | **0.89 accuracy** (target 0.78, baseline ~0.50), succeeded, stopped early; served the founding bank head `e360a54b` |
+| learn | 4h35m | **admitted; 10 cards created**, 0 updated; bank `e360a54b → 2e6a58a8`; harvest 33m / mine 33m / exam 11m / lesson 3h51m |
+| evolve #2 | 27 min | **0.89 accuracy**, succeeded; **served the post-lesson head `2e6a58a8`** |
+| loop-closure check | — | **PASSED**: evolve #2's served head == lesson's `bank_head_after` |
+
+Total: **7h21m** end to end. What this validates: the published wheel is
+complete (crew prompts, configs, entry points), Python 3.13 works, CWD
+`.env` credential flow works (finding 1's fix), the post-install config
+override path works (finding 5's pattern, including the model swap),
+serving hands each campaign the exact bank head it should see, and the
+experience loop genuinely closes — the second campaign consumed the
+cards the first one earned. Both campaigns saturated the accuracy target,
+so this run demonstrates loop *mechanics*, not served-cards *uplift* —
+uplift needs a task the first campaign does not saturate.
+
+## 6. Lesson-phase margin vs the crew timeout — OPEN (observation)
+
+The single-trajectory founding docket consumed 3h51m of the 240-min
+update-crew cap — a 9-minute margin. The cap was calibrated for the
+fable-5 crews; this run's opus-5 swap (finding 5) nearly exhausted it.
+A second trajectory in the docket, or a slightly chattier session,
+would have tripped the cap and failed `learn()` at the very end.
+**Recommendation:** consider the timeout a per-model knob (or scale
+with docket size), and say in docs that model swaps change pacing.
+
+## 7. "Light" research does not bound ingestion — OPEN (observation)
+
+The fast-finish lever (`depth="light"`, narrow question) bounded the
+research stage (6 min) but not extraction: 16.8KB of findings became
+53 wiki pages and 1h51m of `learn_knowledge`. Thorough extraction is
+by design — but the quickstart's mental model ("simple research to
+finish fast") should warn that ingest time scales with extractable
+substance, not with research depth.
+
+## 8. Unclosed SSL socket warning at driver exit — OPEN (cosmetic)
+
+Interpreter teardown prints `ResourceWarning: unclosed <ssl.SSLSocket
+...>` after a run that used the KG backends — a client (Weaviate/Neo4j)
+is not closed on the facade path. Harmless, but it is the last line a
+new user sees after their first successful run. **Recommendation:**
+close KG clients when the facade finishes with them.
