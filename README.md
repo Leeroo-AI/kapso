@@ -207,10 +207,10 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 
 | Benchmark | Description |
 |-----------|-------------|
-| [**MLE-Bench**](benchmarks/mle/README.md) | Kaggle ML competitions — tabular, image, text, audio problems |
-| [**ALE-Bench**](benchmarks/ale/README.md) | AtCoder algorithmic optimization — C++ solution generation |
-| [**RelBench**](benchmarks/relbench/README.md) | Relational deep learning — multi-table temporal databases, 66 tasks (classification, regression, recommendation, autocomplete) |
-| [**IOAI 2026**](benchmarks/ioai2026/README.md) | International Olympiad in AI, AI Model Track (IOAI²) — six expert-designed ML contest tasks across vision, language, and optimization, solved fully autonomously in timed sessions on single-GPU hardware |
+| [**MLE-Bench**](benchmarks/mle/README.md) | OpenAI's ML-engineering benchmark — full competitions across tabular, vision, text, and audio, from raw data to graded submission |
+| [**ALE-Bench**](benchmarks/ale/README.md) | Sakana AI's algorithmic-optimization benchmark — design, implement, and iterate contest heuristics over hours-long searches |
+| [**RelBench**](benchmarks/relbench/README.md) | Stanford's benchmark for predictive ML over enterprise data — forecasting, classification, and recommendation straight from the multi-table databases of SAP, Amazon, H&M, and more |
+| [**IOAI 2026**](benchmarks/ioai2026/README.md) | Timed olympiad ML across vision, language, and optimization — expert-set tasks, contest hardware, zero human help |
 
 ## 📚 Documentation & Support
 
