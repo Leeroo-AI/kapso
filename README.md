@@ -216,6 +216,10 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 - **Website**: [leeroo.com](https://leeroo.com)
 
 
+## Kapso for Enterprise
+
+Kapso gets better at your company the longer it works: every task feeds a living knowledge bank of your systems, your data, and your hard-won lessons. To onboard Kapso for your challenging enterprise tasks and build that live company context, [talk to us](https://leeroo.com/contact-us).
+
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
