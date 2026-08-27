@@ -91,8 +91,9 @@ served the lessons it just earned (requires the KG backends from
 `scripts/start_infra.sh`):
 
 ```bash
-python run_full_loop.py            # ~5h end to end; every stage logged
-python resume_full_loop.py --from learn   # re-enter a finished stage
+python run_full_loop.py    # ~5h end to end; every stage logged to its sandbox
+# re-enter a partially finished run at a stage:
+python resume_full_loop.py learning/e2e-facade/<stamp> --from learn
 ```
 
 ### Manual Evaluation
