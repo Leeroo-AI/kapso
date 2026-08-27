@@ -198,10 +198,10 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 | Example | Description |
 |---------|-------------|
 | [**CUDA Optimization**](examples/cuda_optimization/README.md) | Optimize CUDA kernels for GPU performance |
-| [**PyTorch Optimization**](examples/pytorch_optimization/README.md) | Optimize PyTorch operations for speedup |
-| [**ML Model Development**](examples/ml_model_development/README.md) | Improve ML model accuracy on tabular data |
-| [**Prompt Engineering**](examples/prompt_engineering/README.md) | Optimize prompts for better LLM performance |
-| [**Agentic Scaffold**](examples/agentic_scaffold/README.md) | Optimize agentic AI workflows |
+| [**PyTorch Optimization**](examples/pytorch_optimization/README.md) | Cut wall-clock and memory — fuse ops, kill sync points and host-device chatter, saturate the GPU without changing numerics |
+| [**ML Model Development**](examples/ml_model_development/README.md) | End-to-end delivery of prediction models — data prep, features, training, and validation evolved into a deployable artifact |
+| [**Harness Optimization**](examples/prompt_engineering/README.md) | Evolve the harness around a model — prompts, decoding, parsing, and scoring tuned against a measurable target |
+| [**Agent Optimization**](examples/agentic_scaffold/README.md) | Agents improving agents — workflows, tools, and prompts evolved until the metric climbs |
 
 ## Supported Benchmarks
 
