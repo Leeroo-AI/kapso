@@ -294,7 +294,11 @@ learning:
     # served-exam lessons (clean-room ingest 3, live: ref repairs and
     # weaken-admission fixes did not converge in two).
     repair_rounds: 3
-    timeout_minutes: 240
+    # A cap, not a duration — crews that finish early pay nothing. 240 was
+    # calibrated on fable-5 single-trajectory dockets; the onboarding E2E
+    # (2026-08-27) measured 231 min on an opus-5 swap — a 9-minute margin —
+    # so 360 covers model swaps and small dockets (findings doc #6).
+    timeout_minutes: 360
     # Inclusive docket nomination threshold — similarity nominates, mechanism
     # decides (a false nomination costs minutes of review, never correctness).
     dup_nominate_jaccard: 0.5

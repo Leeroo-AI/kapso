@@ -224,6 +224,10 @@ kapso doctor --models                            # packaged config
 kapso doctor --models --config kapso-config.yaml # yours
 ```
 
+Model swaps change *pacing* too: the crew `timeout_minutes` caps in the
+config were calibrated on the default models, and a swapped model that
+reasons longer may need them raised.
+
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.
 
 ## Examples
