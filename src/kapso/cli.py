@@ -595,9 +595,72 @@ def cmd_bank(args) -> None:
     print("lessons now push automatically at the end of every learn()")
 
 
+def _collect_model_pairs(config) -> list:
+    """Every distinct {cli, model} pair the active config can spawn a
+    session with (onboarding E2E finding #5). The cli resolves from an
+    explicit `cli` key in the same block, an `implementation_cli`
+    sibling, or the model-name prefix (claude-* runs on the claude CLI,
+    everything else on codex). Embedding models are excluded — their
+    access check is the OPENAI_API_KEY row."""
+    pairs = set()
+
+    def resolve_cli(block, key, model_name):
+        if block.get("cli"):
+            return str(block["cli"])
+        if key == "implementation_model" and block.get("implementation_cli"):
+            return str(block["implementation_cli"])
+        return "claude_code" if model_name.startswith("claude") else "codex"
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                is_model_key = key == "model" or key.endswith("_model")
+                if is_model_key and isinstance(value, str) and value:
+                    pairs.add((resolve_cli(node, key, value), value))
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(config)
+    return sorted(pairs)
+
+
+def _probe_model_access(cli_name: str, model: str):
+    """One-token live probe: can this CLI actually serve this model on the
+    current subscription? Returns (ok, first line of the CLI's own answer
+    when not) — a capped model fails here in seconds instead of deep
+    inside a learn() crew session."""
+    prompt = "Reply with exactly: ok"
+    if cli_name == "claude_code":
+        cmd = ["claude", "-p", "--model", model, prompt]
+    else:
+        # --skip-git-repo-check: codex refuses untrusted (non-git) CWDs,
+        # and doctor runs wherever the user is; a read-only one-token
+        # probe needs no trust. stdin closed — codex reads a non-tty
+        # stdin as extra prompt input. (Both caught by the live smoke.)
+        cmd = ["codex", "exec", "--model", model, "--sandbox", "read-only",
+               "--skip-git-repo-check", prompt]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+                            stdin=subprocess.DEVNULL)
+    if result.returncode == 0:
+        return True, ""
+    # stdout's first line carries claude's cap message; codex prefixes
+    # stderr with noise, so its real reason is the LAST line.
+    stdout_lines = [line for line in result.stdout.splitlines() if line.strip()]
+    stderr_lines = [line for line in result.stderr.splitlines() if line.strip()]
+    if stdout_lines:
+        return False, stdout_lines[0]
+    if stderr_lines:
+        return False, stderr_lines[-1]
+    return False, f"exit {result.returncode}"
+
+
 def cmd_doctor(args) -> None:
     """Check the machine is ready to run Kapso; exit 1 on missing
-    requirements."""
+    requirements. --models additionally live-probes every {cli, model}
+    pair the active config names."""
     checks = _doctor_checks()
     required_failures = 0
     print("kapso doctor\n" + "=" * 60)
@@ -608,6 +671,23 @@ def cmd_doctor(args) -> None:
             print(f"         fix: {hint}")
             if required:
                 required_failures += 1
+
+    if args.models:
+        config = load_config(args.config or DEFAULT_CONFIG_PATH)
+        print("  model access (live one-token probes)")
+        for cli_name, model in _collect_model_pairs(config):
+            binary = "claude" if cli_name == "claude_code" else "codex"
+            if shutil.which(binary) is None:
+                print(f"  [-- ] {cli_name}: {model} — {binary} CLI not "
+                      "installed (counted above)")
+                continue
+            ok, detail = _probe_model_access(cli_name, model)
+            mark = "OK " if ok else "FAIL"
+            suffix = f" — {detail}" if detail else ""
+            print(f"  [{mark}] {cli_name}: {model}{suffix}")
+            if not ok:
+                required_failures += 1
+
     print("=" * 60)
     if required_failures:
         print(f"{required_failures} required check(s) failed — fix the "
@@ -990,15 +1070,27 @@ Examples:
     # =========================================================================
     # DOCTOR command (onboarding)
     # =========================================================================
-    subparsers.add_parser(
+    doctor_parser = subparsers.add_parser(
         "doctor",
         help="Check this machine is ready to run Kapso",
         description=(
             "Probes the required tooling (node, codex + login, claude + "
             "login, OPENAI_API_KEY) and the optional knowledge-graph "
             "infrastructure (docker, Weaviate, Neo4j). Exits non-zero "
-            "when a required item is missing."
+            "when a required item is missing. With --models, additionally "
+            "fires a one-token live probe for every {cli, model} pair the "
+            "active config names — a subscription cap surfaces here in "
+            "seconds instead of hours into a run."
         ),
+    )
+    doctor_parser.add_argument(
+        "--models", action="store_true",
+        help="Live-probe every configured {cli, model} pair (spends a few "
+             "one-token calls)",
+    )
+    doctor_parser.add_argument(
+        "--config", type=str, default=None,
+        help="Config whose models to probe (default: packaged config.yaml)",
     )
 
     # =========================================================================

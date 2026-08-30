@@ -192,6 +192,38 @@ result = deployed.run({"input": "data"})
 deployed.stop()
 ```
 
+### Choosing models
+
+Every model Kapso uses is named in one config file. The packaged default
+runs evolve sessions on `claude-opus-5`, the learning crews on
+`claude-fable-5`, and codex roles on `gpt-5.6-sol` — but model access is
+subscription-dependent (a plan can cap one model while serving another).
+To run on different models, copy the packaged config, edit, and point
+Kapso at yours:
+
+```python
+from pathlib import Path
+import yaml
+from kapso import Kapso
+from kapso.kapso import DEFAULT_CONFIG_PATH
+
+config = yaml.safe_load(Path(DEFAULT_CONFIG_PATH).read_text())
+# e.g. run the learning crews on opus instead of fable:
+crews = yaml.safe_dump(config).replace("claude-fable-5", "claude-opus-5")
+Path("kapso-config.yaml").write_text(crews)
+
+kapso = Kapso(config_path="kapso-config.yaml")
+```
+
+Before a long run, preflight every model your config names against your
+actual subscriptions — a capped model fails here in seconds instead of
+hours into a run:
+
+```bash
+kapso doctor --models                            # packaged config
+kapso doctor --models --config kapso-config.yaml # yours
+```
+
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/quickstart) and [Installation](https://docs.leeroo.com/docs/installation) guides.
 
 ## Examples
