@@ -1,6 +1,6 @@
 <h1 align="center">Kapso</h1>
 
-<h4 align="center">A Knowledge-grounded framework for Autonomous AI/ML Program Synthesis and Optimization</h4>
+<h4 align="center">A Self-Improving AI Software Factory (for Measurable Objectives)</h4>
 
 <p align="center">
   <a href="https://docs.leeroo.com">Learn more</a> ·
@@ -45,9 +45,9 @@
 
 ## What is KAPSO?
 
-KAPSO combines **iterative experimentation** with a **knowledge base** of best practices and tricks to discover ML/AI code improvements.
+KAPSO builds software for goals you can measure. It replaces one-shot generation with **experiment campaigns** — design, implement, score, refine — where every candidate is judged by your own evaluation, and the winner ships to your infrastructure.
 
-It automates the cycle of **designing**, **testing**, and **refining** algorithms, eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
+What makes it a *self-improving* factory: it learns from its own work. Finished campaigns become evidence-priced lessons; imported research and repositories become a knowledge graph — two memories that compound, so each campaign starts where the last one left off.
 
 ### The Four Pillars
 
