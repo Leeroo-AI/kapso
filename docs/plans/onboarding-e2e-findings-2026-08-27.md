@@ -205,7 +205,14 @@ would have tripped the cap and failed `learn()` at the very end.
 **Recommendation:** consider the timeout a per-model knob (or scale
 with docket size), and say in docs that model swaps change pacing.
 
-## 7. "Light" research does not bound ingestion — OPEN (observation)
+## 7. "Light" research does not bound ingestion — SHIPPED (docs)
+
+**Resolution:** README budgeting note in the knowledge-graph section —
+depth bounds the research stage only; ingest scales with extractable
+substance, and fewer sources is the fast-ingest lever. Rides the next
+PyPI release. Original finding kept below.
+
+### Original finding
 
 The fast-finish lever (`depth="light"`, narrow question) bounded the
 research stage (6 min) but not extraction: 16.8KB of findings became

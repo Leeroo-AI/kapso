@@ -182,6 +182,12 @@ kapso.learn_knowledge(
 solution = kapso.evolve(goal="Fine-tune Llama-3.1-8B for clause risk classification")
 ```
 
+A note on budgeting: `depth="light"` bounds the *research* stage only.
+`learn_knowledge()` extracts everything the material supports — a small
+findings set can still become dozens of linked wiki pages and an
+hours-long ingest. Ingest time scales with extractable substance, not
+with the depth flag; pass fewer sources when you want a faster ingest.
+
 And to turn a solution into running software:
 
 ```python
