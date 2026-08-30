@@ -258,6 +258,24 @@ def test_learn_pushes_to_connected_origin(tmp_path, monkeypatch):
     assert remote_head == lesson.bank_head_after
 
 
+def test_close_releases_backend_and_registers_atexit(tmp_path, monkeypatch):
+    # Regression (onboarding E2E finding #8): the facade owns network
+    # clients through knowledge_search — close() must release them, and
+    # construction must register close() atexit so a plain script exits
+    # without unclosed-socket ResourceWarnings.
+    import kapso.kapso as facade_module
+
+    registered = []
+    monkeypatch.setattr(facade_module.atexit, "register",
+                        lambda fn: registered.append(fn))
+    kapso = Kapso(config_path=facade_config(tmp_path))
+    assert kapso.close in registered
+    closed = []
+    kapso.knowledge_search = SimpleNamespace(close=lambda: closed.append(True))
+    kapso.close()
+    assert closed == [True]
+
+
 def test_bank_constructor_override_beats_config(tmp_path):
     config_path = facade_config(tmp_path)
     other = tmp_path / "other-bank.git"

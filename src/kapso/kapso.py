@@ -17,6 +17,7 @@
 #     software = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 #     result = software.run({"input": "data"})
 
+import atexit
 import json
 import os
 import subprocess
@@ -200,6 +201,10 @@ class Kapso:
         else:
             self.knowledge_search = KnowledgeSearchFactory.create_null()
             self._kg_index_path = None
+        # Backend clients (Weaviate/Neo4j/embeddings) hold real sockets;
+        # close them at interpreter exit so scripts end without unclosed-
+        # socket ResourceWarnings (onboarding E2E finding #8).
+        atexit.register(self.close)
         
         # Print initialization status
         if kg_index:
@@ -246,8 +251,9 @@ class Kapso:
         params.update(metadata.backend_refs)
         params.setdefault("models", mode_config.get("models"))
         params.setdefault("retry", mode_config.get("retry"))
-        
-        # Create search backend
+
+        # Create search backend (closing any superseded one's clients)
+        self._close_knowledge_search()
         self.knowledge_search = KnowledgeSearchFactory.create(
             search_type=metadata.search_backend,
             params=params,
@@ -262,7 +268,22 @@ class Kapso:
             )
         
         print(f"  Knowledge Graph: Loaded ({metadata.page_count} pages from {metadata.search_backend})")
-    
+
+    def _close_knowledge_search(self) -> None:
+        # Runs at atexit — tolerate a test-stubbed backend without close();
+        # every real KnowledgeSearch implements it (base class contract).
+        closer = getattr(self.__dict__.get("knowledge_search"), "close", None)
+        if callable(closer):
+            closer()
+
+    def close(self) -> None:
+        """Release the knowledge-search backend's network clients
+        (Weaviate, Neo4j, embeddings). Idempotent — registered atexit at
+        construction so scripts end without unclosed-socket
+        ResourceWarnings; also safe to call earlier when done with
+        knowledge search (index_kg / learn_knowledge reconnect fresh)."""
+        self._close_knowledge_search()
+
     def index_kg(
         self,
         wiki_dir: Optional[str] = None,
@@ -333,8 +354,9 @@ class Kapso:
         params = search_config.get("params", {}).copy()
         params.setdefault("models", mode_config.get("models"))
         params.setdefault("retry", mode_config.get("retry"))
-        
-        # Create search backend
+
+        # Create search backend (closing any superseded one's clients)
+        self._close_knowledge_search()
         self.knowledge_search = KnowledgeSearchFactory.create(
             search_type=search_type,
             params=params,
@@ -598,6 +620,7 @@ class Kapso:
             params = search_config.get("params", {}).copy()
             params.setdefault("models", mode_config.get("models"))
             params.setdefault("retry", mode_config.get("retry"))
+            self._close_knowledge_search()
             self.knowledge_search = KnowledgeSearchFactory.create(
                 search_type=search_config.get("type", "kg_graph_search"),
                 params=params,
