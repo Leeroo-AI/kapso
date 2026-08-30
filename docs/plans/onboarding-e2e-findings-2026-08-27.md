@@ -128,7 +128,17 @@ Weaviate/Neo4j).
 without it), so `pytest tests/` is safe-by-default for contributors.
 Env-var gating is ruled out by the no-env-config rule.
 
-## 5. Config names models an account may not be able to serve — OPEN (docs-first)
+## 5. Config names models an account may not be able to serve — SHIPPED (0.3.6)
+
+**Resolution (99027d2c):** both halves — the README's "Choosing models"
+section documents the copy-packaged-config override pattern, and
+`kapso doctor --models [--config X]` live-probes every distinct
+{cli, model} pair the active config names with a one-token call
+(claude `-p`; codex `exec --sandbox read-only --skip-git-repo-check`,
+stdin closed). A capped model fails the doctor in seconds with the
+CLI's own message. Original finding kept below.
+
+### Original finding
 
 The packaged config hard-names `claude-fable-5` across the learning
 stack (mining lead/flow-writer/critic, grading verifier, update-crew
