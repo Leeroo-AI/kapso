@@ -5,6 +5,8 @@
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.live  # a full run of this suite spawned a real claude session (2026-08-27) despite the fake-boundary design — gated until that leak is found
 import yaml
 
 from kapso.learning.graders.frame import GradingFrame

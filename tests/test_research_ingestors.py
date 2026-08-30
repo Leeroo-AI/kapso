@@ -20,10 +20,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from kapso.knowledge_base_base.types import Source
+import pytest
+
+from kapso.knowledge_base.types import Source
 from kapso.researcher import Researcher
-from kapso.knowledge_base_base.learners.ingestors import IdeaIngestor, ImplementationIngestor, ResearchReportIngestor
-from kapso.knowledge_base_base.search.base import WikiPage
+from kapso.knowledge_base.learners.ingestors import IdeaIngestor, ImplementationIngestor, ResearchReportIngestor
+from kapso.knowledge_base.search.base import WikiPage
+
+pytestmark = pytest.mark.live  # bare Researcher() spawns real codex sessions
 
 
 def test_idea_ingestor_e2e():

@@ -13,8 +13,12 @@ from typing import List
 
 from dotenv import load_dotenv
 
+import pytest
+
 from kapso.knowledge_base.types import Source
 from kapso.researcher import Researcher
+
+pytestmark = pytest.mark.live  # bare Researcher() spawns real codex sessions
 
 load_dotenv()
 
