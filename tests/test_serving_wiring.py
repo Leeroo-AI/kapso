@@ -31,8 +31,7 @@ def serving_config(tmp_path, enabled=True):
     return {
         "learning": {
             "serving": {"enabled": enabled},
-            "bank": {"local_path": str(tmp_path / "bank-home.git"),
-                     "remote": None},
+            "bank": {"local_path": str(tmp_path / "bank-home.git")},
             "retriever": {"probe_budget": 1},
         }
     }

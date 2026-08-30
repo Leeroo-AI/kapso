@@ -389,7 +389,7 @@ class GauntletRunner:
             **self.config,
             "learning": {
                 **self.config["learning"],
-                "bank": {"local_path": str(bank_home), "remote": None},
+                "bank": {"local_path": str(bank_home)},
             },
         }
         return UpdateFrame(self.store, scoped, agent_factory=self.agent_factory)

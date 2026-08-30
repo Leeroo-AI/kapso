@@ -117,8 +117,7 @@ def main() -> None:
 
     # --- isolated config: packaged config with sandboxed learning homes ---
     config = yaml.safe_load(Path(DEFAULT_CONFIG_PATH).read_text())
-    config["learning"]["bank"] = {"local_path": str(sandbox / "bank-home.git"),
-                                  "remote": None}
+    config["learning"]["bank"] = {"local_path": str(sandbox / "bank-home.git")}
     config["learning"]["trajectory_store"] = {"local": str(sandbox / "store"),
                                               "remote": None}
     config["learning"]["import_report_dir"] = str(sandbox / "imports")

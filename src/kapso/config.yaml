@@ -266,15 +266,13 @@ learning:
     # Grader run dirs (doubt D6: repo-root learning/, gitignored).
     run_root: learning/graders
   bank:
-    # The bank home (design §3.1; doubt D3: a local bare repo at P4, the
-    # private GitHub remote under Leeroo-AI arrives at P5). Every update run
-    # clones this home, edits, and pushes back — single writer per bank.
-    local_path: data/kapso-bank-relbench.git
-    # D3: the private bank remote under Leeroo-AI (created 2026-08-18; main
-    # + lr_founding_20260818 pushed). The local home stays the serving and
-    # writing source; the single writer syncs home -> remote after learning
-    # runs, boxes pull at campaign start (P5.3).
-    remote: https://github.com/Leeroo-AI/kapso-bank-relbench.git
+    # The bank home (design §3.1): a local bare repo, created automatically
+    # on first learn(). Every update run clones this home, edits, and pushes
+    # back — single writer per bank. Sharing is git-native: the home's own
+    # `origin` remote (attached via `kapso bank connect <url>`) is the push
+    # target; no origin means learn() stays local-only. There is no remote
+    # key here — a bank carries its remote itself, like any git repo.
+    local_path: data/kapso-bank.git
   serving:
     # Serving v2 (serving-agentic-redesign.md): when enabled, campaign
     # launches pin the bank, the knowledge intro rides after the static

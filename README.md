@@ -145,7 +145,11 @@ solution = kapso.evolve(
 print(solution.explain())
 
 # Learn from the campaign you just ran: mine the trajectory, grade the
-# lessons, and bank evidence-priced knowledge cards.
+# lessons, and bank evidence-priced knowledge cards. The bank (a local
+# git repo) is created automatically on first use — lessons stay on your
+# machine until you share them:
+#     kapso bank connect <git-url>   # or: kapso bank create org/name
+# after which every learn() pushes the bank there.
 lesson = kapso.learn(solution)
 print(lesson.explain())
 

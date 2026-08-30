@@ -80,8 +80,7 @@ def develop_config(tmp_path):
             },
             "retriever": {"k_insights": 2, "k_procedures": 1, "k_pitfalls": 1,
                           "unvisited_discount": 0.5, "probe_budget": 1},
-            "bank": {"local_path": str(tmp_path / "unused-prod-bank.git"),
-                     "remote": None},
+            "bank": {"local_path": str(tmp_path / "unused-prod-bank.git")},
             "codify": {"min_recurrence": 2, "replay_max_age_days": 60},
             "update_crew": {
                 "lead": {"cli": "claude_code", "model": "m", "effort": "xhigh",

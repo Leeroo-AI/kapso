@@ -17,12 +17,19 @@ from kapso.cli import _doctor_checks, cmd_doctor
 
 
 def fake_environment(monkeypatch, *, binaries, ports=(), claude_logged_in=True,
-                     openai_key=True, codex_auth=True, oauth_token=False):
+                     openai_key=True, codex_auth=True, oauth_token=False,
+                     bank_origin_url=None):
     monkeypatch.setattr(
         shutil, "which", lambda name: f"/usr/bin/{name}" if name in binaries else None
     )
 
     def fake_run(cmd, **kwargs):
+        if cmd[0] == "git":  # the doctor's bank-origin probe
+            if bank_origin_url:
+                return SimpleNamespace(
+                    returncode=0, stdout=bank_origin_url + "\n", stderr="")
+            return SimpleNamespace(
+                returncode=2, stdout="", stderr="error: No such remote")
         assert cmd[:3] == ["claude", "auth", "status"]
         return SimpleNamespace(
             returncode=0,
@@ -128,3 +135,27 @@ def test_cmd_doctor_exits_nonzero_on_required_failure(monkeypatch, capsys):
     )
     cmd_doctor(SimpleNamespace())  # no SystemExit
     assert "Required checks passed" in capsys.readouterr().out
+
+
+def test_bank_rows_nudge_without_ever_failing_doctor(monkeypatch, tmp_path):
+    # Regression (onboarding E2E finding #1 nudges): the bank line is a
+    # discoverability nudge, never a required failure — absent bank says
+    # "created on first learn()", origin-less bank names `kapso bank
+    # connect`, attached bank shows its URL as OK.
+    fake_environment(monkeypatch, binaries={"node", "codex", "claude"})
+    monkeypatch.chdir(tmp_path)  # bank path resolves against CWD
+
+    checks = by_label(_doctor_checks())
+    assert checks["bank (none yet — created on first learn())"] == (False, False)
+
+    (tmp_path / "data" / "kapso-bank.git").mkdir(parents=True)
+    hints = {label: hint for _, _, label, hint in _doctor_checks()}
+    assert "kapso bank connect" in hints["bank remote: not configured — local-only"]
+    assert by_label(_doctor_checks())[
+        "bank remote: not configured — local-only"] == (False, False)
+
+    fake_environment(monkeypatch, binaries={"node", "codex", "claude"},
+                     bank_origin_url="https://github.com/acme/kapso-bank.git")
+    monkeypatch.chdir(tmp_path)
+    assert by_label(_doctor_checks())[
+        "bank remote: https://github.com/acme/kapso-bank.git"] == (True, False)

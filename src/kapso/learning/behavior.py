@@ -211,7 +211,7 @@ class BehaviorRunner:
             **self.config,
             "learning": {
                 **self.config["learning"],
-                "bank": {"local_path": str(home), "remote": None},
+                "bank": {"local_path": str(home)},
             },
         }
         frame = UpdateFrame(self.store, fixture_config,

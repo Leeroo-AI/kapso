@@ -69,7 +69,7 @@ def make_config(tmp_path):
             "trajectory_store": {"local": str(tmp_path / "store"), "remote": None},
             "graders": {"score_band": 0.20, "min_settlements": 2,
                         "calibration_min": 20, "calibration_buckets": [0.4, 0.7]},
-            "bank": {"local_path": str(tmp_path / "bank-home.git"), "remote": None},
+            "bank": {"local_path": str(tmp_path / "bank-home.git")},
             "codify": {"min_recurrence": 2, "replay_max_age_days": 60},
             "update_crew": {
                 "lead": {"cli": "claude_code", "model": "m", "effort": "xhigh",

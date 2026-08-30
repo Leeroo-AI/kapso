@@ -11,6 +11,7 @@ import yaml
 
 from kapso.execution.solution import SolutionResult
 from kapso.kapso import Kapso
+from kapso.learning.bank_remote import connect_bank
 from kapso.learning.lesson_result import LessonResult, MemoryStatus
 from kapso.learning.update_frame import init_bank
 from tests.test_bank_retriever import card_text
@@ -32,8 +33,7 @@ def facade_config(tmp_path) -> str:
             "status_dir": str(tmp_path / "status"),
             "harvest": {"enabled": True},
             "serving": {"enabled": False},
-            "bank": {"local_path": str(tmp_path / "bank-home.git"),
-                     "remote": None},
+            "bank": {"local_path": str(tmp_path / "bank-home.git")},
             "retriever": {"probe_budget": 1},
             "graders": {"run_root": str(tmp_path / "graders")},
             "update_crew": {"default_version": "crew_test",
@@ -194,15 +194,68 @@ def test_learn_store_id_skips_import_and_no_admission_is_honest(
     assert calls.mined == ["facade-task/20260824T000000_t1"]
 
 
-def test_learn_unknown_source_and_missing_bank_fail_loud(tmp_path):
+def test_learn_auto_inits_missing_bank_then_fails_on_bad_source(tmp_path):
+    # Regression (onboarding E2E finding #2): a missing bank home is not a
+    # setup error — learn() founds it automatically, so the README's
+    # evolve→learn loop needs zero bank ceremony. The bogus source still
+    # fails loud, but only AFTER the bank exists.
     config_path = facade_config(tmp_path)
     kapso = Kapso(config_path=config_path)
-    with pytest.raises(FileNotFoundError, match="bank home"):
-        kapso.learn(str(tmp_path / "nowhere"))
-    seed_bank_home(tmp_path, {"seed-card": card_text("seed-card")})
-    kapso = Kapso(config_path=config_path)
+    assert not kapso._bank_home.exists()
     with pytest.raises(FileNotFoundError, match="neither a store"):
         kapso.learn(str(tmp_path / "nowhere"))
+    assert (kapso._bank_home / "HEAD").is_file()  # bare repo founded
+    assert kapso._bank_head()  # skeleton commit landed
+
+
+def test_learn_push_preflight_fires_before_any_pipeline_work(
+    tmp_path, monkeypatch
+):
+    # Regression (onboarding E2E finding #1): an unreachable push
+    # destination must kill learn() in seconds at the START — never after
+    # hours of crew work at the final push. push=False opts out and runs
+    # local-only.
+    config_path = facade_config(tmp_path)
+    seed_bank_home(tmp_path, {"seed-card": card_text("seed-card")})
+    kapso = Kapso(config_path=config_path)
+    calls = stub_chain(monkeypatch, kapso._bank_home)
+    subprocess.run(
+        ["git", "--git-dir", str(kapso._bank_home), "remote", "add",
+         "origin", str(tmp_path / "no-such-remote.git")],
+        check=True,
+    )
+    campaign = make_campaign_dir(tmp_path)
+    with pytest.raises(RuntimeError, match="not reachable"):
+        kapso.learn(str(campaign))
+    assert calls.mined == []  # preflight fired before harvest/mine
+
+    lesson = kapso.learn(str(campaign), push=False,
+                         trajectory_id="facade-task/20260824T000000_t9")
+    assert lesson.metadata["pushed"] is False
+
+
+def test_learn_pushes_to_connected_origin(tmp_path, monkeypatch):
+    # Regression: with an origin attached (kapso bank connect), learn()
+    # pushes main+tags there by default and the share remote ends at the
+    # post-lesson head — the multi-machine share contract.
+    config_path = facade_config(tmp_path)
+    seed_bank_home(tmp_path, {"seed-card": card_text("seed-card")})
+    kapso = Kapso(config_path=config_path)
+    stub_chain(monkeypatch, kapso._bank_home,
+               lesson_commit_message="lesson: pushed card")
+    share = tmp_path / "share.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(share)], check=True)
+    connect_bank(kapso._bank_home, str(share))
+
+    lesson = kapso.learn(str(make_campaign_dir(tmp_path)),
+                         trajectory_id="facade-task/20260824T000000_t2")
+
+    assert lesson.metadata["pushed"] is True
+    remote_head = subprocess.run(
+        ["git", "--git-dir", str(share), "rev-parse", "main"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert remote_head == lesson.bank_head_after
 
 
 def test_bank_constructor_override_beats_config(tmp_path):

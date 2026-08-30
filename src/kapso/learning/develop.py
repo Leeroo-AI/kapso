@@ -69,7 +69,7 @@ class DevelopmentDriver:
             **self.config,
             "learning": {
                 **self.learning_config,
-                "bank": {"local_path": str(bank_home), "remote": None},
+                "bank": {"local_path": str(bank_home)},
             },
         }
         update_frame = UpdateFrame(

@@ -60,7 +60,8 @@ from kapso.learning.serving_launch import (
     stage_campaign_serving,
 )
 from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
-from kapso.learning.update_frame import UpdateFrame
+from kapso.learning.bank_remote import bank_origin, verify_bank_remote
+from kapso.learning.update_frame import UpdateFrame, init_bank
 
 from kapso.deployment import (
     Software,
@@ -728,8 +729,9 @@ class Kapso:
                 (learning.update_crew.default_version).
             exam: Run the hindcast exam against the pinned pre-lesson bank
                 head first. False is for development replays only.
-            push: Push the bank commit to learning.bank.remote. None means
-                "push exactly when a remote is configured".
+            push: Push the bank commit to the bank's `origin` remote
+                (attached via `kapso bank connect <url>`). None means
+                "push exactly when an origin is attached".
             on_status: Optional hook called with the status dict after
                 every status write and heartbeat (observability §4b).
                 Exceptions from the hook propagate.
@@ -738,13 +740,25 @@ class Kapso:
             LessonResult — what changed in the bank and the paper trail.
         """
         started = datetime.now(timezone.utc)
-        if self._bank_home is None or not self._bank_home.exists():
-            raise FileNotFoundError(
-                f"bank home {self._bank_home} does not exist — run "
-                "`kapso learn init-bank` (or init_bank()) first, or point "
-                "Kapso(bank=...) / learning.bank.local_path at an existing "
-                "bank"
+        if self._bank_home is None:
+            raise ValueError(
+                "no bank configured — set learning.bank.local_path or "
+                "pass Kapso(bank=...)"
             )
+        if not self._bank_home.exists():
+            init_bank(str(self._bank_home))
+            print(f"initialized bank home at {self._bank_home}")
+        # Push preflight (onboarding E2E finding #1): verify the remote in
+        # seconds up front, never after hours of crew work on the far side.
+        origin = bank_origin(self._bank_home)
+        should_push = bool(origin) if push is None else push
+        if should_push:
+            if not origin:
+                raise ValueError(
+                    "push=True but the bank has no origin remote — run "
+                    "`kapso bank connect <url>` first"
+                )
+            verify_bank_remote(self._bank_home)
         learning_config = self._config["learning"]
         version = (
             learner_version
@@ -764,8 +778,8 @@ class Kapso:
         print(f"status: {status.path}")
         try:
             return self._learn_chain(
-                source, trajectory_id, version, exam, push, started,
-                store, learning_config, status,
+                source, trajectory_id, version, exam, should_push, origin,
+                started, store, learning_config, status,
             )
         finally:
             in_flight = sys.exc_info()[1]
@@ -778,7 +792,8 @@ class Kapso:
         trajectory_id: Optional[str],
         version: str,
         exam: bool,
-        push: Optional[bool],
+        should_push: bool,
+        origin: Optional[str],
         started: datetime,
         store: TrajectoryStore,
         learning_config: Dict[str, Any],
@@ -1021,19 +1036,13 @@ class Kapso:
             f"{bank_head_before[:8]} -> {bank_head_after[:8]}"
         )
 
-        # --- push (config-determined by default) ---
+        # --- push (to the bank's own origin; preflighted at learn() start) ---
         status.phase("push")
-        remote = learning_config["bank"].get("remote")
-        should_push = bool(remote) if push is None else push
         pushed = False
         if should_push:
-            if not remote:
-                raise ValueError(
-                    "push=True but learning.bank.remote is not configured"
-                )
             subprocess.run(
-                ["git", "--git-dir", str(self._bank_home), "push",
-                 str(remote), "main", "--tags"],
+                ["git", "--git-dir", str(self._bank_home), "push", "origin",
+                 "main", "--tags"],
                 check=True,
             )
             pushed = True
@@ -1047,6 +1056,10 @@ class Kapso:
             bank_head_after=bank_head_after,
             pushed=pushed,
         )
+        if pushed:
+            print(f"lesson banked and pushed to {origin}")
+        else:
+            print("lesson banked locally · to share: kapso bank connect <url>")
         return LessonResult(
             trajectory_id=trajectory_id,
             bank_head_before=bank_head_before,
