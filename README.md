@@ -45,9 +45,11 @@
 
 ## What is KAPSO?
 
-KAPSO builds software for goals you can measure. It replaces one-shot generation with **experiment campaigns** — design, implement, score, refine — where every candidate is judged by your own evaluation, and the winner ships to your infrastructure.
+KAPSO builds software for goals you can measure.
 
-What makes it a *self-improving* factory: it learns from its own work. Finished campaigns become evidence-priced lessons; imported research and repositories become a knowledge graph — two memories that compound, so each campaign starts where the last one left off.
+Give it a goal. It runs **experiment campaigns**: designing candidates, implementing them, scoring each one, and refining the best. Every claim of progress is a score, and the winner ships to your infrastructure.
+
+The factory is **self-improving** because it learns from its own work. Finished campaigns become evidence-priced lessons. It also learns from public knowledge, including repos and papers. Everything compounds in one knowledge hub, so each campaign starts where the last one left off.
 
 ### The Four Pillars
 
