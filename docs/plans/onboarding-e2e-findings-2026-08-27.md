@@ -35,7 +35,20 @@ Commits `9ac8202e` + release `e1085071`, live as **leeroo-kapso 0.3.4**;
 re-verified from a clean venv (doctor fully green, and the run's spawned
 sessions inherit the `.env` credentials).
 
-## 2. Packaged bank defaults are our production values — OPEN
+## 2. Packaged bank defaults are our production values — SHIPPED (0.3.5)
+
+**Resolution (52288da9), redesigned git-native per review:** the
+`learning.bank.remote` config key is deleted — a bank carries its share
+remote as its own `origin`, exactly like any git repo. Packaged default
+is the neutral `data/kapso-bank.git`, `learn()` pushes to `origin` only
+when one is attached, and attaching is one command: `kapso bank connect
+<url>` (or `kapso bank create org/name`, via gh). A push destination is
+also **preflighted with ls-remote at learn() start**, so auth failures
+cost seconds, never hours. The production relbench bank home was renamed
+in place; its already-set origin carries the relbench identity — no
+overlay needed anywhere. Original finding kept below.
+
+### Original finding
 
 The config shipped in the wheel carries:
 
@@ -63,7 +76,14 @@ production overlay (mode config or explicit `--config`) on our side.
 Not applied — it touches the production paths this branch's live
 relbench learning runs read.
 
-## 3. README Basic Usage omits the bank-init step — OPEN
+## 3. README Basic Usage omits the bank-init step — SHIPPED (0.3.5)
+
+**Resolution (52288da9):** option (b) — `learn()` founds a missing bank
+home automatically, deleting the setup step from the golden path; the
+README documents the auto-creation and the share command. Original
+finding kept below.
+
+### Original finding
 
 The quickstart's core loop (`evolve → learn → evolve`) fails at
 `learn()` for a fresh user: the bank home does not exist yet.
@@ -80,7 +100,17 @@ path is unambiguous, and the explicit-init requirement mainly protects
 against typo'd paths, which the guided error already handles. Decide
 (a) vs (b); (b) deletes a setup step from the golden path.
 
-## 4. Live suites in `tests/` look hermetic — OPEN
+## 4. Live suites in `tests/` look hermetic — SHIPPED (0.3.5)
+
+**Resolution (29255ffc):** `tests/conftest.py` registers a `live` marker
+and a `--run-live` opt-in; the four suites carry a module `pytestmark`
+and skip in ~2s without the flag (verified for direct file invocation
+too). Note kept open inside the marker comments: the mining/grading
+frame suites are fake-boundary by design yet a full run empirically
+spawned a real claude session — the leak is still unfound. Original
+finding kept below.
+
+### Original finding
 
 `tests/test_mining_frame.py` and `tests/test_grading_frame.py` spawn
 **real claude crew sessions** when run (same family as
