@@ -188,7 +188,14 @@ cards the first one earned. Both campaigns saturated the accuracy target,
 so this run demonstrates loop *mechanics*, not served-cards *uplift* —
 uplift needs a task the first campaign does not saturate.
 
-## 6. Lesson-phase margin vs the crew timeout — OPEN (observation)
+## 6. Lesson-phase margin vs the crew timeout — SHIPPED (0.3.7)
+
+**Resolution (07eb8dc1):** packaged `learning.update_crew.timeout_minutes`
+raised 240 → 360 (a cap, not a duration — early finishes pay nothing),
+with the calibration recorded in the config comment and a README note
+that model swaps change pacing. Original finding kept below.
+
+### Original finding
 
 The single-trajectory founding docket consumed 3h51m of the 240-min
 update-crew cap — a 9-minute margin. The cap was calibrated for the
@@ -207,7 +214,18 @@ by design — but the quickstart's mental model ("simple research to
 finish fast") should warn that ingest time scales with extractable
 substance, not with research depth.
 
-## 8. Unclosed SSL socket warning at driver exit — OPEN (cosmetic)
+## 8. Unclosed SSL socket warning at driver exit — SHIPPED (0.3.7)
+
+**Resolution (33f4db72):** the facade now owns its clients' lifecycle —
+`Kapso.close()` releases the knowledge-search backend's Weaviate/Neo4j/
+embedding clients, is registered atexit at construction, and superseded
+backends are closed on every reassignment. Live-verified silent teardown
+with real clients on the E2E's index. Honesty note: the E2E's specific
+warning could not be re-triggered by construction+search alone — if it
+reappears in a future full loop, it has a different owner (likely a
+litellm-internal client); re-open then. Original finding kept below.
+
+### Original finding
 
 Interpreter teardown prints `ResourceWarning: unclosed <ssl.SSLSocket
 ...>` after a run that used the KG backends — a client (Weaviate/Neo4j)
