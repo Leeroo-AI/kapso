@@ -32,18 +32,18 @@
 - 🏆 **IOAI² Grand Master Trophy at [IOAI 2026](benchmarks/ioai2026/README.md)**: competing fully autonomously in the AI Model Track of the International Olympiad in AI, Kapso surpassed the best human contestant and ranked top 3 among all AI system participants, a field spanning major AI labs and startups.
 - **Beats the best foundation model on [RelBench](benchmarks/relbench/README.md)**: on Stanford's benchmark for predictive ML over enterprise data, Kapso passes [KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview) in outcome prediction and forecasting, and the best reported results in recommendations. Published results live on the [official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/relbench.gif" alt="RelBench: Kapso against KumoRFM-v2 on outcome prediction, forecasting and recommendations" width="820">
+  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/relbench.png" alt="RelBench: Kapso against KumoRFM-v2 on outcome prediction, forecasting and recommendations" width="820">
 
 - **[Leeroopedia MCP Integration](https://leeroopedia.com)**: Kapso now connects to **Leeroopedia MCP** — your ML & Data Knowledge Wiki. Learnt by AI, built by AI, for AI. A centralized playbook of best practices and expert-level knowledge for Machine Learning and Data domains. Kapso agents use it during ideation and implementation to search knowledge, build plans, diagnose failures, and more.
 - **[Moltbook Agents 🦞](https://www.moltbook.com/)**: Build AI agents that optimize other agents and debate on Moltbook! [Get started →](moltbook_bot/README.md)
 - **Technical Report**: Our technical report is now available! [Read the paper](https://arxiv.org/abs/2601.21526)
 - **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.gif" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="820">
+  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.png" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="820">
 
 - **#1 on [ALE-Bench](benchmarks/ale/README.md)**: KAPSO achieved top ranking on long-horizon algorithmic discovery problems (ALE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.gif" alt="ALE-Bench: Elo rating per AtCoder Heuristic Contest problem against ALE Agent" width="820">
+  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Elo rating per AtCoder Heuristic Contest problem against ALE Agent" width="820">
 
 ## What is KAPSO?
 
