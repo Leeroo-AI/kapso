@@ -13,6 +13,13 @@
 # ignore engine does not re-include the contents of an excluded directory, and
 # the whole navigation goes missing. Keep it a blacklist.
 
+# Root-level markdown. None of it is documentation: CLAUDE.md is the
+# repository's engineering rules for coding agents, and the rest are GitHub
+# conventions. Without this, `seo.indexing: all` publishes them as hidden pages
+# — CLAUDE.md was briefly served at docs.leeroo.com/CLAUDE.md and listed in
+# llms.txt because of exactly that.
+/*.md
+
 # Tracked, part of the package rather than the docs
 /src/
 /tests/
