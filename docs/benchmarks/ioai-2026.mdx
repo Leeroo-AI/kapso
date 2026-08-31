@@ -1,0 +1,84 @@
+---
+title: "IOAI 2026: Kapso outscored all 471 human contestants"
+sidebarTitle: "IOAI 2026"
+description: "Kapso competed in the IOAI 2026 AI Model Track, scoring 536.07 across six tasks in two fully autonomous six-hour sessions, and took the Grand Master Trophy."
+keywords: ["IOAI 2026", "International Olympiad in AI", "IOAI2", "AI Model Track", "autonomous AI competition", "Grand Master Trophy"]
+---
+
+The [International Olympiad in Artificial Intelligence](https://ioai-official.org) is the IMO of the AI era. At IOAI 2026 in Astana, **471 contestants from 108 countries and territories** sat expert-designed problems spanning computer vision, language and optimization, all under a single-GPU budget.
+
+In 2026 the olympiad opened a second arena. [IOAI², the AI Model Track](https://ioai-official.org/ai-model-track/), puts AI systems in the same exam hall: the same [six contest tasks](https://github.com/IOAI-official/IOAI-2026), **two fully autonomous six-hour sessions** of three tasks each, up to 50 submission attempts per task, every solution scored on standardized single-GPU hardware.
+
+Once a session starts, no human may solve, correct, or improve anything. Fourteen AI labs entered as Founding AI Participants. Kapso was one of them.
+
+## Results
+
+| Result | Detail |
+|--------|--------|
+| Outscored every human contestant | A total of **536.07**, above all 471 contestants |
+| Top 3 among all AI systems | The 14 Founding AI Participants spanned major labs and several startups |
+| IOAI² Grand Master Trophy | Awarded for the top-3 finish |
+
+### Per task
+
+| # | Task | Score |
+|---|------|-------|
+| 1 | Speech understanding: reconstruct the chronological order of a shuffled spoken conversation from raw audio | 75.97 |
+| 2 | Sequential decision making: train a control policy from scratch to steer an agent through a dynamic grid world | 98.83 |
+| 3 | Interactive language reasoning: play 120 live word-association games against an adaptive judge using semantic embeddings | 92.03 |
+| 4 | Text forensics: pinpoint the exact character where a document switches authors, armed with only a text encoder | 98.84 |
+| 5 | Adversarial machine learning: craft imperceptible image perturbations that steer two different vision architectures at once | 97.17 |
+| 6 | Extreme model compression: fit a hidden field with a network under 20k parameters that must generalize and quantify its own uncertainty | 73.23 |
+| | **Total** | **536.07** |
+
+## How Kapso runs it
+
+Three stages, with the campaign clock starting at brief-in.
+
+1. **Preflight.** One agent session ingests the official task brief, downloads the data, and writes the task statement.
+2. **Campaign.** The experimentation loop — ideation, implementation, judged feedback — runs in parallel lanes. Each lane cycles submit-and-learn rounds through the official submission system: predict the score, submit, bank the result, study the gap, go again.
+3. **Shared learning.** Lanes learn from every sibling submission on the board, and ideas are grounded in a knowledge bank distilled from past olympiad tasks.
+
+The submit-and-learn loop is what the format rewards. With up to 50 attempts per task and a live score after each one, the useful unit of work is not a single good solution but a fast cycle between prediction and measurement.
+
+## Usage
+
+```bash
+pip install -e .
+```
+
+Ingest a task, from a URL or an organizer brief, into a run root:
+
+```bash
+PYTHONPATH=src:. python -m benchmarks.ioai2026.preflight \
+    --task <task url or brief> --root tmp/ioai/task1
+```
+
+Run the campaign for one six-hour session:
+
+```bash
+PYTHONPATH=src:. python -m benchmarks.ioai2026.runner \
+    --root tmp/ioai/task1 --hours 6
+```
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `handler.py` | The submit-and-learn lane contract and insured finalization |
+| `runner.py` | Campaign driver and staging |
+| `preflight.py` | Task ingestion |
+| `kernel_slots.py` | Ticket office over the submission platform's per-account session limits |
+
+Full integration notes are in [`benchmarks/ioai2026/`](https://github.com/Leeroo-AI/kapso/tree/main/benchmarks/ioai2026).
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="MLE-Bench" icon="chart-line" href="/docs/benchmarks/mle-bench">
+    Kaggle machine-learning competitions
+  </Card>
+  <Card title="RelBench" icon="database" href="/docs/benchmarks/relbench">
+    Predictive tasks over relational databases
+  </Card>
+</CardGroup>

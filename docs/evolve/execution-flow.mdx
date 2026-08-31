@@ -1,6 +1,8 @@
 ---
-title: "Execution Flow"
-description: "How Kapso executes experiments from goal to solution"
+title: "What happens inside one Kapso experiment, step by step"
+sidebarTitle: "Execution flow"
+description: "Follow a single call to evolve() from goal to solution: candidate generation, implementation on a branch, evaluation, judged feedback, and the decision to stop."
+keywords: ["execution flow", "evolve loop", "experiment steps", "budget tracking", "Kapso internals"]
 ---
 
 ## The Big Picture
@@ -162,7 +164,7 @@ and verifies the finalized candidate ref before accepting its score. See
 
 Each experiment gets its own **Git branch** via `ExperimentWorkspace`:
 
-```
+```text
 main
 ├── kapso/exp-001  (Score: 0.87)
 ├── kapso/exp-002  (Score: 0.91)

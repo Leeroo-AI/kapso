@@ -1,6 +1,8 @@
 ---
-title: "Coding Agents"
-description: "Pluggable code generation backends"
+title: "Coding agents in Kapso: the five pluggable implementers"
+sidebarTitle: "Coding agents"
+description: "Claude Code, Codex, Gemini, OpenHands and OSS Claude Code: the interface they share, how git commits are handled, and how to register an agent of your own."
+keywords: ["coding agents", "Claude Code", "Codex", "CodingAgentFactory", "custom agent"]
 ---
 
 ## Overview
@@ -9,12 +11,22 @@ Coding agents are responsible for generating and modifying code based on prompts
 
 ## Available Agents
 
-| Agent | Description | Best For |
-|-------|-------------|----------|
-| `aider` | Git-centric diff-based editing | General purpose, default |
-| `gemini` | Google Gemini SDK | Fast generation |
-| `claude_code` | Anthropic Claude Code CLI | Complex refactoring |
-| `openhands` | OpenHands with sandbox | Isolated execution |
+| Agent | Description | Default model | Install |
+|-------|-------------|---------------|---------|
+| `claude_code` | Anthropic Claude Code CLI, for complex refactoring and planning | `claude-opus-4-5` | `npm install -g @anthropic-ai/claude-code` |
+| `codex` | OpenAI Codex CLI, non-interactive exec with a full-access sandbox | `gpt-5.6-sol` | `npm install -g @openai/codex` |
+| `gemini` | Google Gemini SDK, code generation with file parsing | `gemini-2.5-flash` | `pip install google-generativeai` |
+| `openhands` | OpenHands agent SDK with a sandboxed execution environment | `gpt-4.1-mini` | `pip install openhands-ai litellm` |
+| `oss_claude_code` | Claude Code CLI driven by an OSS model over an Anthropic-compatible endpoint | `glm-5p2` | `npm install -g @anthropic-ai/claude-code` |
+| `aider` | Git-centric diff-based editing. Legacy, and needs Python 3.12 or older | — | `pip install "leeroo-kapso[aider]"` |
+
+Both shipped config modes, `GENERIC` and `MINIMAL`, set `coding_agent.type: claude_code`, so that is the agent you get unless you override it.
+
+An agent is only registered if its dependencies import, so `aider` is absent from a default install and `kapso --list-agents` shows five. Run that command to see what is actually available on your machine:
+
+```bash
+kapso --list-agents
+```
 
 ## Agent Interface
 
@@ -38,33 +50,16 @@ class CodingAgentInterface(ABC):
         """Return True if agent handles its own commits."""
 ```
 
-## Aider (Default)
+## Building an agent directly
 
-Git-centric pair programming with diff-based editing.
-
-### Features
-- Automatic git commits
-- Diff-based file editing
-- Context-aware code understanding
-- Cost tracking
-
-### Configuration
-
-```yaml
-coding_agent:
-  type: "aider"
-  model: "gpt-4o-mini"
-  debug_model: "gpt-4o-mini"
-```
-
-### Usage
+Most of the time the config picks the agent. To construct one yourself:
 
 ```python
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 
 config = CodingAgentFactory.build_config(
-    agent_type="aider",
-    model="gpt-4o-mini",
+    agent_type="claude_code",
+    model="claude-opus-5",
 )
 
 agent = CodingAgentFactory.create(config)
@@ -75,6 +70,8 @@ print(f"Files changed: {result.files_changed}")
 print(f"Cost: ${result.cost:.4f}")
 ```
 
+`CodingAgentFactory.list_available()` returns the registered agent names.
+
 ## Claude Code
 
 Anthropic's Claude Code CLI for complex tasks.
@@ -83,7 +80,7 @@ Anthropic's Claude Code CLI for complex tasks.
 - Advanced reasoning
 - Complex refactoring
 - MCP tool support
-- Explicit OAuth, Anthropic API-key, and AWS Bedrock authentication
+- Explicit OAuth and Anthropic API-key authentication
 
 ### Installation
 
@@ -96,29 +93,27 @@ npm install -g @anthropic-ai/claude-code
 ```yaml
 coding_agent:
   type: "claude_code"
-  model: "claude-sonnet-4-20250514"
+  model: "claude-opus-5"
   agent_specific:
-    auth_mode: "auto"
+    auth_mode: "oauth"
     claude_md_path: "CLAUDE.md"
 ```
 
-`auth_mode` accepts four values:
+`auth_mode` accepts three values:
 
 | Mode | Credential source | Behavior |
 |------|-------------------|----------|
-| `auto` | AWS, then `ANTHROPIC_API_KEY`, then Claude CLI OAuth | Selects the first available source in that order |
-| `bedrock` | Bedrock bearer token, AWS access keys, or `AWS_PROFILE` | Validates AWS credentials and sets the Bedrock provider flag |
+| `oauth` | `claude auth login`, or `CLAUDE_CODE_OAUTH_TOKEN` | Uses the current user's Claude CLI subscription login |
 | `api_key` | `ANTHROPIC_API_KEY` | Requires direct Anthropic API credentials |
-| `oauth` | `CLAUDE_CODE_OAUTH_TOKEN` or `claude auth login` | Uses the current user's Claude CLI subscription login |
+| `auto` | Either of the above | Takes whichever is present |
 
-The low-level Claude Code adapter defaults to `auto`. Kapso's generic search
-presets continue to default to `bedrock`, so upgrading does not silently switch
-an existing AWS experiment to a developer's local subscription.
+The shipped config sets `oauth` on every Claude Code block, and the low-level adapter defaults to `auto`.
 
-Explicit modes remove conflicting provider flags and higher-precedence
-credentials from the Claude subprocess environment. For example, `oauth`
-ignores an inherited `ANTHROPIC_API_KEY`, while `api_key` ignores an inherited
-Bedrock flag. The parent process environment is never modified.
+An explicit mode removes higher-precedence credentials from the Claude subprocess environment, so `oauth` ignores an inherited `ANTHROPIC_API_KEY`. The parent process environment is never modified.
+
+<Note>
+  AWS Bedrock support was removed on 26 August 2026 in favour of a subscription-first setup. `auth_mode: bedrock` and the `use_bedrock` key are no longer accepted.
+</Note>
 
 ### OAuth
 
@@ -154,43 +149,6 @@ coding_agent:
   agent_specific:
     auth_mode: "api_key"
 ```
-
-### AWS Bedrock
-
-For AWS Bedrock:
-
-```yaml
-coding_agent:
-  type: "claude_code"
-  model: "us.anthropic.claude-opus-4-6-v1"
-  agent_specific:
-    auth_mode: "bedrock"
-    aws_region: "us-east-1"
-```
-
-Set one supported AWS credential source and a region:
-
-```bash
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_REGION=us-east-1
-```
-
-`AWS_BEARER_TOKEN_BEDROCK` or `AWS_PROFILE` can be used instead of access keys.
-
-### Compatibility migration
-
-`use_bedrock` remains supported for one compatibility period and emits a
-`DeprecationWarning`:
-
-```yaml
-agent_specific:
-  use_bedrock: true   # same as auth_mode: bedrock
-  # use_bedrock: false  # same as auth_mode: api_key
-```
-
-When both keys are present, `auth_mode` wins. New configurations should only
-use `auth_mode`.
 
 ## Gemini
 
@@ -279,7 +237,7 @@ This JSON is extracted by the search strategy and used by the feedback generator
 
 ### Example Agent Output
 
-```
+````text
 I've implemented the random forest classifier. Here's what I did:
 
 1. Created main.py with the classifier implementation
@@ -298,14 +256,16 @@ Accuracy: 0.92
     "evaluation_output": "Loading data...\nTraining model...\nAccuracy: 0.92"
 }
 ```
-```
+````
 
 ## Feedback Generator Role
 
 Coding agents also power the feedback generator. The default feedback generator uses `claude_code`, but any agent can be used:
 
 ```python
-from kapso.execution.feedback_generator import FeedbackGenerator
+from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import (
+    FeedbackGenerator,
+)
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 
 # Use gemini for feedback generation
@@ -336,9 +296,8 @@ class CodingAgentConfig:
 
 ```python
 from kapso.execution.coding_agents.base import CodingAgentInterface, CodingResult
-from kapso.execution.coding_agents.factory import register_agent
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 
-@register_agent("my_custom_agent")
 class MyCustomAgent(CodingAgentInterface):
     def initialize(self, workspace: str) -> None:
         self.workspace = workspace
@@ -367,7 +326,12 @@ class MyCustomAgent(CodingAgentInterface):
 
     def supports_native_git(self) -> bool:
         return False  # Let ExperimentSession handle commits
+
+
+CodingAgentFactory.register("my_custom_agent", MyCustomAgent)
 ```
+
+Registration is a classmethod call, not a decorator. Agents declared in `agents.yaml` are registered on module import; `register()` is how you add one at runtime.
 
 ## Git Integration
 
@@ -411,7 +375,7 @@ PYTHONPATH=. python -m src.cli --list-agents
 ```
 
 Output:
-```
+```text
 Available Coding Agents:
 ==================================================
   aider: Git-centric pair programming with diff-based editing

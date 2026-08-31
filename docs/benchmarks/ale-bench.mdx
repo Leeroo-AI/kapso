@@ -1,12 +1,17 @@
 ---
-title: "ALE-Bench"
-description: "Solving AtCoder algorithmic optimization problems"
+title: "Run Kapso on ALE-Bench: AtCoder heuristic contests"
+sidebarTitle: "ALE-Bench"
+description: "Kapso ranks first on ALE-Bench, AtCoder's long-horizon algorithmic optimization problems. Setup, the available problems, the CLI options and how scoring works."
+keywords: ["ALE-Bench", "AtCoder", "heuristic contest", "algorithmic optimization", "long horizon"]
 ---
 
 ALE-Bench provides AtCoder Heuristic Contest problems for evaluating algorithmic optimization agents. Kapso achieved **#1 on ALE-Bench**.
 
-<Frame>
-  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/ale_benchmark.png" alt="ALE-Bench Results" />
+<Frame caption="Elo rating per AtCoder Heuristic Contest problem, against ALE Agent">
+  <img
+    src="/docs/images/ale-bench.png"
+    alt="ALE-Bench Elo rating per AtCoder Heuristic Contest problem, comparing Kapso with Sakana AI's ALE Agent"
+  />
 </Frame>
 
 ## Usage
@@ -53,7 +58,7 @@ ALE-Bench uses `benchmark_tree_search` strategy which uses the handler's built-i
 
 The agent generates:
 
-```
+```text
 experiment_workspace/{uuid}/
 ├── main.cpp          # C++ solution
 ├── pre_run.cpp       # Optional precomputation (max 1 min)

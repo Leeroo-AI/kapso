@@ -1,6 +1,8 @@
 ---
-title: "Evaluation Integrity"
-description: "Prevent candidate branches from changing caller-provided evaluators"
+title: "How Kapso stops experiments from editing your evaluator"
+sidebarTitle: "Evaluation integrity"
+description: "When you supply eval_dir, Kapso treats those files as caller-owned scoring and rejects any candidate branch that modifies them. Provenance and rejection."
+keywords: ["evaluation integrity", "eval_dir", "protected files", "scoring provenance", "reward hacking"]
 ---
 
 When `eval_dir` is supplied, Kapso treats its files as caller-owned scoring

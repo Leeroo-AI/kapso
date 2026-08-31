@@ -1,12 +1,17 @@
 ---
-title: "MLE-Bench"
-description: "Solving Kaggle ML competitions"
+title: "Run Kapso on MLE-Bench: Kaggle competitions, ranked first"
+sidebarTitle: "MLE-Bench"
+description: "Kapso ranks first among open-source systems on MLE-Bench. How to run it, the CLI options, the configuration modes, and what the output directory holds."
+keywords: ["MLE-Bench", "Kaggle competitions", "ML engineering agent", "benchmark", "AutoML"]
 ---
 
 MLE-Bench is a benchmark for evaluating ML engineering agents on Kaggle competitions. Kapso achieved **#1 among open-source systems** on this benchmark.
 
-<Frame>
-  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/mle_benchmark.png" alt="MLE-Bench Results" />
+<Frame caption="Medal rate by difficulty split, against R&D-Agent, AIRA-dojo, ML-Master and AIDE">
+  <img
+    src="/docs/images/mle-bench.png"
+    alt="MLE-Bench medal rate by difficulty split, comparing Kapso with R&D-Agent, AIRA-dojo, ML-Master and AIDE across four panels"
+  />
 </Frame>
 
 <Note>
@@ -100,7 +105,7 @@ The handler automatically adjusts strategy based on budget progress:
 
 The agent generates:
 
-```
+```text
 experiment_workspace/{uuid}/
 ├── main.py                    # Entry point
 ├── output_data_{branch}/

@@ -1,6 +1,8 @@
 ---
-title: "Architecture"
-description: "Deep dive into modules, data flow, and component relationships"
+title: "Kapso deployment architecture: the strategy plugin model"
+sidebarTitle: "Deployment architecture"
+description: "A plugin design in which each deployment strategy is a self-contained package, plus the modules, data models and flow that connect a solution to a target."
+keywords: ["deployment architecture", "strategy plugin", "DeploymentFactory", "adapter", "selector"]
 ---
 
 ## System Architecture
@@ -32,8 +34,8 @@ flowchart LR
 
 ### Directory Structure
 
-```
-src/deployment/
+```text
+src/kapso/deployment/
 ├── __init__.py              # Public exports
 ├── base.py                  # Data models and abstractions
 ├── factory.py               # DeploymentFactory orchestration
@@ -241,7 +243,7 @@ class AdaptationResult:
 
 Each strategy is a self-contained directory:
 
-```
+```text
 strategies/{name}/
 ├── config.yaml              # Strategy configuration
 ├── selector_instruction.md  # When to use this strategy

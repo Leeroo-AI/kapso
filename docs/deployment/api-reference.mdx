@@ -1,6 +1,8 @@
 ---
-title: "API Reference"
-description: "Complete API documentation for the deployment module"
+title: "Kapso deployment API: factory, strategies and Software"
+sidebarTitle: "Deployment API"
+description: "Every exported name in kapso.deployment: DeploymentFactory, DeployStrategy, DeployConfig and the Software base class, with signatures, arguments and usage."
+keywords: ["deployment API", "DeploymentFactory", "DeployConfig", "Software class", "Python reference"]
 ---
 
 ## Module Exports
@@ -779,7 +781,7 @@ Runners follow this lifecycle:
 3. `stop()` → Stopped state (resources cleaned up)
 4. `start()` → Ready state (can run again)
 
-```
+```text
 ┌─────────────┐    stop()    ┌─────────────┐
 │   READY     │ ──────────>  │   STOPPED   │
 │ is_healthy  │              │ !is_healthy │

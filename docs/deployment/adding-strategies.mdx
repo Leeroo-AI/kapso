@@ -1,18 +1,20 @@
 ---
-title: "Adding Strategies"
-description: "Create custom deployment strategies"
+title: "Add a custom deployment strategy to Kapso, step by step"
+sidebarTitle: "Adding strategies"
+description: "Create a strategy as a self-contained directory: the runner, its configuration, the selector and adapter instructions, and how the registry discovers it."
+keywords: ["custom deployment strategy", "strategy registry", "runner", "extend Kapso", "plugin"]
 ---
 
 ## Overview
 
-Kapso's deployment system is extensible. You can add custom strategies by creating a new directory under `src/deployment/strategies/`.
+Kapso's deployment system is extensible. You can add custom strategies by creating a new directory under `src/kapso/deployment/strategies/`.
 
 ## Strategy Structure
 
 Each strategy is a directory with these files:
 
-```
-src/deployment/strategies/my_strategy/
+```text
+src/kapso/deployment/strategies/my_strategy/
 ├── __init__.py
 ├── runner.py              # Runner implementation
 ├── config.yaml            # Strategy configuration
@@ -23,7 +25,7 @@ src/deployment/strategies/my_strategy/
 ## Step 1: Create Directory
 
 ```bash
-mkdir -p src/deployment/strategies/my_strategy
+mkdir -p src/kapso/deployment/strategies/my_strategy
 ```
 
 ## Step 2: Implement Runner
@@ -139,7 +141,7 @@ A custom deployment strategy for [specific use case].
 
 Create `adapter_instruction.txt` for code adaptation:
 
-```markdown
+````markdown
 ## Adaptation Instructions for My Strategy
 
 ### Required Files
@@ -160,7 +162,7 @@ def predict(inputs: dict) -> dict:
 ### Notes
 - Keep dependencies minimal
 - Handle errors gracefully
-```
+````
 
 ## Step 6: Register Strategy
 

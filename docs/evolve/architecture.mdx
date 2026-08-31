@@ -1,6 +1,8 @@
 ---
-title: "Architecture"
-description: "System architecture and component relationships"
+title: "Kapso Evolve architecture: components and how they connect"
+sidebarTitle: "Architecture"
+description: "The orchestration loop and the pluggable parts around it: search strategy, coding agent, feedback generator and memory, and the factories that wire them up."
+keywords: ["Kapso architecture", "orchestrator", "pluggable components", "search strategy", "system design"]
 ---
 
 ## Overview
@@ -142,8 +144,8 @@ flowchart LR
 
 ## Directory Structure
 
-```
-src/
+```text
+src/kapso/
 ├── kapso.py                 # Main Kapso API
 ├── cli.py                   # CLI entry point
 ├── config.yaml              # Default configuration

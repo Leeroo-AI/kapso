@@ -1,6 +1,8 @@
 ---
-title: "Learning Pipeline"
-description: "How Kapso extracts and merges knowledge from sources"
+title: "How Kapso turns repositories and papers into wiki pages"
+sidebarTitle: "Learning pipeline"
+description: "The two-stage pipeline behind learn_knowledge(): ingestors extract structured wiki pages from each source, then the merger folds them into the knowledge graph."
+keywords: ["learning pipeline", "learn_knowledge", "ingestors", "knowledge merger", "wiki pages"]
 ---
 
 ## Overview
@@ -177,7 +179,7 @@ The merger uses a **hierarchical sub-graph-aware algorithm** with a single Claud
 
 The Knowledge Graph follows a top-down DAG structure:
 
-```
+```text
 Principle (Core Node - The Theory)
 ├── implemented_by → Implementation (MANDATORY 1+)
 └── uses_heuristic → Heuristic (optional)

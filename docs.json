@@ -9,6 +9,13 @@
     "dark": "#1E40AF"
   },
 
+  "seo": {
+    "indexing": "all",
+    "metatags": {
+      "canonical": "https://docs.leeroo.com"
+    }
+  },
+
   "favicon": "/docs/logo/logo-transparent.png",
 
   "logo": {
@@ -98,6 +105,7 @@
           {
             "group": "Benchmarks",
             "pages": [
+              "docs/benchmarks/ioai-2026",
               "docs/benchmarks/mle-bench",
               "docs/benchmarks/ale-bench",
               "docs/benchmarks/relbench"

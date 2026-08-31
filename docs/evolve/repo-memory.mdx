@@ -1,6 +1,8 @@
 ---
-title: "Repo Memory"
-description: "Evidence-backed understanding of repository structure"
+title: "Repo memory: evidence-backed understanding of a codebase"
+sidebarTitle: "Repo memory"
+description: "A structured model of a repository's architecture, patterns and conventions, in which every claim carries a line-number reference to the file that supports it."
+keywords: ["repo memory", "codebase understanding", "evidence-backed", "repository model", "code navigation"]
 ---
 
 ## Overview
@@ -85,7 +87,7 @@ print(brief)
 ```
 
 Output:
-```
+```text
 # Repo Memory (book)
 Schema: v2
 GeneratedAt: 2025-01-15T10:30:00Z
@@ -180,7 +182,7 @@ exhausted. The `warn`/`fail` policy is applied by the search/session lifecycle.
 
 RepoMemory is stored at `.kapso/repo_memory.json` in each repository.
 
-```
+```text
 my_project/
 ├── .kapso/
 │   └── repo_memory.json
@@ -213,13 +215,7 @@ flowchart TD
 
 Claims must have evidence that exists in the repository:
 
-```python
-from kapso.execution.memories.repo_memory.builders import validate_evidence
-
-result = validate_evidence(repo_root, model)
-if not result.ok:
-    print(f"Missing evidence: {result.missing}")
-```
+Every claim carries a line-number reference into the file it came from, and the model is rejected if a quote no longer matches the file it cites. The check runs inside the builder as the model is validated; there is no separate public entry point for it.
 
 ## MCP Tools Access
 
@@ -272,7 +268,7 @@ def implement_solution(self, solution, context, session):
 
 Agents are told how to access detailed sections via MCP tools:
 
-```
+```text
 For detailed section content (architecture, gotchas, invariants, etc.),
 use the MCP tool: get_repo_memory_section(section_id="core.architecture")
 Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies

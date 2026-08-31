@@ -1,6 +1,8 @@
 ---
-title: "Feedback Generator"
-description: "How solutions are validated and feedback is generated"
+title: "The Kapso feedback generator and the decision to stop"
+sidebarTitle: "Feedback generator"
+description: "An LLM-based component validates each evaluation result and decides whether the campaign continues or stops, replacing a fixed threshold with a judged verdict."
+keywords: ["feedback generator", "FeedbackResult", "stop decision", "evaluation validation", "campaign control"]
 ---
 
 ## Overview
@@ -210,7 +212,7 @@ solution = kapso.evolve(
 
 The feedback generator provides actionable suggestions. The next iteration's developer agent receives this feedback and uses it to improve:
 
-```
+```text
 Iteration 1: Accuracy 0.75
 Feedback: "Try ensemble methods and feature selection"
 

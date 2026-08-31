@@ -1,6 +1,8 @@
 ---
-title: "Overview"
-description: "How Kapso builds solutions through iterative experimentation"
+title: "The Kapso Evolve system: how experiment campaigns run"
+sidebarTitle: "Overview"
+description: "Evolve turns a measurable goal into working software by designing candidate solutions, implementing each one, scoring it, then refining whatever worked best."
+keywords: ["Kapso Evolve", "experiment campaign", "tree search", "automated ML", "iterative experimentation"]
 ---
 
 # Evolve System
@@ -125,7 +127,7 @@ Each iteration of the evolve loop:
 
 Each experiment runs on its own Git branch:
 
-```
+```text
 main
 ├── kapso/exp-001  (first experiment)
 ├── kapso/exp-002  (second experiment)
@@ -143,7 +145,7 @@ This provides:
 
 After setup, the workspace looks like:
 
-```
+```text
 workspace/
 ├── kapso_evaluation/     # Agent builds evaluation here
 │   └── evaluate.py       # Evaluation script
