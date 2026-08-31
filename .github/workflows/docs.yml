@@ -1,0 +1,52 @@
+name: Docs
+
+# docs.leeroo.com is built by Mintlify's GitHub app, which deploys whatever is
+# on main. That deploy has no gate of its own, and on the Starter plan there are
+# no preview deployments either — so a bad docs change reaches production with
+# nothing in front of it. This workflow is that gate: it runs the same checks
+# Mintlify's builder runs, on the pull request, before main ever sees the change.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'docs.json'
+      - '.mintignore'
+      - '.github/workflows/docs.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'docs.json'
+      - '.mintignore'
+      - '.github/workflows/docs.yml'
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Pinned to the 4.x line rather than an exact patch. The CLI ships almost
+      # daily and the hosted builder tracks it, so an exact pin would drift away
+      # from what actually builds the site; a major-version pin keeps CI honest
+      # without letting a breaking release land unannounced.
+      #
+      # Strict mode: this fails on warnings, not just errors. A page referenced
+      # in docs.json that does not exist is a warning, and that is exactly the
+      # bug that put a 404 in the live navigation.
+      - name: Validate the docs build
+        run: npx --yes mint@4 validate
+
+      - name: Check for broken links
+        run: npx --yes mint@4 broken-links
