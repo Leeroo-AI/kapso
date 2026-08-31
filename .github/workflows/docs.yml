@@ -6,12 +6,19 @@ name: Docs
 # nothing in front of it. This workflow is that gate: it runs the same checks
 # Mintlify's builder runs, on the pull request, before main ever sees the change.
 
+# cli.py and kapso.py are in the path list because the coverage check below
+# guards the docs against *them*. A new command added without a docs page is
+# exactly the drift this workflow exists to catch, and that change touches no
+# file under docs/.
 on:
   pull_request:
     paths:
       - 'docs/**'
       - 'docs.json'
       - '.mintignore'
+      - 'scripts/check_docs_coverage.py'
+      - 'src/kapso/cli.py'
+      - 'src/kapso/kapso.py'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -19,6 +26,9 @@ on:
       - 'docs/**'
       - 'docs.json'
       - '.mintignore'
+      - 'scripts/check_docs_coverage.py'
+      - 'src/kapso/cli.py'
+      - 'src/kapso/kapso.py'
       - '.github/workflows/docs.yml'
 
 concurrency:
@@ -54,3 +64,7 @@ jobs:
 
       - name: Check for broken links
         run: npx --yes mint@4 broken-links
+
+      # Stdlib only, so no Python setup step is needed beyond the runner's own.
+      - name: Check the reference covers the public surface
+        run: python3 scripts/check_docs_coverage.py
