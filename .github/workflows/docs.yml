@@ -29,13 +29,17 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
+      # v5 is the first major of both actions to run on Node 24. On v4 the
+      # runner forces the upgrade anyway and annotates every run with a
+      # deprecation warning; pinning v5 is the same behaviour without the noise,
+      # and without the failure when the runner stops forcing it.
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       # Pinned to the 4.x line rather than an exact patch. The CLI ships almost
       # daily and the hosted builder tracks it, so an exact pin would drift away
