@@ -29,7 +29,7 @@
 
 ## News
 
-- 🏆 **IOAI 2026 · the AI Model Track.** The [International Olympiad in AI](https://ioai-official.org) is the IMO of the AI era — 471 contestants from 108 countries and territories, six expert-designed tasks under a single-GPU budget. In 2026 it opened [IOAI²](https://ioai-official.org/ai-model-track/), where AI systems sit the *same* exam in two fully autonomous 6-hour sessions. Once the clock starts, no human may solve, correct, or improve anything. Kapso entered as one of 14 Founding AI Participants.
+- **IOAI 2026 · the AI Model Track.** The [International Olympiad in AI](https://ioai-official.org) is the IMO of the AI era — 471 contestants from 108 countries and territories, six expert-designed tasks under a single-GPU budget. In 2026 it opened [IOAI²](https://ioai-official.org/ai-model-track/), where AI systems sit the *same* exam in two fully autonomous 6-hour sessions. Once the clock starts, no human may solve, correct, or improve anything. Kapso entered as one of 14 Founding AI Participants.
   - 🎓 **Outscored all 471 humans** — 536.07 total, above every contestant in the hall.
   - 🏆 **IOAI² Grand Master Trophy** — top 3 among all AI systems entered. [Full results →](benchmarks/ioai2026/README.md)
 - **Beats the best foundation model on [RelBench](benchmarks/relbench/README.md)**: on Stanford's benchmark for predictive ML over enterprise data, Kapso passes [KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview) in outcome prediction and forecasting, and the best reported results in recommendations. Published results live on the [official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
