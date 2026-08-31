@@ -95,9 +95,19 @@ pip install leeroo-kapso
 kapso doctor
 ```
 
-`doctor` checks the CLIs, their logins, and the key, and tells you the
-exact fix for anything missing. The optional items it reports (docker,
-Weaviate, Neo4j) matter only for the knowledge-graph features below.
+`doctor` reports what **your config** actually needs, and names the exact
+fix for anything missing. Requirements follow the config, so an all-codex
+setup is never asked for `claude`. Narrow it to one verb to see just that
+verb's requirements:
+
+```bash
+kapso doctor evolve            # or research / learn_knowledge / learn / deploy
+```
+
+Those are the same checks the verb itself runs before it does any work —
+`kapso.evolve(...)` fails in seconds on a missing CLI rather than deep
+inside a session. Items marked `[-- ]` are optional; they limit features
+you may not need (docker, Weaviate, Neo4j, the deploy targets).
 
 **Knowledge-graph backends (optional)** — `learn_knowledge()` and
 `kg_index` store into local Weaviate + Neo4j. From a source checkout:
@@ -223,13 +233,25 @@ Path("kapso-config.yaml").write_text(crews)
 kapso = Kapso(config_path="kapso-config.yaml")
 ```
 
-Before a long run, preflight every model your config names against your
+Before a long run, probe every model your config names against your
 actual subscriptions — a capped model fails here in seconds instead of
 hours into a run:
 
 ```bash
 kapso doctor --models                            # packaged config
 kapso doctor --models --config kapso-config.yaml # yours
+kapso doctor learn --models                      # just the learning crews
+```
+
+To make that probe part of every call rather than a thing you remember to
+run, turn it on in your config. It costs one throwaway token per distinct
+`{cli, model}` pair, which is worth it before an unattended multi-hour
+`learn()`:
+
+```yaml
+preflight:
+  enabled: true            # static checks before every verb (default)
+  live_model_probe: true   # + one-token model probes (default: false)
 ```
 
 Model swaps change *pacing* too: the crew `timeout_minutes` caps in the

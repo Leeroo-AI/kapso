@@ -26,7 +26,6 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -38,6 +37,13 @@ load_dotenv(find_dotenv(usecwd=True))
 
 from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
+from kapso.core.preflight import (
+    VERBS,
+    configured_bank_home,
+    dedupe,
+    live_model_requirements,
+    requirements_for,
+)
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.learning.corpus_import import import_archive, import_subset
 from kapso.learning.behavior import BehaviorRunner
@@ -46,7 +52,7 @@ from kapso.learning.develop import DevelopmentDriver
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.graders.gauntlet import GauntletRunner
 from kapso.learning.graders.split import assert_batch_disjoint, load_split, validate_split
-from kapso.learning.bank_remote import bank_origin, connect_bank, create_bank_repo
+from kapso.learning.bank_remote import connect_bank, create_bank_repo
 from kapso.learning.update_frame import UpdateFrame, init_bank
 from kapso.learning.mining import MiningFrame
 from kapso.learning.trajectory_store import TrajectoryStore
@@ -471,106 +477,6 @@ def cmd_index_kg(args) -> None:
     print(f"Index saved to: {index_path}")
 
 
-def _doctor_checks() -> list:
-    """Environment checks behind `kapso doctor` (onboarding audit
-    2026-08-26). Returns [(ok, required, label, hint)] — pure probes, no
-    state changes. Kept CLI-local: the subprocess/socket probes are the
-    doctor's own concern, not platform code."""
-    import shutil as shutil_module
-    import socket
-
-    checks = []
-
-    def probe_port(host, port):
-        try:
-            with socket.create_connection((host, port), timeout=2):
-                return True
-        except OSError:
-            return False
-
-    def claude_authenticated():
-        if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-            return True
-        result = subprocess.run(
-            ["claude", "auth", "status"],
-            capture_output=True, text=True, timeout=15,
-        )
-        if result.returncode != 0:
-            return False
-        status = json.loads(result.stdout)
-        return bool(status.get("loggedIn"))
-
-    # --- required: the inference CLIs (every completion is a session) ---
-    node = shutil_module.which("node")
-    checks.append((
-        bool(node), True, "node / npm",
-        "install Node.js (https://nodejs.org) — both agent CLIs ship via npm",
-    ))
-    codex = shutil_module.which("codex")
-    checks.append((
-        bool(codex), True, "codex CLI",
-        "npm install -g @openai/codex",
-    ))
-    if codex:
-        codex_auth = (Path.home() / ".codex" / "auth.json").is_file()
-        checks.append((
-            codex_auth, True, "codex authenticated",
-            "codex login",
-        ))
-    claude = shutil_module.which("claude")
-    checks.append((
-        bool(claude), True, "claude CLI",
-        "npm install -g @anthropic-ai/claude-code "
-        "(the default GENERIC mode ideates and implements with claude)",
-    ))
-    if claude:
-        checks.append((
-            claude_authenticated(), True, "claude authenticated",
-            "claude auth login  (or set CLAUDE_CODE_OAUTH_TOKEN)",
-        ))
-    checks.append((
-        bool(os.environ.get("OPENAI_API_KEY")), True,
-        "OPENAI_API_KEY (embeddings)",
-        "put OPENAI_API_KEY in .env — memory and knowledge search embed "
-        "through the OpenAI API",
-    ))
-
-    # --- optional: knowledge-graph infrastructure ---
-    checks.append((
-        bool(shutil_module.which("docker")), False, "docker",
-        "needed to run the KG backends locally (scripts/start_infra.sh)",
-    ))
-    checks.append((
-        probe_port("localhost", 8080), False, "Weaviate (localhost:8080)",
-        "bash scripts/start_infra.sh — required for learn_knowledge()/kg_index",
-    ))
-    checks.append((
-        probe_port("localhost", 7687), False, "Neo4j (localhost:7687)",
-        "bash scripts/start_infra.sh — required for the kg_llm_navigation backend",
-    ))
-
-    # --- optional: lesson-bank sharing (onboarding E2E finding #1) ---
-    bank_home = Path(
-        load_config(DEFAULT_CONFIG_PATH)["learning"]["bank"]["local_path"]
-    ).expanduser()
-    if not bank_home.exists():
-        checks.append((
-            False, False, "bank (none yet — created on first learn())",
-            "nothing to do; `kapso learn init-bank` creates it now if you want",
-        ))
-    else:
-        origin = bank_origin(bank_home)
-        if origin:
-            checks.append((True, False, f"bank remote: {origin}", ""))
-        else:
-            checks.append((
-                False, False, "bank remote: not configured — local-only",
-                "kapso bank connect <url> — share lessons across machines "
-                "and teammates",
-            ))
-    return checks
-
-
 def cmd_bank(args) -> None:
     """Attach (and optionally create) the bank's share remote. Credentials
     are git's/gh's own business — kapso never handles them."""
@@ -595,106 +501,55 @@ def cmd_bank(args) -> None:
     print("lessons now push automatically at the end of every learn()")
 
 
-def _collect_model_pairs(config) -> list:
-    """Every distinct {cli, model} pair the active config can spawn a
-    session with (onboarding E2E finding #5). The cli resolves from an
-    explicit `cli` key in the same block, an `implementation_cli`
-    sibling, or the model-name prefix (claude-* runs on the claude CLI,
-    everything else on codex). Embedding models are excluded — their
-    access check is the OPENAI_API_KEY row."""
-    pairs = set()
-
-    def resolve_cli(block, key, model_name):
-        if block.get("cli"):
-            return str(block["cli"])
-        if key == "implementation_model" and block.get("implementation_cli"):
-            return str(block["implementation_cli"])
-        return "claude_code" if model_name.startswith("claude") else "codex"
-
-    def walk(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                is_model_key = key == "model" or key.endswith("_model")
-                if is_model_key and isinstance(value, str) and value:
-                    pairs.add((resolve_cli(node, key, value), value))
-                else:
-                    walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-
-    walk(config)
-    return sorted(pairs)
-
-
-def _probe_model_access(cli_name: str, model: str):
-    """One-token live probe: can this CLI actually serve this model on the
-    current subscription? Returns (ok, first line of the CLI's own answer
-    when not) — a capped model fails here in seconds instead of deep
-    inside a learn() crew session."""
-    prompt = "Reply with exactly: ok"
-    if cli_name == "claude_code":
-        cmd = ["claude", "-p", "--model", model, prompt]
-    else:
-        # --skip-git-repo-check: codex refuses untrusted (non-git) CWDs,
-        # and doctor runs wherever the user is; a read-only one-token
-        # probe needs no trust. stdin closed — codex reads a non-tty
-        # stdin as extra prompt input. (Both caught by the live smoke.)
-        cmd = ["codex", "exec", "--model", model, "--sandbox", "read-only",
-               "--skip-git-repo-check", prompt]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
-                            stdin=subprocess.DEVNULL)
-    if result.returncode == 0:
-        return True, ""
-    # stdout's first line carries claude's cap message; codex prefixes
-    # stderr with noise, so its real reason is the LAST line.
-    stdout_lines = [line for line in result.stdout.splitlines() if line.strip()]
-    stderr_lines = [line for line in result.stderr.splitlines() if line.strip()]
-    if stdout_lines:
-        return False, stdout_lines[0]
-    if stderr_lines:
-        return False, stderr_lines[-1]
-    return False, f"exit {result.returncode}"
-
-
 def cmd_doctor(args) -> None:
-    """Check the machine is ready to run Kapso; exit 1 on missing
-    requirements. --models additionally live-probes every {cli, model}
-    pair the active config names."""
-    checks = _doctor_checks()
-    required_failures = 0
-    print("kapso doctor\n" + "=" * 60)
-    for ok, required, label, hint in checks:
-        mark = "OK " if ok else ("FAIL" if required else "-- ")
-        print(f"  [{mark}] {label}")
-        if not ok:
-            print(f"         fix: {hint}")
-            if required:
-                required_failures += 1
+    """Report what the active config actually needs, and exit 1 when a
+    required item is missing. With no verb this is the union across all
+    five verbs; naming one narrows it to that verb's own requirements.
+    --models adds the live tier (a one-token probe per {cli, model} pair).
 
+    Same resolver the verbs themselves run at call time, so the doctor can
+    never disagree with what a run will do (core/preflight.py)."""
+    config = load_config(args.config or DEFAULT_CONFIG_PATH)
+    verb = args.verb
+    # The only context a doctor can supply is what the config declares —
+    # a live call's own arguments (skip_merge, strategy) are not knowable
+    # here, so those verbs report their fullest requirement set.
+    context = (
+        {"bank_home": configured_bank_home(config)}
+        if verb in ("evolve", "learn") else {}
+    )
+
+    requirements = requirements_for(verb, config, **context)
     if args.models:
-        config = load_config(args.config or DEFAULT_CONFIG_PATH)
-        print("  model access (live one-token probes)")
-        for cli_name, model in _collect_model_pairs(config):
-            binary = "claude" if cli_name == "claude_code" else "codex"
-            if shutil.which(binary) is None:
-                print(f"  [-- ] {cli_name}: {model} — {binary} CLI not "
-                      "installed (counted above)")
-                continue
-            ok, detail = _probe_model_access(cli_name, model)
-            mark = "OK " if ok else "FAIL"
-            suffix = f" — {detail}" if detail else ""
-            print(f"  [{mark}] {cli_name}: {model}{suffix}")
-            if not ok:
-                required_failures += 1
+        requirements = dedupe(
+            requirements + live_model_requirements(verb, config, **context)
+        )
 
-    print("=" * 60)
-    if required_failures:
-        print(f"{required_failures} required check(s) failed — fix the "
-              "items above, then rerun `kapso doctor`.")
+    scope = f"kapso doctor {verb}" if verb else "kapso doctor"
+    print(scope + "\n" + "=" * 68)
+    for item in requirements:
+        mark = "OK " if item.ok else ("FAIL" if item.required else "-- ")
+        print(f"  [{mark}] {item.label}")
+        if item.ok:
+            continue
+        if item.detail:
+            print(f"         reason     {item.detail}")
+        print(f"         needed by  {item.origin}")
+        if item.fix:
+            print(f"         fix        {item.fix}")
+
+    failures = [i for i in requirements if not i.ok and i.required]
+    advisories = [i for i in requirements if not i.ok and not i.required]
+    print("=" * 68)
+    if failures:
+        print(f"{len(failures)} required check(s) failed — fix the items "
+              f"above, then rerun `{scope}`.")
         sys.exit(1)
-    print("Required checks passed. Optional items above only matter for "
-          "the knowledge-graph features.")
+    summary = f"Required checks passed ({len(requirements)} checked)."
+    if advisories:
+        summary += (f" {len(advisories)} optional item(s) marked [-- ] "
+                    "only limit features you may not need.")
+    print(summary)
 
 
 def cmd_watch(args) -> None:
@@ -1072,25 +927,33 @@ Examples:
     # =========================================================================
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Check this machine is ready to run Kapso",
+        help="Check this machine can run what your config asks for",
         description=(
-            "Probes the required tooling (node, codex + login, claude + "
-            "login, OPENAI_API_KEY) and the optional knowledge-graph "
-            "infrastructure (docker, Weaviate, Neo4j). Exits non-zero "
-            "when a required item is missing. With --models, additionally "
-            "fires a one-token live probe for every {cli, model} pair the "
-            "active config names — a subscription cap surfaces here in "
+            "Reports the requirements the ACTIVE CONFIG implies — an "
+            "all-codex config is never asked for claude, and a local "
+            "codify target is never asked for gcloud. With no argument "
+            "this is the union across all five verbs; name one "
+            f"({', '.join(VERBS)}) to see just that verb's requirements, "
+            "which are exactly the checks it runs at call time. Every "
+            "missing item names the config key that wants it and one fix. "
+            "Exits non-zero when a required item is missing. With "
+            "--models, additionally fires a one-token live probe per "
+            "{cli, model} pair — a subscription cap surfaces here in "
             "seconds instead of hours into a run."
         ),
     )
     doctor_parser.add_argument(
+        "verb", nargs="?", choices=list(VERBS), default=None,
+        help="Narrow the report to one verb's requirements",
+    )
+    doctor_parser.add_argument(
         "--models", action="store_true",
-        help="Live-probe every configured {cli, model} pair (spends a few "
+        help="Live-probe each configured {cli, model} pair (spends a few "
              "one-token calls)",
     )
     doctor_parser.add_argument(
         "--config", type=str, default=None,
-        help="Config whose models to probe (default: packaged config.yaml)",
+        help="Config to check (default: packaged config.yaml)",
     )
 
     # =========================================================================

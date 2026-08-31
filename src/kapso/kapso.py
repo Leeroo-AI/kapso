@@ -53,6 +53,7 @@ from kapso.knowledge_base.learners import Source, KnowledgePipeline
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
 from kapso.core.config import load_config, load_mode_config
+from kapso.core.preflight import run_preflight
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.lesson_result import LessonResult, MemoryStatus
 from kapso.learning.mining import MiningFrame
@@ -61,7 +62,7 @@ from kapso.learning.serving_launch import (
     stage_campaign_serving,
 )
 from kapso.learning.trajectory_store import TrajectoryStore, save_trajectory
-from kapso.learning.bank_remote import bank_origin, verify_bank_remote
+from kapso.learning.bank_remote import bank_origin
 from kapso.learning.update_frame import UpdateFrame, init_bank
 
 from kapso.deployment import (
@@ -432,6 +433,7 @@ class Kapso:
             - .implementations -> List[Source.Implementation]
             - .report -> Source.ResearchReport (if mode="study")
         """
+        run_preflight("research", self._config)
         if self._web_researcher is None:
             # CLI-only inference: the researcher's session spec lives in
             # the packaged `inference:` block, not the mode's model routes.
@@ -494,6 +496,9 @@ class Kapso:
         """
         if not sources:
             raise ValueError("learn_knowledge() requires at least one source")
+        # skip_merge=True stops after page extraction, so the merger session
+        # and both KG stores drop out of the requirement set.
+        run_preflight("learn_knowledge", self._config, skip_merge=skip_merge)
         # research(mode="idea"/"implementation") returns a LIST of typed
         # sources; the advertised contract passes that output directly as
         # one argument — flatten one level so the pipeline's per-source
@@ -771,17 +776,15 @@ class Kapso:
         if not self._bank_home.exists():
             init_bank(str(self._bank_home))
             print(f"initialized bank home at {self._bank_home}")
-        # Push preflight (onboarding E2E finding #1): verify the remote in
-        # seconds up front, never after hours of crew work on the far side.
         origin = bank_origin(self._bank_home)
         should_push = bool(origin) if push is None else push
-        if should_push:
-            if not origin:
-                raise ValueError(
-                    "push=True but the bank has no origin remote — run "
-                    "`kapso bank connect <url>` first"
-                )
-            verify_bank_remote(self._bank_home)
+        # Preflight (onboarding E2E findings #1 and #5): every crew's CLI
+        # and credentials, plus the bank's push destination, verified in
+        # seconds up front — never after hours of crew work on the far side.
+        run_preflight(
+            "learn", self._config,
+            bank_home=self._bank_home, push=should_push,
+        )
         learning_config = self._config["learning"]
         version = (
             learner_version
@@ -1171,6 +1174,16 @@ class Kapso:
             # Validate caller-owned evaluation inputs before resolving an
             # initial repository or initializing the experiment workspace.
             build_evaluation_manifest(eval_dir)
+        # Preflight before the first session is spawned: the campaign's
+        # own CLIs and credentials, the gates the strategy names, and the
+        # stores this agent's knowledge/experience actually connect to.
+        run_preflight(
+            "evolve", self._config,
+            mode=mode,
+            coding_agent=coding_agent,
+            kg_index=self._kg_index_path,
+            bank_home=self._bank_home,
+        )
 
         print(f"\n{'='*60}")
         print(f"EVOLVING: {goal}")
@@ -1457,6 +1470,11 @@ class Kapso:
             result = software.run({"ticker": "AAPL"})
             software.stop()
         """
+        run_preflight(
+            "deploy", self._config,
+            strategy=getattr(strategy, "value", str(strategy)),
+            coding_agent=coding_agent,
+        )
         print(f"\n{'='*60}")
         print(f"DEPLOYING: {solution.goal}")
         print(f"{'='*60}")

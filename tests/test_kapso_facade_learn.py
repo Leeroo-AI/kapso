@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from kapso.core.preflight import PreflightError
 from kapso.execution.solution import SolutionResult
 from kapso.kapso import Kapso
 from kapso.learning.bank_remote import connect_bank
@@ -225,9 +226,15 @@ def test_learn_push_preflight_fires_before_any_pipeline_work(
         check=True,
     )
     campaign = make_campaign_dir(tmp_path)
-    with pytest.raises(RuntimeError, match="not reachable"):
+    with pytest.raises(PreflightError) as excinfo:
         kapso.learn(str(campaign))
     assert calls.mined == []  # preflight fired before harvest/mine
+    # The report IS the message, and it has to be actionable: git's own
+    # reason, plus how to fix access or detach the remote.
+    report = str(excinfo.value)
+    assert "bank remote reachable" in report
+    assert "does not appear to be a git repository" in report
+    assert "remote remove origin" in report
 
     lesson = kapso.learn(str(campaign), push=False,
                          trajectory_id="facade-task/20260824T000000_t9")

@@ -45,6 +45,23 @@ inference:
     benchmark_utility: {effort: "low", timeout_seconds: 600}
 
 # =============================================================================
+# Preflight — every verb checks what THIS config needs before doing work
+# (core/preflight.py). Requirements are derived from the config, so an
+# all-codex setup is never asked for `claude` and a local codify target is
+# never asked for `gcloud`. Same rows behind `kapso doctor [verb]`.
+# =============================================================================
+preflight:
+  # The static tier: binaries, credentials, backend ports, the bank's git
+  # remote. Milliseconds, and it turns a four-hour failure into a
+  # four-second one (onboarding E2E findings #1 and #5).
+  enabled: true
+  # The live tier: one throwaway token per {cli, model} pair, proving the
+  # account can actually serve it. Off by default because it spends real
+  # quota on every call; worth turning on for long unattended runs, where
+  # seconds up front beat hours lost to a capped model.
+  live_model_probe: false
+
+# =============================================================================
 # Platform defaults — the base layer under every mode of every config file
 # =============================================================================
 # load_mode_config() resolves a mode as deep_merge(defaults, modes[<mode>]):

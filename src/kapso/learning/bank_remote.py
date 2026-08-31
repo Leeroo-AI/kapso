@@ -32,6 +32,20 @@ def bank_origin(home: Path) -> Optional[str]:
     return result.stdout.strip()
 
 
+def bank_remote_error(home: Path, url: str) -> Optional[str]:
+    """git's own failure text when the bank's attached origin is not
+    reachable with the caller's credentials; None when it is. The
+    diagnostic shape — `verify_bank_remote` raises on the same probe, and
+    preflight renders it as one requirement row."""
+    result = subprocess.run(
+        ["git", "--git-dir", str(home), "ls-remote", "origin"],
+        capture_output=True, text=True, env=_git_env(), timeout=60,
+    )
+    if result.returncode != 0:
+        return result.stderr.strip()
+    return None
+
+
 def verify_bank_remote(home: Path) -> str:
     """Preflight the bank's origin: reachable and authenticated, in
     seconds — so a learn() run can never spend hours and then die on the
@@ -42,14 +56,11 @@ def verify_bank_remote(home: Path) -> str:
             f"bank {home} has no origin remote — run "
             "`kapso bank connect <url>` first"
         )
-    result = subprocess.run(
-        ["git", "--git-dir", str(home), "ls-remote", "origin"],
-        capture_output=True, text=True, env=_git_env(), timeout=60,
-    )
-    if result.returncode != 0:
+    error = bank_remote_error(home, url)
+    if error:
         raise RuntimeError(
             f"bank remote {url} is not reachable with your git "
-            f"credentials:\n{result.stderr.strip()}\n"
+            f"credentials:\n{error}\n"
             "Fix access (ssh key / gh auth / credential helper), or "
             "detach with: git --git-dir "
             f"{home} remote remove origin"

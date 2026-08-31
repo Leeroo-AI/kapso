@@ -40,6 +40,16 @@ class GateDefinition:
     command: Optional[str] = None
     required_env: List[str] = field(default_factory=list)
     required_commands: List[str] = field(default_factory=list)
+    # How a user obtains what this gate needs. A gate declares its own
+    # requirements, so it declares its own remedy — preflight renders this
+    # verbatim as the fix line rather than keeping a second copy.
+    setup_hint: str = ""
+    # The subset of required_env that KAPSO itself sets when it launches a
+    # session (the pinned bank dir, the experiment-history path, the KG
+    # index). resolve_gates still requires them — by launch time they are
+    # set — but preflight must not report them as missing user setup: they
+    # are not the user's to provide.
+    injected_env: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -127,6 +137,7 @@ GATES: Dict[str, GateDefinition] = {
         ],
         default_params={"include_content": True},
         required_env=["KG_INDEX_PATH"],
+        injected_env=["KG_INDEX_PATH"],
     ),
     "idea": GateDefinition(
         tools=["wiki_idea_search"],
@@ -136,6 +147,7 @@ GATES: Dict[str, GateDefinition] = {
             "include_content": True,
         },
         required_env=["KG_INDEX_PATH"],
+        injected_env=["KG_INDEX_PATH"],
     ),
     "code": GateDefinition(
         tools=["wiki_code_search"],
@@ -145,6 +157,7 @@ GATES: Dict[str, GateDefinition] = {
             "include_content": True,
         },
         required_env=["KG_INDEX_PATH"],
+        injected_env=["KG_INDEX_PATH"],
     ),
     "research": GateDefinition(
         tools=[
@@ -170,6 +183,7 @@ GATES: Dict[str, GateDefinition] = {
             "similar_k": 3,
         },
         required_env=["EXPERIMENT_HISTORY_PATH"],
+        injected_env=["EXPERIMENT_HISTORY_PATH"],
     ),
     "repo_memory": GateDefinition(
         tools=[
@@ -185,6 +199,13 @@ GATES: Dict[str, GateDefinition] = {
         tools=["bank_index", "bank_get_card", "bank_get_card_with_evidence"],
         default_params={},
         required_env=[
+            "KAPSO_BANK_DIR",
+            "KAPSO_BANK_HEAD",
+            "KAPSO_SERVING_PULL_LOG",
+            "KAPSO_TASK_FAMILY",
+            "KAPSO_PROBE_BUDGET",
+        ],
+        injected_env=[
             "KAPSO_BANK_DIR",
             "KAPSO_BANK_HEAD",
             "KAPSO_SERVING_PULL_LOG",
@@ -210,6 +231,10 @@ GATES: Dict[str, GateDefinition] = {
         command="leeroopedia-mcp",
         required_env=["LEEROOPEDIA_API_KEY"],
         required_commands=["leeroopedia-mcp"],
+        setup_hint=(
+            "pip install leeroopedia-mcp, then put LEEROOPEDIA_API_KEY in "
+            ".env — get a key at https://app.leeroopedia.com/dashboard"
+        ),
     ),
 }
 
