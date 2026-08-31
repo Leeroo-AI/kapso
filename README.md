@@ -20,7 +20,9 @@
 </p>
 
 <p align="center">
-  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" width="700">
+  <a href="https://github.com/Leeroo-AI/kapso/raw/main/docs/images/kapso-hero.mp4">
+    <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/kapso-hero.gif" alt="Kapso running: a campaign searches a tree of experiments while the leaderboard climbs; every trajectory is harvested into an expertise wiki of scored insights and procedures, which grounds the next campaign" width="880">
+  </a>
 </p>
 
 ---
