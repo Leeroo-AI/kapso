@@ -15,7 +15,8 @@ and **Leeroopedia**, Leeroo's curated ML knowledge base.
 
 ## Results
 
-[KumoRFM-v2](https://arxiv.org/abs/2604.12596) is the strongest foundational model for
+[KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview)
+([paper](https://arxiv.org/abs/2604.12596)) is the strongest foundational model for
 relational data: one pretrained model, queried in context on any database. It is the bar to
 beat in outcome prediction and forecasting. Recommendation tasks are the gap in its coverage
 (the model does not support them), so there Kapso is measured against the best reported
