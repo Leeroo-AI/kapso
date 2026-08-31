@@ -20,9 +20,15 @@ DISCIPLINE_MARKERS = [
     "NO ORPHANED VALUE",
 ]
 
-HANDLER_PATHS = [
-    Path(__file__).parent.parent / "benchmarks" / "posttrain" / "handler.py",
-]
+# Every benchmark handler in the tree, discovered rather than listed: a new
+# benchmark must inherit the guard without anyone remembering to add it, and
+# the guard must not vanish when a benchmark leaves (posttrain — the single
+# path this used to name — went untracked 2026-08-31). The incident that
+# motivated it was an IOAI handler, so a one-benchmark list was never the
+# right shape anyway.
+HANDLER_PATHS = sorted(
+    (Path(__file__).parent.parent / "benchmarks").rglob("handler.py")
+)
 
 
 def test_core_template_carries_the_discipline():

@@ -238,7 +238,6 @@ services/wiki-service-backend/
 examples/ml_model_development/e2e/runs/
 
 # fetched run artifacts (large, regenerable from GCS)
-benchmarks/posttrain/gcp/results_fetched/
 
 # Claim prediction arrays: multi-hundred-MB float dumps that breach GitHub's
 # 100 MB blob limit (rel-salt/sales-group hit 159 MB). They stay on disk for
@@ -265,3 +264,12 @@ benchmarks/ioai2026/starter_prompts/
 # Third-party IOAI evidence extractor and the account data it fetches — not ours
 # to redistribute, and its output tree carries full kernel source + submissions.
 benchmarks/ioai2026/data_extraction/
+
+# PostTrainBench: withdrawn from the repo 2026-08-31 (user request, temporary
+# — "for the moment"). The directory and its runner test stay on disk and keep
+# working locally; they are simply not tracked. Restoring is `git rm` of these
+# two lines. Note pyproject's expert-posttrain console script came out with it:
+# shipping an entry point for an unpackaged module is the ModuleNotFoundError
+# the packages-find comment there warns about.
+benchmarks/posttrain/
+tests/test_posttrain_runner_config.py

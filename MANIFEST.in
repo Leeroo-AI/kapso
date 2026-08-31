@@ -7,4 +7,5 @@ prune tests
 prune examples
 prune docs
 prune services
+prune benchmarks/posttrain
 prune scripts
