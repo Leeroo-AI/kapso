@@ -273,3 +273,13 @@ benchmarks/ioai2026/data_extraction/
 # the packages-find comment there warns about.
 benchmarks/posttrain/
 tests/test_posttrain_runner_config.py
+
+# Local animation workspace: a Remotion project for building kapso explainer /
+# demo videos, plus the Remotion agent skills that drive it. Video work is a
+# heavy node_modules tree and rendered media — none of it belongs in a Python
+# package repo, so the whole workspace stays local. Rebuild it with:
+#   npx create-video@latest --yes --blank animation && (cd animation && npm i)
+#   npx skills@latest add remotion-dev/skills --skill '*' --agent claude-code -y
+animation/
+.claude/skills/
+skills-lock.json
