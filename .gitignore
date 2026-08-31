@@ -283,3 +283,8 @@ tests/test_posttrain_runner_config.py
 animation/
 .claude/skills/
 skills-lock.json
+
+# Agent skills installed with `npx skills add`. The installer writes the real
+# files here and symlinks .claude/skills/ at them, so ignoring only the symlink
+# directory above still leaves this one showing up in every commit.
+.agents/
