@@ -1,134 +1,206 @@
 ---
-title: "Installation"
-description: "Complete installation guide for Kapso and benchmarks"
+title: "Install Kapso and verify your setup with kapso doctor"
+description: "Install the Codex and Claude Code CLIs that Kapso's inference runs on, add the Python package, then confirm the machine is ready with kapso doctor first."
+keywords: ["install Kapso", "kapso doctor", "Codex CLI", "Claude Code CLI", "leeroo-kapso", "AI agent setup"]
 ---
 
-## Core Installation
+Kapso sends every model call through a coding-agent CLI. Install those CLIs and log in **before** installing the Python package — on its own the package cannot reach a model, and `kapso evolve` will stop in seconds rather than fail deep inside a run.
+
+## Prerequisites
+
+| You need | Why | Checked by |
+|----------|-----|------------|
+| Node.js 18 or newer | Both coding-agent CLIs are npm packages | `node` |
+| Codex CLI, logged in | Research, judging and utility calls | `codex authenticated` |
+| Claude Code CLI, logged in | Ideation and implementation in the default `GENERIC` mode | `claude authenticated` |
+| Python 3.10 or newer | The `leeroo-kapso` package | — |
+| An OpenAI API key | Embeddings for knowledge search and memory. Not used for generation | `OPENAI_API_KEY (embeddings)` |
+| Git | Kapso commits every experiment to a branch | `git` |
+
+## Install Kapso
 
 <Steps>
-  <Step title="Install from PyPI (recommended)">
+  <Step title="Install and log in to the coding-agent CLIs">
+    ```bash
+    npm install -g @openai/codex
+    codex login
+
+    npm install -g @anthropic-ai/claude-code
+    claude auth login
+    ```
+
+    Both logins are interactive and open a browser. To authenticate without a
+    browser, see [Using API keys instead of a CLI login](#using-api-keys-instead-of-a-cli-login).
+  </Step>
+
+  <Step title="Add an OpenAI key for embeddings">
+    Create a `.env` file in the directory you will run Kapso from:
+
+    ```bash
+    echo 'OPENAI_API_KEY=sk-...' >> .env
+    ```
+
+    This key is used only to embed text for knowledge search and memory. Generation runs through the CLIs above.
+  </Step>
+
+  <Step title="Install the package">
     ```bash
     pip install leeroo-kapso
     ```
-  </Step>
-  <Step title="Or install from source (for development or wiki data)">
+
+    To work from a source checkout instead:
+
     ```bash
     git clone https://github.com/leeroo-ai/kapso.git
     cd kapso
-
-    # Pull Git LFS files (wiki knowledge data)
-    git lfs install
-    git lfs pull
-
-    # Create conda environment (recommended)
     conda create -n kapso_conda python=3.12
     conda activate kapso_conda
-
-    # Install in development mode
     pip install -e .
     ```
-    <Note>
-      This repository uses Git LFS for large files in `data/wikis_batch_top100/`.
-      If you didn't install Git LFS before cloning, run these commands to fetch the files.
-    </Note>
   </Step>
-  <Step title="Configure API keys">
-    Create `.env` in project root:
+
+  <Step title="Verify the machine is ready">
     ```bash
-    # Required for most operations
-    OPENAI_API_KEY=your-openai-api-key
-
-    # For Gemini coding agent
-    GOOGLE_API_KEY=your-google-api-key
-
-    # For Claude Code coding agent
-    ANTHROPIC_API_KEY=your-anthropic-api-key
-
-    # For Leeroopedia MCP (curated ML/AI knowledge — sign up at leeroopedia.com)
-    LEEROOPEDIA_API_KEY=your-leeroopedia-api-key
+    kapso doctor
     ```
+
+    Every required check must read `[OK ]` before you run anything else.
   </Step>
 </Steps>
 
-## Coding Agent Setup
+## How do I check my setup?
 
-Kapso supports multiple coding agents. Install the ones you plan to use:
-
-<Tabs>
-  <Tab title="Aider (Default)">
-    Aider is installed automatically with `pip install -e .`
-
-    No additional setup required. Uses git-centric diff-based editing.
-
-    ```bash
-    # Verify installation
-    aider --version
-    ```
-  </Tab>
-  <Tab title="Claude Code">
-    Claude Code requires Node.js and the Anthropic CLI:
-
-    ```bash
-    # Install Claude Code CLI
-    npm install -g @anthropic-ai/claude-code
-
-    # Verify installation
-    claude --version
-    ```
-
-    Set `ANTHROPIC_API_KEY` in your `.env` file.
-  </Tab>
-  <Tab title="Gemini">
-    Gemini uses the Google AI SDK, installed with core dependencies.
-
-    Set `GOOGLE_API_KEY` in your `.env` file.
-  </Tab>
-  <Tab title="OpenHands">
-    <Warning>
-      OpenHands has conflicting dependencies with `aider-chat`. Use a **separate conda environment**.
-    </Warning>
-
-    ```bash
-    # Create separate environment
-    conda create -n openhands_env python=3.12
-    conda activate openhands_env
-
-    # Install OpenHands
-    pip install openhands-ai litellm
-    ```
-
-    Do NOT install OpenHands in the same environment as Kapso.
-  </Tab>
-</Tabs>
-
-## Leeroopedia MCP (Optional)
-
-Connect Kapso to [Leeroopedia](https://leeroopedia.com) — a curated knowledge base of 1000+ ML/AI frameworks. Kapso agents use it during ideation and implementation to search docs, build plans, verify code, diagnose failures, and look up hyperparameter defaults.
+`kapso doctor` reports what **your config** requires, and names one fix for anything missing:
 
 ```bash
-pip install leeroopedia-mcp
+kapso doctor
 ```
 
-Sign up at [app.leeroopedia.com](https://app.leeroopedia.com) for an API key ($20 free credit, no credit card required), then add to your `.env`:
+```text
+kapso doctor
+====================================================================
+  [OK ] node
+  [OK ] codex CLI
+  [OK ] codex authenticated
+  [OK ] claude CLI
+  [OK ] claude authenticated
+  [OK ] git
+  [OK ] OPENAI_API_KEY (embeddings)
+  [OK ] deploy target docker
+  [-- ] deploy target modal
+         needed by  only needed for deploy(strategy=DeployStrategy.MODAL)
+         fix        pip install modal && modal token new
+====================================================================
+Required checks passed (9 checked). 1 optional item(s) marked [-- ] only limit features you may not need.
+```
+
+Your own list will be longer or shorter than this one. It is derived from your config, so enabling knowledge search adds Weaviate and Neo4j rows, and configuring a lesson bank adds a remote-reachability row.
+
+These are the same checks each verb runs before it does any work, so `doctor` cannot disagree with what a run will do. The command exits non-zero when a required item is missing, which makes it usable in CI.
+
+### What the markers mean
+
+| Marker | Meaning |
+|--------|---------|
+| `[OK ]` | Present and working |
+| `[FAIL]` | Required by your config and missing. The run will stop |
+| `[-- ]` | Optional. Its absence only removes a feature you may not need |
+
+Each failing item prints three lines: `reason` for what is wrong, `needed by` for the config key that wants it, and `fix` for the command that resolves it.
+
+### How do I check just one command's requirements?
+
+Name a verb to narrow the report to that verb's own requirements. Requirements follow your config, so a verb that never calls Codex is never asked for it:
 
 ```bash
-LEEROOPEDIA_API_KEY=kpsk_your_key_here
+kapso doctor research
 ```
 
-See the [Leeroopedia MCP docs](https://github.com/Leeroo-AI/leeroopedia-mcp) for Claude Code and Cursor setup.
+```text
+kapso doctor research
+====================================================================
+  [OK ] node
+  [OK ] codex CLI
+  [OK ] codex authenticated
+====================================================================
+Required checks passed (3 checked).
+```
 
-## Benchmark Installation
+```bash
+kapso doctor evolve
+```
+
+```text
+kapso doctor evolve
+====================================================================
+  [OK ] node
+  [OK ] claude CLI
+  [OK ] claude authenticated
+  [OK ] git
+====================================================================
+Required checks passed (4 checked).
+```
+
+The five verbs are `research`, `learn_knowledge`, `evolve`, `learn` and `deploy`. With no verb, `doctor` reports the union of all five.
+
+### How do I confirm my models are actually reachable?
+
+Add `--models` to fire a one-token live call per configured CLI and model pair. A subscription cap or a revoked login surfaces here in seconds instead of hours into a campaign:
+
+```bash
+kapso doctor evolve --models
+```
+
+<Note>
+  `--models` spends a small number of real tokens. The plain `doctor` makes no model calls.
+</Note>
+
+## Using API keys instead of a CLI login
+
+Each agent block in the config carries an `auth_mode`. The shipped default is `oauth`, which uses the CLI's own stored login:
+
+| `auth_mode` | Credential used |
+|-------------|-----------------|
+| `oauth` | The CLI's stored login from `claude auth login` |
+| `api_key` | `ANTHROPIC_API_KEY` from your environment |
+| `auto` | Either, whichever is present |
+
+For non-interactive environments such as CI, put a token in `.env` instead of logging in:
+
+```bash
+CLAUDE_CODE_OAUTH_TOKEN=...
+CODEX_API_KEY=...
+```
+
+## Optional: knowledge-graph backends
+
+`learn_knowledge()` and `kapso index_kg` store into a local Weaviate and Neo4j. Both run in Docker. From a source checkout:
+
+```bash
+bash scripts/start_infra.sh
+```
+
+| Service | Purpose | URL | Credentials |
+|---------|---------|-----|-------------|
+| Weaviate | Vector store for embeddings | `http://localhost:8080` | Anonymous |
+| Neo4j | Graph store for relationships | `http://localhost:7474` | `neo4j` / `password` |
+
+```bash
+bash scripts/stop_infra.sh              # stop, keep the data
+bash scripts/stop_infra.sh --volumes    # stop and wipe the data
+```
+
+`kapso doctor` reports both as `Weaviate (localhost:8080)` and `Neo4j (localhost:7687)` when your config enables knowledge search.
+
+## Optional: benchmarks
+
+The benchmark harnesses live in the source checkout under `benchmarks/` and each needs its upstream repository installed first.
 
 <Tabs>
   <Tab title="MLE-Bench">
-    MLE-Bench provides Kaggle competition problems.
+    Kaggle competition problems. Needs Git LFS.
 
-    **Prerequisites:**
-    - Git LFS (`sudo apt-get install git-lfs` or `brew install git-lfs`)
-
-    **Installation:**
     ```bash
-    # Clone and install MLE-Bench
     git clone https://github.com/openai/mle-bench.git
     cd mle-bench
     git lfs install
@@ -137,241 +209,102 @@ See the [Leeroopedia MCP docs](https://github.com/Leeroo-AI/leeroopedia-mcp) for
     pip install -e .
     cd ..
 
-    # Install MLE-specific dependencies
     pip install -r benchmarks/mle/requirements.txt
     ```
 
-    **Verify:**
-    ```bash
-    PYTHONPATH=. python -m benchmarks.mle.runner --list
-    ```
+    See [MLE-Bench](/docs/benchmarks/mle-bench) for how to run it.
   </Tab>
   <Tab title="ALE-Bench">
-    ALE-Bench provides AtCoder algorithmic optimization problems.
+    AtCoder algorithmic optimization problems. Needs Docker and `libcairo2-dev`.
 
-    **Prerequisites:**
-    - Docker
-    - libcairo2-dev (`sudo apt-get install -y libcairo2-dev`)
-
-    **Installation:**
     ```bash
-    # Clone and install ALE-Bench
     git clone https://github.com/SakanaAI/ALE-Bench.git
     cd ALE-Bench
     pip install .
     pip install ".[eval]"
-
-    # Build Docker container for evaluation
     bash ./scripts/docker_build_202301.sh $(id -u) $(id -g)
     cd ..
     ```
 
-    **Verify:**
+    See [ALE-Bench](/docs/benchmarks/ale-bench) for how to run it.
+  </Tab>
+  <Tab title="RelBench">
+    Predictive tasks over relational databases. Installed from PyPI.
+
     ```bash
-    PYTHONPATH=. python -m benchmarks.ale.runner --list
+    pip install relbench
     ```
+
+    See [RelBench](/docs/benchmarks/relbench) for how to run it.
   </Tab>
 </Tabs>
 
-## Infrastructure Setup
+## Optional: Leeroopedia MCP
 
-Kapso uses Docker containers for its knowledge graph infrastructure:
-- **Weaviate**: Vector database for semantic search
-- **Neo4j**: Graph database for relationships
-- **MediaWiki** (optional): Web UI for browsing wiki pages
-
-### Quick Start (Recommended)
+[Leeroopedia](https://leeroopedia.com) is a curated knowledge base of ML and AI frameworks. Kapso agents query it during ideation and implementation to look up APIs, build plans and diagnose failures.
 
 ```bash
-# Start all infrastructure
-./scripts/start_infra.sh
-
-# Stop infrastructure (data preserved)
-./scripts/stop_infra.sh
-
-# Stop and wipe all data
-./scripts/stop_infra.sh --volumes
+pip install leeroopedia-mcp
 ```
 
-### Default Service URLs
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| MediaWiki | http://localhost:8090 | `admin` / `adminpass123` |
-| Neo4j Browser | http://localhost:7474 | `neo4j` / `password` |
-| Weaviate | http://localhost:8080 | Anonymous (no auth) |
-
-### Manual Setup
-
-If you prefer to start services individually:
-
-<Accordion title="Docker Compose (All Services)">
-  ```bash
-  docker compose -f services/infrastructure/docker-compose.yml up -d
-  ```
-
-  This starts:
-  - **Weaviate** (port 8080) - Vector database for embeddings
-  - **Neo4j** (ports 7474, 7687) - Graph database for relationships
-  - **MediaWiki** (port 8090) - Web UI for browsing wiki pages
-  - **MariaDB** - Backend database for MediaWiki
-</Accordion>
-
-<Accordion title="Individual Containers">
-  **Weaviate (vector DB):**
-  ```bash
-  docker run -d --name weaviate \
-      -p 8080:8080 -p 50051:50051 \
-      -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      -e PERSISTENCE_DATA_PATH='/var/lib/weaviate' \
-      semitechnologies/weaviate:1.27.0
-  ```
-
-  **Neo4j (graph DB):**
-  ```bash
-  docker run -d --name neo4j \
-      --restart unless-stopped \
-      -p 7474:7474 -p 7687:7687 \
-      -e NEO4J_AUTH=neo4j/password \
-      neo4j:5.18.0
-  ```
-</Accordion>
-
-### Configure Environment
-
-Add infrastructure settings to your `.env`:
+Get a key at [app.leeroopedia.com](https://app.leeroopedia.com), then add it to `.env`:
 
 ```bash
-# Neo4j connection
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-
-# Weaviate connection
-WEAVIATE_URL=http://localhost:8080
-
-# MediaWiki (optional)
-MW_BASE=http://localhost:8090
-MW_USER=admin
-MW_PASS=adminpass123
-```
-
-## Knowledge Graph Indexing
-
-After infrastructure is running, index your wiki pages:
-
-### Using Kapso API (Recommended)
-
-```python
-from kapso.kapso import Kapso
-
-# Initialize Kapso
-kapso = Kapso(config_path="src/config.yaml")
-
-# Index wiki pages (one-time operation)
-kapso.index_kg(
-    wiki_dir="data/wikis",
-    save_to="data/indexes/my_knowledge.index",
-)
-
-# Load existing index on subsequent runs
-kapso = Kapso(
-    config_path="src/config.yaml",
-    kg_index="data/indexes/my_knowledge.index",
-)
-```
-
-### Index File Format
-
-The `.index` file is a JSON reference to the indexed data:
-
-```json
-{
-  "version": "1.0",
-  "created_at": "2025-01-15T10:30:00Z",
-  "data_source": "data/wikis_llm_finetuning",
-  "search_backend": "kg_graph_search",
-  "backend_refs": {
-    "weaviate_collection": "KapsoWiki",
-    "embedding_model": "text-embedding-3-large"
-  },
-  "page_count": 99
-}
-```
-
-### KG Search Backends
-
-| Backend | Data Format | Storage | Use Case |
-|---------|-------------|---------|----------|
-| `kg_graph_search` | Wiki pages (.md/.mediawiki) | Weaviate + Neo4j | Semantic search with LLM reranking |
-| `kg_llm_navigation` | JSON (nodes/edges) | Neo4j only | LLM-guided graph navigation |
-
-## Environment Variables Reference
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | Yes | - | OpenAI API key (also for embeddings) |
-| `GOOGLE_API_KEY` | No | - | Google API key for Gemini |
-| `ANTHROPIC_API_KEY` | No | - | Anthropic API key for Claude |
-| `LEEROOPEDIA_API_KEY` | No | - | Leeroopedia API key ([sign up](https://leeroopedia.com)) |
-| `NEO4J_URI` | No | `bolt://localhost:7687` | Neo4j connection URI |
-| `NEO4J_USER` | No | `neo4j` | Neo4j username |
-| `NEO4J_PASSWORD` | No | `password` | Neo4j password |
-| `WEAVIATE_URL` | No | `http://localhost:8080` | Weaviate server URL |
-| `MW_BASE` | No | `http://localhost:8090` | MediaWiki base URL |
-| `MW_USER` | No | `admin` | MediaWiki username |
-| `MW_PASS` | No | `adminpass123` | MediaWiki password |
-| `CUDA_DEVICE` | No | `0` | GPU device for ML training |
-
-## Verify Installation
-
-```bash
-# Check core installation
-python -c "from kapso.kapso import Kapso; print('Kapso OK')"
-
-# Check orchestrator
-python -c "from kapso.execution.orchestrator import OrchestratorAgent; print('Orchestrator OK')"
-
-# Check knowledge search
-python -c "from kapso.knowledge_base.search import KnowledgeSearchFactory; print('Knowledge Search OK')"
-
-# Check MLE-Bench (if installed)
-python -c "import mlebench; print('MLE-Bench OK')"
-
-# Check ALE-Bench (if installed)
-python -c "import ale_bench; print('ALE-Bench OK')"
-
-# Check Neo4j driver
-python -c "from neo4j import GraphDatabase; print('Neo4j driver OK')"
-
-# Check Weaviate client
-python -c "import weaviate; print('Weaviate client OK')"
+LEEROOPEDIA_API_KEY=kpsk_...
 ```
 
 ## Troubleshooting
 
-<Accordion title="Services won't start">
-  ```bash
-  # Check Docker logs
-  docker compose -f services/infrastructure/docker-compose.yml logs
+<AccordionGroup>
+  <Accordion title="doctor says a CLI is missing but I just installed it">
+    Global npm binaries have to be on your `PATH`. Confirm the shell can see them:
 
-  # Check individual service
-  docker logs weaviate
-  docker logs neo4j
-  ```
-</Accordion>
+    ```bash
+    which codex claude node
+    ```
 
-<Accordion title="MediaWiki issues">
-  ```bash
-  # View MediaWiki logs
-  docker compose -f services/infrastructure/docker-compose.yml logs wiki
+    If `npm install -g` wrote somewhere outside your `PATH`, `npm prefix -g` shows where.
+  </Accordion>
 
-  # Full reset (deletes all data)
-  ./scripts/stop_infra.sh --volumes
-  ./scripts/start_infra.sh
-  ```
-</Accordion>
+  <Accordion title="doctor says a CLI is not authenticated">
+    The login is stored per machine and expires. Re-run it:
 
-<Accordion title="Port conflicts">
-  If default ports are in use, modify `services/infrastructure/docker-compose.yml` or use different port mappings.
-</Accordion>
+    ```bash
+    codex login
+    claude auth login
+    ```
+
+    Codex stores its login at `~/.codex/auth.json`. Claude Code answers `claude auth status`.
+  </Accordion>
+
+  <Accordion title="Weaviate or Neo4j will not start">
+    Check the container logs:
+
+    ```bash
+    docker compose -f services/infrastructure/docker-compose.yml logs
+    ```
+
+    Ports 8080, 50051, 7474 and 7687 must be free. If one is taken, change the mapping in `services/infrastructure/docker-compose.yml`.
+  </Accordion>
+
+  <Accordion title="A run fails partway through on a model error">
+    Probe the models directly rather than guessing:
+
+    ```bash
+    kapso doctor evolve --models
+    ```
+
+    A capped subscription or an expired login shows up here immediately.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/docs/quickstart">
+    Run your first campaign
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/docs/reference/cli">
+    Commands, modes and flags
+  </Card>
+</CardGroup>

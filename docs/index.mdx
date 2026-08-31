@@ -1,125 +1,129 @@
 ---
-title: "KAPSO"
-description: "A Knowledge-grounded framework for Autonomous ML/AI Program Synthesis and Optimization"
+title: "Kapso: a self-improving AI factory for measurable goals"
+sidebarTitle: "What is Kapso"
+description: "Kapso builds software for goals you can score. It runs experiment campaigns, banks what it learns from each one, and ships the winner to your infrastructure."
+keywords: ["Kapso", "AI software factory", "automated ML", "experiment campaigns", "self-improving agent", "MLE-Bench", "RelBench"]
 ---
 
-## What is Kapso?
+Kapso builds software for goals you can measure.
 
-Kapso combines **iterative experimentation** with a **knowledge base** of best practices, domain knowledge, and implementation patterns to discover and validate ML/AI code improvements. 
+Give it a goal. It runs **experiment campaigns**: designing candidates, implementing them, scoring each one, and refining the best. Every claim of progress is a score, and the winner ships to your infrastructure.
 
-It automates the cycle of **designing**, **running**, **evaluating**, and **refining** solutions,  eventually adapting the optimized solution for **deployment** on your chosen infrastructure.
+The factory is **self-improving** because it learns from its own work. Finished campaigns become evidence-priced lessons. It also learns from public knowledge, including repositories and papers. Everything compounds in one knowledge hub, so each campaign starts where the last one left off.
 
-<Frame>
-  <img src="https://api.leeroo.com/storage/v1/object/public/opensource/framework.png" alt="Kapso Framework Architecture" />
-</Frame>
+## The four pillars
 
-## Leeroopedia MCP Integration
+<CardGroup cols={2}>
+  <Card title="Evolve" icon="dna" href="/docs/evolve/overview">
+    **`.evolve()`** runs iterative experiments to build software for a goal, using tree search, coding agents and knowledge-graph context.
+  </Card>
+  <Card title="Learn" icon="brain" href="/docs/knowledge/overview">
+    Two memories. **`.learn()`** mines your own finished campaigns into evidence-priced lesson cards. **`.learn_knowledge()`** ingests repositories and research into the knowledge graph.
+  </Card>
+  <Card title="Research" icon="magnifying-glass" href="/docs/research/overview">
+    **`.research()`** runs deep web research and returns structured findings you can feed into the knowledge base or pass as campaign context.
+  </Card>
+  <Card title="Deploy" icon="rocket" href="/docs/deployment/overview">
+    **`.deploy()`** turns a solution into running software, locally, in Docker, or on a cloud platform such as Modal.
+  </Card>
+</CardGroup>
 
-Connect Kapso to [**Leeroopedia**](https://leeroopedia.com) — a curated knowledge base of 1000+ ML/AI frameworks. Kapso agents use it during ideation and implementation to search docs, build plans, diagnose failures, and look up hyperparameter defaults.
-
-```bash
-pip install leeroopedia-mcp
-```
-
-Sign up at [leeroopedia.com](https://leeroopedia.com) for an API key ($20 free credit on sign-up). See the [Leeroopedia MCP docs](https://github.com/Leeroo-AI/leeroopedia-mcp) for setup details.
-
-## Core Workflow
+## What a full run looks like
 
 ```python
-from kapso.kapso import Kapso, Source, DeployStrategy
+from kapso import Kapso, Source, DeployStrategy
 
-# Initialize Kapso with legal domain knowledge
 kapso = Kapso(kg_index="data/indexes/legal_contracts.index")
 
-# Research: Gather domain-specific alignment techniques
-research_findings = kapso.research(
+# Research the problem space
+findings = kapso.research(
     "RLHF and DPO fine-tuning for legal contract analysis",
+    mode=["idea", "implementation"],
     depth="deep",
 )
 
-# Learn: Ingest knowledge from repositories
-kapso.learn(
-    sources=[
-        Source.Repo("https://github.com/huggingface/trl"),
-        *research_findings.repos(top_k=5),
-    ],
+# Fold public knowledge into the knowledge graph
+kapso.learn_knowledge(
+    Source.Repo("https://github.com/huggingface/trl"),
+    findings,
     wiki_dir="data/wikis",
 )
 
-# Evolve: Build a solution through experimentation
-# The agent writes evaluate.py to compute F1 score and signal when target is reached
+# Run the campaign
 solution = kapso.evolve(
-    goal="Fine-tune Llama-3.1-8B on the CUAD dataset (https://huggingface.co/datasets/theatticusproject/cuad) for legal clause risk classification, target F1 > 0.85 on high-risk clause detection",
+    goal=(
+        "Fine-tune Llama-3.1-8B on the CUAD dataset for legal clause risk "
+        "classification, target F1 > 0.85 on high-risk clause detection"
+    ),
+    context=[findings.to_string()],
     output_path="./models/legal_risk_v1",
-    context=[research_findings.ideas(top_k=10)],
 )
 
-# Deploy: Turn solution into running deployed_program
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
+# Bank what the campaign learned, so the next one starts ahead
+kapso.learn(solution)
 
-# Cleanup
-deployed_program.stop()
+# Ship it
+deployed = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
 ```
 
-## The Four Pillars
+<Note>
+  `learn()` and `learn_knowledge()` are different memories and are easy to confuse. `learn()` takes a finished campaign and mines it into lesson cards. `learn_knowledge()` takes outside sources — repositories, research findings — and folds them into the knowledge graph.
+</Note>
+
+## Results
 
 <CardGroup cols={2}>
-  <Card title="Evolve" icon="dna">
-    **`.evolve()`** : Run iterative evaluation grounded experiments to build the optimum solution for a goal. Uses tree search, coding agents, and KG context to generate ideas and refine solutions.
+  <Card title="IOAI 2026" icon="trophy" href="https://github.com/Leeroo-AI/kapso/tree/main/benchmarks/ioai2026">
+    Competing fully autonomously in the AI Model Track, Kapso scored 536.07 — above every one of the 471 human contestants — and took the IOAI² Grand Master Trophy, top 3 among all AI systems entered.
   </Card>
-  <Card title="Learn" icon="brain">
-    **`.learn()`** : Ingest knowledge from repositories, past solutions, or written knowledge. Extracts patterns and best practices into the Knowledge Graph.
+  <Card title="RelBench" icon="database" href="/docs/benchmarks/relbench">
+    Passes KumoRFM-v2 on outcome prediction and forecasting, and the best reported results on recommendations, on Stanford's benchmark for predictive ML over relational data.
   </Card>
-  <Card title="Research" icon="magnifying-glass">
-    **`.research()`** : Run deep web research to gather ideas, implementation references and releveant repositories. Returns structured findings you can pass to learning or use as context for evolving solutions.
-  </Card>
-  <Card title="Deploy" icon="rocket">
-    **`.deploy()`** :  Turn a solution into running app. Supports local execution, Docker containers, or cloud platforms like Modal.
-  </Card>
-</CardGroup>
-
-## Core Components
-
-| Component | Description |
-|-----------|-------------|
-| **Kapso** | Main API class — orchestrates research, learn, evolve, and deploy |
-| **OrchestratorAgent** | Runs the experimentation loop with budget tracking |
-| **Search Strategy** | Explores solutions via tree search (generic, benchmark_tree_search) |
-| **Coding Agents** | Pluggable code generators: Aider, Gemini, Claude Code, OpenHands |
-| **Feedback Generator** | Validates evaluation results and decides when to stop |
-| **Knowledge Pipeline** | Two-stage learning: Ingestors extract WikiPages → Merger integrates into KG |
-| **Knowledge Search** | Hybrid retrieval using Weaviate (semantic) + Neo4j (graph structure) |
-| **Repo Memory** | Evidence-backed understanding of repository structure |
-| **Deployment** | Turn solutions into running software: Local, Docker, Modal, BentoML |
-
-## Supported Benchmarks
-
-<CardGroup cols={2}>
   <Card title="MLE-Bench" icon="chart-line" href="/docs/benchmarks/mle-bench">
-    Solve Kaggle ML competitions with automated experimentation. Supports tabular, image, text, and audio problems.
+    Top ranking among open-source systems on Kaggle machine-learning competitions.
   </Card>
   <Card title="ALE-Bench" icon="code" href="/docs/benchmarks/ale-bench">
-    Tackle AtCoder algorithmic optimization problems. Generates C++ solutions using optimization algorithms.
+    Top ranking on long-horizon algorithmic discovery problems from AtCoder.
   </Card>
 </CardGroup>
 
-## Quick Links
+<Frame caption="Kapso against KumoRFM-v2 on RelBench outcome prediction, forecasting and recommendations">
+  <img
+    src="/docs/images/relbench.png"
+    alt="Bar chart comparing Kapso with KumoRFM-v2 across RelBench outcome prediction, forecasting and recommendation tasks, with Kapso ahead on each group"
+  />
+</Frame>
+
+The [technical report](https://arxiv.org/abs/2601.21526) describes the system in full.
+
+## What is inside
+
+| Component | What it does |
+|-----------|--------------|
+| `Kapso` | The public API. Coordinates research, learning, evolution and deployment |
+| Orchestrator | Runs the experiment loop and tracks the budget |
+| Search strategy | Explores candidate solutions as a tree |
+| Coding agents | Pluggable implementers: Claude Code, Codex, Aider, Gemini, OpenHands |
+| Feedback generator | Validates each evaluation and decides when to stop |
+| Lesson bank | Evidence-priced cards mined from finished campaigns |
+| Knowledge graph | Repository and research knowledge, searched over Weaviate and Neo4j |
+| Repo memory | Evidence-backed understanding of an existing codebase |
+| Deployment | Local, Docker, Modal, BentoML and LangGraph targets |
+
+## Leeroopedia MCP
+
+Kapso connects to [Leeroopedia](https://leeroopedia.com), a curated knowledge base of ML and AI frameworks. Agents query it during ideation and implementation to look up APIs, build plans and diagnose failures. See [Optional: Leeroopedia MCP](/docs/installation#optional-leeroopedia-mcp).
+
+## Start here
 
 <CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/docs/installation">
+    The CLIs, the package, and kapso doctor
+  </Card>
   <Card title="Quickstart" icon="rocket" href="/docs/quickstart">
-    Get running in 5 minutes
+    Your first campaign
   </Card>
-  <Card title="Architecture" icon="sitemap" href="/docs/evolve/architecture">
-    System design overview
-  </Card>
-  <Card title="CLI Reference" icon="terminal" href="/docs/reference/cli">
-    Commands, modes and flags
+  <Card title="CLI reference" icon="terminal" href="/docs/reference/cli">
+    Every command and flag
   </Card>
 </CardGroup>
-
-## Why Kapso?
-
-- **Knowledge-Grounded**: Solutions are informed by domain knowledge, not just LLM priors
-- **Iterative Refinement**: Tree search explores multiple approaches, learns from failures
-- **Pluggable Components**: Swap coding agents, evaluators, and search strategies
-- **Full Lifecycle**: From research to deployment in a single framework
