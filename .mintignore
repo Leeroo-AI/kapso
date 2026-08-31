@@ -42,3 +42,7 @@
 # navigation, and Mintlify serves 404 for them.
 /docs/plans/
 /docs/research/*.md
+
+# Contributor instructions for this directory. GitHub renders it when you browse
+# to docs/; it is not a page of the site.
+/docs/README.md
