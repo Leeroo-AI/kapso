@@ -6,6 +6,5 @@ recursive-include benchmarks *.yaml *.json *.md *.txt
 prune tests
 prune examples
 prune docs
-prune archive
 prune services
 prune scripts
