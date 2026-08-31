@@ -4,7 +4,7 @@ This module provides integration with [MLE-Bench](https://github.com/openai/mle-
 
 Kapso achieved **#1 among open-source systems** on this benchmark. These results were submitted as an [official submission to MLE-Bench](https://github.com/openai/mle-bench/pull/107).
 
-![MLE-Bench Results](https://api.leeroo.com/storage/v1/object/public/opensource/mle_benchmark.png)
+![MLE-Bench Results](../../docs/images/mle-bench.png)
 
 ## Prerequisites
 

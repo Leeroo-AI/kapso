@@ -6,7 +6,7 @@ one short generic prompt ([`PROMPT.md`](PROMPT.md)), the same hardware, and the 
 budget per task. Predictions are scored one way by the official RelBench evaluator
 ([`score_baseline.py`](score_baseline.py)); the agent never sees test labels.
 
-![Kapso vs Claude Code](kapso_vs_claude_code.png)
+![Kapso vs Claude Code](../../../docs/images/relbench-vs-claude-code.png)
 
 Six headline tasks, two per family. Kapso wins every settled cell, and in recommendations the
 raw agent stays below the best reported bar while Kapso clears it.

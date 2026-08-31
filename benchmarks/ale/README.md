@@ -4,7 +4,7 @@ This module provides integration with [ALE-Bench](https://github.com/SakanaAI/AL
 
 Kapso achieved **#1 on ALE-Bench**.
 
-![ALE-Bench Results](https://api.leeroo.com/storage/v1/object/public/opensource/ale_benchmark.png)
+![ALE-Bench Results](../../docs/images/ale-bench.png)
 
 ## Prerequisites
 

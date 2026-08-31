@@ -22,7 +22,7 @@ beat in outcome prediction and forecasting. Recommendation tasks are the gap in 
 (the model does not support them), so there Kapso is measured against the best reported
 result per task. Kapso beats both bars:
 
-![Kapso vs KumoRFM-v2](assets/kapso_vs_best_published.png)
+![Kapso vs KumoRFM-v2](../../docs/images/relbench.png)
 
 All scores come from the official RelBench evaluator. The same solutions also beat a frontier
 coding agent (Claude Code, Fable-5) under an identical budget: see
