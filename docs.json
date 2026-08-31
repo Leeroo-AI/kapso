@@ -9,11 +9,11 @@
     "dark": "#1E40AF"
   },
 
-  "favicon": "/docs/favicon.svg",
+  "favicon": "/docs/logo/logo-transparent.png",
 
   "logo": {
-    "light": "/docs/logo/light.svg",
-    "dark": "/docs/logo/dark.svg"
+    "light": "/docs/logo/logo-transparent.png",
+    "dark": "/docs/logo/logo-transparent.png"
   },
 
   "navigation": {
