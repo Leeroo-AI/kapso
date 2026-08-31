@@ -1,189 +1,325 @@
 ---
-title: "CLI Reference"
-description: "Command-line interface for Kapso"
+title: "Kapso CLI reference: every command, flag and default"
+sidebarTitle: "CLI"
+description: "The eight kapso commands and their twelve subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
+keywords: ["kapso CLI", "kapso evolve", "kapso learn", "kapso doctor", "command reference", "CLI flags"]
 ---
 
-## Overview
+Kapso installs a single `kapso` executable with eight commands.
 
-Kapso provides a CLI for running experiments without writing Python code.
+| Command | What it does |
+|---------|--------------|
+| [`kapso evolve`](#kapso-evolve) | Build software from a goal through experimentation |
+| [`kapso research`](#kapso-research) | Deep web research for an objective |
+| [`kapso learn`](#kapso-learn) | Trajectory learning: store, mine, grade, update, serve |
+| [`kapso deploy`](#kapso-deploy) | Deploy a solution as running software |
+| [`kapso index_kg`](#kapso-index-kg) | Index a knowledge graph from a wiki or JSON |
+| [`kapso watch`](#kapso-watch) | Watch a running operation |
+| [`kapso bank`](#kapso-bank) | Manage the lesson bank's share remote |
+| [`kapso doctor`](#kapso-doctor) | Check this machine can run what your config asks for |
 
-## Basic Usage
+## Global options
 
-```bash
-kapso evolve --goal "Your problem description"
-```
-
-## Options
-
-### Goal Specification
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--goal` | `-g` | Goal/problem description (inline) |
-| `--goal-file` | `-f` | File containing goal description |
-
-```bash
-# Inline goal
-kapso evolve --goal "Build a classifier for Iris dataset"
-
-# From file
-kapso evolve --goal-file problem.txt
-```
-
-### Basic Options
-
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--iterations` | `-i` | `10` | Maximum experiment iterations |
-| `--output` | `-o` | auto | Output directory for solution |
-
-```bash
-kapso evolve --goal "..." --iterations 10 --output ./my_solution
-```
-
-### Configuration Options
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--mode` | `-m` | Configuration mode (GENERIC, MINIMAL) |
-| `--coding-agent` | `-a` | Coding agent (aider, gemini, claude_code, openhands) |
-
-```bash
-kapso evolve --goal "..." --mode GENERIC --coding-agent claude_code
-```
-
-### Directory Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--eval-dir` | `None` | Directory with evaluation files (copied to `kapso_evaluation/`) |
-| `--data-dir` | `None` | Directory with data files (copied to `kapso_datasets/`) |
-| `--initial-repo` | `None` | Initial repository (local path or GitHub URL) |
-
-```bash
-kapso evolve --goal "..." \
-    --eval-dir ./my_evaluation/ \
-    --data-dir ./my_data/ \
-    --initial-repo https://github.com/owner/repo
-```
-
-### List Commands
-
-| Option | Description |
-|--------|-------------|
-| `--list-agents` | List available coding agents |
+| Flag | What it does |
+|------|--------------|
+| `-h`, `--help` | Show help for the command and exit |
+| `--list-agents` | List the available coding agents with their models and install commands |
 
 ```bash
 kapso --list-agents
 ```
 
-## Examples
+The five agents are `claude_code`, `codex`, `gemini`, `openhands` and `oss_claude_code`.
 
-### Simple Usage
+## kapso evolve
 
-```bash
-kapso evolve \
-    --goal "Build a random forest classifier for the Iris dataset"
-```
+Runs an experiment campaign against a goal and returns the best solution.
 
-### With Evaluation and Data
-
-```bash
-kapso evolve \
-    --goal "Build a classifier with accuracy > 0.9" \
-    --eval-dir ./evaluation/ \
-    --data-dir ./data/
-```
-
-### Full Options
-
-```bash
-kapso evolve \
-    --goal-file problem.txt \
-    --iterations 20 \
-    --mode GENERIC \
-    --coding-agent claude_code \
-    --initial-repo https://github.com/owner/starter-repo \
-    --eval-dir ./evaluation/ \
-    --data-dir ./data/ \
-    --output ./my_solution
-```
-
-## Output
-
-```
-============================================================
-EVOLVING: Build a random forest classifier for the Iris dataset
-============================================================
-  Max iterations: 10
-  Coding agent: from config
-
-Running experiments...
-Experiment 1: Developer agent implementing solution...
-Experiment 1: Running evaluation in kapso_evaluation/...
-Experiment 1: Feedback generator validating results...
-Experiment 1 completed with cumulative cost: $0.125
-####################################################################################################
-Experiment with score 0.92:
-# Solution: Random forest with GridSearchCV hyperparameter tuning...
-# Feedback: Good progress! Accuracy 0.92 meets the > 0.9 target. Goal achieved.
-####################################################################################################
-
-============================================================
-Evolution Complete
-============================================================
-Solution at: ./my_solution
-Experiments run: 1
-Total cost: $0.125
-Stopped reason: goal_achieved
-Goal achieved: True
-
-============================================================
-COMPLETED
-============================================================
-Solution: ./my_solution
-Goal achieved: True
-Final score: 0.92
-Cost: $0.125
-Stopped reason: goal_achieved
-```
-
-## Environment Variables
-
-The CLI loads environment variables from `.env`:
+| Flag | What it does | Default |
+|------|--------------|---------|
+| `-g`, `--goal` | Goal or problem description | — |
+| `-f`, `--goal-file` | File containing the goal. Mutually exclusive with `--goal` | — |
+| `-i`, `--iterations` | Maximum experiments to run | `10` |
+| `-o`, `--output` | Output directory | — |
+| `--time-budget-minutes` | Wall-clock budget for the campaign, durable across resumes | — |
+| `--cost-budget` | Best-effort spend budget in USD | — |
+| `--finalization-reserve-minutes` | Wall-clock escrowed for final checkout and evaluation | — |
+| `--resume` | Continue the compatible checkpoint in `--output` | off |
+| `-m`, `--mode` | Config mode: `GENERIC` or `MINIMAL` | `GENERIC` |
+| `-a`, `--coding-agent` | One of `claude_code`, `codex`, `gemini`, `openhands`, `oss_claude_code` | from config |
+| `--eval-dir` | Evaluation files directory | — |
+| `--data-dir` | Data files directory | — |
+| `--initial-repo` | Starting repository, as a path or GitHub URL | — |
+| `--kg-index` | Path to a `.index` file for knowledge search | — |
 
 ```bash
-OPENAI_API_KEY=your-openai-api-key
-GOOGLE_API_KEY=your-google-api-key
-ANTHROPIC_API_KEY=your-anthropic-api-key
+kapso evolve --goal "Build a web scraper for news articles"
+kapso evolve --goal-file problem.txt --iterations 20
+kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
+kapso evolve --goal "Build a classifier" --output ./campaign --resume
 ```
 
-## Available Coding Agents
+## kapso research
+
+Runs deep web research and writes structured findings.
+
+| Flag | What it does | Default |
+|------|--------------|---------|
+| `--objective` | Research objective | — |
+| `--objective-file` | File containing the objective. Mutually exclusive with `--objective` | — |
+| `--mode` | `idea`, `implementation` or `study`. Repeat the flag for more than one | `idea` and `implementation` |
+| `--depth` | `light` or `deep` | `deep` |
+| `-o`, `--output` | Output file for results, as JSON | — |
 
 ```bash
-$ kapso --list-agents
-
-Available Coding Agents:
-==================================================
-  aider: Git-centric pair programming with diff-based editing
-  gemini: Google Gemini SDK for code generation
-  claude_code: Anthropic Claude Code CLI for complex refactoring
-  openhands: OpenHands agent with sandboxed execution
+kapso research --objective "How to optimize transformers?"
+kapso research --objective "LLM fine-tuning" --mode idea
+kapso research --objective "RAG implementation" --mode idea --mode implementation
+kapso research --objective-file topic.txt --mode study --depth deep
 ```
 
-## Exit Codes
+## kapso learn
 
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `1` | Error (missing arguments, failed experiment) |
+Trajectory learning. Ten subcommands cover importing finished campaigns, mining them, grading a bank, and folding results back in.
 
-## Tips
+| Subcommand | What it does |
+|------------|--------------|
+| `import` | Import archived campaign tarballs into the trajectory store |
+| `mine` | Mine store-resident trajectories into their derived `mined/` views |
+| `grade` | Grade a bank against held-out trajectories, or one arriving trajectory |
+| `update` | Run the update crew: fold mined and graded trajectories into the bank |
+| `init-bank` | Create the bank home: a bare repo plus the founding skeleton |
+| `develop` | Run one learner version through the development regime |
+| `codify` | Run one codify request, which is evolve minus ideation, against the bank |
+| `ingest` | Operating-regime chain for one campaign: mine, exam, lesson |
+| `gauntlet` | Run the duplicate and stability traps against a completed development run |
+| `behave` | Run behavior scenarios as semantic production tests |
 
-<Tip>
-**Use `kapso --list-agents`** to discover available coding agents.
-</Tip>
+Every subcommand takes `--config` to point at a config other than the packaged `config.yaml`.
 
-<Warning>
-**API keys are required**. Set them in `.env` or as environment variables.
-</Warning>
+### kapso learn import
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--subset` | Subset YAML of `trajectories: [{id, archive, role}]` | no |
+| `--archive` | One archive URI or path ending `.tgz` | no |
+| `--id` | Trajectory id override, used with `--archive` | no |
+| `--no-upload` | Skip remote upload even when one is configured | no |
+
+```bash
+kapso learn import --subset docs/plans/learning/d1-subset.yaml
+kapso learn import --archive gs://bucket/runs/campaign/20260731T092629_lane-a2.tgz
+```
+
+### kapso learn mine
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--trajectory` | One trajectory id | no |
+| `--all` | Mine every un-mined imported trajectory | no |
+| `--force` | Regenerate even when already mined | no |
+
+```bash
+kapso learn mine --all
+```
+
+### kapso learn grade
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--bank` | Bank checkout directory | **yes** |
+| `--bank-head` | The graded bank head, as an `lr_` tag or a sha | **yes** |
+| `--split` | Split manifest, for full mode | no |
+| `--learner-version` | Learner version under exam, for full mode | no |
+| `--trajectory` | One trajectory id, for exam mode | no |
+
+```bash
+kapso learn grade --bank ./bank --bank-head lr_042 --split splits/d1.yaml
+```
+
+### kapso learn update
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--learner-version` | Crew version identifier | **yes** |
+| `--batch-manifest` | YAML list of `{trajectory, hindcast_report}`. Omit for docket-only consolidation | no |
+| `--split` | Split manifest. On development runs this asserts batch and held-out are disjoint | no |
+
+```bash
+kapso learn update --learner-version v3 --batch-manifest batch.yaml
+```
+
+### kapso learn init-bank
+
+Creates the bank home. Takes only `--config`.
+
+```bash
+kapso learn init-bank
+```
+
+### kapso learn develop
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--split` | Split manifest | **yes** |
+| `--learner-version` | Crew version identifier | **yes** |
+
+```bash
+kapso learn develop --split splits/d1.yaml --learner-version v3
+```
+
+### kapso learn codify
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--request` | Request YAML naming the card, fixture, materials and gates | **yes** |
+
+```bash
+kapso learn codify --request requests/card-117.yaml
+```
+
+### kapso learn ingest
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--trajectory` | Trajectory id in the store | **yes** |
+| `--learner-version` | Crew version doing the lesson | **yes** |
+
+```bash
+kapso learn ingest --trajectory rel-hm-user-churn-a2 --learner-version v3
+```
+
+### kapso learn gauntlet
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--learner-version` | Completed development run to trap | **yes** |
+
+```bash
+kapso learn gauntlet --learner-version v3
+```
+
+### kapso learn behave
+
+| Flag | What it does | Required |
+|------|--------------|----------|
+| `--scenario` | One scenario directory | no |
+| `--all` | Run every scenario | no |
+
+```bash
+kapso learn behave --all
+```
+
+## kapso deploy
+
+Turns a solution directory into running software.
+
+| Flag | What it does | Default |
+|------|--------------|---------|
+| `--solution-path` | Path to the solution code. **Required** | — |
+| `--strategy` | `auto`, `local`, `docker`, `modal`, `bentoml` or `langgraph` | `auto` |
+| `--goal` | Goal description for the solution | — |
+| `--env` | Environment variable as `KEY=VALUE`. Repeat for more than one | — |
+| `--coding-agent` | Agent used to adapt the solution for the target | from config |
+| `--interactive` | Keep running after deploy instead of returning | off |
+
+```bash
+kapso deploy --solution-path ./solution
+kapso deploy --solution-path ./solution --strategy docker
+kapso deploy --solution-path ./solution --env API_KEY=xxx --interactive
+```
+
+## kapso index_kg
+
+Indexes a corpus into the knowledge graph and writes a `.index` file that campaigns load with `--kg-index`.
+
+| Flag | What it does | Default |
+|------|--------------|---------|
+| `--save-to` | Path to write the `.index` file. **Required** | — |
+| `--wiki-dir` | Wiki directory to index. Mutually exclusive with `--data-path` | — |
+| `--data-path` | JSON data file to index | — |
+| `--search-type` | `kg_graph_search` or `kg_llm_navigation` | from config |
+| `--force` | Clear existing data before indexing | off |
+
+```bash
+kapso index_kg --wiki-dir ./data/wikis --save-to ./data/indexes/ml.index
+kapso index_kg --data-path ./data/kg_data.json --save-to ./data/indexes/kaggle.index
+kapso index_kg --wiki-dir ./data/wikis --save-to ./data/indexes/ml.index --force
+```
+
+<Note>
+  Indexing needs Weaviate and Neo4j running. See [Optional: knowledge-graph backends](/docs/installation#optional-knowledge-graph-backends).
+</Note>
+
+## kapso watch
+
+Renders the status of a running `evolve`, `learn` or `learn_knowledge` operation.
+
+| Argument | What it does | Default |
+|----------|--------------|---------|
+| `path` | Workspace, status file, or directory of status files. **Required** | — |
+| `--json` | Print the status file once, as JSON | off |
+| `--follow` | Re-render on each heartbeat until the operation ends | off |
+
+```bash
+kapso watch ./campaign
+kapso watch learning/status
+kapso watch ./campaign --follow
+kapso watch ./campaign --json | jq -r '[.state] | @tsv'
+```
+
+## kapso bank
+
+The lesson bank is local-only by default. These two subcommands give it a git remote. Credentials stay with `git` and `gh`; Kapso never handles them.
+
+### kapso bank connect
+
+| Argument | What it does | Required |
+|----------|--------------|----------|
+| `url` | Git URL of the bank repository, https or ssh | **yes** |
+
+```bash
+kapso bank connect https://github.com/your-org/kapso-bank.git
+```
+
+### kapso bank create
+
+Creates the GitHub repository with the `gh` CLI, then connects it.
+
+| Argument | What it does | Default |
+|----------|--------------|---------|
+| `slug` | `org/name` for the new repository. **Required** | — |
+| `--public` | Create the repository public | private |
+
+```bash
+kapso bank create your-org/kapso-bank
+```
+
+## kapso doctor
+
+Reports the requirements your **active config** implies, and exits non-zero when a required item is missing.
+
+| Argument | What it does | Default |
+|----------|--------------|---------|
+| `verb` | Narrow the report to `research`, `learn_knowledge`, `evolve`, `learn` or `deploy` | union of all five |
+| `--models` | Live-probe each configured CLI and model pair, spending a few one-token calls | off |
+| `--config` | Config to check | packaged `config.yaml` |
+
+```bash
+kapso doctor
+kapso doctor evolve
+kapso doctor evolve --models
+```
+
+Requirements follow your config, so a verb that never calls Codex is never asked for it. See [How do I check my setup?](/docs/installation#how-do-i-check-my-setup) for the output format and what each marker means.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="code" href="/docs/reference/kapso-api">
+    The same operations from Python
+  </Card>
+  <Card title="Configuration" icon="gear" href="/docs/reference/configuration">
+    Every key in config.yaml
+  </Card>
+</CardGroup>

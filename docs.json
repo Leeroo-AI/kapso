@@ -98,10 +98,11 @@
         "tab": "API Reference",
         "groups": [
           {
-            "group": "CLI Reference",
+            "group": "Reference",
             "pages": [
               "docs/reference/cli",
-              "docs/reference/kapso-api"
+              "docs/reference/kapso-api",
+              "docs/reference/configuration"
             ]
           }
         ]

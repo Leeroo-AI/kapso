@@ -1,0 +1,261 @@
+---
+title: "Kapso configuration reference: every key in config.yaml"
+sidebarTitle: "Configuration"
+description: "How Kapso resolves its config file, and what every top-level key does: inference routing, modes, coding agents, knowledge search and trajectory learning."
+keywords: ["Kapso config.yaml", "Kapso configuration", "inference roles", "GENERIC mode", "MINIMAL mode", "auth_mode"]
+---
+
+Kapso reads a single YAML file. Every tunable value lives there, and nothing is configured through environment variables.
+
+## Where the config comes from
+
+Kapso ships a packaged `config.yaml` and uses it unless you point somewhere else:
+
+```python
+from kapso import Kapso
+
+kapso = Kapso()                              # packaged config
+kapso = Kapso(config_path="./my-config.yaml")  # yours
+```
+
+```bash
+kapso doctor --config ./my-config.yaml
+kapso learn mine --all --config ./my-config.yaml
+```
+
+<Note>
+  Configuration and credentials are separate. Knobs — models, budgets, timeouts, gates — come from this file. Credentials never do: the coding-agent CLIs hold their own logins, and keys such as `OPENAI_API_KEY` are read from `.env` by the SDKs that need them.
+</Note>
+
+## Top-level keys
+
+| Key | What it controls |
+|-----|------------------|
+| [`default_mode`](#default-mode) | Which entry in `modes` is active |
+| [`inference`](#inference) | The CLI, model and effort behind non-coding model calls |
+| [`preflight`](#preflight) | Whether requirement checks run before a verb |
+| [`defaults`](#defaults) | Embedding model, heartbeat and request timeout |
+| [`modes`](#modes) | Named bundles of search, agent, feedback and knowledge settings |
+| [`learning`](#learning) | The trajectory store, lesson bank, graders and update crew |
+
+## default_mode
+
+```yaml
+default_mode: GENERIC
+```
+
+Names the entry in [`modes`](#modes) used when nothing overrides it. Override per run with `kapso evolve --mode MINIMAL` or `evolve(mode="MINIMAL")`.
+
+## inference
+
+Routes model calls that are not coding-agent work: research, judging, reranking and utilities.
+
+```yaml
+inference:
+  default:
+    cli: codex
+    model: gpt-5.6-sol
+    effort: xhigh
+    sandbox: read-only
+    timeout_seconds: 900
+  roles:
+    research:
+      web_search: true
+      timeout_seconds: 1800
+    kg_rerank:
+      effort: low
+      timeout_seconds: 300
+```
+
+| Key under `default` | What it does | Shipped value |
+|---------------------|--------------|---------------|
+| `cli` | Which CLI runs the call | `codex` |
+| `model` | Model that CLI is asked for | `gpt-5.6-sol` |
+| `effort` | Reasoning effort | `xhigh` |
+| `sandbox` | Filesystem access granted to the call | `read-only` |
+| `timeout_seconds` | Per-call timeout | `900` |
+
+`roles` overrides `default` for one named role. Anything a role omits falls back to `default`, so `kg_rerank` above keeps `cli: codex` and only lowers effort and timeout.
+
+| Role | Purpose | Overrides |
+|------|---------|-----------|
+| `research` | Deep web research | `web_search: true`, 1800s |
+| `kg_rerank` | Rerank knowledge-graph hits | `effort: low`, 300s |
+| `kg_navigate` | Navigate the graph | `effort: low`, 300s |
+| `repo_memory` | Build repository memory | none, inherits `default` |
+| `commit_message` | Write experiment commit messages | `effort: low`, 180s |
+| `benchmark_utility` | Benchmark helper calls | `effort: low`, 600s |
+
+## preflight
+
+```yaml
+preflight:
+  enabled: true
+  live_model_probe: false
+```
+
+| Key | What it does | Shipped value |
+|-----|--------------|---------------|
+| `enabled` | Run requirement checks before a verb starts | `true` |
+| `live_model_probe` | Also fire a one-token live call per CLI and model pair | `false` |
+
+These are the same checks [`kapso doctor`](/docs/reference/cli#kapso-doctor) reports. Leaving `enabled: true` is what makes a missing CLI fail in seconds instead of deep inside a run.
+
+## defaults
+
+```yaml
+defaults:
+  models:
+    embedding: text-embedding-3-small
+  budget:
+    checkpoint_heartbeat_seconds: 60
+  retry:
+    request_timeout_seconds: 600
+```
+
+| Key | What it does | Shipped value |
+|-----|--------------|---------------|
+| `models.embedding` | Embedding model for knowledge search and memory | `text-embedding-3-small` |
+| `budget.checkpoint_heartbeat_seconds` | How often a run writes its checkpoint and status | `60` |
+| `retry.request_timeout_seconds` | Default request timeout | `600` |
+
+## modes
+
+A mode is a named bundle of settings. Two ship: `GENERIC` and `MINIMAL`. `MINIMAL` differs mainly by turning knowledge search off and using shorter learner timeouts.
+
+Each mode carries six blocks.
+
+### search_strategy
+
+```yaml
+search_strategy:
+  type: generic
+  params:
+    idea_generation_model: claude-opus-5
+    implementation_model: claude-opus-5
+    auth_mode: oauth
+    gate_failure_policy: warn
+    ideation_gates: [research, experiment_history, repo_memory, leeroopedia]
+    implementation_gates: [research, repo_memory, leeroopedia]
+```
+
+| Key | What it does |
+|-----|--------------|
+| `type` | Which search strategy runs the campaign |
+| `params.idea_generation_model` | Model that proposes candidates |
+| `params.implementation_model` | Model that writes the code |
+| `params.auth_mode` | `oauth`, `api_key` or `auto` |
+| `params.gate_failure_policy` | What to do when an MCP gate is unavailable. `warn` continues |
+| `params.ideation_gates` | MCP tools offered while designing a candidate |
+| `params.implementation_gates` | MCP tools offered while implementing it |
+
+See [Capability-aware MCP gates](/docs/evolve/mcp-gates).
+
+### coding_agent and feedback_generator
+
+Both take the same shape:
+
+```yaml
+coding_agent:
+  type: claude_code
+  model: claude-opus-5
+  debug_model: claude-opus-5
+  agent_specific:
+    auth_mode: oauth
+    streaming: true
+```
+
+| Key | What it does |
+|-----|--------------|
+| `type` | `claude_code`, `codex`, `gemini`, `openhands` or `oss_claude_code` |
+| `model` | Model for normal work |
+| `debug_model` | Model used when an experiment is being debugged |
+| `agent_specific.auth_mode` | `oauth` uses the CLI's stored login, `api_key` uses `ANTHROPIC_API_KEY`, `auto` takes either |
+| `agent_specific.streaming` | Stream the agent's output |
+
+### knowledge_search
+
+```yaml
+knowledge_search:
+  type: kg_graph_search
+  enabled: true
+  preset: DEFAULT
+```
+
+| Key | What it does |
+|-----|--------------|
+| `type` | `kg_graph_search` for hybrid vector and graph search, or `kg_llm_navigation` |
+| `enabled` | Whether campaigns query the knowledge graph. `MINIMAL` ships this `false` |
+| `preset` | Named retrieval preset |
+
+See [Search backends](/docs/knowledge/search-backends).
+
+### retry
+
+```yaml
+retry:
+  max_attempts: 2
+  initial_delay_seconds: 5
+  max_delay_seconds: 60
+  multiplier: 2
+  jitter: true
+```
+
+Bounded exponential backoff for transient model failures. See [Model routing and retries](/docs/evolve/model-routing-retries).
+
+### learner
+
+Two sub-blocks, `ingestor` and `merger`, controlling `learn_knowledge()`. Both take a `model`, an `auth_mode` and a `timeout`. `ingestor` additionally takes `cleanup`, `cleanup_staging`, `fail_on_validation_errors` and `github_repo_visibility`.
+
+## learning
+
+Everything about trajectory learning: mining finished campaigns into an evidence-priced lesson bank.
+
+| Key | What it controls |
+|-----|------------------|
+| `trajectory_store` | `local` path and optional `remote` for imported campaigns |
+| `bank` | `local_path` of the bank repository |
+| `serving` | Whether banked lessons are served into campaigns |
+| `retriever` | `probe_budget` for lesson retrieval |
+| `harvest` | Whether finished campaigns are harvested automatically |
+| `mining` | How trajectories are mined into their derived views |
+| `graders` | The grader suite settings |
+| `update_crew` | The crew that folds lessons in: roles, repair rounds, timeouts |
+| `codify` | The codify pipeline |
+| `develop` | The development regime |
+| `behavior` | Behavior scenarios |
+| `ab` | A/B arm settings |
+| `import_report_dir` | Where import reports are written |
+| `status_dir` | Where status files are written |
+
+Shipped values worth knowing:
+
+```yaml
+learning:
+  trajectory_store:
+    local: data/trajectories
+    remote: null
+  bank:
+    local_path: data/kapso-bank.git
+  serving:
+    enabled: false
+  update_crew:
+    default_version: crew_v4
+```
+
+<Warning>
+  `learning.serving.enabled` ships as `false`. Until you turn it on, campaigns do not read from the lesson bank, so banked lessons have no effect on `evolve()`.
+</Warning>
+
+`update_crew.default_version` is the version [`learn()`](/docs/reference/kapso-api#learn) uses when you do not pass `learner_version`.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="CLI" icon="terminal" href="/docs/reference/cli">
+    Commands that accept --config
+  </Card>
+  <Card title="Python API" icon="code" href="/docs/reference/kapso-api">
+    Passing config_path to Kapso()
+  </Card>
+</CardGroup>
