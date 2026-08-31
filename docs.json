@@ -61,11 +61,22 @@
             ]
           },
           {
-            "group": "Knowledge System & Learning",
+            "group": "Knowledge graph",
             "pages": [
               "docs/knowledge/overview",
               "docs/knowledge/learning-pipeline",
               "docs/knowledge/search-backends"
+            ]
+          },
+          {
+            "group": "Trajectory learning",
+            "pages": [
+              "docs/learning/overview",
+              "docs/learning/bank",
+              "docs/learning/pipeline",
+              "docs/learning/graders",
+              "docs/learning/serving",
+              "docs/learning/development"
             ]
           },
           {
