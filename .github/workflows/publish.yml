@@ -25,8 +25,11 @@ jobs:
       - name: Build package
         run: python -m build
 
+      # --skip-existing because a release is often uploaded by hand first, so
+      # that the artifacts can be checked before they ship. Without it this
+      # step fails on the duplicate rather than no-opping.
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
+        run: twine upload --skip-existing dist/*
