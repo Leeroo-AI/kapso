@@ -1,7 +1,44 @@
-# Exclude non-documentation directories that contain .md files
-src/
-data/
-paper/
-tests/
-benchmarks/mle/
-benchmarks/ale/
+# What Mintlify may scan when it builds docs.leeroo.com.
+#
+# Only pages listed in docs.json are ever published, but every file outside
+# that list is still parsed during the build, and each unparseable one becomes
+# a warning that `mint validate` fails CI on. So everything that is not
+# documentation is excluded here.
+#
+# Every pattern is anchored with a leading slash. An unanchored `benchmarks/`
+# also matches `docs/benchmarks/` and silently unpublishes the three benchmark
+# pages — a mistake this file has already made once.
+#
+# Inverting this into a whitelist (`/*` then `!/docs/`) does not work: Mintlify's
+# ignore engine does not re-include the contents of an excluded directory, and
+# the whole navigation goes missing. Keep it a blacklist.
+
+# Tracked, part of the package rather than the docs
+/src/
+/tests/
+/scripts/
+/services/
+/examples/
+/moltbook_bot/
+
+# Benchmark harnesses. The published benchmark pages live in docs/benchmarks/,
+# which the leading slash here deliberately leaves alone.
+/benchmarks/
+
+# Untracked local output. CI never sees these, but they exist on a developer
+# machine and would otherwise bury the real warnings.
+/animation/
+/cache/
+/data/
+/dist/
+/experiments/
+/learning/
+/store/
+/tmp/
+/leeroo_kapso.egg-info/
+
+# Internal design and planning notes. Tracked and reviewed in the repo, but
+# not part of the published site — they are absent from the docs.json
+# navigation, and Mintlify serves 404 for them.
+/docs/plans/
+/docs/research/*.md

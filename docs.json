@@ -53,8 +53,7 @@
                   {
                     "group": "Memory",
                     "pages": [
-                      "docs/evolve/repo-memory",
-                      "docs/evolve/cognitive-memory"
+                      "docs/evolve/repo-memory"
                     ]
                   }
                 ]
