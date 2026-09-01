@@ -2,9 +2,14 @@
 
 This module provides integration with [ALE-Bench](https://github.com/SakanaAI/ALE-Bench), a benchmark for evaluating AI agents on AtCoder Heuristic Contests (algorithmic optimization problems).
 
-Kapso achieved **#1 on ALE-Bench**.
+Kapso achieved **#1 on ALE-Bench**: a final rating of **1909 Elo** against ALE Agent's 1879
+(+30 Elo), under the same time budget per problem and the official scorer.
 
-![ALE-Bench Results](../../docs/images/ale-bench.png)
+![ALE-Bench: Kapso's final rating of 1909 Elo against ALE Agent's 1879, the headline row drawn from a truncated axis starting at 1850, above a per-problem breakdown of ten AtCoder Heuristic Contest problems on an absolute 1000 to 3000 Elo axis](../../docs/images/ale-bench.png)
+
+The chart's Final result row is drawn from a truncated axis — Elo 1850, printed under the row
+label — because on the absolute 1000–3000 scale of the per-problem breakdown below it, the two
+final ratings are 1.5% apart and render as the same bar.
 
 ## Prerequisites
 
