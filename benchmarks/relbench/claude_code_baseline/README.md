@@ -17,9 +17,9 @@ raw agent stays below the best reported bar while Kapso clears it.
 | Forecasting | error, lower is better | 10.4% (KumoRFM-v2) | 8.0% (−22%) | **7.6%** (−26%) |
 | Recommendations | MAP, higher is better | 16.1 (best reported) | 12.5 (−22%) | **18.8** (+16%) |
 
-The chart's panels are drawn from truncated axes — 68 AUROC, 12% error, 10 MAP, each printed
-under its own panel title — so that margins of a point or two are legible; the table is the
-same result without the axis. These six tasks are a different, smaller set from the
+The chart's panels are drawn from truncated axes (68 AUROC, 12% error, 10 MAP) so that
+margins of a point or two are legible; the table is the same result without the axis. These
+six tasks are a different, smaller set from the
 [headline RelBench figure](../README.md#results), so the two are not comparable.
 
 Per-task scores, the drop protocol, and run archives: [`RESULTS.md`](RESULTS.md). The harness

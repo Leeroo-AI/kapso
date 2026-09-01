@@ -30,10 +30,9 @@ result per task. Kapso beats both bars:
 | Forecasting · 9 tasks | NMAE, lower is better | 0.2912 (KumoRFM-v2) | **0.2476** | 15% less error |
 | Recommendations · 10 tasks | MAP, higher is better | 15.7 (best reported) | **18.4** | +18% |
 
-Each panel of the chart is drawn from a truncated axis — 78 AUROC, 0.35 NMAE, 12 MAP, each
-printed under its own panel title — because all three metrics live in a narrow band far from
-zero, and a zero-based bar renders a two-point AUROC margin as no margin at all. The table is
-the same result without the axis.
+Each panel of the chart is drawn from a truncated axis (78 AUROC, 0.35 NMAE, 12 MAP), because
+all three metrics live in a narrow band far from zero, and a zero-based bar renders a
+two-point AUROC margin as no margin at all. The table is the same result without the axis.
 
 All scores come from the official RelBench evaluator. The same solutions also beat a frontier
 coding agent (Claude Code, Fable-5) under an identical budget: see
