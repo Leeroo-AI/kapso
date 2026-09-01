@@ -16,13 +16,13 @@ from kapso.core import prompt_loader
 
 PROMPT_PATHS = [
     # RepoMemory builders
-    "repo_memory/prompts/plan_files_to_read.md",
-    "repo_memory/prompts/infer_repo_model_initial.md",
-    "repo_memory/prompts/infer_repo_model_retry.md",
-    "repo_memory/prompts/infer_repo_model_update.md",
+    "execution/memories/repo_memory/prompts/plan_files_to_read.md",
+    "execution/memories/repo_memory/prompts/infer_repo_model_initial.md",
+    "execution/memories/repo_memory/prompts/infer_repo_model_retry.md",
+    "execution/memories/repo_memory/prompts/infer_repo_model_update.md",
     # Execution prompts (coding)
-    "execution/prompts/coding_agent_implement.md",
-    "execution/prompts/coding_agent_debug.md",
+    "execution/search_strategies/generic/prompts/coding_agent_implement.md",
+    "execution/search_strategies/generic/prompts/coding_agent_debug.md",
 ]
 
 

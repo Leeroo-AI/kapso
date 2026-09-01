@@ -58,48 +58,88 @@ class TestFeedbackResult(unittest.TestCase):
 
 
 class TestFeedbackGeneratorParseResponse(unittest.TestCase):
-    """Test JSON parsing of feedback responses."""
-    
+    """_parse_response reads XML tags, not JSON.
+
+    The agent contract moved from a JSON object to <stop>/<evaluation_valid>/
+    <score>/<feedback> tags. Untagged input is not an error here: the method
+    returns None and the caller owns the retry and the explicit failure.
+    """
+
     def setUp(self):
-        """Create a FeedbackGenerator for testing."""
+        # __new__ skips __init__ on purpose: _parse_response is pure string
+        # work and needs none of the agent wiring __init__ builds.
         self.generator = FeedbackGenerator.__new__(FeedbackGenerator)
-    
-    def test_parse_valid_json(self):
-        """Test parsing valid JSON response."""
-        response = '{"stop": true, "evaluation_valid": true, "score": 0.95, "feedback": "Goal achieved!"}'
+
+    def test_parse_tagged_response(self):
+        response = (
+            "<stop>true</stop>"
+            "<evaluation_valid>true</evaluation_valid>"
+            "<score>0.95</score>"
+            "<feedback>Goal achieved!</feedback>"
+        )
         result = self.generator._parse_response(response)
-        
+
         self.assertTrue(result.stop)
         self.assertTrue(result.evaluation_valid)
         self.assertEqual(result.score, 0.95)
         self.assertEqual(result.feedback, "Goal achieved!")
-    
-    def test_parse_json_in_code_fence(self):
-        """Test parsing JSON inside markdown code fence."""
-        response = '''```json
-{"stop": false, "evaluation_valid": true, "score": 0.5, "feedback": "Keep improving"}
-```'''
+
+    def test_parse_tags_surrounded_by_prose(self):
+        """The agent narrates around its tags, so extraction is not anchored."""
+        response = (
+            "Here is my assessment.\n\n"
+            "<stop>false</stop>\n"
+            "<evaluation_valid>true</evaluation_valid>\n"
+            "<score>0.5</score>\n"
+            "<feedback>Keep improving</feedback>\n\n"
+            "Let me know if you need more."
+        )
         result = self.generator._parse_response(response)
-        
+
         self.assertFalse(result.stop)
-        self.assertTrue(result.evaluation_valid)
         self.assertEqual(result.score, 0.5)
-    
-    def test_parse_json_with_null_score(self):
-        """Test parsing JSON with null score."""
-        response = '{"stop": false, "evaluation_valid": true, "score": null, "feedback": "No score"}'
+        self.assertEqual(result.feedback, "Keep improving")
+
+    def test_parse_null_score_is_none_not_zero(self):
+        response = (
+            "<stop>false</stop>"
+            "<evaluation_valid>false</evaluation_valid>"
+            "<score>null</score>"
+            "<feedback>Evaluation was invalid</feedback>"
+        )
         result = self.generator._parse_response(response)
-        
+
         self.assertIsNone(result.score)
-    
-    def test_parse_invalid_json_returns_default(self):
-        """Test that invalid JSON returns default result with raw response."""
-        response = "This is not valid JSON"
+        self.assertFalse(result.evaluation_valid)
+
+    def test_parse_untagged_response_returns_none(self):
+        """No tags means no verdict — the caller retries rather than guessing."""
+        self.assertIsNone(self.generator._parse_response("I could not evaluate this."))
+        # the previous JSON contract is now simply untagged text
+        self.assertIsNone(
+            self.generator._parse_response('{"stop": true, "score": 0.9}')
+        )
+
+    def test_parse_load_bearing_cards(self):
+        """Citation contract: comma-separated names, with 'none' meaning empty."""
+        response = (
+            "<stop>false</stop>"
+            "<feedback>Used two cards</feedback>"
+            "<cards_load_bearing>card:early-stopping, [batching-tradeoff]"
+            "</cards_load_bearing>"
+        )
         result = self.generator._parse_response(response)
-        
-        self.assertFalse(result.stop)
-        self.assertTrue(result.evaluation_valid)
-        self.assertIn("Failed to parse", result.feedback)
+        self.assertEqual(
+            result.cards_load_bearing, ["early-stopping", "batching-tradeoff"]
+        )
+
+        none_response = (
+            "<stop>false</stop><feedback>None applied</feedback>"
+            "<cards_load_bearing>none</cards_load_bearing>"
+        )
+        result = self.generator._parse_response(none_response)
+        self.assertEqual(result.cards_load_bearing, [])
+
 
 
 class TestExperimentResult(unittest.TestCase):
@@ -131,31 +171,21 @@ class TestGenericProblemHandler(unittest.TestCase):
     """Test simplified GenericProblemHandler."""
     
     def test_handler_creation(self):
-        """Test creating a GenericProblemHandler."""
+        """The handler takes a description plus optional eval/data dirs."""
         from kapso.environment.handlers.generic import GenericProblemHandler
-        
+
         handler = GenericProblemHandler(
             problem_description="Test problem",
-            main_file="main.py",
-            language="python",
+            eval_dir="./evaluation",
+            data_dir="./datasets",
         )
-        
+
         self.assertEqual(handler.problem_description, "Test problem")
-        self.assertEqual(handler.main_file, "main.py")
-        self.assertEqual(handler.language, "python")
-    
-    def test_handler_stop_condition_always_false(self):
-        """Test that stop_condition always returns False in new design."""
-        from kapso.environment.handlers.generic import GenericProblemHandler
-        
-        handler = GenericProblemHandler(
-            problem_description="Test problem",
-        )
-        
-        # In new design, stop_condition always returns False
-        # FeedbackGenerator handles stop decisions
-        self.assertFalse(handler.stop_condition())
-    
+        self.assertEqual(handler.eval_dir, "./evaluation")
+        self.assertEqual(handler.data_dir, "./datasets")
+        self.assertTrue(handler.maximize_scoring)
+
+
     def test_handler_problem_context_includes_evaluation_instructions(self):
         """Test that problem context includes evaluation instructions."""
         from kapso.environment.handlers.generic import GenericProblemHandler

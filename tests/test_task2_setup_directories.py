@@ -65,8 +65,6 @@ class TestSetupKapsoDirectories:
         """Helper to create a search strategy with given directories."""
         handler = GenericProblemHandler(
             problem_description="Test problem",
-            main_file="main.py",
-            language="python",
         )
         coding_agent_config = CodingAgentFactory.build_config()
         llm = LLMBackend()
@@ -203,23 +201,26 @@ class TestSetupKapsoDirectories:
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
     
-    def test_nonexistent_eval_dir_ignored(self):
-        """Test that non-existent eval_dir is handled gracefully."""
+    def test_nonexistent_eval_dir_raises(self):
+        """A missing eval_dir fails loud rather than being ignored.
+
+        eval_dir is caller-owned scoring. Silently dropping a path the caller
+        supplied would let a campaign run and report a score without ever
+        using their evaluator, which is the failure evaluation integrity
+        exists to prevent — so build_evaluation_manifest raises instead.
+        """
         workspace = tempfile.mkdtemp(prefix="test_workspace_")
         try:
-            strategy = self._create_strategy(
-                workspace_dir=workspace,
-                eval_dir="/nonexistent/path/12345",
-                data_dir=None,
-            )
-            
-            # kapso_evaluation/ should exist but be empty (with .gitkeep)
-            kapso_eval = os.path.join(workspace, "kapso_evaluation")
-            assert os.path.exists(kapso_eval)
-            assert os.path.exists(os.path.join(kapso_eval, ".gitkeep"))
-            
+            with pytest.raises(FileNotFoundError) as excinfo:
+                self._create_strategy(
+                    workspace_dir=workspace,
+                    eval_dir="/nonexistent/path/12345",
+                    data_dir=None,
+                )
+            assert "/nonexistent/path/12345" in str(excinfo.value)
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
+
 
 
 class TestKapsoEvolveWithDirectories:

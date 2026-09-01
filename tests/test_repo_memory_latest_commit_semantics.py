@@ -33,11 +33,13 @@ from kapso.execution.memories.repo_memory import RepoMemoryManager
 def test_repo_memory_update_runs_after_final_commit(tmp_path: Path):
     llm = CliInference()
 
-    # Use an agent adapter that can initialize without external deps/keys.
+    # Use an agent adapter that imports without external deps. openhands was
+    # named here but needs the openhands-ai package, so it failed at import on
+    # a default install; the codex adapter is pure subprocess and imports clean.
     agent_cfg = CodingAgentConfig(
-        agent_type="openhands",
-        model="gpt-4.1-mini",
-        debug_model="gpt-4.1-mini",
+        agent_type="codex",
+        model="gpt-5.6-sol",
+        debug_model="gpt-5.6-sol",
         agent_specific={},
     )
 
