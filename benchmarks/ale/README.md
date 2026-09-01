@@ -5,11 +5,28 @@ This module provides integration with [ALE-Bench](https://github.com/SakanaAI/AL
 Kapso achieved **#1 on ALE-Bench**: a final rating of **1909 Elo** against ALE Agent's 1879
 (+30 Elo), under the same time budget per problem and the official scorer.
 
-![ALE-Bench: Kapso's final rating of 1909 Elo against ALE Agent's 1879, the headline row drawn from a truncated axis starting at 1850, above a per-problem breakdown of ten AtCoder Heuristic Contest problems on an absolute 1000 to 3000 Elo axis](../../docs/images/ale-bench.png)
+![ALE-Bench: Kapso's final rating of 1909 Elo against ALE Agent's 1879, every row drawn from its own printed Elo origin, above a per-problem breakdown of ten AtCoder Heuristic Contest problems whose bar gaps share one scale](../../docs/images/ale-bench.png)
 
-The chart's Final result row is drawn from a truncated axis — Elo 1850, printed under the row
-label — because on the absolute 1000–3000 scale of the per-problem breakdown below it, the two
-final ratings are 1.5% apart and render as the same bar.
+| Problem | ALE Agent | Kapso | Δ Elo |
+|---|---|---|---|
+| **Final result** | 1879 | **1909** | **+30** |
+| ahc008 | 1189 | 1221 | +32 |
+| ahc011 | 1652 | 1607 | −45 |
+| ahc015 | 2446 | 2528 | +82 |
+| ahc016 | 1457 | 2022 | +565 |
+| ahc024 | 1980 | 1980 | 0 |
+| ahc025 | 1331 | 1353 | +22 |
+| ahc026 | 1965 | 2040 | +75 |
+| ahc027 | 1740 | 1839 | +99 |
+| ahc046 | 2153 | 2194 | +41 |
+| ahc039 | 2880 | 2310 | −570 |
+
+Every row of the chart is drawn from its own truncated axis, printed at the row's left edge,
+because Elo differences live far from zero: on an absolute 1000–3000 scale the final ratings
+are 1.5% apart and render as the same bar. The per-problem rows share one Elo-per-pixel
+scale, so gap sizes stay comparable across problems — a +22 never renders like a +565; the
+Final result row uses a magnified scale of its own (from Elo 1850, printed under its label).
+The table is the same result without any axis.
 
 ## Prerequisites
 

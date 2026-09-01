@@ -45,7 +45,7 @@
 
 - **#1 on [ALE-Bench](benchmarks/ale/README.md)**: KAPSO achieved top ranking on long-horizon algorithmic discovery problems (ALE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Kapso reaches a final rating of 1909 Elo against ALE Agent's 1879, that headline row drawn from a truncated axis starting at 1850, with the per-problem breakdown across ten AtCoder Heuristic Contest problems on an absolute 1000 to 3000 Elo axis below" width="820">
+  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Kapso reaches a final rating of 1909 Elo against ALE Agent's 1879, above a breakdown across ten AtCoder Heuristic Contest problems; every row is drawn from its own printed Elo origin, and the per-problem bar gaps share one scale" width="820">
 
 ## What is KAPSO?
 
