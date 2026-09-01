@@ -352,7 +352,11 @@ learning:
     implementor: {cli: codex, model: "gpt-5.6-sol", effort: "xhigh"}
     judge: {cli: claude_code, model: "claude-fable-5", effort: "xhigh", auth_mode: "oauth"}
     gcp:
-      project: trans-density-437811-p2
+      # Your own GCP project. Deliberately empty: this file ships inside the
+      # published package, so it must not carry one organisation's project id.
+      # Set it in your own config and pass that with --config / config_path.
+      # gcp_ephemeral refuses to provision anything while this is blank.
+      project: ""
       zone: us-central1-a
       cpu_machine_type: e2-standard-8
       accelerator: type=nvidia-l4,count=1
@@ -361,10 +365,11 @@ learning:
       image_family: common-cu129-ubuntu-2204-nvidia-580
       image_project: deeplearning-platform-release
       boot_disk_gb: "200"
-      # Prefixed to the evaluation command on the instance (env activation
-      # + the one dep the DLVM image lacks; task-table downloads happen
-      # inside the evaluation itself).
-      bootstrap: "/opt/conda/bin/pip install --quiet relbench==2.1.2 && PATH=/opt/conda/bin:$PATH"
+      # Prefixed to the evaluation command on the instance: env activation and
+      # any dependency the DLVM image lacks. Empty by default because what
+      # belongs here is per-benchmark, not general. For RelBench, for example:
+      #   "/opt/conda/bin/pip install --quiet relbench==2.1.2 && PATH=/opt/conda/bin:$PATH"
+      bootstrap: ""
   develop:
     # The development regime (design §4.4): disposable banks, chronological
     # exam-then-ingest replay of the learn set, keep-best banking of learner

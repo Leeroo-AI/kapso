@@ -28,6 +28,16 @@ class GcpEphemeralExecutor:
         self.machine_type_gpu = codify["machine_type"]
         self.machine_type_cpu = self.gcp["cpu_machine_type"]
         self.timeout = codify["iteration_timeout_minutes"] * 60
+        # The packaged config ships an empty project — it is published, so it
+        # carries no organisation's identifiers. Caught here rather than left
+        # to `gcloud --project ""`, whose error names neither the config key
+        # nor the file it belongs in.
+        if not str(self.gcp["project"]).strip():
+            raise ValueError(
+                "learning.codify.gcp.project is empty. Set your own GCP "
+                "project id in your config and pass it with --config "
+                "(CLI) or config_path (Kapso), then rerun."
+            )
 
     def _gcloud(self, args, timeout=300):
         return subprocess.run(
