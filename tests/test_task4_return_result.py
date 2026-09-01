@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from kapso.execution.solution import SolutionResult
-from kapso.execution.feedback_generator import FeedbackResult
+from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import FeedbackResult
 from kapso.execution.orchestrator import SolveResult
 
 
