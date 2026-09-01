@@ -151,7 +151,7 @@ def implement_solution(self, solution, context, session):
     return self._extract_agent_result(session.output)
 ```
 
-The developer agent is responsible for:
+The coding agent is responsible for:
 1. Implementing the solution code
 2. Building evaluation in `kapso_evaluation/`
 3. Running the evaluation
@@ -173,7 +173,7 @@ main
 
 ### Step 6: Agent Returns Structured JSON
 
-The developer agent returns a structured JSON with evaluation results:
+The coding agent returns a structured JSON with evaluation results:
 
 ```json
 {

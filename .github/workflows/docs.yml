@@ -68,3 +68,10 @@ jobs:
       # Stdlib only, so no Python setup step is needed beyond the runner's own.
       - name: Check the reference covers the public surface
         run: python3 scripts/check_docs_coverage.py
+
+      # Gates only the objective GEO rules — a page opening with prose, an
+      # internal link, no banned marketing word or terminology alias. The
+      # question-heading share is printed, never gated: gating a percentage
+      # buys the number at the cost of the prose.
+      - name: Check the GEO rules
+        run: python3 scripts/check_docs_geo.py

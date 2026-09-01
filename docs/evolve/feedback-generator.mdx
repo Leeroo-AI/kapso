@@ -21,7 +21,7 @@ flowchart LR
     F --> G[Next Iteration]
 ```
 
-After the developer agent implements a solution and runs evaluation, the feedback generator:
+After the coding agent implements a solution and runs evaluation, the feedback generator:
 
 1. **Validates the evaluation**: Checks if the agent-built evaluation is fair and correct
 2. **Extracts the score**: Parses evaluation output to get numeric scores
@@ -150,7 +150,7 @@ Feedback generation happens within the search strategy, not the orchestrator. Th
 
 - **Per-node feedback** in tree search (each node gets its own feedback)
 - **Unified flow** where implementation and feedback are tightly coupled
-- **Cleaner orchestrator** that just checks `node.should_stop`
+- **Cleaner orchestrator** that only checks `node.should_stop`
 
 ```python
 # In SearchStrategy.run()
@@ -210,7 +210,7 @@ solution = kapso.evolve(
 
 ### 3. Trust the Feedback
 
-The feedback generator provides actionable suggestions. The next iteration's developer agent receives this feedback and uses it to improve:
+The feedback generator provides actionable suggestions. The next iteration's coding agent receives this feedback and uses it to improve:
 
 ```text
 Iteration 1: Accuracy 0.75
