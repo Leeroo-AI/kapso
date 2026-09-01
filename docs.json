@@ -45,7 +45,6 @@
               "docs/evolve/resuming-runs",
               "docs/evolve/external-evaluation",
               "docs/evolve/evaluation-integrity",
-              "docs/evolve/reliability-roadmap",
               {
                 "group": "Components",
                 "pages": [
