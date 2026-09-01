@@ -22,7 +22,18 @@ beat in outcome prediction and forecasting. Recommendation tasks are the gap in 
 (the model does not support them), so there Kapso is measured against the best reported
 result per task. Kapso beats both bars:
 
-![Kapso vs KumoRFM-v2](../../docs/images/relbench.png)
+![RelBench, three panels: outcome prediction, Kapso 81.2 AUROC against KumoRFM-v2's 79.6; forecasting, Kapso 0.2476 NMAE against 0.2912, lower being better; recommendations, Kapso 18.4 MAP against the best reported 15.7](../../docs/images/relbench.png)
+
+| Family | Metric | Bar to beat | Kapso | Margin |
+|---|---|---|---|---|
+| Outcome prediction · 12 tasks | AUROC, higher is better | 79.6 (KumoRFM-v2) | **81.2** | +2.0% |
+| Forecasting · 9 tasks | NMAE, lower is better | 0.2912 (KumoRFM-v2) | **0.2476** | 15% less error |
+| Recommendations · 10 tasks | MAP, higher is better | 15.7 (best reported) | **18.4** | +18% |
+
+Each panel of the chart is drawn from a truncated axis — 78 AUROC, 0.35 NMAE, 12 MAP, each
+printed under its own panel title — because all three metrics live in a narrow band far from
+zero, and a zero-based bar renders a two-point AUROC margin as no margin at all. The table is
+the same result without the axis.
 
 All scores come from the official RelBench evaluator. The same solutions also beat a frontier
 coding agent (Claude Code, Fable-5) under an identical budget: see
