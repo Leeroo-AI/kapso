@@ -25,6 +25,13 @@ from kapso.execution.coding_agents.base import CodingAgentInterface, CodingAgent
 # Path to agents registry YAML
 AGENTS_YAML_PATH = Path(__file__).parent / "agents.yaml"
 
+# The agent used when a caller names none. agents.yaml is the source of truth;
+# this is only the value used when that file is missing, and it is defined once
+# so the two can never drift. It previously appeared as a bare "aider" literal
+# in five places while agents.yaml said the same thing — which is how the
+# reported default came to be an agent a standard install cannot select.
+FALLBACK_DEFAULT_AGENT = "claude_code"
+
 
 class CodingAgentFactory:
     """
@@ -41,7 +48,7 @@ class CodingAgentFactory:
     _agent_configs: Dict[str, Dict[str, Any]] = {}
     
     # Default agent type (from agents.yaml)
-    _default_agent: str = "aider"
+    _default_agent: str = FALLBACK_DEFAULT_AGENT
     
     # =========================================================================
     # Core Factory Methods
@@ -56,7 +63,7 @@ class CodingAgentFactory:
         Can also be called manually for custom agents.
         
         Args:
-            name: Identifier for the agent (e.g., "aider", "gemini")
+            name: Identifier for the agent (e.g., "claude_code", "codex")
             agent_class: Class implementing CodingAgentInterface
         """
         name_lower = name.lower()
@@ -110,7 +117,7 @@ class CodingAgentFactory:
         - supports_native_git
         
         Args:
-            agent_type: Agent type name (e.g., "aider")
+            agent_type: Agent type name (e.g., "claude_code")
             
         Returns:
             Dictionary with default configuration
@@ -144,7 +151,7 @@ class CodingAgentFactory:
         Get the default agent type from agents.yaml.
         
         Returns:
-            Default agent type name (e.g., "aider")
+            Default agent type name (e.g., "claude_code")
         """
         return cls._default_agent
     
@@ -292,15 +299,15 @@ def _load_agents_yaml() -> Dict[str, Any]:
     """
     if not AGENTS_YAML_PATH.exists():
         print(f"[CodingAgentFactory] Warning: {AGENTS_YAML_PATH} not found")
-        return {"agents": {}, "default_agent": "aider"}
+        return {"agents": {}, "default_agent": FALLBACK_DEFAULT_AGENT}
     
     try:
         with open(AGENTS_YAML_PATH, 'r') as f:
             content = yaml.safe_load(f)
-            return content if content else {"agents": {}, "default_agent": "aider"}
+            return content if content else {"agents": {}, "default_agent": FALLBACK_DEFAULT_AGENT}
     except yaml.YAMLError as e:
         print(f"[CodingAgentFactory] Error parsing agents.yaml: {e}")
-        return {"agents": {}, "default_agent": "aider"}
+        return {"agents": {}, "default_agent": FALLBACK_DEFAULT_AGENT}
 
 
 def _register_from_yaml() -> None:
@@ -315,7 +322,7 @@ def _register_from_yaml() -> None:
     config = _load_agents_yaml()
     
     # Set default agent
-    CodingAgentFactory._default_agent = config.get("default_agent", "aider")
+    CodingAgentFactory._default_agent = config.get("default_agent", FALLBACK_DEFAULT_AGENT)
     
     # Process each agent entry
     for agent_name, agent_info in config.get("agents", {}).items():

@@ -19,8 +19,13 @@
 #   - install_command: How to install dependencies
 #   - agent_specific: Default agent-specific options
 
-# Default agent when none specified
-default_agent: aider
+# Default agent when none specified.
+#
+# This must name an agent that a default install can actually run. aider is an
+# optional extra (`pip install "leeroo-kapso[aider]"`, Python <3.13), so it is
+# absent from a standard install and naming it here advertised a default that
+# could not be selected. claude_code is what both shipped config modes use.
+default_agent: claude_code
 
 agents:
   # ============================================================================
