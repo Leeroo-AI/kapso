@@ -5,9 +5,7 @@ description: "Create a strategy as a self-contained directory: the runner, its c
 keywords: ["custom deployment strategy", "strategy registry", "runner", "extend Kapso", "plugin"]
 ---
 
-## Overview
-
-Kapso's deployment system is extensible. You can add custom strategies by creating a new directory under `src/kapso/deployment/strategies/`.
+A deployment strategy is a self-contained directory under `src/kapso/deployment/strategies/`. Add one and the registry discovers it; no core code changes.
 
 ## Strategy Structure
 
@@ -121,18 +119,22 @@ Create `selector_instruction.txt` for auto-selection:
 ## My Strategy
 
 ### Summary
+
 A custom deployment strategy for [specific use case].
 
 ### When to Use
+
 - Condition 1
 - Condition 2
 - Condition 3
 
 ### When NOT to Use
+
 - Anti-condition 1
 - Anti-condition 2
 
 ### Requirements
+
 - Requirement 1
 - Requirement 2
 ```
@@ -145,10 +147,12 @@ Create `adapter_instruction.txt` for code adaptation:
 ## Adaptation Instructions for My Strategy
 
 ### Required Files
+
 1. `run.py` - Entry point script
 2. `requirements.txt` - Dependencies
 
 ### Entry Point Format
+
 ```python
 def predict(inputs: dict) -> dict:
     """Main prediction function."""
@@ -157,9 +161,11 @@ def predict(inputs: dict) -> dict:
 ```
 
 ### Environment Variables
+
 - `MY_STRATEGY_CONFIG` - Configuration path
 
 ### Notes
+
 - Keep dependencies minimal
 - Handle errors gracefully
 ````
@@ -317,3 +323,14 @@ class HttpRunner(Runner):
         except:
             return False
 ```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Deployment architecture" icon="sitemap" href="/docs/deployment/architecture">
+    How a strategy is discovered
+  </Card>
+  <Card title="Deployment strategies" icon="server" href="/docs/deployment/strategies">
+    The five that ship
+  </Card>
+</CardGroup>

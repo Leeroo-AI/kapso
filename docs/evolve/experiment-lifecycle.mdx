@@ -5,7 +5,7 @@ description: "Solution selection, code generation, execution and optional debugg
 keywords: ["experiment lifecycle", "git branches", "ExperimentSession", "debugging", "implementation flow"]
 ---
 
-## Overview
+Every experiment follows the same path: a parent is chosen, a branch is cut, a coding agent implements the candidate, the evaluation runs, and the result is committed — so the whole search stays inspectable afterwards.
 
 Each experiment follows a lifecycle from solution selection through code generation, execution, and optional debugging.
 
@@ -160,3 +160,13 @@ def finalize_session(self, session):
     session.close_session()  # commit, push, cleanup
 ```
 
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Execution flow" icon="diagram-project" href="/docs/evolve/execution-flow">
+    The loop around one experiment
+  </Card>
+  <Card title="Coding agents" icon="robot" href="/docs/evolve/coding-agents">
+    Who writes the code
+  </Card>
+</CardGroup>

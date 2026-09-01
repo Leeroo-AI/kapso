@@ -5,11 +5,11 @@ description: "How Kapso generates and selects candidate solutions, the generic a
 keywords: ["search strategy", "tree search", "SearchNode", "candidate generation", "solution space"]
 ---
 
-## Overview
+A search strategy decides which candidate to try next. It generates solution ideas, runs each as an experiment, and records the result so the next choice is informed by the last.
 
 Search strategies control how Kapso explores the solution space. They generate solution candidates, run experiments, and track results.
 
-## Available Strategies
+## Which strategies ship?
 
 | Strategy | Description | Best For |
 |----------|-------------|----------|
@@ -219,14 +219,14 @@ class SearchNode:
     workspace_dir: str = ""
 ```
 
-## Strategy Comparison
+## How do they compare?
 
 | Strategy | Evaluation | Stop Decision | Use Case |
 |----------|------------|---------------|----------|
 | `generic` | Agent-built | Feedback generator | `kapso.evolve()` |
 | `benchmark_tree_search` | Handler's `run()` | Handler's `stop_condition()` | MLE/ALE benchmarks |
 
-## Creating Custom Strategies
+## How do I add my own?
 
 ```python
 from kapso.execution.search_strategies.base import SearchStrategy
@@ -261,3 +261,14 @@ class MyCustomSearch(SearchStrategy):
         if best:
             self.workspace.switch_branch(best.branch_name)
 ```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Parent selection" icon="code-branch" href="/docs/evolve/parent-selection">
+    Which candidate to build on
+  </Card>
+  <Card title="Orchestrator" icon="gear" href="/docs/evolve/orchestrator">
+    What drives the strategy
+  </Card>
+</CardGroup>

@@ -5,11 +5,9 @@ description: "OrchestratorAgent connects every component and runs iterations unt
 keywords: ["OrchestratorAgent", "experiment loop", "budget tracking", "campaign coordination", "Kapso orchestrator"]
 ---
 
-## Overview
+`OrchestratorAgent` runs the experiment loop. It asks the search strategy for a candidate, hands it to a coding agent, runs the evaluation, and asks the feedback generator whether to continue — tracking the budget across the whole campaign.
 
-The `OrchestratorAgent` is the central coordinator that manages the experimentation loop. It connects all components and runs iterations until the feedback generator decides the goal is achieved.
-
-## Responsibilities
+## What does the orchestrator do?
 
 1. **Budget Tracking**: Monitor time, iterations, and cost
 2. **Context Gathering**: Assemble problem + KG + history
@@ -17,7 +15,7 @@ The `OrchestratorAgent` is the central coordinator that manages the experimentat
 4. **Stop Checking**: Check if feedback generator decided to stop
 5. **Resource Cleanup**: Close connections when done
 
-## Usage
+## How do I run one?
 
 ### Via Kapso API (Recommended)
 
@@ -66,7 +64,7 @@ orchestrator.solve(
 best = orchestrator.search_strategy.get_best_experiment()
 ```
 
-## The Solve Loop
+## What happens in one iteration?
 
 ```python
 def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
@@ -101,7 +99,7 @@ def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
     return self.search_strategy.get_best_experiment()
 ```
 
-## Budget Tracking
+## How is the budget tracked?
 
 The orchestrator tracks three budgets:
 
@@ -119,7 +117,7 @@ budget_progress = max(time_progress, iteration_progress, cost_progress) * 100
 
 When any budget reaches 100%, the loop stops.
 
-## Component Creation
+## How are components created?
 
 The orchestrator creates components from configuration:
 
@@ -193,7 +191,7 @@ def get_cumulative_cost(self) -> float:
     )
 ```
 
-## Resource Cleanup
+## What gets cleaned up?
 
 The orchestrator cleans up resources in a `finally` block:
 

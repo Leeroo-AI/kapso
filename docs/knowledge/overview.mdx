@@ -5,11 +5,11 @@ description: "How knowledge from repositories and research is acquired, stored a
 keywords: ["knowledge graph", "domain knowledge", "Weaviate", "Neo4j", "knowledge search"]
 ---
 
-## Overview
+The knowledge graph is Kapso's imported memory: what other people have written, drawn from repositories and research and searchable during a campaign. It is the counterpart to the [lesson bank](/docs/learning/overview), which holds what Kapso measured itself.
 
 The Knowledge System provides domain-specific guidance during problem-solving. It helps the agent recommend proven approaches and avoid common pitfalls by learning from repositories, research, and past experiments.
 
-## Key Concepts
+## What is in the knowledge graph?
 
 ### Knowledge Graph (KG)
 
@@ -34,7 +34,7 @@ Hybrid retrieval that combines multiple approaches:
 - **Graph traversal**: Connected pages from Neo4j
 - **LLM reranking**: Relevance scoring for better results
 
-## Using Knowledge in Kapso
+## How do I get knowledge into a campaign?
 
 ### Option 1: Pre-indexed KG
 
@@ -99,7 +99,7 @@ solution = kapso.evolve(
 | `kg_graph_search` | Wiki pages (.md) | Weaviate + Neo4j | Semantic search with reranking |
 | `kg_llm_navigation` | JSON (nodes/edges) | Neo4j only | LLM-guided graph navigation |
 
-## Infrastructure Requirements
+## What infrastructure does it need?
 
 Both backends require database infrastructure:
 

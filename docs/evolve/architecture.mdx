@@ -5,9 +5,7 @@ description: "The orchestration loop and the pluggable parts around it: search s
 keywords: ["Kapso architecture", "orchestrator", "pluggable components", "search strategy", "system design"]
 ---
 
-## Overview
-
-Kapso uses a modular architecture with pluggable components connected through factories. The system is designed around a central orchestration loop that coordinates experimentation.
+Kapso is a set of pluggable components wired together by factories around a central orchestration loop. Swapping a coding agent, a search strategy or a knowledge backend is a config change, not a code change.
 
 ```mermaid
 flowchart TB

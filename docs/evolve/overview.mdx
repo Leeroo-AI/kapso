@@ -5,11 +5,11 @@ description: "Evolve turns a measurable goal into working software by designing 
 keywords: ["Kapso Evolve", "experiment campaign", "tree search", "automated ML", "iterative experimentation"]
 ---
 
-# Evolve System
+Evolve is the engine. Give it a goal it can score and it runs a campaign: propose a candidate, implement it on its own git branch, evaluate it, judge the result, and repeat with what it learned.
 
 The Evolve System is Kapso's core engine for building software solutions. It orchestrates an iterative experimentation loop that explores multiple approaches, learns from failures, and converges on high-quality solutions.
 
-## How It Works
+## How does a campaign work?
 
 ```mermaid
 flowchart TB
@@ -36,7 +36,7 @@ The system works by:
 5. **Running evaluation** : Agent builds and runs evaluation in `kapso_evaluation/`
 6. **Generating feedback** : Feedback generator validates results and decides stop/continue
 
-## Key Components
+## What are the pieces?
 
 <CardGroup cols={2}>
   <Card title="Orchestrator" icon="sitemap" href="/docs/evolve/orchestrator">
@@ -56,7 +56,7 @@ The system works by:
   </Card>
 </CardGroup>
 
-## Basic Usage
+## How do I run one?
 
 ```python
 from kapso.kapso import Kapso, DeployStrategy
@@ -83,7 +83,7 @@ deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = deployed_program.run({"data_path": "./test.csv"})
 ```
 
-## Repository Initialization
+## How do I start from an existing repo?
 
 When `evolve()` is called, the system initializes the workspace:
 
@@ -155,7 +155,7 @@ workspace/
 └── (solution code)       # From initial_repo or agent-built
 ```
 
-## Memory Systems
+## What does a campaign remember?
 
 The Evolve System uses two memory systems:
 
@@ -173,7 +173,7 @@ Learns from past experiments via MCP tools:
 - **Recent Experiments** — Most recent experiments
 - **Similar Experiments** — Semantic search for related experiments
 
-## Budget Tracking
+## How do I bound a campaign?
 
 The Orchestrator tracks costs across all components:
 

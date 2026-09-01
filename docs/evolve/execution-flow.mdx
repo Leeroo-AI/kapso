@@ -5,7 +5,7 @@ description: "Follow a single call to evolve() from goal to solution: candidate 
 keywords: ["execution flow", "evolve loop", "experiment steps", "budget tracking", "Kapso internals"]
 ---
 
-## The Big Picture
+One call to `evolve()` runs a loop: gather context, propose a candidate, implement it on a branch, evaluate it, judge the result, and either continue or stop. This page follows a single pass through it.
 
 When you call `kapso.evolve()`, the **OrchestratorAgent** runs an experiment loop that generates, tests, and refines solutions until the feedback generator decides the goal is achieved.
 
@@ -267,7 +267,7 @@ if solution.succeeded:
 
 ---
 
-## Budget Tracking
+## How is the budget tracked?
 
 **OrchestratorAgent** tracks three budgets:
 
@@ -289,7 +289,7 @@ The loop stops when **any** budget hits 100% OR the stop condition is met.
 
 ---
 
-## Error Handling
+## What happens when a step fails?
 
 Errors are captured in **SearchNode**:
 

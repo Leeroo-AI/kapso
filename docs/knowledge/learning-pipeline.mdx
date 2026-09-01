@@ -5,7 +5,7 @@ description: "The two-stage pipeline behind learn_knowledge(): ingestors extract
 keywords: ["learning pipeline", "learn_knowledge", "ingestors", "knowledge merger", "wiki pages"]
 ---
 
-## Overview
+Two stages turn a raw source into knowledge a campaign can search: ingestors extract structured wiki pages from each source, then the merger folds those pages into the graph. `learn_knowledge()` runs both.
 
 The Knowledge Learning Pipeline is a two-stage process that transforms raw sources (repositories, research, experiments) into structured wiki pages in the Knowledge Graph.
 
@@ -22,7 +22,7 @@ flowchart LR
     end
 ```
 
-## Using the Pipeline
+## How do I run the pipeline?
 
 ### Full Pipeline
 
@@ -63,7 +63,7 @@ result = pipeline.run(
 pages = result.extracted_pages
 ```
 
-## Source Types
+## What can I ingest?
 
 The `Source` namespace provides typed wrappers for knowledge inputs:
 
@@ -326,7 +326,7 @@ class WikiPage:
     outgoing_links: List[Dict]  # Graph connections
 ```
 
-## CLI Usage
+## How do I run it from the CLI?
 
 ```bash
 # Learn from a GitHub repository
@@ -355,7 +355,7 @@ python -m src.knowledge.learners https://github.com/user/repo --verbose
 | `--wiki-dir` | `-w` | Wiki directory path |
 | `--verbose` | `-v` | Enable verbose logging |
 
-## Pipeline Result
+## What does it return?
 
 ```python
 @dataclass
@@ -373,3 +373,14 @@ class PipelineResult:
     @property
     def success(self) -> bool
 ```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Knowledge graph" icon="brain" href="/docs/knowledge/overview">
+    What the graph holds
+  </Card>
+  <Card title="Search backends" icon="magnifying-glass" href="/docs/knowledge/search-backends">
+    How it is queried
+  </Card>
+</CardGroup>

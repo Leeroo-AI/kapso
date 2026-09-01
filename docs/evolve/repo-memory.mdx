@@ -5,11 +5,9 @@ description: "A structured model of a repository's architecture, patterns and co
 keywords: ["repo memory", "codebase understanding", "evidence-backed", "repository model", "code navigation"]
 ---
 
-## Overview
+Repo memory is a structured model of a repository — its architecture, patterns and conventions — that coding agents read before they change anything. Every claim in it carries a line-number reference to the file that supports it.
 
-RepoMemory is a structured representation of a repository's architecture, patterns, and conventions. It helps coding agents understand the codebase and make informed changes.
-
-## Key Features
+## What does repo memory give an agent?
 
 - **Evidence-backed claims**: All assertions link to specific file locations
 - **Branch inheritance**: Child experiments inherit parent's memory
@@ -67,7 +65,7 @@ RepoMemory is a structured representation of a repository's architecture, patter
 | `core.gotchas` | Gotchas | Common pitfalls |
 | `core.dependencies` | Dependencies | Key dependencies |
 
-## Usage
+## How do I build and read it?
 
 ### Ensure Memory Exists
 
@@ -93,15 +91,18 @@ Schema: v2
 GeneratedAt: 2025-01-15T10:30:00Z
 
 ## Summary
+
 A framework for automated code generation with knowledge-grounded experimentation.
 
 ## Table of Contents (section IDs)
+
 - [core.architecture] Architecture: System design and module structure
 - [core.entrypoints] Entrypoints: How to run the application
 - [core.where_to_edit] Where to edit: Key files for modifications
 ...
 
 ## How to read details
+
 - Open `.kapso/repo_memory.json`
 - Find `book.sections[section_id]` from the TOC above
 ```
@@ -153,7 +154,7 @@ and reads repository files once, then asks the model to repair only malformed
 JSON or an invalid outer schema. Provider, authentication, transport, and
 configuration errors are not retried.
 
-## Failure Policy
+## What happens when it fails?
 
 RepoMemory is optional enrichment; experiment code and evaluation results are
 the primary artifacts. Search strategies therefore default to warning when a
@@ -178,7 +179,7 @@ Direct calls to `RepoMemoryManager.bootstrap_baseline_model()` and
 `update_after_experiment()` always raise if structured-response repair is
 exhausted. The `warn`/`fail` policy is applied by the search/session lifecycle.
 
-## File Location
+## Where is it stored?
 
 RepoMemory is stored at `.kapso/repo_memory.json` in each repository.
 
@@ -190,7 +191,7 @@ my_project/
 └── ...
 ```
 
-## Branch Inheritance
+## How does it travel between experiments?
 
 When experiments branch from a parent:
 
@@ -211,13 +212,13 @@ flowchart TD
     E1 --> E3
 ```
 
-## Evidence Validation
+## How are its claims verified?
 
 Claims must have evidence that exists in the repository:
 
 Every claim carries a line-number reference into the file it came from, and the model is rejected if a quote no longer matches the file it cites. The check runs inside the builder as the model is validated; there is no separate public entry point for it.
 
-## MCP Tools Access
+## How do agents read it?
 
 For Claude Code agent, RepoMemory is accessible via MCP tools:
 
@@ -284,3 +285,14 @@ doc["quality"] = {
     "claim_count": 15,         # Total claims across sections
 }
 ```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Coding agents" icon="robot" href="/docs/evolve/coding-agents">
+    Who reads repo memory
+  </Card>
+  <Card title="Experiment lifecycle" icon="rotate" href="/docs/evolve/experiment-lifecycle">
+    Where it is built and updated
+  </Card>
+</CardGroup>

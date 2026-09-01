@@ -5,9 +5,7 @@ description: "A plugin design in which each deployment strategy is a self-contai
 keywords: ["deployment architecture", "strategy plugin", "DeploymentFactory", "adapter", "selector"]
 ---
 
-## System Architecture
-
-The deployment system uses a **plugin-based architecture** where strategies are self-contained packages that can be added without modifying core code.
+Deployment is a plugin system. A selector picks a target, an adapter rewrites the solution for it, and a runner executes it — and each target is a self-contained directory that can be added without touching core code.
 
 ```mermaid
 flowchart LR
@@ -239,7 +237,7 @@ class AdaptationResult:
 
 ---
 
-## Strategy Plugin Architecture
+## How are strategies discovered?
 
 Each strategy is a self-contained directory:
 

@@ -5,11 +5,11 @@ description: "After evolve() produces a solution, deploy() adapts it for a targe
 keywords: ["Kapso deploy", "deployment pipeline", "DeployStrategy", "running software", "solution deployment"]
 ---
 
-## Overview
+`deploy()` turns a finished solution into running software. It adapts the code for a target, starts it, and hands back a `Software` object you can call and stop.
 
 After `evolve()` generates a solution, `deploy()` turns it into running software. The deployment pipeline handles adaptation, strategy selection, and execution.
 
-## Deployment Flow
+## How does a deployment run?
 
 ```mermaid
 flowchart LR
@@ -24,7 +24,7 @@ flowchart LR
 3. **Runner**: Executes the adapted code
 4. **Software**: Unified interface for running and managing
 
-## Quick Start
+## How do I deploy a solution?
 
 ```python
 from kapso.kapso import Kapso, DeployStrategy
@@ -93,7 +93,7 @@ class Software:
         """Get execution logs."""
 ```
 
-## Response Format
+## What does a deployed call return?
 
 All `run()` calls return a consistent format:
 
@@ -142,7 +142,7 @@ deployed_program.get_adapted_path()  # Path to adapted code
 deployed_program.get_endpoint()      # HTTP endpoint (if applicable)
 ```
 
-## Lifecycle Management
+## How do I stop it?
 
 ```python
 deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
@@ -167,7 +167,7 @@ result = deployed_program.run({"data": "..."})
 deployed_program.stop()
 ```
 
-## Error Handling
+## What happens when a deploy fails?
 
 ```python
 result = deployed_program.run({"data": "..."})
