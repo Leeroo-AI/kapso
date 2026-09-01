@@ -59,10 +59,10 @@ The factory is **self-improving** because it learns from its own work. Finished 
 
 | Pillar | Method | Description |
 |--------|--------|-------------|
-| **Evolve** | `.evolve()` | Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions. |
-| **Learn** | `.learn()` / `.learn_knowledge()` | Two memories: `learn()` mines your own finished campaigns into evidence-priced knowledge cards (experience); `learn_knowledge()` ingests repositories and research into the Knowledge Graph (imported knowledge). |
-| **Research** | `.research()` | Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions. |
-| **Deploy** | `.deploy()` | Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal. |
+| [**Evolve**](https://docs.leeroo.com/docs/evolve/overview) | `.evolve()` | Run iterative experiments to build software for a goal. Uses tree search, coding agents, and KG context to generate and refine solutions. |
+| **Learn** | [`.learn()`](https://docs.leeroo.com/docs/learning/overview) / [`.learn_knowledge()`](https://docs.leeroo.com/docs/knowledge/overview) | Two memories: `learn()` mines your own finished campaigns into evidence-priced knowledge cards (experience); `learn_knowledge()` ingests repositories and research into the Knowledge Graph (imported knowledge). |
+| [**Research**](https://docs.leeroo.com/docs/research/overview) | `.research()` | Run deep web research to gather ideas and implementation references. Returns structured findings you can feed into the knowledge base or use as context for evolving solutions. |
+| [**Deploy**](https://docs.leeroo.com/docs/deployment/overview) | `.deploy()` | Turn a solution into running software. Supports local execution, Docker containers, or cloud platforms like Modal. |
 
 ## 🚀 Quickstart
 
@@ -283,9 +283,21 @@ For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/doc
 | [**RelBench**](benchmarks/relbench/README.md) | Stanford's benchmark for predictive ML over enterprise data — forecasting, classification, and recommendation straight from the multi-table databases of SAP, Amazon, H&M, and more |
 | [**IOAI 2026**](benchmarks/ioai2026/README.md) | Timed olympiad ML across vision, language, and optimization — expert-set tasks, contest hardware, zero human help |
 
+Each benchmark also has a documentation page covering how to run it, its CLI options and what the output holds:
+[IOAI 2026](https://docs.leeroo.com/docs/benchmarks/ioai-2026) ·
+[MLE-Bench](https://docs.leeroo.com/docs/benchmarks/mle-bench) ·
+[ALE-Bench](https://docs.leeroo.com/docs/benchmarks/ale-bench) ·
+[RelBench](https://docs.leeroo.com/docs/benchmarks/relbench)
+
 ## 📚 Documentation & Support
 
-- **Full Documentation**: [docs.leeroo.com](https://docs.leeroo.com)
+- **Full Documentation**: [docs.leeroo.com](https://docs.leeroo.com/docs)
+  - [Installation](https://docs.leeroo.com/docs/installation) — the coding-agent CLIs, the package, and `kapso doctor`
+  - [Quickstart](https://docs.leeroo.com/docs/quickstart) — your first campaign
+  - [CLI reference](https://docs.leeroo.com/docs/reference/cli) — every command, flag and default
+  - [Python API](https://docs.leeroo.com/docs/reference/kapso-api) — every public method on `Kapso`
+  - [Configuration](https://docs.leeroo.com/docs/reference/configuration) — every key in `config.yaml`
+  - [Trajectory learning](https://docs.leeroo.com/docs/learning/overview) — the lesson bank, grading and serving
 - **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
 - **Website**: [leeroo.com](https://leeroo.com)
 
