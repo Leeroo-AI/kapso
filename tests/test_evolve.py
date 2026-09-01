@@ -1,70 +1,61 @@
-# Test for kapso.evolve() with script evaluator
+# Live tests for kapso.evolve().
 #
-# This test demonstrates the new default behavior:
-# - evaluator="script" (agent writes evaluate.py)
-# - stop_condition="from_eval" (agent decides when to stop)
+# Both spawn real coding-agent sessions and spend real subscription quota, so
+# the whole module carries the `live` marker and is skipped unless --run-live
+# is passed. test_evolve_simple_math previously carried no guard at all and
+# ran a three-iteration campaign on every `pytest tests/` — the exact failure
+# conftest.py's live marker was written to prevent.
 #
-# The goal is simple: train an iris classifier with accuracy > 0.90
+# Run with:
+#   pytest tests/test_evolve.py --run-live -v -s
 
 import pytest
-from kapso.kapso import Kapso
+
+from kapso import Kapso
+
+pytestmark = pytest.mark.live
 
 
-@pytest.mark.skipif(True, reason="Run manually with: pytest tests/test_evolve.py -v -s")
-def test_evolve_iris_classifier():
-    """
-    Test evolve with a simple ML task: Iris classification.
-    
-    The agent should:
-    1. Create main.py that trains a classifier
-    2. Create evaluate.py that computes accuracy and signals STOP when > 0.90
+def test_evolve_iris_classifier(tmp_path):
+    """Evolve a simple ML task: Iris classification.
+
+    The coding agent writes both main.py and the evaluation; the feedback
+    generator decides when the goal is met.
     """
     kapso = Kapso()
-    
-    # Simple goal - no evaluator or stop_condition needed!
-    # The agent will write evaluate.py that handles both.
+
     solution = kapso.evolve(
-        goal="Train an Iris flower classifier using scikit-learn. Target accuracy > 0.90 on test set.",
-        output_path="./experiments/iris_classifier",
+        goal=(
+            "Train an Iris flower classifier using scikit-learn. "
+            "Target accuracy > 0.90 on test set."
+        ),
+        output_path=str(tmp_path / "iris_classifier"),
         max_iterations=5,
     )
-    
-    print(f"\nSolution at: {solution.code_path}")
-    print(f"Experiments: {len(solution.experiment_logs)}")
-    print(f"Metadata: {solution.metadata}")
+
+    assert solution.code_path
+    assert solution.experiment_logs
 
 
-def test_evolve_simple_math():
-    """
-    Simpler test: solve a math optimization problem.
-    
-    The agent should:
-    1. Create main.py that finds the minimum of a function
-    2. Create evaluate.py that scores how close to the minimum
-    """
+def test_evolve_simple_math(tmp_path):
+    """Evolve a numeric optimization task with a checkable target."""
     kapso = Kapso()
-    
+
     solution = kapso.evolve(
         goal="""
         Find the minimum of the Rosenbrock function: f(x,y) = (1-x)^2 + 100*(y-x^2)^2
-        
+
         The global minimum is at (1, 1) where f(1,1) = 0.
-        
+
         Your solution should:
         1. Implement an optimization algorithm (gradient descent, scipy.optimize, etc.)
         2. Print the found minimum point (x, y) and function value
-        
+
         Target: Find a point where f(x,y) < 0.001
         """,
-        output_path="./experiments/rosenbrock_min",
+        output_path=str(tmp_path / "rosenbrock_min"),
         max_iterations=3,
     )
-    
-    print(f"\nSolution at: {solution.code_path}")
-    print(f"Experiments: {len(solution.experiment_logs)}")
-    print(f"Final evaluation: {solution.metadata.get('final_evaluation')}")
 
-
-if __name__ == "__main__":
-    # Run the simpler test directly
-    test_evolve_iris_classifier()
+    assert solution.code_path
+    assert solution.experiment_logs

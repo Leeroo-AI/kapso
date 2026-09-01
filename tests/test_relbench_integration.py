@@ -16,6 +16,10 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+# The relbench package is installed separately (pip install relbench); it is
+# not a declared extra. Without it these skip rather than erroring at import.
+pytest.importorskip("relbench")
+
 from benchmarks.relbench.task_specs import (
     AUTOCOMPLETE_REGRESSION,
     ENTITY_BINARY,

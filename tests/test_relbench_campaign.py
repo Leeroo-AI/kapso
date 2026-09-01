@@ -7,6 +7,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+# The relbench package is installed separately (pip install relbench); it is
+# not a declared extra. Without it these skip rather than erroring at import.
+pytest.importorskip("relbench")
+
 from benchmarks.relbench.campaign import (CPU_LOCAL_QUEUE, CPU_SAFE_DATASETS,
                                           PROTOCOL_SENSITIVE_TASKS, ROI_QUEUE,
                                           derive_goal, select_tasks)

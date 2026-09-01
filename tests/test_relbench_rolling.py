@@ -10,6 +10,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# The relbench package is installed separately (pip install relbench); it is
+# not a declared extra. Without it these skip rather than erroring at import.
+import pytest
+
+pytest.importorskip("relbench")
+
 from benchmarks.relbench.campaign import PROTOCOL_SENSITIVE_TASKS
 
 GRADER = Path(__file__).parents[1] / "benchmarks" / "relbench" / "data" / "generic_eval" / "grader.py"

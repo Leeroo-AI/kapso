@@ -17,7 +17,7 @@ from kapso.gated_mcp.gates.base import GateConfig
 from kapso.gated_mcp.gates.kg_gate import KGGate
 
 
-async def test_get_page_structure():
+async def _get_page_structure():
     """Test the get_page_structure handler directly via KGGate."""
     
     print("=" * 60)
@@ -140,12 +140,19 @@ def check_wiki_structure_paths():
             print(f"    Size: {size} bytes")
 
 
+def test_get_page_structure():
+    """pytest entry point. The coroutine returns True when every page type
+    resolved its sections_definition.md; assert that rather than returning it,
+    since a test returning a value is deprecated."""
+    assert asyncio.run(_get_page_structure())
+
+
 if __name__ == "__main__":
     # First check paths
     check_wiki_structure_paths()
     
     # Then run async test
-    passed = asyncio.run(test_get_page_structure())
+    passed = asyncio.run(_get_page_structure())
     
     # Exit with appropriate code
     sys.exit(0 if passed else 1)
