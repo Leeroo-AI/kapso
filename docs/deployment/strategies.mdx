@@ -5,71 +5,42 @@ description: "The five targets Kapso ships, local, Docker, Modal, BentoML and La
 keywords: ["deployment strategies", "Docker", "Modal", "BentoML", "LangGraph"]
 ---
 
-## Overview
+`deploy()` takes a strategy that decides where the solution runs. Five ship, plus `AUTO`, which picks one for you.
 
-Each deployment strategy is designed for specific use cases. The system can auto-select the best strategy or you can specify one explicitly.
+## Which strategy should I use?
 
-## LOCAL
+| Strategy | Suits | Startup | Isolation | GPU | Interface |
+|----------|-------|---------|-----------|-----|-----------|
+| `LOCAL` | Development and debugging | Fast | None | Local only | function |
+| `DOCKER` | Anything with system dependencies | Medium | Full | Via nvidia-docker | http |
+| `MODAL` | GPU work you do not want to host | Medium | Full | Yes | function |
+| `BENTOML` | Self-hosted production serving | Medium | Full | Yes | http |
+| `LANGGRAPH` | Stateful agent workflows | Fast | None | Via backend | langgraph |
 
-Run as a local Python process. Fastest for development and testing.
+In Python the values are `DeployStrategy.LOCAL` and so on; on the CLI they are lowercase, as `--strategy docker`.
 
-### Features
-- No containerization overhead
-- Direct file system access
-- Easiest debugging
-- No additional setup required
+## Local
 
-### Usage
-
-```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
-result = deployed_program.run({"data_path": "./data.csv"})
-```
-
-### How It Works
-
-1. Adapter creates a `run.py` entry point
-2. Runner imports and calls the main function
-3. Results returned directly
-
-### Configuration
-
-```yaml
-# In strategy config
-local:
-  module: "main"      # Module to import
-  callable: "predict" # Function to call
-  timeout: 300        # Execution timeout
-```
-
-## DOCKER
-
-Run in an isolated Docker container.
-
-### Features
-- Environment isolation
-- Reproducible builds
-- Easy dependency management
-- Cross-platform compatibility
-
-### Prerequisites
-- Docker installed and running
-
-### Usage
+Runs the solution as a plain Python process in the current environment. Nothing to install, easiest to debug, no isolation.
 
 ```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
-result = deployed_program.run({"data_path": "/data/input.csv"})
+deployed = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
+result = deployed.run({"data_path": "./data.csv"})
 ```
 
-### How It Works
+The adapter writes a `run.py` entry point and the runner imports it. Its `run_interface` is `{type: function, module: main, callable: predict}`.
 
-1. Adapter creates `Dockerfile` and `docker-compose.yml`
-2. Runner builds and starts container
-3. Inputs/outputs mapped via volumes
+## Docker
 
-### Dockerfile Template
+Runs the solution in a container, so system dependencies and Python versions stay contained. Needs Docker installed and running.
 
+```python
+deployed = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
+```
+
+Served over HTTP at `http://localhost:8000/predict`, from a container named `solution-container`.
+
+<Accordion title="Dockerfile the adapter generates">
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
@@ -78,41 +49,19 @@ RUN pip install -r requirements.txt
 COPY . .
 CMD ["python", "run.py"]
 ```
+</Accordion>
 
-## MODAL
+## Modal
 
-Deploy to Modal.com for serverless GPU compute.
-
-### Features
-- Serverless scaling
-- GPU support (A100, H100)
-- Pay-per-use pricing
-- Fast cold starts
-
-### Prerequisites
-- Modal account and CLI
-- `modal` package installed
-
-```bash
-pip install modal
-modal token new
-```
-
-### Usage
+Runs on Modal's serverless platform, which is the quickest route to a GPU you do not have to operate. Needs `pip install modal && modal token new`.
 
 ```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
-result = deployed_program.run({"prompt": "Hello, world!"})
+deployed = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
 ```
 
-### How It Works
+Default resources are a `T4` GPU and `16Gi` of memory, calling a `predict` function.
 
-1. Adapter creates `modal_app.py` with Modal decorators
-2. Runner deploys to Modal
-3. HTTP endpoint for inference
-
-### Modal App Template
-
+<Accordion title="Modal app the adapter generates">
 ```python
 import modal
 
@@ -120,42 +69,22 @@ app = modal.App("kapso-deployment")
 
 @app.function(gpu="A100")
 def predict(inputs):
-    # Load model and run inference
+    # Load the model and run inference
     return result
 ```
+</Accordion>
 
-## BENTOML
+## BentoML
 
-Deploy with BentoML for production ML serving.
-
-### Features
-- Model versioning
-- Automatic batching
-- Prometheus metrics
-- Kubernetes-ready
-
-### Prerequisites
-- `bentoml` package installed
-
-```bash
-pip install bentoml
-```
-
-### Usage
+Packages the solution as a BentoML service for self-hosted production serving. Needs `pip install bentoml`.
 
 ```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.BENTOML)
-result = deployed_program.run({"features": [1, 2, 3]})
+deployed = kapso.deploy(solution, strategy=DeployStrategy.BENTOML)
 ```
 
-### How It Works
+Default resources are 2 CPUs and `4Gi` of memory, served at `/predict` against the `bentocloud` provider.
 
-1. Adapter creates `service.py` with BentoML decorators
-2. Runner builds and serves the Bento
-3. HTTP API for inference
-
-### BentoML Service Template
-
+<Accordion title="BentoML service the adapter generates">
 ```python
 import bentoml
 
@@ -165,95 +94,55 @@ class KapsoService:
     def predict(self, inputs: dict) -> dict:
         return self.model.predict(inputs)
 ```
+</Accordion>
 
-## LANGGRAPH
+## LangGraph
 
-Deploy as a LangGraph agent workflow.
-
-### Features
-- Stateful agent execution
-- Tool integration
-- Streaming support
-- Checkpoint persistence
-
-### Prerequisites
-- `langgraph` package installed
-
-```bash
-pip install langgraph
-```
-
-### Usage
+Deploys the solution as a LangGraph agent workflow, with state, tools, streaming and checkpoints. Needs `pip install langgraph`.
 
 ```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.LANGGRAPH)
-result = deployed_program.run({"query": "What is 2+2?"})
+deployed = kapso.deploy(solution, strategy=DeployStrategy.LANGGRAPH)
+result = deployed.run({"query": "What is 2+2?"})
 ```
 
-### How It Works
+The adapter writes a `graph.py` of LangGraph nodes; the runner compiles and runs the graph against assistant id `agent`.
 
-1. Adapter creates `graph.py` with LangGraph nodes
-2. Runner compiles and runs the graph
-3. Streaming or batch execution
+## How does AUTO choose?
 
-## AUTO Selection
-
-When `DeployStrategy.AUTO` is used, the selector analyzes the code:
+`AUTO` is the default. A selector agent reads the solution and picks a target from the code itself rather than from a rule table:
 
 ```python
-deployed_program = kapso.deploy(solution, strategy=DeployStrategy.AUTO)
-# System chooses based on:
-# - Code complexity
-# - Resource requirements (GPU, memory)
-# - Dependencies
-# - Target environment
+deployed = kapso.deploy(solution, strategy=DeployStrategy.AUTO)
 ```
 
-### Selection Criteria
+It weighs how complex the code is, what it needs at runtime — GPU, memory, system packages — and whether isolation is required. Each strategy ships a `selector_instruction.txt` describing when it is the right answer, so the choice is made from those descriptions.
 
-| Factor | LOCAL | DOCKER | MODAL | BENTOML |
-|--------|-------|--------|-------|---------|
-| Simple script | ✅ | | | |
-| Complex deps | | ✅ | | |
-| GPU required | | | ✅ | |
-| Production ML | | | | ✅ |
-| Isolation needed | | ✅ | ✅ | ✅ |
+Name a strategy explicitly when you already know the answer; `AUTO` costs a model call.
 
-## Strategy Comparison
-
-| Strategy | Startup | Cost | Isolation | GPU | Production |
-|----------|---------|------|-----------|-----|------------|
-| LOCAL | Fast | Free | None | Local | No |
-| DOCKER | Medium | Free | Full | Via nvidia-docker | Yes |
-| MODAL | Medium | Pay-per-use | Full | Yes | Yes |
-| BENTOML | Medium | Self-hosted | Full | Yes | Yes |
-| LANGGRAPH | Fast | Depends | None | Via backend | Yes |
-
-## Run Interface
-
-Each strategy defines how to call the deployed code:
+## How do I pass environment variables?
 
 ```python
-# Returned by adapter
-run_interface = {
-    "type": "function",     # or "http", "grpc"
-    "module": "main",       # Python module
-    "callable": "predict",  # Function name
-    "endpoint": None,       # HTTP endpoint (if applicable)
-}
-```
-
-## Environment Variables
-
-Pass environment variables to deployments:
-
-```python
-deployed_program = kapso.deploy(
+deployed = kapso.deploy(
     solution,
     strategy=DeployStrategy.DOCKER,
-    env_vars={
-        "API_KEY": "...",
-        "MODEL_PATH": "/models/v1",
-    },
+    env_vars={"API_KEY": "...", "MODEL_PATH": "/models/v1"},
 )
 ```
+
+On the CLI, repeat `--env`:
+
+```bash
+kapso deploy --solution-path ./solution --strategy docker \
+    --env API_KEY=xxx --env MODEL_PATH=/models/v1
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Deployment architecture" icon="sitemap" href="/docs/deployment/architecture">
+    How the selector, adapter and runner fit together
+  </Card>
+  <Card title="Adding a strategy" icon="plus" href="/docs/deployment/adding-strategies">
+    Write your own target
+  </Card>
+</CardGroup>

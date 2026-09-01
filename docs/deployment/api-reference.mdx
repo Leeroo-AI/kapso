@@ -5,6 +5,8 @@ description: "Every exported name in kapso.deployment: DeploymentFactory, Deploy
 keywords: ["deployment API", "DeploymentFactory", "DeployConfig", "Software class", "Python reference"]
 ---
 
+Everything the deployment module exports, with signatures. For choosing a target see [Deployment strategies](/docs/deployment/strategies); for how the pieces fit together see [Deployment architecture](/docs/deployment/architecture).
+
 ## Module Exports
 
 ```python
@@ -905,3 +907,13 @@ finally:
 | `LANGSMITH_API_KEY` | LangGraph | LangSmith API key |
 | `BENTOML_API_TOKEN` | BentoML | BentoCloud authentication |
 
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Deployment strategies" icon="server" href="/docs/deployment/strategies">
+    The five targets and what each one suits
+  </Card>
+  <Card title="Python API" icon="code" href="/docs/reference/kapso-api#deploy">
+    deploy() on the Kapso class
+  </Card>
+</CardGroup>

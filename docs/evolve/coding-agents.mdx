@@ -5,11 +5,9 @@ description: "Claude Code, Codex, Gemini, OpenHands and OSS Claude Code: the int
 keywords: ["coding agents", "Claude Code", "Codex", "CodingAgentFactory", "custom agent"]
 ---
 
-## Overview
+A coding agent is what actually writes the code during an experiment. Kapso drives them as subprocesses through a common interface, so the agent is a config choice rather than something the rest of the system knows about.
 
-Coding agents are responsible for generating and modifying code based on prompts. Kapso supports multiple agents, each with different strengths.
-
-## Available Agents
+## Which agents can I use?
 
 | Agent | Description | Default model | Install |
 |-------|-------------|---------------|---------|
@@ -50,7 +48,7 @@ class CodingAgentInterface(ABC):
         """Return True if agent handles its own commits."""
 ```
 
-## Building an agent directly
+## How do I build an agent directly?
 
 Most of the time the config picks the agent. To construct one yourself:
 
@@ -74,21 +72,11 @@ print(f"Cost: ${result.cost:.4f}")
 
 ## Claude Code
 
-Anthropic's Claude Code CLI for complex tasks.
-
-### Features
-- Advanced reasoning
-- Complex refactoring
-- MCP tool support
-- Explicit OAuth and Anthropic API-key authentication
-
-### Installation
+Anthropic's CLI, and what both shipped config modes use. Best on complex refactoring and planning, with MCP tool support.
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
-
-### Configuration
 
 ```yaml
 coding_agent:
@@ -99,6 +87,8 @@ coding_agent:
     claude_md_path: "CLAUDE.md"
 ```
 
+### How do I authenticate Claude Code?
+
 `auth_mode` accepts three values:
 
 | Mode | Credential source | Behavior |
@@ -107,7 +97,7 @@ coding_agent:
 | `api_key` | `ANTHROPIC_API_KEY` | Requires direct Anthropic API credentials |
 | `auto` | Either of the above | Takes whichever is present |
 
-The shipped config sets `oauth` on every Claude Code block, and the low-level adapter defaults to `auto`.
+The shipped config sets `oauth` on every Claude Code block, and the low-level adapter defaults to `auto`. For a non-interactive environment set `CLAUDE_CODE_OAUTH_TOKEN` in `.env`.
 
 An explicit mode removes higher-precedence credentials from the Claude subprocess environment, so `oauth` ignores an inherited `ANTHROPIC_API_KEY`. The parent process environment is never modified.
 
@@ -115,94 +105,66 @@ An explicit mode removes higher-precedence credentials from the Claude subproces
   AWS Bedrock support was removed on 26 August 2026 in favour of a subscription-first setup. `auth_mode: bedrock` and the `use_bedrock` key are no longer accepted.
 </Note>
 
-### OAuth
+## Codex
 
-Authenticate the local Claude CLI, then choose `oauth`:
+OpenAI's CLI, run non-interactively with a full-access sandbox. This is what [`inference`](/docs/reference/configuration#inference) uses for research, judging and utility calls.
 
 ```bash
-claude auth login
-claude auth status
+npm install -g @openai/codex
+codex login
 ```
 
 ```yaml
 coding_agent:
-  type: "claude_code"
-  model: "claude-opus-4-6"
-  agent_specific:
-    auth_mode: "oauth"
+  type: "codex"
+  model: "gpt-5.6-sol"
 ```
 
-For a non-interactive environment, `CLAUDE_CODE_OAUTH_TOKEN` is also accepted.
-See Anthropic's [authentication documentation](https://code.claude.com/docs/en/authentication)
-for token setup and the terms that apply to subscription credentials.
-
-### Anthropic API key
-
-```bash
-export ANTHROPIC_API_KEY=...
-```
-
-```yaml
-coding_agent:
-  type: "claude_code"
-  model: "claude-opus-4-6"
-  agent_specific:
-    auth_mode: "api_key"
-```
+Set `CODEX_API_KEY` in `.env` instead of logging in for a non-interactive environment.
 
 ## Gemini
 
-Google Gemini SDK for fast generation.
-
-### Features
-- Fast response times
-- Good for iterative refinement
-- Cost-effective
-
-### Configuration
+Google's SDK, via `pip install google-generativeai`. Fast and cost-effective for iterative refinement.
 
 ```yaml
 coding_agent:
   type: "gemini"
-  model: "gemini-2.0-flash"
-  debug_model: "gemini-2.0-flash"
+  model: "gemini-2.5-flash"
+  debug_model: "gemini-2.5-flash"
 ```
 
-Set API key:
-```bash
-GOOGLE_API_KEY=your-google-api-key
-```
+Set `GOOGLE_API_KEY` in `.env`.
 
 ## OpenHands
 
-OpenHands agent with sandboxed execution.
+Sandboxed, Docker-backed execution with full system access inside the sandbox.
 
 <Warning>
-OpenHands has conflicting dependencies with `aider-chat`. Use a **separate conda environment**.
+  OpenHands conflicts with the `aider` extra on `litellm`, `openai` and `cffi`. Install it in a separate environment, never alongside `leeroo-kapso[aider]`.
 </Warning>
 
-### Installation
-
 ```bash
-# Create separate environment
 conda create -n openhands_env python=3.12
 conda activate openhands_env
 pip install openhands-ai litellm
 ```
 
-### Features
-- Sandboxed execution
-- Docker-based isolation
-- Full system access in sandbox
-
-### Configuration
-
 ```yaml
 coding_agent:
   type: "openhands"
-  model: "gpt-4o"
+  model: "gpt-4.1-mini"
   agent_specific:
     sandbox_type: "docker"
+```
+
+## OSS Claude Code
+
+The Claude Code CLI pointed at an open-source model over an Anthropic-compatible endpoint, such as GLM on Fireworks. Same CLI, different backend.
+
+```yaml
+coding_agent:
+  type: "oss_claude_code"
+  model: "accounts/fireworks/models/glm-5p2"
 ```
 
 ## CodingResult
@@ -221,7 +183,7 @@ class CodingResult:
     metadata: Dict[str, Any]  # Agent-specific data
 ```
 
-## Structured JSON Output
+## What must an agent return?
 
 When used with `kapso.evolve()`, the developer agent must return a structured JSON at the end of its response:
 
@@ -258,7 +220,7 @@ Accuracy: 0.92
 ```
 ````
 
-## Feedback Generator Role
+## How does the feedback generator use an agent?
 
 Coding agents also power the feedback generator. The default feedback generator uses `claude_code`, but any agent can be used:
 
@@ -284,7 +246,7 @@ Configuration passed to agents:
 ```python
 @dataclass
 class CodingAgentConfig:
-    agent_type: str         # "aider", "gemini", etc.
+    agent_type: str         # "claude_code", "codex", etc.
     model: str              # Primary model
     debug_model: str        # Model for debugging
     workspace: str = ""     # Working directory
@@ -292,7 +254,7 @@ class CodingAgentConfig:
     agent_specific: Dict[str, Any] = field(default_factory=dict)
 ```
 
-## Creating Custom Agents
+## How do I add my own agent?
 
 ```python
 from kapso.execution.coding_agents.base import CodingAgentInterface, CodingResult
@@ -333,29 +295,23 @@ CodingAgentFactory.register("my_custom_agent", MyCustomAgent)
 
 Registration is a classmethod call, not a decorator. Agents declared in `agents.yaml` are registered on module import; `register()` is how you add one at runtime.
 
-## Git Integration
+## How is git handled?
 
-Agents can handle git in two ways:
+Two ways, and the agent declares which by returning from `supports_native_git()`:
 
-### Native Git (Aider)
-
-Agent commits changes automatically:
-
-```python
-def supports_native_git(self) -> bool:
-    return True  # Aider auto-commits
-```
-
-### Session-Managed Git (Others)
-
-ExperimentSession commits after generation:
+| Returns | Meaning |
+|---------|---------|
+| `True` | The agent commits its own changes |
+| `False` | `ExperimentSession` commits after generation |
 
 ```python
 def supports_native_git(self) -> bool:
-    return False  # Session will commit
+    return False  # let ExperimentSession handle commits
 ```
 
-## Agent Capabilities
+Every shipped agent returns `False` except `aider`, which auto-commits.
+
+## What capabilities does an agent report?
 
 ```python
 def get_capabilities(self) -> Dict[str, bool]:
@@ -368,18 +324,21 @@ def get_capabilities(self) -> Dict[str, bool]:
     }
 ```
 
-## Listing Agents
+## How do I see what is installed?
 
 ```bash
-PYTHONPATH=. python -m src.cli --list-agents
+kapso --list-agents
 ```
 
-Output:
-```text
-Available Coding Agents:
-==================================================
-  aider: Git-centric pair programming with diff-based editing
-  gemini: Google Gemini SDK for code generation
-  claude_code: Anthropic Claude Code CLI for complex refactoring
-  openhands: OpenHands agent with sandboxed execution (separate env required)
-```
+It prints each registered agent with its description, default model, install command and the environment variables it reads.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/docs/reference/configuration#coding_agent-and-feedback_generator">
+    The coding_agent block, and auth_mode
+  </Card>
+  <Card title="Experiment lifecycle" icon="rotate" href="/docs/evolve/experiment-lifecycle">
+    Where the agent sits in one experiment
+  </Card>
+</CardGroup>

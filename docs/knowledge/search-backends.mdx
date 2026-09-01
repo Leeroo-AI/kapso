@@ -5,149 +5,106 @@ description: "Two ways to query the knowledge graph: hybrid vector and graph sea
 keywords: ["search backends", "kg_graph_search", "kg_llm_navigation", "hybrid search", "graph retrieval"]
 ---
 
-## Overview
+Kapso ships two backends for querying the [knowledge graph](/docs/knowledge/overview). Which one you want depends on what you indexed.
 
-Kapso provides two search backends for querying the Knowledge Graph:
+## Which backend should I use?
 
-| Backend | Best For | Storage |
-|---------|----------|---------|
-| `kg_graph_search` | Wiki pages with semantic search | Weaviate + Neo4j |
-| `kg_llm_navigation` | JSON knowledge graphs | Neo4j only |
+| Backend | Use it for | Storage | How it retrieves |
+|---------|-----------|---------|------------------|
+| `kg_graph_search` | Wiki pages built by [`learn_knowledge()`](/docs/knowledge/learning-pipeline) | Weaviate + Neo4j | Vector similarity, optional LLM reranking, then graph enrichment |
+| `kg_llm_navigation` | JSON node-and-edge graphs | Neo4j only | An LLM walks the graph, deciding which nodes to visit |
+
+Set it with `knowledge_search.type` in your [config](/docs/reference/configuration#knowledge-search), or override per index with `kapso index_kg --search-type`.
 
 ## kg_graph_search
 
-The primary backend for wiki-based knowledge. Combines vector embeddings with graph structure.
-
-### Architecture
+The primary backend for wiki-based knowledge. It embeds the query, retrieves from Weaviate, optionally reranks with an LLM, then pulls connected pages from Neo4j.
 
 ```mermaid
 flowchart LR
     Q[Query] --> E[Embedding]
     E --> W[Weaviate]
-    W --> R[Top-K Results]
-    R --> L[LLM Reranker]
-    L --> N[Neo4j]
+    W --> R[Top-K results]
+    R --> L[LLM reranker]
+    L --> N[Neo4j enrichment]
     N --> O[KGOutput]
 ```
-
-### Features
-
-- **Semantic search**: OpenAI embeddings for similarity matching
-- **LLM reranking**: Reorder results by query relevance
-- **Graph enrichment**: Add connected pages from Neo4j
-- **Filtering**: By page type, domain, score threshold
-
-### Usage
 
 ```python
 from kapso.knowledge_base.search import KnowledgeSearchFactory, KGSearchFilters
 
-# Create search instance
 search = KnowledgeSearchFactory.create("kg_graph_search", params={
     "weaviate_collection": "KapsoKG",
     "embedding_model": "text-embedding-3-large",
     "use_llm_reranker": True,
-    "reranker_model": "gpt-4.1-mini",
 })
 
-# Search with filters
 result = search.search(
-    query="How to fine-tune LLM with limited GPU memory?",
-    filters=KGSearchFilters(
-        top_k=5,
-        domains=["LLMs", "PEFT"],
-    )
+    query="How to fine-tune an LLM with limited GPU memory?",
+    filters=KGSearchFilters(top_k=5, domains=["LLMs", "PEFT"]),
 )
 
-# Use results
 for item in result:
     print(f"{item.page_title}: {item.score:.2f}")
 
-# Get formatted context for LLM
 context = result.to_context_string(max_results=3)
 ```
 
-### Configuration
+Its three presets differ only in how much work they do after the vector search:
 
-```yaml
-knowledge_search:
-  type: "kg_graph_search"
-  enabled: true
-  params:
-    weaviate_collection: "KapsoKG"
-    embedding_model: "text-embedding-3-large"
-    use_llm_reranker: true
-    reranker_model: "gpt-4.1-mini"
-    include_connected_pages: true
-```
+| Preset | LLM reranking | Connected pages |
+|--------|---------------|-----------------|
+| `DEFAULT` | yes | yes |
+| `FAST` | no | no |
+| `RERANK_ONLY` | yes | no |
+
+Shipped defaults are `embedding_model: text-embedding-3-large`, `weaviate_collection: KapsoKG`, `include_connected_pages: true`, `use_llm_reranker: false` and `reranker_overview_max_chars: 300`. A preset overrides them; anything a preset omits falls back to these.
+
+<Note>
+  This is a different setting from `defaults.models.embedding` in the main config, which is `text-embedding-3-small` and is used for memory rather than for this backend.
+</Note>
 
 ## kg_llm_navigation
 
-Alternative backend for JSON-based knowledge graphs with LLM-guided navigation.
-
-### Architecture
+For JSON graphs, where an LLM navigates the structure instead of embedding it. No embeddings are involved, so it works with any graph shape.
 
 ```mermaid
 flowchart LR
-    Q[Query] --> L[LLM Navigator]
+    Q[Query] --> L[LLM navigator]
     L --> N[Neo4j]
     N --> L
     L --> O[KGOutput]
 ```
 
-### Features
-
-- **LLM-guided**: LLM decides which nodes to visit
-- **Graph navigation**: Follows edges to find relevant nodes
-- **No embeddings**: Works with any graph structure
-
-### Usage
-
 ```python
+import json
 from kapso.knowledge_base.search import KnowledgeSearchFactory
 
-# Create search instance
 search = KnowledgeSearchFactory.create("kg_llm_navigation")
 
-# Index JSON data
-with open("kg_data.json") as f:
-    graph_data = json.load(f)
-search.index(graph_data)
+with open("kg_data.json") as handle:
+    search.index(json.load(handle))
 
-# Search
 result = search.search(
     query="Best practices for feature engineering",
-    context="Working on tabular data competition",
+    context="Working on a tabular data competition",
 )
 ```
 
-### Configuration
+Its four presets trade exploration against cost:
 
-```yaml
-knowledge_search:
-  type: "kg_llm_navigation"
-  enabled: true
-  params:
-    neo4j_uri: "bolt://localhost:7687"
-    neo4j_user: "neo4j"
-    neo4j_password: "password"
-```
+| Preset | `search_top_k` | `navigation_steps` | `expansion_limit` |
+|--------|----------------|--------------------|-------------------|
+| `DEFAULT` | 1 | 3 | 3 |
+| `DEEP_SEARCH` | 3 | 5 | 5 |
+| `SHALLOW` | 1 | 2 | 2 |
+| `MINIMAL` | 1 | 1 | 1 |
 
-## Search Data Structures
+All four use `search_node_type: specialization`.
 
-### KGSearchFilters
+## What comes back from a search
 
-```python
-@dataclass
-class KGSearchFilters:
-    top_k: int = 10                    # Max results
-    min_score: Optional[float] = None  # Score threshold (0-1)
-    page_types: Optional[List[str]] = None  # Filter by type
-    domains: Optional[List[str]] = None     # Filter by domain
-    include_content: bool = True       # Include full content
-```
-
-### KGOutput
+Both backends return a `KGOutput`.
 
 ```python
 @dataclass
@@ -158,10 +115,8 @@ class KGOutput:
     total_found: int
     search_metadata: Dict[str, Any]
 
-    @property
-    def is_empty(self) -> bool
-    @property
-    def top_result(self) -> Optional[KGResultItem]
+    is_empty: bool          # property
+    top_result: Optional[KGResultItem]   # property
 
     def get_by_type(self, page_type: str) -> List[KGResultItem]
     def get_by_domain(self, domain: str) -> List[KGResultItem]
@@ -169,88 +124,71 @@ class KGOutput:
     def to_context_string(self, max_results=5) -> str
 ```
 
-### KGResultItem
+Each result is a `KGResultItem` with `id`, `score`, `page_title`, `page_type`, `overview`, `content` and `metadata`, plus `domains`, `sources` and `last_updated` as properties.
+
+Narrow a search with `KGSearchFilters`:
 
 ```python
 @dataclass
-class KGResultItem:
-    id: str
-    score: float
-    page_title: str
-    page_type: str
-    overview: str
-    content: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def domains(self) -> List[str]
-    @property
-    def sources(self) -> List[Dict[str, str]]
+class KGSearchFilters:
+    top_k: int = 10
+    min_score: Optional[float] = None
+    page_types: Optional[List[str]] = None
+    domains: Optional[List[str]] = None
+    include_content: bool = True
 ```
 
-## Indexing
+## How do I index content?
 
-### Index Wiki Pages
+Indexing writes a `.index` file that campaigns load with `--kg-index`. See [`index_kg()`](/docs/reference/kapso-api#index-kg).
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 kapso = Kapso()
 
-# Index from wiki directory
 kapso.index_kg(
-    wiki_dir="data/wikis_llm_finetuning",
-    save_to="data/indexes/llm_finetuning.index",
-    force=True,  # Clear existing data
+    wiki_dir="data/wikis",
+    save_to="data/indexes/finetuning.index",
+    force=True,
 )
 ```
 
-### Index JSON Graph
+For a JSON graph, point at the file and name the backend:
 
 ```python
 kapso.index_kg(
     data_path="benchmarks/mle/data/kg_data.json",
     save_to="data/indexes/kaggle.index",
-    search_type="kg_llm_navigation",  # Override backend
+    search_type="kg_llm_navigation",
 )
 ```
 
-### Index File Format
-
-The `.index` file is a JSON reference:
+The `.index` file is a small JSON reference, not the data itself:
 
 ```json
 {
   "version": "1.0",
-  "created_at": "2025-01-15T10:30:00Z",
-  "data_source": "data/wikis_llm_finetuning",
+  "created_at": "2026-01-15T10:30:00Z",
+  "data_source": "data/wikis",
   "search_backend": "kg_graph_search",
   "backend_refs": {
-    "weaviate_collection": "KapsoWiki",
+    "weaviate_collection": "KapsoKG",
     "embedding_model": "text-embedding-3-large"
   },
   "page_count": 99
 }
 ```
 
-## Search Presets
+Indexing needs Weaviate and Neo4j running. See [Optional: knowledge-graph backends](/docs/installation#optional-knowledge-graph-backends).
 
-| Preset | top_k | LLM Reranker | Connected Pages |
-|--------|-------|--------------|-----------------|
-| `DEFAULT` | 10 | Yes | Yes |
-| `FAST` | 5 | No | No |
-| `THOROUGH` | 20 | Yes | Yes |
+## What happens when knowledge search is off?
 
-## NullKnowledgeSearch
+`KnowledgeSearchFactory.create_null()` returns a no-op backend whose `search()` gives an empty `KGOutput`. `MINIMAL` mode ships with `knowledge_search.enabled: false` and uses it, so a campaign runs without any knowledge-graph infrastructure.
 
-A no-op implementation used when KG is disabled:
+## Can I add my own backend?
 
-```python
-search = KnowledgeSearchFactory.create_null()
-result = search.search("query")  # Returns empty KGOutput
-```
-
-## Creating Custom Backends
+Register a class implementing `KnowledgeSearch`:
 
 ```python
 from kapso.knowledge_base.search.base import KnowledgeSearch
@@ -259,18 +197,27 @@ from kapso.knowledge_base.search.factory import register_knowledge_search
 @register_knowledge_search("my_custom_search")
 class MyCustomSearch(KnowledgeSearch):
     def index(self, data: KGIndexInput) -> None:
-        # Index wiki pages or data
-        pass
+        ...
 
     def search(self, query: str, filters=None, context=None) -> KGOutput:
-        # Return search results
-        pass
+        ...
 
     def get_page(self, page_title: str) -> Optional[WikiPage]:
-        # Direct page lookup
-        pass
+        ...
 
     def edit(self, data: KGEditInput) -> bool:
-        # Edit existing page
-        pass
+        ...
 ```
+
+Add its presets to `knowledge_search.yaml` beside the two shipped backends.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Knowledge graph" icon="brain" href="/docs/knowledge/overview">
+    What the graph holds and where it comes from
+  </Card>
+  <Card title="Learning pipeline" icon="graduation-cap" href="/docs/knowledge/learning-pipeline">
+    How sources become wiki pages
+  </Card>
+</CardGroup>
