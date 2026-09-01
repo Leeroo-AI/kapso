@@ -5,7 +5,7 @@ This module provides integration with [ALE-Bench](https://github.com/SakanaAI/AL
 Kapso achieved **#1 on ALE-Bench**: a final rating of **1909 Elo** against ALE Agent's 1879
 (+30 Elo), under the same time budget per problem and the official scorer.
 
-![ALE-Bench: Kapso's final rating of 1909 Elo against ALE Agent's 1879, every row drawn from its own printed Elo origin, above a per-problem breakdown of ten AtCoder Heuristic Contest problems whose bar gaps share one scale](../../docs/images/ale-bench.png)
+![ALE-Bench: Kapso's final rating of 1909 Elo against ALE Agent's 1879, above a per-problem breakdown of ten AtCoder Heuristic Contest problems; every row is drawn from its own truncated Elo origin, and the per-problem bar gaps share one scale](../../docs/images/ale-bench.png)
 
 | Problem | ALE Agent | Kapso | Δ Elo |
 |---|---|---|---|
@@ -21,12 +21,12 @@ Kapso achieved **#1 on ALE-Bench**: a final rating of **1909 Elo** against ALE A
 | ahc046 | 2153 | 2194 | +41 |
 | ahc039 | 2880 | 2310 | −570 |
 
-Every row of the chart is drawn from its own truncated axis, printed at the row's left edge,
-because Elo differences live far from zero: on an absolute 1000–3000 scale the final ratings
-are 1.5% apart and render as the same bar. The per-problem rows share one Elo-per-pixel
-scale, so gap sizes stay comparable across problems — a +22 never renders like a +565; the
-Final result row uses a magnified scale of its own (from Elo 1850, printed under its label).
-The table is the same result without any axis.
+Every row of the chart is drawn from its own truncated axis, because Elo differences live far
+from zero: on an absolute 1000–3000 scale the final ratings are 1.5% apart and render as the
+same bar. The per-problem rows share one Elo-per-pixel scale, so gap sizes stay comparable
+across problems — a +22 never renders like a +565; the Final result row uses a magnified
+scale of its own. Bar lengths therefore carry only the within-row and across-row gaps; the
+table above is the absolute reading.
 
 ## Prerequisites
 
