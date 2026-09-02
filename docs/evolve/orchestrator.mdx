@@ -44,59 +44,54 @@ handler = GenericProblemHandler(
     problem_description="Build a classifier with accuracy > 0.9",
 )
 
-# Create orchestrator
+# Create orchestrator — config_path=None uses the packaged config
 orchestrator = OrchestratorAgent(
     problem_handler=handler,
-    config_path="src/config.yaml",
     mode="GENERIC",
-    coding_agent="aider",
-    use_feedback_generator=True,  # Enable feedback generator
+    coding_agent="claude_code",
+    goal="Build a classifier with accuracy > 0.9",
 )
 
-# Run experimentation
-orchestrator.solve(
+# Run experimentation — returns a SolveResult
+result = orchestrator.solve(
     experiment_max_iter=10,
     time_budget_minutes=60,
     cost_budget=50.0,
 )
 
-# Get best result
-best = orchestrator.search_strategy.get_best_experiment()
+print(result.stopped_reason)   # "goal_achieved" | "max_iterations" | "budget_exhausted" | "legacy_stop"
+best = result.best_experiment
 ```
 
 ## What happens in one iteration?
 
 ```python
-def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
-    start_time = time.time()
+# Faithful sketch of OrchestratorAgent.solve()
+budget = BudgetSpec.resolve(config_block, time_budget_minutes, cost_budget, ...)
 
-    for i in range(experiment_max_iter):
-        # Calculate budget progress (0-100)
-        budget_progress = max(
-            (time.time() - start_time) / (time_budget_minutes * 60),
-            i / experiment_max_iter,
-            self.get_cumulative_cost() / cost_budget
-        ) * 100
+for i in range(experiment_max_iter):
+    budget_progress = budget.progress(elapsed_seconds, i, ledger.total_cost())
+    if budget_progress >= 100:
+        break                     # checkpoint stays status="running", last_stop says why
 
-        if budget_progress >= 100:
-            print("[Orchestrator] Stopping: budget exhausted")
-            break
+    # Context is the handler's problem statement plus the previous
+    # iteration's feedback; experiment history reaches the agent via
+    # MCP tools, not the prompt.
+    context = problem
+    if self.current_feedback:
+        context += f"\n\n## Feedback from Previous Iteration\n\n{self.current_feedback}"
 
-        # Get enriched context
-        context = self.context_manager.get_context(budget_progress)
+    # One search iteration: ideation, implementation, judged feedback
+    node = self.search_strategy.run(context, budget_progress)
 
-        # Run one search iteration (includes feedback generation)
-        node = self.search_strategy.run(context, budget_progress)
+    # A stop vote ends the campaign only when the handler's task semantics
+    # allow it — open-ended maximization has no "goal achieved"
+    if node.should_stop and self.problem_handler.honor_agent_stop:
+        break
 
-        # Check if feedback generator decided to stop
-        if node and node.should_stop:
-            print("[Orchestrator] Stopping: Goal achieved")
-            break
+    self._save_run_checkpoint(...)  # atomically, at the iteration boundary
 
-        # Log progress
-        print(f"Experiment {i+1} completed with cost: ${self.get_cumulative_cost():.3f}")
-
-    return self.search_strategy.get_best_experiment()
+return SolveResult(best_experiment=self.search_strategy.get_deliverable_experiment(), ...)
 ```
 
 ## How is the budget tracked?
@@ -107,7 +102,7 @@ The orchestrator tracks three budgets:
 |--------|-------------|---------------------|
 | **Time** | Wall-clock time | `elapsed / time_budget` |
 | **Iterations** | Experiment count | `i / max_iterations` |
-| **Cost** | LLM API cost | `cumulative_cost / cost_budget` |
+| **Cost** | Metered spend from the `BudgetLedger` | `ledger.total_cost() / cost_budget` |
 
 Budget progress is the **maximum** of all three:
 
@@ -161,35 +156,9 @@ def _create_knowledge_search(self, is_kg_active):
     return KnowledgeSearchFactory.create_null()
 ```
 
-### Context Manager
-
-```python
-def _create_context_manager(self):
-    cm_config = self.mode_config.get('context_manager', {})
-
-    if cm_config and cm_config.get('type'):
-        return ContextManagerFactory.create_from_config(
-            config=cm_config,
-            problem_handler=self.problem_handler,
-            search_strategy=self.search_strategy,
-            knowledge_search=self.knowledge_search,
-        )
-
-    # Default: use kg_enriched context manager
-    return ContextManagerFactory.create("kg_enriched", ...)
-```
-
 ## Cost Tracking
 
-```python
-def get_cumulative_cost(self) -> float:
-    """Get total cost from all components."""
-    return (
-        self.llm.get_cumulative_cost()
-        + self.search_strategy.workspace.get_cumulative_cost()
-        + self.problem_handler.llm.get_cumulative_cost()
-    )
-```
+Every component reports into one `BudgetLedger`: the inference meter, the coding-agent sessions, and per-node phase telemetry all record against it, and `get_cumulative_cost()` returns `self.budget_ledger.total_cost()`. There is no per-component summing to drift out of agreement.
 
 ## What gets cleaned up?
 
@@ -200,11 +169,7 @@ try:
     # Solve loop
     ...
 finally:
-    # Close context manager
-    if hasattr(self.context_manager, "close"):
-        self.context_manager.close()
-
-    # Close knowledge search (if orchestrator created it)
+    # Close knowledge search (only if the orchestrator created it)
     if self._owns_knowledge_search:
         self.knowledge_search.close()
 ```
@@ -217,16 +182,12 @@ modes:
     search_strategy:
       type: "generic"
       params:
-        idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        parent_policy: "best"
+        idea_generation_model: "claude-opus-5"
+        implementation_model: "claude-opus-5"
+        auth_mode: "oauth"
         gate_failure_policy: "warn"
         ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
 
-    models:
-      utility: "gpt-4.1-mini"
-      reasoning: "gpt-5-mini"
-      web_search: "openai/gpt-4o-search-preview"
     retry:
       max_attempts: 2
       initial_delay_seconds: 5
@@ -236,11 +197,14 @@ modes:
 
     coding_agent:
       type: "claude_code"
-      model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      model: "claude-opus-5"
+      agent_specific:
+        auth_mode: "oauth"
 
     knowledge_search:
       type: "kg_graph_search"
       enabled: true
+      preset: "DEFAULT"
 ```
 
 ## Constructor Parameters
@@ -255,7 +219,11 @@ modes:
 | `knowledge_search` | `KnowledgeSearch` | Pre-configured search instance |
 | `workspace_dir` | `str` | Custom workspace directory |
 | `initial_repo` | `str` | Starting repo (local path or GitHub URL) |
-| `use_feedback_generator` | `bool` | Enable feedback generator (default: True for evolve) |
+| `goal` | `str` | The campaign goal, fingerprinted into the checkpoint |
+| `resume` | `bool` | Continue from the workspace's run checkpoint |
+| `eval_dir` / `data_dir` | `str` | Caller-owned evaluation and data directories |
+| `iteration_evaluator` | `IterationEvaluator` | Optional [external evaluator](/docs/evolve/external-evaluation) |
+| `strategy_params_overrides` | `dict` | Per-campaign overrides merged over the mode's params |
 
 ## Next Steps
 

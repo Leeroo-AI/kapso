@@ -11,7 +11,7 @@ A coding agent is what actually writes the code during an experiment. Kapso driv
 
 | Agent | Description | Default model | Install |
 |-------|-------------|---------------|---------|
-| `claude_code` | Anthropic Claude Code CLI, for complex refactoring and planning | `claude-opus-4-5` | `npm install -g @anthropic-ai/claude-code` |
+| `claude_code` | Anthropic Claude Code CLI, for complex refactoring and planning | `claude-opus-4-5` (registry; both shipped modes override to `claude-opus-5`) | `npm install -g @anthropic-ai/claude-code` |
 | `codex` | OpenAI Codex CLI, non-interactive exec with a full-access sandbox | `gpt-5.6-sol` | `npm install -g @openai/codex` |
 | `gemini` | Google Gemini SDK, code generation with file parsing | `gemini-2.5-flash` | `pip install google-generativeai` |
 | `openhands` | OpenHands agent SDK with a sandboxed execution environment | `gpt-4.1-mini` | `pip install openhands-ai litellm` |
@@ -35,8 +35,13 @@ class CodingAgentInterface(ABC):
     def initialize(self, workspace: str) -> None:
         """Initialize for a specific workspace."""
 
-    def generate_code(self, prompt: str, debug_mode: bool = False) -> CodingResult:
-        """Generate or modify code based on prompt."""
+    def generate_code(
+        self,
+        prompt: str,
+        debug_mode: bool = False,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
+        """Generate or modify code; timeout_seconds is the budget deadline."""
 
     def cleanup(self) -> None:
         """Clean up resources."""
@@ -154,7 +159,7 @@ coding_agent:
   type: "openhands"
   model: "gpt-4.1-mini"
   agent_specific:
-    sandbox_type: "docker"
+    max_iterations: 30
 ```
 
 ## OSS Claude Code
@@ -185,40 +190,37 @@ class CodingResult:
 
 ## What must an agent return?
 
-When used with `kapso.evolve()`, the coding agent must return a structured JSON at the end of its response:
+When used with `kapso.evolve()`, the coding agent must end its response with XML tags:
 
-```json
-{
-    "code_changes_summary": "Brief description of changes made",
-    "evaluation_script_path": "kapso_evaluation/evaluate.py",
-    "evaluation_output": "Full output from running evaluation"
-}
+```xml
+<code_changes_summary>Brief description of changes made</code_changes_summary>
+<evaluation_script_path>kapso_evaluation/evaluate.py</evaluation_script_path>
+<evaluation_output>Full output from running evaluation</evaluation_output>
+<score>0.92</score>
+<technical_difficulties>Anything that blocked or degraded the work</technical_difficulties>
 ```
 
-This JSON is extracted by the search strategy and used by the feedback generator to validate results and decide whether to continue.
+The search strategy extracts these tags (`score` becomes a float; `null` or an empty value becomes `None`) and hands them to the feedback generator to validate the evaluation and decide whether to continue. There is no fallback format: output without the tags is a warning and an empty result.
 
 ### Example Agent Output
 
-````text
+```text
 I've implemented the random forest classifier. Here's what I did:
 
 1. Created main.py with the classifier implementation
 2. Added data loading and preprocessing
 3. Created kapso_evaluation/evaluate.py to test accuracy
 
-Running evaluation...
-Loading data...
+<code_changes_summary>Implemented random forest classifier with
+GridSearchCV for hyperparameter tuning. Added cross-validation and
+accuracy reporting.</code_changes_summary>
+<evaluation_script_path>kapso_evaluation/evaluate.py</evaluation_script_path>
+<evaluation_output>Loading data...
 Training model...
-Accuracy: 0.92
-
-```json
-{
-    "code_changes_summary": "Implemented random forest classifier with GridSearchCV for hyperparameter tuning. Added cross-validation and accuracy reporting.",
-    "evaluation_script_path": "kapso_evaluation/evaluate.py",
-    "evaluation_output": "Loading data...\nTraining model...\nAccuracy: 0.92"
-}
+Accuracy: 0.92</evaluation_output>
+<score>0.92</score>
+<technical_difficulties>none</technical_difficulties>
 ```
-````
 
 ## How does the feedback generator use an agent?
 

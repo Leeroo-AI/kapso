@@ -7,13 +7,11 @@ keywords: ["feedback generator", "FeedbackResult", "stop decision", "evaluation 
 
 The feedback generator reads an experiment's evaluation output and decides whether the campaign continues. It replaces a fixed score threshold with a judged verdict, so a run stops when the goal is genuinely met rather than when a number crosses a line.
 
-The Feedback Generator is an LLM-based component that validates evaluation results and decides whether to continue or stop the experimentation loop. It replaces the traditional evaluator and stop condition components with a more flexible, intelligent approach.
-
 ## How does it decide?
 
 ```mermaid
 flowchart LR
-    A[Agent Output] --> B[Extract JSON]
+    A[Agent Output] --> B[Extract XML tags]
     B --> C[FeedbackGenerator]
     C --> D{Goal Achieved?}
     D -->|Yes| E[Stop]
@@ -39,7 +37,12 @@ class FeedbackResult:
     evaluation_valid: bool          # Whether evaluation is fair/correct
     feedback: str                   # Actionable feedback for next iteration
     score: Optional[float] = None   # Extracted evaluation score
+    cards_load_bearing: List[str]   # Served bank cards whose guidance mattered
+    cost_usd: float = 0.0           # Cost of the feedback agent call
+    duration_seconds: Optional[float] = None
 ```
+
+The judge must answer in five XML tags — `<stop>`, `<evaluation_valid>`, `<score>`, `<feedback>`, `<cards_load_bearing>`. An answer without the tags parses to `None`; the caller retries once, and a second tagless answer becomes an explicit failure result rather than a silent guess.
 
 ## What does it check?
 
@@ -114,16 +117,16 @@ from kapso.execution.search_strategies.generic import FeedbackGenerator, Feedbac
 # Create feedback generator (uses claude_code by default)
 feedback_gen = FeedbackGenerator()
 
-# Generate feedback
+# Generate feedback — the judge reads the diff itself from the workspace
 result = feedback_gen.generate(
     goal="Build a classifier with accuracy > 0.9",
     idea="Use random forest with hyperparameter tuning",
-    implementation="...",  # Code diff
-    evaluation_code="...",  # Contents of kapso_evaluation/evaluate.py
-    evaluation_result={
-        "output": "Accuracy: 0.85",
-        "score": 0.85,
-    },
+    code_changes_summary="Implemented RF with GridSearchCV",
+    base_branch="main",
+    head_branch="generic_exp_3",
+    evaluation_script_path="kapso_evaluation/evaluate.py",
+    evaluation_result="Accuracy: 0.85",
+    workspace_dir="./iris_solution",
 )
 
 if result.stop:
@@ -137,50 +140,32 @@ else:
 The feedback generator is integrated within the search strategy. You can configure the agent type in the search strategy configuration:
 
 ```yaml
-search_strategy:
-  type: "generic"
-  params:
-    idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+feedback_generator:
+  type: "claude_code"
+  model: "claude-opus-5"
+  agent_specific:
+    auth_mode: "oauth"
 ```
 
 ## How does the search strategy use it?
 
-Feedback generation happens within the search strategy, not the orchestrator. This allows:
-
-- **Per-node feedback** in tree search (each node gets its own feedback)
-- **Unified flow** where implementation and feedback are tightly coupled
-- **Cleaner orchestrator** that only checks `node.should_stop`
+Feedback generation happens within the search strategy, not the orchestrator: each node gets its own verdict right after implementation, and the orchestrator only checks `node.should_stop`.
 
 ```python
-# In SearchStrategy.run()
-def run(self, context, budget_progress):
-    # 1. Generate solution
-    solution = self._generate_solution(context)
-    
-    # 2. Implement and run evaluation
-    node = self._implement_n_debug(solution, context, branch_name)
-    
-    # 3. Generate feedback
-    feedback_result = self._generate_feedback(node)
-    
-    # 4. Update node with feedback
-    node.feedback = feedback_result.feedback
-    node.score = feedback_result.score
-    node.should_stop = feedback_result.stop
-    
-    return node
+# In the generic strategy's iteration
+solution = generate_solution(context)          # ideation
+node = run_implementation(solution, branch)    # coding agent implements + evaluates
+feedback = generate_feedback(node)             # the judge reads the session's tags
+
+node.feedback = feedback.feedback
+node.should_stop = feedback.stop
+# The judged score stands only if the evaluation was ruled valid;
+# an invalid evaluation nulls it, and the run's manifest-of-record
+# score overrides the judge's reading when present.
+node.score = feedback.score if feedback.evaluation_valid else None
 ```
 
-## Why not a fixed score threshold?
-
-| Aspect | Legacy Evaluators | Feedback Generator |
-|--------|-------------------|-------------------|
-| Configuration | Predefined patterns (regex, JSON) | LLM understands any format |
-| Flexibility | Fixed evaluation logic | Adapts to any domain |
-| Stop Decision | Separate stop condition | Integrated in feedback |
-| Validation | None | Validates evaluation fairness |
-| Feedback | Simple score | Actionable suggestions |
+A fixed score threshold would need the evaluation format known in advance and would trust every evaluation equally; the judged verdict reads any format, checks the evaluation itself for fairness, and returns suggestions rather than a bare number.
 
 ## How do I get useful feedback?
 

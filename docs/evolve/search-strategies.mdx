@@ -1,20 +1,15 @@
 ---
 title: "Kapso search strategies: exploring the solution space"
 sidebarTitle: "Search strategies"
-description: "How Kapso generates and selects candidate solutions, the generic and benchmark tree-search strategies, and the node structure that records the whole search."
+description: "How Kapso generates and selects candidate solutions: the generic strategy, its configuration and MCP gates, and the node structure that records the whole search."
 keywords: ["search strategy", "tree search", "SearchNode", "candidate generation", "solution space"]
 ---
 
 A search strategy decides which candidate to try next. It generates solution ideas, runs each as an experiment, and records the result so the next choice is informed by the last.
 
-Search strategies control how Kapso explores the solution space. They generate solution candidates, run experiments, and track results.
-
 ## Which strategies ship?
 
-| Strategy | Description | Best For |
-|----------|-------------|----------|
-| `generic` | Claude Code + MCP gates for ideation and implementation | General problem solving |
-| `benchmark_tree_search` | Tree-based exploration with handler evaluation | MLE-Bench, ALE-Bench |
+One: `generic` — a coding agent plus MCP gates for ideation and implementation. Both shipped modes and every benchmark run it; benchmarks differ only in the handler that scores each candidate.
 
 ## Generic Search
 
@@ -34,22 +29,17 @@ flowchart LR
 search_strategy:
   type: "generic"
   params:
-    idea_generation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    implementation_model: "us.anthropic.claude-opus-4-5-20251101-v1:0"
-    auth_mode: "bedrock"
-    parent_policy: "best"
-    aws_region: "us-east-1"
+    idea_generation_model: "claude-opus-5"
+    implementation_model: "claude-opus-5"
+    auth_mode: "oauth"
     gate_failure_policy: "warn"
-    ideation_timeout: 300
-    implementation_timeout: 600
     ideation_gates: ["research", "experiment_history", "repo_memory", "leeroopedia"]
     implementation_gates: ["research", "repo_memory", "leeroopedia"]
 ```
 
-The generic strategy deliberately keeps `bedrock` as its default authentication
-profile. Set `auth_mode` to `auto`, `api_key`, or `oauth` to opt into another
-Claude Code credential source. The deprecated `use_bedrock` boolean is still
-accepted for compatibility.
+`auth_mode` names the Claude Code credential source: `oauth` (the shipped
+default — subscription login), `api_key`, or `auto` to let the adapter
+resolve one. AWS Bedrock support was removed on 26 August 2026.
 
 Gate requirements are checked before each agent is configured. `warn` (the
 default) removes unavailable gates and logs a warning, `skip` removes them
@@ -91,103 +81,6 @@ The generic strategy uses MCP gates for external knowledge access:
 | `repo_memory` | `get_repo_memory_section`, `list_repo_memory_sections`, `get_repo_memory_summary` | Repository understanding |
 | `leeroopedia` | `search_knowledge`, `build_plan`, `review_plan`, `verify_code_math`, `diagnose_failure`, `propose_hypothesis`, `query_hyperparameter_priors`, `get_page` | Curated ML/AI knowledge via [Leeroopedia](https://leeroopedia.com) |
 
-## Benchmark Tree Search
-
-Advanced strategy for benchmarks that explores solutions as a tree structure.
-
-```mermaid
-flowchart TB
-    ROOT["Root"]
-    N1["Node 1: Approach A"]
-    N2["Node 2: Approach B"]
-    N3["Node 3: A + optimization"]
-    N4["Node 4: A + different data"]
-
-    ROOT --> N1
-    ROOT --> N2
-    N1 --> N3
-    N1 --> N4
-
-    N3 -.->|"best: 0.92"| BEST["Best Result"]
-```
-
-### Algorithm
-
-Each iteration:
-1. **Prune**: Remove unpromising solutions (after 20% budget)
-2. **Expand**: Generate new child solutions from selected nodes
-3. **Select**: Pick best nodes to experiment with
-4. **Run**: Execute experiments in parallel
-
-```python
-def run(self, context, budget_progress):
-    # Prune after initial exploration
-    if budget_progress >= 20:
-        self.prune_bad_solutions(context)
-
-    # Expand nodes with new solutions
-    self.expand(context, budget_progress)
-
-    # Select best nodes to experiment
-    best_nodes = self.select(
-        context,
-        top_k=experiments_count,
-        exclude_experimented_nodes=True
-    )
-
-    # Run experiments in parallel
-    with ThreadPoolExecutor() as executor:
-        for node in best_nodes:
-            executor.submit(self._run_for_node, node, context, branch_name)
-```
-
-### Configuration
-
-```yaml
-search_strategy:
-  type: "benchmark_tree_search"
-  params:
-    reasoning_effort: "medium"
-    code_debug_tries: 5
-    node_expansion_limit: 2
-    node_expansion_new_childs_count: 5
-    idea_generation_steps: 1
-    first_experiment_factor: 1
-    experimentation_per_run: 1
-    per_step_maximum_solution_count: 10
-    exploration_budget_percent: 30
-    idea_generation_model: "gpt-4o-mini"
-```
-
-### Parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `node_expansion_limit` | 2 | Nodes to expand per iteration |
-| `node_expansion_new_childs_count` | 5 | Solutions generated per expansion |
-| `code_debug_tries` | 5 | Max debug attempts per solution |
-| `exploration_budget_percent` | 30 | When to switch to exploitation |
-| `idea_generation_model` | `gpt-4.1-mini` | Model for solution generation |
-| `experimentation_per_run` | 1 | Experiments per iteration |
-| `first_experiment_factor` | 1 | Multiplier for first iteration |
-
-### Exploration vs Exploitation
-
-```mermaid
-flowchart LR
-    subgraph Exploration["Exploration (0-30%)"]
-        E1["Diverse solutions"]
-        E2["LLM selects by potential"]
-    end
-
-    subgraph Exploitation["Exploitation (30-100%)"]
-        X1["Focus on top scorers"]
-        X2["Refine best solutions"]
-    end
-
-    Exploration -->|"budget > 30%"| Exploitation
-```
-
 ## Node Structure (SearchNode)
 
 ```python
@@ -219,12 +112,9 @@ class SearchNode:
     workspace_dir: str = ""
 ```
 
-## How do they compare?
+## Who evaluates and who stops?
 
-| Strategy | Evaluation | Stop Decision | Use Case |
-|----------|------------|---------------|----------|
-| `generic` | Agent-built | Feedback generator | `kapso.evolve()` |
-| `benchmark_tree_search` | Handler's `run()` | Handler's `stop_condition()` | MLE/ALE benchmarks |
+In `kapso.evolve()` the coding agent builds the evaluation and the feedback generator owns the stop decision. Benchmark runs use the same strategy but their handler supplies the official evaluation, and a handler may still cast a legacy stop vote via `stop_condition()`.
 
 ## How do I add my own?
 
@@ -234,8 +124,9 @@ from kapso.execution.search_strategies.factory import register_strategy
 
 @register_strategy("my_custom_search")
 class MyCustomSearch(SearchStrategy):
-    def __init__(self, config, workspace_dir=None):
-        super().__init__(config, workspace_dir)
+    def __init__(self, config, workspace_dir=None, import_from_checkpoint=False):
+        # The factory passes all three — omitting the last is a TypeError
+        super().__init__(config, workspace_dir, import_from_checkpoint)
         # Custom initialization
 
     def run(self, context, budget_progress=0.0):

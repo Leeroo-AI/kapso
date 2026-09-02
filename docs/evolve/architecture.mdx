@@ -10,15 +10,14 @@ Kapso is a set of pluggable components wired together by factories around a cent
 ```mermaid
 flowchart TB
     subgraph Entry["Entry Points"]
-        API["Kapso API\n(src/kapso.py)"]
-        CLI["CLI\n(src/cli.py)"]
+        API["Kapso API\n(src/kapso/kapso.py)"]
+        CLI["CLI\n(src/kapso/cli.py)"]
         BENCH["Benchmarks\n(benchmarks/)"]
     end
 
     subgraph Core["Core Orchestration"]
         ORCH["OrchestratorAgent"]
         STRAT["SearchStrategy"]
-        CTX["ContextManager"]
         KS["KnowledgeSearch"]
     end
 
@@ -46,7 +45,6 @@ flowchart TB
     BENCH --> ORCH
 
     ORCH --> STRAT
-    ORCH --> CTX
     ORCH --> KS
 
     STRAT --> WS
@@ -55,7 +53,7 @@ flowchart TB
     SESS --> AGENT
     SESS --> REPO
 
-    CTX --> HAND
+    ORCH --> HAND
     STRAT --> HAND
 
     API --> SEL
@@ -72,8 +70,9 @@ The user-facing entry point that provides the four-pillar API:
 
 ```python
 class Kapso:
-    def research(objective, mode, depth) -> Source.Research
-    def learn(*sources, wiki_dir) -> PipelineResult
+    def research(objective, mode, depth) -> ResearchFindings
+    def learn(source) -> LessonResult              # mine one finished campaign
+    def learn_knowledge(*sources, wiki_dir) -> PipelineResult  # ingest into the KG
     def evolve(goal, ...) -> SolutionResult
     def deploy(solution, strategy) -> Software
     def index_kg(wiki_dir, save_to) -> str
@@ -81,28 +80,7 @@ class Kapso:
 
 ### OrchestratorAgent
 
-The central coordinator that manages the solve loop:
-
-```python
-def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
-    for i in range(experiment_max_iter):
-        # Calculate budget progress (0-100)
-        budget_progress = max(time, iterations, cost) * 100
-
-        # Check stopping conditions
-        if self.problem_handler.stop_condition() or budget_progress >= 100:
-            break
-
-        # Get enriched context (problem + KG + history)
-        context = self.context_manager.get_context(budget_progress)
-
-        # Check if LLM decided COMPLETE
-        if self.context_manager.should_stop():
-            break
-
-        # Run one search iteration
-        self.search_strategy.run(context, budget_progress)
-```
+The central coordinator. Each iteration it computes budget progress, hands the strategy the problem statement plus the previous iteration's feedback, runs one search iteration, and stops when the judge's verdict says the goal is met (and the handler's task semantics honor that vote) or a budget dial reaches 100%. The faithful loop sketch lives on the [orchestrator page](/docs/evolve/orchestrator#what-happens-in-one-iteration); `solve()` returns a `SolveResult` with the deliverable experiment and the stop reason.
 
 ### Pluggable Components
 
@@ -110,9 +88,9 @@ All major components are created via factories and can be swapped via configurat
 
 | Component | Factory | Registered Types |
 |-----------|---------|------------------|
-| Search Strategy | `SearchStrategyFactory` | `generic`, `benchmark_tree_search` |
+| Search Strategy | `SearchStrategyFactory` | `generic` |
 | Knowledge Search | `KnowledgeSearchFactory` | `kg_graph_search`, `kg_llm_navigation` |
-| Coding Agent | `CodingAgentFactory` | `aider`, `gemini`, `claude_code`, `openhands` |
+| Coding Agent | `CodingAgentFactory` | `claude_code` (default), `codex`, `gemini`, `openhands`, `oss_claude_code`, plus `aider` as an optional extra |
 | Feedback Generator | Uses `CodingAgentFactory` | Same as coding agents (default: `claude_code`) |
 
 ### Configuration Flow
@@ -136,7 +114,7 @@ flowchart LR
 3. **Search Strategy** generates and selects solutions
 4. **Experiment Workspace** manages git branches
 5. **Coding Agent** generates code and runs evaluation
-6. **Coding agent** returns structured JSON with evaluation results
+6. **Coding agent** ends its session with XML result tags (summary, evaluation path and output, score)
 7. **Feedback Generator** validates evaluation and decides stop/continue
 8. **RepoMemory** tracks code understanding across experiments
 
@@ -150,7 +128,9 @@ src/kapso/
 │
 ├── core/                    # Core utilities
 │   ├── config.py            # YAML config loading
-│   ├── llm.py               # LLM backend (OpenAI, etc.)
+│   ├── llm.py               # LLMBackend (embeddings) + retry policy
+│   ├── cli_inference.py     # Completions as coding-agent CLI sessions
+│   ├── preflight.py         # Per-verb requirement checks (kapso doctor)
 │   └── prompt_loader.py     # Prompt template loading
 │
 ├── environment/             # Problem environment
@@ -166,9 +146,11 @@ src/kapso/
 │   │   ├── base.py          # SearchStrategy ABC
 │   │   ├── factory.py       # SearchStrategyFactory
 │   │   ├── strategies.yaml  # Strategy presets
-│   │   ├── generic/         # Claude Code + MCP gates
-│   │   │   └── strategy.py
-│   │   └── benchmark_tree_search.py  # For MLE/ALE benchmarks
+│   │   └── generic/         # The shipped strategy
+│   │       ├── strategy.py
+│   │       ├── ideation.py / implementation.py
+│   │       ├── feedback_flow.py / feedback_generator/
+│   │       └── expansion_lanes.py
 │   │
 │   ├── types.py             # ContextData, ExperimentHistoryProvider
 │   │
@@ -181,16 +163,18 @@ src/kapso/
 │   │   ├── factory.py       # CodingAgentFactory
 │   │   ├── agents.yaml      # Agent registry
 │   │   └── adapters/        # Agent implementations
-│   │       ├── aider_agent.py
-│   │       ├── gemini_agent.py
 │   │       ├── claude_code_agent.py
-│   │       └── openhands_agent.py
+│   │       ├── codex_agent.py
+│   │       ├── gemini_agent.py
+│   │       ├── openhands_agent.py
+│   │       ├── oss_claude_code_agent.py
+│   │       └── aider_agent.py
 │   │
 │   └── memories/            # Memory systems
 │       ├── experiment_memory/  # Experiment history storage
 │       └── repo_memory/        # Repository understanding
 │
-├── knowledge_base/          # Knowledge system
+├── knowledge_base/          # Knowledge graph
 │   ├── types.py             # Source types, ResearchFindings
 │   │
 │   ├── search/              # KG search backends
@@ -268,13 +252,12 @@ modes:
       type: "generic"
       params: { ... }
     coding_agent:
-      type: "aider"
-      model: "gpt-4o-mini"
-    context_manager:
-      type: "kg_enriched"
+      type: "claude_code"
+      model: "claude-opus-5"
     knowledge_search:
       type: "kg_graph_search"
       enabled: true
+      preset: "DEFAULT"
 ```
 
 ### Git-Based Experiment Isolation
@@ -282,7 +265,7 @@ modes:
 Each experiment runs on its own git branch, enabling:
 - Parallel experimentation
 - Easy rollback to any state
-- Tree-based solution exploration
+- Parent/child lineage across candidates
 - RepoMemory inheritance across branches
 
 ## Next Steps

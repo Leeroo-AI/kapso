@@ -74,8 +74,7 @@ With `resume=True`:
 
 - `output_path` is required and must already be a directory.
 - The path must be a non-bare Git repository.
-- `.kapso/run_state.json` must exist, unless trusted legacy migration is
-  explicitly enabled.
+- `.kapso/run_state.json` must exist.
 - The checkpoint schema must be supported and structurally valid.
 - The goal must match exactly.
 - The configured search strategy and configuration fingerprint must match.
@@ -91,7 +90,7 @@ The current schema is:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "strategy_type": "generic",
   "goal": "Improve the support agent",
   "goal_hash": "sha256...",
@@ -99,6 +98,9 @@ The current schema is:
   "status": "running",
   "completed_iterations": 1,
   "cumulative_cost": 0.42,
+  "elapsed_seconds": 812.4,
+  "cost_by_component": {"implementation": 0.31, "feedback": 0.11},
+  "last_stop": null,
   "current_feedback": "Address the failing edge case",
   "strategy_state": {
     "node_history": [],
@@ -129,8 +131,11 @@ a half-created iteration is not added to `completed_iterations`.
 
 Status has two values:
 
-- `running`: the call reached its iteration slice and can be resumed.
-- `completed`: the goal was achieved or a time/cost budget ended the campaign.
+- `running`: the call reached its iteration slice and can be resumed. A budget
+  stop stays `running` too — it records why in `last_stop` and waits for the
+  next slice.
+- `completed`: the goal was achieved. Only goal achievement completes a
+  campaign.
 
 The checkpoint file and temporary files are ignored by the experiment Git
 repository. Candidate branches remain normal Git artifacts, while orchestration
@@ -141,10 +146,9 @@ state remains local runtime state.
 Resume restores:
 
 - generic-search node history and next iteration number;
-- tree-search nodes, parent/child references, event history, and experiment
-  count;
 - feedback injected into the next iteration;
-- cumulative campaign cost;
+- the durable clock (`elapsed_seconds`) and cumulative campaign cost, broken
+  down in `cost_by_component`;
 - cumulative completed-iteration count;
 - the status needed to reject completed campaigns.
 
@@ -173,29 +177,6 @@ from kapso import (
 
 Fix the mismatch or choose the correct workspace. Do not delete validation
 fields to force a resume; use a new output path for a new campaign.
-
-## Trusted legacy migration
-
-Older Kapso versions wrote `checkpoint.pkl`. Pickle can execute code while
-loading, so migration is opt-in and must only be used for a workspace you
-trust:
-
-```python
-solution = kapso.evolve(
-    goal="Improve the support agent",
-    output_path="./trusted-old-campaign",
-    max_iterations=1,
-    resume=True,
-    allow_legacy_checkpoint=True,
-)
-```
-
-Kapso imports the built-in strategy's legacy state, immediately writes the
-versioned JSON checkpoint, and renames the pickle to
-`checkpoint.pkl.migrated`. Later resumes use JSON and do not deserialize the
-pickle again. Legacy checkpoints do not contain goal/configuration metadata, so
-the explicit trust decision also accepts the goal and configuration supplied to
-the migration call.
 
 ## Custom search strategies
 

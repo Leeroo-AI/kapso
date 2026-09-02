@@ -1,79 +1,56 @@
 ---
 title: "Model routing and retry policy for Kapso LLM calls"
 sidebarTitle: "Model routing"
-description: "Configure semantic roles instead of hard-coded providers, and bound transient failures with exponential backoff, jitter and a capped number of attempts."
-keywords: ["model routing", "semantic roles", "retry policy", "exponential backoff", "LLM configuration"]
+description: "Where every model call goes: coding-agent CLI sessions per inference role, one embedding route, and a retry policy that bounds transient failures."
+keywords: ["model routing", "inference roles", "retry policy", "exponential backoff", "LLM configuration"]
 ---
 
-Kapso's internal LLM calls use semantic roles instead of embedding provider
-model names throughout the codebase. A single mode configuration selects the
-models used for lightweight utility work, deeper reasoning, and web search.
-The same retry policy applies to synchronous, parallel, and web-search
-completions.
+Kapso routes every model call one of two ways. Completions — research, reranking, graph navigation, repo memory, commit messages, benchmark utilities — run as read-only coding-agent CLI sessions, configured by the platform's `inference` block. Embeddings are the one call that still goes to a provider SDK directly, through `LLMBackend`'s single `embedding` route.
 
-## Configuration
+## Inference roles
+
+The `inference` block names a default CLI and model, then overrides per role:
 
 ```yaml
-modes:
-  GENERIC:
-    models:
-      utility: "gpt-4.1-mini"
-      reasoning: "gpt-5-mini"
-      web_search: "openai/gpt-4o-search-preview"
-
-    retry:
-      max_attempts: 2
-      initial_delay_seconds: 5
-      max_delay_seconds: 60
-      multiplier: 2
-      jitter: true
+inference:
+  default:
+    cli: codex
+    model: "gpt-5.6-sol"
+    effort: "xhigh"
+    sandbox: "read-only"
+    timeout_seconds: 900
+  roles:
+    research: {web_search: true, timeout_seconds: 1800}
+    kg_rerank: {effort: "low", timeout_seconds: 300}
+    kg_navigate: {effort: "low", timeout_seconds: 300}
+    repo_memory: {}
+    commit_message: {effort: "low", timeout_seconds: 180}
+    benchmark_utility: {effort: "low", timeout_seconds: 600}
 ```
 
-`max_attempts` includes the initial call. This example makes one retry after a
-transient failure. Configuration is validated when the shared LLM backend is
-created, before an experiment starts.
+A role inherits every `default` key it does not override, so `repo_memory: {}` is the default spec verbatim. Inference sessions never write (`sandbox: read-only`), and a failed or empty session raises rather than degrading silently.
 
-## Model roles
+<Note>
+  The `inference` block is resolved from the packaged platform config, not from the file you pass with `--config`. Coding-agent models — such as `coding_agent.model` — stay explicit in your mode config because their provider and authentication are part of that agent's configuration.
+</Note>
 
-| Role | Intended work | Default |
-|------|---------------|---------|
-| `utility` | Commit messages, structured memory, insight extraction, reranking | `gpt-4.1-mini` |
-| `reasoning` | Search-strategy ideation and graph navigation | `gpt-5-mini` |
-| `web_search` | Public-web research and direct web-search completions | `openai/gpt-4o-search-preview` |
+`Kapso.research()` runs on the `research` role, whose `web_search: true` carries the CLI's live-web tool; `depth="light"` requests medium search context and `depth="deep"` high.
 
-Roles are resolved only by `LLMBackend`. Coding-agent models—such as the Claude
-Code model in `coding_agent.model`—remain explicit because their provider and
-authentication mode are part of that agent's configuration.
+## The embedding route
 
-Existing explicit LLM model strings also remain valid:
+`LLMBackend` keeps exactly one semantic role:
 
-```python
-llm.llm_completion(model="vendor/custom-model", messages=messages)
-llm.llm_completion(model="utility", messages=messages)
+```yaml
+defaults:
+  models:
+    embedding: "text-embedding-3-small"
 ```
 
-In the first call, the string passes through unchanged. In the second, Kapso
-uses the configured `utility` route. Historical web-search inputs such as
-`gpt-4.1-mini` and `gpt-5-mini` remain compatibility aliases and resolve to the
-configured `web_search` model when used with a web-search method.
-
-`Kapso.research()` uses the active mode's `web_search` route and retry policy.
-`depth="light"` requests medium search context; `depth="deep"` requests high
-search context. Constructing `Researcher(model="vendor/model")` still selects an
-explicit provider model, while `Researcher()` uses the default route.
-
-An evolution run constructs one configured backend and shares it with search
-strategies, RepoMemory, commit-message generation, and experiment insight
-extraction. Knowledge-search reranking and navigation construct equivalent
-backends from the same mode settings. This keeps route overrides consistent
-throughout the run and cost accounting centralized for its shared callers.
-
-Partial route overrides are supported; unspecified roles retain their defaults.
-Unknown role keys and empty model values are configuration errors.
+Experiment-store semantic search and knowledge search resolve their embedding model through it. Unknown role keys and empty model values are configuration errors, caught when the backend is created — before an experiment starts.
 
 ## Retry semantics
 
-Kapso retries only failures that are usually safe to repeat:
+Provider-backed calls retry only failures that are usually safe to repeat:
 
 - connection and timeout failures;
 - HTTP `408`, `409`, `425`, and `429` responses;
@@ -85,35 +62,32 @@ Authentication, permission, bad-request, context-window, invalid
 configuration, and programming errors are raised immediately. Kapso does not
 sleep and retry a bad API key or a malformed call.
 
+The retry budget comes from the mode's `retry` block; `max_attempts` includes the initial call:
+
+```yaml
+retry:
+  max_attempts: 2
+  initial_delay_seconds: 5
+  max_delay_seconds: 60
+  multiplier: 2
+  jitter: true
+```
+
 The delay before retry number `n` is capped exponential backoff:
 
 ```text
 min(max_delay_seconds, initial_delay_seconds * multiplier ** (n - 1))
 ```
 
-With `jitter: true`, Kapso uses full jitter—a random delay between zero and the
-calculated cap—to avoid synchronized retry storms. With `jitter: false`, the
+With `jitter: true`, Kapso uses full jitter — a random delay between zero and the
+calculated cap — to avoid synchronized retry storms. With `jitter: false`, the
 calculated delay is used exactly.
 
 When transient failures exhaust all attempts, `LLMRetryError` reports the
 operation, resolved model, and attempt count while preserving the provider
-exception as its cause.
-
-## Parallel calls
-
-Each model in a parallel request owns its retry loop. If one of five calls is
-temporarily rate-limited, the four successful calls are not submitted again.
-Successful call costs are recorded once, and returned response order continues
-to match input model order.
-
-Synchronous web search, parallel web search, standard synchronous completion,
-and standard parallel completion all share the same classifier and
-`RetryPolicy`.
-
-The `Researcher` API retains its existing best-effort contract: after the
-shared backend has exhausted a transient failure—or immediately rejects a
-non-transient one—the individual research mode logs the failure and returns an
-empty typed result.
+exception as its cause. `defaults.retry.request_timeout_seconds` additionally
+hands the provider client a hard per-request wall clock, so a connection the
+server abandons mid-stream cannot block the calling thread forever.
 
 ## Standalone use
 
@@ -121,7 +95,7 @@ empty typed result.
 from kapso.core import LLMBackend, RetryPolicy
 
 llm = LLMBackend(
-    models={"utility": "vendor/fast", "reasoning": "vendor/deep"},
+    models={"embedding": "text-embedding-3-small"},
     retry_policy=RetryPolicy(
         max_attempts=3,
         initial_delay_seconds=1,
@@ -131,10 +105,7 @@ llm = LLMBackend(
     ),
 )
 
-response = llm.llm_completion(
-    model="reasoning",
-    messages=[{"role": "user", "content": "Analyze this design."}],
-)
+vector = llm.create_embedding("QLoRA rank selection")
 ```
 
 `ModelRouter`, `RetryPolicy`, `LLMRetryError`, and

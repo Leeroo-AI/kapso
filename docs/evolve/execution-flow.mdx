@@ -7,8 +7,6 @@ keywords: ["execution flow", "evolve loop", "experiment steps", "budget tracking
 
 One call to `evolve()` runs a loop: gather context, propose a candidate, implement it on a branch, evaluate it, judge the result, and either continue or stop. This page follows a single pass through it.
 
-When you call `kapso.evolve()`, the **OrchestratorAgent** runs an experiment loop that generates, tests, and refines solutions until the feedback generator decides the goal is achieved.
-
 ```mermaid
 flowchart LR
     A[Goal] --> B[SearchStrategy]
@@ -37,29 +35,17 @@ solution = kapso.evolve(
 
 | Component | Module | Role |
 |-----------|--------|------|
-| **ProblemHandler** | `src.environment.handlers` | Wraps goal and problem context |
-| **OrchestratorAgent** | `src.execution.orchestrator` | Runs the solve loop |
-| **SearchStrategy** | `src.execution.search_strategies` | Generates and selects solutions |
-| **ExperimentWorkspace** | `src.execution.experiment_workspace` | Manages Git branches |
-| **CodingAgent** | `src.execution.coding_agents` | Writes code and runs evaluation |
+| **ProblemHandler** | `kapso.environment.handlers` | Wraps goal and problem context |
+| **OrchestratorAgent** | `kapso.execution.orchestrator` | Runs the solve loop |
+| **SearchStrategy** | `kapso.execution.search_strategies` | Generates and selects solutions |
+| **ExperimentWorkspace** | `kapso.execution.experiment_workspace` | Manages Git branches |
+| **CodingAgent** | `kapso.execution.coding_agents` | Writes code and runs evaluation |
 | **FeedbackGenerator** | (within search strategy) | Validates results and decides stop |
-| **KnowledgeSearch** | `src.knowledge_base.search` | Retrieves KG context |
+| **KnowledgeSearch** | `kapso.knowledge_base.search` | Retrieves KG context |
 
 ### Step 2: Gather Context
 
-The **ContextManager** assembles information for the coding agent:
-
-```mermaid
-flowchart TB
-    subgraph ContextManager
-        P[Problem]
-        K[KG Results]
-        H[Experiment History]
-        R[Repo Memory]
-    end
-    
-    ContextManager --> CD[ContextData]
-```
+The problem handler supplies the problem statement; knowledge search adds graph context. Experiment history and repo memory are **not** packed into the context — the agent pulls them on demand through MCP gates.
 
 ```python
 @dataclass
@@ -68,61 +54,24 @@ class ContextData:
     additional_info: str   # Workflow guidance
     kg_results: str        # Knowledge graph context
     kg_code_results: str   # Code examples from KG
-    experiment_history: str # Past experiments
 ```
 
 ### Step 3: The Solve Loop
 
-**OrchestratorAgent.solve()** runs the main loop:
-
-```python
-def solve(self, experiment_max_iter, time_budget_minutes, cost_budget):
-    for i in range(experiment_max_iter):
-        # Calculate budget progress (0-100%)
-        budget_progress = max(time_pct, iter_pct, cost_pct) * 100
-
-        # Get enriched context
-        context = self.context_manager.get_context(budget_progress)
-
-        # Run one search iteration (includes feedback generation)
-        node = self.search_strategy.run(context, budget_progress)
-
-        # Check if feedback generator decided to stop
-        if node and node.should_stop:
-            print("[Orchestrator] Stopping: Goal achieved")
-            break
-
-        # Log progress
-        print(f"Experiment {i+1} completed with cost: ${self.get_cumulative_cost():.3f}")
-
-    return self.search_strategy.get_best_experiment()
-```
+**OrchestratorAgent.solve()** runs the main loop: compute budget progress, hand the strategy the problem plus the previous iteration's feedback, run one search iteration, and stop on a judged goal-achieved vote or an exhausted budget. The faithful sketch lives on the [orchestrator page](/docs/evolve/orchestrator#what-happens-in-one-iteration).
 
 ### Step 4: Generate Solution Ideas
 
 **SearchStrategy** generates solution candidates:
 
-**GenericSearch** — Claude Code + MCP gates:
-```python
-def run(self, context, budget_progress):
-    solution, sections = self._generate_solution(problem, parent_branch)
-    agent_output = self._implement(solution, problem, branch_name, parent_branch)
-    self._generate_feedback(node)
-```
+The generic strategy picks a parent (see [parent selection](/docs/evolve/parent-selection)), runs ideation against the MCP gates, and carries the chosen solution into implementation:
 
-**BenchmarkTreeSearch** — Tree-based exploration:
 ```python
-def run(self, context, budget_progress):
-    if budget_progress >= 20:
-        self.prune_bad_solutions(context)  # Remove dead ends
-    
-    self.expand(context, budget_progress)   # Generate children
-    best_nodes = self.select(context, top_k=experiments_count)
-    
-    # Run experiments in parallel
-    with ThreadPoolExecutor() as executor:
-        for node in best_nodes:
-            executor.submit(self._run_for_node, node, context)
+# One generic-search iteration, simplified
+parent = select_parent()                       # best valid candidate, or main
+solution = generate_solution(context, parent)  # ideation with MCP gates
+node = run_implementation(solution, parent)    # Step 5
+feedback = generate_feedback(node)             # Step 7
 ```
 
 ### Step 5: Write Code and Run Evaluation
@@ -130,32 +79,28 @@ def run(self, context, budget_progress):
 **ExperimentSession** coordinates code generation:
 
 ```python
-def implement_solution(self, solution, context, session):
-    # Build prompt with RepoMemory context
-    repo_memory_brief = RepoMemoryManager.render_summary_and_toc(
-        repo_root=session.session_folder
-    )
+# run_implementation, simplified
+doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
+repo_memory_brief = RepoMemoryManager.render_summary_and_toc(doc, max_chars=3000)
 
-    prompt = render_prompt(template, {
-        "problem": context.problem,
-        "solution": solution,
-        "repo_memory_brief": repo_memory_brief,
-        "kg_code_results": context.kg_code_results,
-    })
+prompt = render_prompt(template, {
+    "problem": context.problem,
+    "solution": solution,
+    "repo_memory_brief": repo_memory_brief,
+    "kg_code_results": context.kg_code_results,
+})
 
-    # Agent implements solution AND runs evaluation
-    # Returns structured JSON with results
-    session.generate_code(prompt)
-    
-    # Extract results from agent's structured JSON output
-    return self._extract_agent_result(session.output)
+# Agent implements the solution AND runs evaluation, then ends
+# its session with XML result tags
+output = session.generate_code(prompt, timeout_seconds=deadline)
+result = extract_agent_result(output)   # parses the tags
 ```
 
 The coding agent is responsible for:
 1. Implementing the solution code
 2. Building evaluation in `kapso_evaluation/`
 3. Running the evaluation
-4. Returning structured JSON with results
+4. Ending its response with the XML result tags
 
 When the caller supplies `eval_dir`, step 2 changes: the agent must run the
 provided evaluation without changing its source. Kapso fingerprints the suite
@@ -166,53 +111,31 @@ Each experiment gets its own **Git branch** via `ExperimentWorkspace`:
 
 ```text
 main
-├── kapso/exp-001  (Score: 0.87)
-├── kapso/exp-002  (Score: 0.91)
-└── kapso/exp-003  (Score: 0.96, best)
+├── generic_exp_0  (Score: 0.87)
+├── generic_exp_1  (Score: 0.91)
+└── generic_exp_2  (Score: 0.96, best)
 ```
 
-### Step 6: Agent Returns Structured JSON
+### Step 6: Agent Returns XML Result Tags
 
-The coding agent returns a structured JSON with evaluation results:
+The coding agent ends its response with XML tags:
 
-```json
-{
-    "code_changes_summary": "Implemented random forest classifier with GridSearchCV",
-    "evaluation_script_path": "kapso_evaluation/evaluate.py",
-    "evaluation_output": "Loading data...\nTraining model...\nAccuracy: 0.95\nAll tests passed."
-}
+```xml
+<code_changes_summary>Implemented random forest classifier with GridSearchCV</code_changes_summary>
+<evaluation_script_path>kapso_evaluation/evaluate.py</evaluation_script_path>
+<evaluation_output>Loading data...
+Training model...
+Accuracy: 0.95
+All tests passed.</evaluation_output>
+<score>0.95</score>
+<technical_difficulties>none</technical_difficulties>
 ```
 
-This JSON is extracted from the agent's output and used by the feedback generator.
+The tags are extracted from the agent's output and handed to the feedback generator.
 
 ### Step 7: Feedback Generation
 
-The **FeedbackGenerator** validates the evaluation and decides whether to continue:
-
-```python
-class FeedbackGenerator:
-    def generate(self, goal, idea, implementation, evaluation_result):
-        # Use coding agent to analyze results
-        feedback_result = self.agent.analyze(
-            goal=goal,
-            idea=idea,
-            implementation=implementation,
-            evaluation_result=evaluation_result,
-        )
-        
-        return FeedbackResult(
-            stop=feedback_result.goal_achieved,
-            evaluation_valid=feedback_result.is_valid,
-            feedback=feedback_result.suggestions,
-            score=feedback_result.extracted_score,
-        )
-```
-
-The feedback generator:
-1. **Validates evaluation**: Checks if the agent-built evaluation is fair and correct
-2. **Extracts score**: Parses the evaluation output to get numeric scores
-3. **Checks goal**: Determines if the goal has been achieved
-4. **Generates feedback**: Provides actionable suggestions for the next iteration
+The **[feedback generator](/docs/evolve/feedback-generator)** reads the diff and the session's tags, validates the evaluation, extracts the score, checks the goal, and writes the next iteration's feedback — returning a `FeedbackResult` with `stop`, `evaluation_valid`, `feedback` and `score`.
 
 ### Step 8: Check Feedback Result
 
@@ -269,23 +192,7 @@ if solution.succeeded:
 
 ## How is the budget tracked?
 
-**OrchestratorAgent** tracks three budgets:
-
-```python
-budget_progress = max(
-    elapsed_time / time_budget,
-    iteration / max_iterations,
-    cumulative_cost / cost_budget
-) * 100
-```
-
-| Budget | Tracked By | Stops When |
-|--------|------------|------------|
-| **Time** | `time.time()` | Wall-clock limit reached |
-| **Iterations** | Loop counter | Max experiments reached |
-| **Cost** | `get_cumulative_cost()` | API costs exceed limit |
-
-The loop stops when **any** budget hits 100% OR the stop condition is met.
+Budget progress is the maximum of the time, iteration and cost dials; the loop stops when any of them reaches 100% or the judge's stop vote is honored. The formula and dials are on the [orchestrator page](/docs/evolve/orchestrator#how-is-the-budget-tracked).
 
 ---
 
@@ -310,17 +217,7 @@ class SearchNode:
     error_message: str = ""
 ```
 
-The debug prompt includes error context:
-
-```python
-def debug_solution(self, solution, context, error, session):
-    prompt = render_prompt(debug_template, {
-        "problem": context.problem,
-        "solution": solution,
-        "error_details": error,
-    })
-    session.generate_code(prompt, debug_mode=True)
-```
+There is no in-iteration debug loop: an error lands in the node's tags and the judge's verdict, and the next iteration's prompt opens with that feedback.
 
 ---
 
@@ -328,7 +225,7 @@ def debug_solution(self, solution, context, error, session):
 
 <CardGroup cols={2}>
   <Card title="Search Strategies" icon="sitemap" href="/docs/evolve/search-strategies">
-    Linear vs Tree search in detail
+    The generic strategy in detail
   </Card>
   <Card title="Orchestrator" icon="gears" href="/docs/evolve/orchestrator">
     Deep dive into OrchestratorAgent

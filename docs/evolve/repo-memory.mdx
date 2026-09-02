@@ -20,8 +20,8 @@ Repo memory is a structured model of a repository — its architecture, patterns
 {
   "schema_version": 2,
   "generated_at": "2025-01-15T10:30:00Z",
+  "baseline": {"initial_repo": null},
   "repo_map": { ... },
-  "repo_model": { ... },
   "book": {
     "summary": "One-paragraph description",
     "toc": [
@@ -37,7 +37,7 @@ Repo memory is a structured model of a repository — its architecture, patterns
           {
             "kind": "architecture",
             "statement": "Uses factory pattern for component creation",
-            "evidence": [{"path": "src/factory.py", "quote": "class Factory:"}]
+            "evidence": [{"path": "src/factory.py", "line": 12, "description": "Factory class definition"}]
           }
         ]
       },
@@ -137,7 +137,7 @@ RepoMemoryManager.bootstrap_baseline_model(
 RepoMemoryManager.update_after_experiment(
     repo_root="/path/to/repo",
     llm=llm,
-    branch_name="experiment_1",
+    branch_name="generic_exp_1",
     parent_branch_name="main",
     base_commit_sha="abc123",
     solution_spec="Implement feature X",
@@ -203,9 +203,9 @@ When experiments branch from a parent:
 ```mermaid
 flowchart TD
     M[main: baseline memory]
-    E1[experiment_1: inherited + updated]
-    E2[experiment_2: inherited from main]
-    E3[experiment_3: inherited from E1]
+    E1[generic_exp_1: inherited + updated]
+    E2[generic_exp_2: inherited from main]
+    E3[generic_exp_3: inherited from E1]
 
     M --> E1
     M --> E2
@@ -214,9 +214,7 @@ flowchart TD
 
 ## How are its claims verified?
 
-Claims must have evidence that exists in the repository:
-
-Every claim carries a line-number reference into the file it came from, and the model is rejected if a quote no longer matches the file it cites. The check runs inside the builder as the model is validated; there is no separate public entry point for it.
+Every claim carries a line-number reference — `{path, line, description}` — into the file it came from. The builder validates the model's shape (a summary and well-formed sections); it does not re-check the referenced lines, because a line number is a pointer rather than a quotable assertion: the model is trusted as-is, and the `quality` block records evidence coverage.
 
 ## How do agents read it?
 
@@ -233,47 +231,20 @@ list_repo_memory_sections()
 get_repo_memory_section(section_id="core.architecture")
 ```
 
-Available sections:
-- `core.architecture` - System design and module structure
-- `core.entrypoints` - How to run the application
-- `core.where_to_edit` - Key files for modifications
-- `core.invariants` - Contracts, constraints, and assumptions
-- `core.testing` - How to run tests
-- `core.gotchas` - Common pitfalls
-- `core.dependencies` - Key dependencies
+The section ids are the seven from the [Core Sections](#core-sections) table.
 
 ## Integration with Coding Agents
 
-### Prompt Injection
-
-Search strategies inject RepoMemory into prompts:
+The generic strategy's implementation prompt opens with the memory's rendered summary and TOC:
 
 ```python
-def implement_solution(self, solution, context, session):
-    repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
-    repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc)
-
-    prompt = f"""
-    # Repo Memory (Summary + TOC)
-    {repo_memory_brief}
-
-    # Problem
-    {context.problem}
-
-    # Solution
-    {solution}
-    """
+# In run_implementation's prompt assembly
+repo_memory_doc = RepoMemoryManager.ensure_exists_in_worktree(session.session_folder)
+repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, max_chars=3000)
+# ...prepended to the problem and solution sections of the prompt
 ```
 
-### Section Access Instructions
-
-Agents are told how to access detailed sections via MCP tools:
-
-```text
-For detailed section content (architecture, gotchas, invariants, etc.),
-use the MCP tool: get_repo_memory_section(section_id="core.architecture")
-Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-```
+The prompt also tells the agent to pull detailed sections on demand through the `repo_memory` MCP gate (`get_repo_memory_section(section_id="core.architecture")`), so the full memory never has to ride in the prompt.
 
 ## Quality Metrics
 

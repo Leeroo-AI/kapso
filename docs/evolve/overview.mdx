@@ -7,8 +7,6 @@ keywords: ["Kapso Evolve", "experiment campaign", "tree search", "automated ML",
 
 Evolve is the engine. Give it a goal it can score and it runs a campaign: propose a candidate, implement it on its own git branch, evaluate it, judge the result, and repeat with what it learned.
 
-The Evolve System is Kapso's core engine for building software solutions. It orchestrates an iterative experimentation loop that explores multiple approaches, learns from failures, and converges on high-quality solutions.
-
 ## How does a campaign work?
 
 ```mermaid
@@ -29,12 +27,12 @@ flowchart TB
 
 The system works by:
 
-1. **Receiving a goal** : What you want to build (include success criteria in the goal)
-2. **Initializing repo** : From `initial_repo`, workflow search, or empty
-3. **Gathering context** : From Knowledge Graph and Repo Memory
-4. **Generating solutions** : Via pluggable coding agents
-5. **Running evaluation** : Agent builds and runs evaluation in `kapso_evaluation/`
-6. **Generating feedback** : Feedback generator validates results and decides stop/continue
+1. **Receiving a goal**: What you want to build (include success criteria in the goal)
+2. **Initializing repo**: From `initial_repo`, workflow search, or empty
+3. **Gathering context**: From the knowledge graph and repo memory
+4. **Generating solutions**: Via pluggable coding agents
+5. **Running evaluation**: Agent builds and runs evaluation in `kapso_evaluation/`
+6. **Generating feedback**: Feedback generator validates results and decides stop/continue
 
 ## What are the pieces?
 
@@ -43,10 +41,10 @@ The system works by:
     Central coordinator that manages the experimentation loop, budget tracking, and component lifecycle
   </Card>
   <Card title="Search Strategies" icon="magnifying-glass" href="/docs/evolve/search-strategies">
-    Algorithms for exploring the solution space: tree search or linear search
+    The generic strategy: how candidates are generated, run and recorded
   </Card>
   <Card title="Coding Agents" icon="code" href="/docs/evolve/coding-agents">
-    Pluggable code generators: Aider, Gemini, Claude Code, OpenHands
+    Pluggable code generators: Claude Code, Codex, Gemini, OpenHands and more
   </Card>
   <Card title="Feedback Generator" icon="comments" href="/docs/evolve/feedback-generator">
     Validates evaluation results and decides when to stop
@@ -95,51 +93,22 @@ When `evolve()` is called, the system initializes the workspace:
 
 ## Configuration Modes
 
-Kapso provides preset configurations for different use cases:
+Two ship, both running the generic strategy:
 
-| Mode | Search Strategy | Best For |
-|------|-----------------|----------|
-| `GENERIC` | Tree search (default) | General problem solving |
-| `MINIMAL` | Linear search | Quick experiments, simple problems |
-| `TREE_SEARCH` | Tree search with debugging | Complex problems requiring exploration |
-| `SCORED` | Tree search with scoring | Problems with clear metrics |
+| Mode | Description | Best For |
+|------|-------------|----------|
+| `GENERIC` | The default: MCP gates, knowledge search, full feedback loop | General problem solving |
+| `MINIMAL` | The same loop with the knowledge machinery off | Quick experiments, simple problems |
 
 ```python
 # Use a specific mode
 solution = kapso.evolve(
     goal="...",
-    mode="MINIMAL",  # Fast, linear search
+    mode="MINIMAL",
 )
 ```
 
-## The Experimentation Loop
-
-Each iteration of the evolve loop:
-
-1. **Select** — Choose which solution candidates to explore
-2. **Expand** — Generate new variations using the coding agent
-3. **Implement** — Agent implements solution code
-4. **Evaluate** — Agent builds and runs evaluation in `kapso_evaluation/`
-5. **Feedback** — Feedback generator validates results and provides guidance
-6. **Check** — If feedback says stop (goal achieved), return solution
-
-### Git Branch Model
-
-Each experiment runs on its own Git branch:
-
-```text
-main
-├── kapso/exp-001  (first experiment)
-├── kapso/exp-002  (second experiment)
-│   └── kapso/exp-002-debug-1  (debug iteration)
-├── kapso/exp-003  (third experiment)
-└── ...
-```
-
-This provides:
-- **Isolation** — Experiments don't interfere with each other
-- **History** — Full Git history of all attempts
-- **Recovery** — Easy to checkout and examine any experiment
+Each experiment runs on its own Git branch (`generic_exp_N`), so attempts stay isolated and every one can be checked out later — see [Experiment lifecycle](/docs/evolve/experiment-lifecycle).
 
 ### Workspace Structure
 

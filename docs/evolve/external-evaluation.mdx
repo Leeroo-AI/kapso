@@ -112,8 +112,8 @@ flowchart LR
     F --> G["Atomically write run checkpoint"]
 ```
 
-Generic search normally finalizes one candidate per iteration. Tree search can
-finalize several; the evaluator runs exactly once for each new candidate. A
+Generic search normally finalizes one candidate per iteration; expansion lanes
+can finalize several. The evaluator runs exactly once for each new candidate. A
 resumed run evaluates only candidates created after the resume, not candidates
 already stored in its checkpoint.
 
