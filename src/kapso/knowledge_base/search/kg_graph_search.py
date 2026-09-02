@@ -667,6 +667,7 @@ class KGGraphSearch(KnowledgeSearch):
         """Initialize LLM backend for reranking."""
         if self.use_llm_reranker:
             self._llm_backend = CliInference(
+                inference=self.params.get("inference"),
                 models=self.params.get("models"),
                 retry_policy=self.params.get("retry"),
             )

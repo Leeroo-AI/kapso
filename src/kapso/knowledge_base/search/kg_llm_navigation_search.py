@@ -67,6 +67,7 @@ class KGLLMNavigationSearch(KnowledgeSearch):
                 auth=(self.neo4j_user, self.neo4j_password)
             )
             self._llm = CliInference(
+                inference=self.params.get("inference"),
                 models=self.params.get("models"),
                 retry_policy=self.params.get("retry"),
             )

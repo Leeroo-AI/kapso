@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 import kapso.core.llm as llm_module
-from kapso.core.cli_inference import CliInference, default_inference_config
+from kapso.core.cli_inference import CliInference, resolve_inference_config
 from kapso.execution.coding_agents.base import CodingResult
 
 
@@ -186,7 +186,7 @@ def test_packaged_config_defines_every_role_the_code_selects():
     # The config/code contract: every role= literal at a call site must
     # resolve in the packaged inference block, else that seam dies at
     # runtime with "unknown inference role".
-    config = default_inference_config()
+    config = resolve_inference_config()
     for key in ("cli", "model", "effort", "sandbox", "timeout_seconds"):
         assert key in config["default"], key
     for role in (
@@ -198,3 +198,43 @@ def test_packaged_config_defines_every_role_the_code_selects():
         "benchmark_utility",  # mle/ale handler cleanup calls
     ):
         assert role in config["roles"], role
+
+
+def test_user_config_inference_block_deep_merges_over_packaged(tmp_path):
+    # The regression this pins: `inference:` in a user's --config file was
+    # silently ignored — only the packaged block was ever read (fixed
+    # 2026-09-02). An override must land, and overriding one key must not
+    # forfeit the packaged siblings or roles.
+    user_config = tmp_path / "config.yaml"
+    user_config.write_text(
+        "inference:\n"
+        "  default:\n"
+        "    model: my-own-model\n"
+        "  roles:\n"
+        "    research: {timeout_seconds: 60}\n"
+    )
+    merged = resolve_inference_config(str(user_config))
+    packaged = resolve_inference_config()
+
+    assert merged["default"]["model"] == "my-own-model"
+    # Sibling keys of the overridden scalar survive the merge.
+    assert merged["default"]["cli"] == packaged["default"]["cli"]
+    assert merged["default"]["effort"] == packaged["default"]["effort"]
+    # A partially overridden role keeps its other packaged keys...
+    assert merged["roles"]["research"]["timeout_seconds"] == 60
+    assert merged["roles"]["research"]["web_search"] is True
+    # ...and untouched roles ride along unchanged.
+    assert merged["roles"]["kg_rerank"] == packaged["roles"]["kg_rerank"]
+
+
+def test_user_config_without_inference_block_gets_packaged_defaults(tmp_path):
+    user_config = tmp_path / "config.yaml"
+    user_config.write_text("modes:\n  GENERIC: {}\n")
+    assert resolve_inference_config(str(user_config)) == resolve_inference_config()
+
+
+def test_non_mapping_inference_block_raises(tmp_path):
+    user_config = tmp_path / "config.yaml"
+    user_config.write_text("inference: nonsense\n")
+    with pytest.raises(ValueError, match="must be a mapping"):
+        resolve_inference_config(str(user_config))

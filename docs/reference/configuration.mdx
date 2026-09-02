@@ -51,7 +51,7 @@ Names the entry in [`modes`](#modes) used when nothing overrides it. Override pe
 Routes model calls that are not coding-agent work: research, reranking and utilities.
 
 <Note>
-  This block is resolved from the packaged platform config, not from the file you pass with `--config`. Overriding `inference` in your own config has no effect today.
+  The packaged config's `inference` block is the base layer. An `inference:` block in your own config file deep-merges over it — override one key (say `default.model`) and the packaged roles and remaining defaults stay in force.
 </Note>
 
 ```yaml

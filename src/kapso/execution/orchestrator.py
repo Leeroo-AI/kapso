@@ -30,7 +30,7 @@ from kapso.execution.search_strategies import (
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
 from kapso.environment.handlers.base import ProblemHandler
-from kapso.core.cli_inference import CliInference
+from kapso.core.cli_inference import CliInference, resolve_inference_config
 from kapso.core.config import load_mode_config
 from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
 from kapso.execution.memories.experiment_memory import ExperimentHistoryStore
@@ -174,6 +174,7 @@ class OrchestratorAgent:
         self.llm = CliInference(
             models=model_routes,
             retry_policy=retry_config,
+            config_path=config_path,
         )
         # Optional: seed experiments from an existing local repo (copy/clone into workspace).
         self.initial_repo = initial_repo
@@ -521,6 +522,9 @@ class OrchestratorAgent:
             resolved_params = dict(resolved_config.get("params") or {})
             resolved_params.setdefault("models", mode_config.get("models"))
             resolved_params.setdefault("retry", mode_config.get("retry"))
+            resolved_params.setdefault(
+                "inference", resolve_inference_config(self.config_path)
+            )
             resolved_config["params"] = resolved_params
             return KnowledgeSearchFactory.create_from_config(resolved_config)
         

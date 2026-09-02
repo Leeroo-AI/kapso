@@ -63,12 +63,14 @@ class Researcher:
 
     # Test seam: inject anything exposing llm_completion_with_web_search.
     llm_backend: Optional[Any] = field(default=None, repr=False)
+    # User config file whose `inference:` block overrides the packaged one.
+    config_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         # CLI-only inference: research runs as a coding-agent session with
         # the CLI's native web search; the role spec carries model/effort,
         # so there is no model parameter here anymore.
-        self._llm = self.llm_backend or CliInference()
+        self._llm = self.llm_backend or CliInference(config_path=self.config_path)
 
     def research(
         self,

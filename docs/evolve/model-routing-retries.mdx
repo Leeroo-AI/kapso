@@ -31,7 +31,7 @@ inference:
 A role inherits every `default` key it does not override, so `repo_memory: {}` is the default spec verbatim. Inference sessions never write (`sandbox: read-only`), and a failed or empty session raises rather than degrading silently.
 
 <Note>
-  The `inference` block is resolved from the packaged platform config, not from the file you pass with `--config`. Coding-agent models — such as `coding_agent.model` — stay explicit in your mode config because their provider and authentication are part of that agent's configuration.
+  The packaged config's `inference` block is the base layer; an `inference:` block in the file you pass with `--config` / `config_path` deep-merges over it, so overriding one key never forfeits the rest. Coding-agent models — such as `coding_agent.model` — stay explicit in your mode config because their provider and authentication are part of that agent's configuration.
 </Note>
 
 `Kapso.research()` runs on the `research` role, whose `web_search: true` carries the CLI's live-web tool; `depth="light"` requests medium search context and `depth="deep"` high.

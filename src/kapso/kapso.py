@@ -50,6 +50,7 @@ from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
 from kapso.knowledge_base.search.base import KGIndexMetadata
 from kapso.knowledge_base.learners import Source, KnowledgePipeline
+from kapso.core.cli_inference import resolve_inference_config
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
 from kapso.core.config import load_config, load_mode_config
@@ -252,6 +253,7 @@ class Kapso:
         params.update(metadata.backend_refs)
         params.setdefault("models", mode_config.get("models"))
         params.setdefault("retry", mode_config.get("retry"))
+        params.setdefault("inference", resolve_inference_config(self.config_path))
 
         # Create search backend (closing any superseded one's clients)
         self._close_knowledge_search()
@@ -355,6 +357,7 @@ class Kapso:
         params = search_config.get("params", {}).copy()
         params.setdefault("models", mode_config.get("models"))
         params.setdefault("retry", mode_config.get("retry"))
+        params.setdefault("inference", resolve_inference_config(self.config_path))
 
         # Create search backend (closing any superseded one's clients)
         self._close_knowledge_search()
@@ -435,9 +438,10 @@ class Kapso:
         """
         run_preflight("research", self._config)
         if self._web_researcher is None:
-            # CLI-only inference: the researcher's session spec lives in
-            # the packaged `inference:` block, not the mode's model routes.
-            self._web_researcher = Researcher()
+            # CLI-only inference: the researcher's session spec comes from
+            # the resolved `inference:` block (packaged defaults, this
+            # config file's overrides on top), not the mode's model routes.
+            self._web_researcher = Researcher(config_path=self.config_path)
 
         return self._web_researcher.research(objective, mode=mode, depth=depth)
     
@@ -625,6 +629,7 @@ class Kapso:
             params = search_config.get("params", {}).copy()
             params.setdefault("models", mode_config.get("models"))
             params.setdefault("retry", mode_config.get("retry"))
+            params.setdefault("inference", resolve_inference_config(self.config_path))
             self._close_knowledge_search()
             self.knowledge_search = KnowledgeSearchFactory.create(
                 search_type=search_config.get("type", "kg_graph_search"),
