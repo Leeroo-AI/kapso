@@ -25,7 +25,7 @@ flowchart LR
 ## How do I deploy a solution?
 
 ```python
-from kapso.kapso import Kapso, DeployStrategy
+from kapso import Kapso, DeployStrategy
 
 kapso = Kapso()
 solution = kapso.evolve(goal="Build a classifier")
@@ -43,7 +43,7 @@ deployed_program.start()
 deployed_program.stop()
 ```
 
-## Deployment Strategies
+## Deployment strategies
 
 | Strategy | Description | Best For |
 |----------|-------------|----------|
@@ -56,7 +56,7 @@ deployed_program.stop()
 
 Each value is a `DeployStrategy` enum member (`DeployStrategy.MODAL`, and so on); the enum is [auto-generated from the strategies directory](/docs/deployment/api-reference#deploystrategy).
 
-## Software Interface
+## Software interface
 
 All deployments return a `Software` instance with a unified interface:
 
@@ -106,7 +106,7 @@ config = DeployConfig(
 deployed_program = DeploymentFactory.create(DeployStrategy.LOCAL, config)
 ```
 
-## Deployment Info
+## Deployment info
 
 Get details about the deployment:
 
@@ -164,7 +164,7 @@ if result["status"] == "error":
     print(f"Logs: {deployed_program.logs()}")
 ```
 
-## Next Steps
+## Related
 
 <CardGroup cols={2}>
   <Card title="Strategies" icon="layer-group" href="/docs/deployment/strategies">

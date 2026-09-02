@@ -53,7 +53,7 @@ Repo memory is a structured model of a repository — its architecture, patterns
 }
 ```
 
-## Core Sections
+## Core sections
 
 | Section ID | Title | Content |
 |------------|-------|---------|
@@ -67,7 +67,7 @@ Repo memory is a structured model of a repository — its architecture, patterns
 
 ## How do I build and read it?
 
-### Ensure Memory Exists
+### Ensure memory exists
 
 ```python
 from kapso.execution.memories.repo_memory import RepoMemoryManager
@@ -76,7 +76,7 @@ from kapso.execution.memories.repo_memory import RepoMemoryManager
 doc = RepoMemoryManager.ensure_exists_in_worktree("/path/to/repo")
 ```
 
-### Render for Prompts
+### Render for prompts
 
 ```python
 # Get bounded summary + TOC
@@ -107,7 +107,7 @@ A framework for automated code generation with knowledge-grounded experimentatio
 - Find `book.sections[section_id]` from the TOC above
 ```
 
-### Get Specific Section
+### Get specific section
 
 ```python
 # Read a section
@@ -115,7 +115,7 @@ section_text = RepoMemoryManager.get_section(doc, "core.architecture")
 print(section_text)
 ```
 
-### Bootstrap from Existing Repo
+### Bootstrap from existing repo
 
 ```python
 from kapso.core.llm import LLMBackend
@@ -131,7 +131,7 @@ RepoMemoryManager.bootstrap_baseline_model(
 )
 ```
 
-### Update After Experiment
+### Update after experiment
 
 ```python
 RepoMemoryManager.update_after_experiment(
@@ -233,7 +233,7 @@ get_repo_memory_section(section_id="core.architecture")
 
 The section ids are the seven from the [Core Sections](#core-sections) table.
 
-## Integration with Coding Agents
+## Integration with coding agents
 
 The generic strategy's implementation prompt opens with the memory's rendered summary and TOC:
 
@@ -246,7 +246,7 @@ repo_memory_brief = RepoMemoryManager.render_summary_and_toc(repo_memory_doc, ma
 
 The prompt also tells the agent to pull detailed sections on demand through the `repo_memory` MCP gate (`get_repo_memory_section(section_id="core.architecture")`), so the full memory never has to ride in the prompt.
 
-## Quality Metrics
+## Quality metrics
 
 ```python
 doc["quality"] = {

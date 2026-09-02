@@ -57,7 +57,7 @@ The system works by:
 ## How do I run one?
 
 ```python
-from kapso.kapso import Kapso, DeployStrategy
+from kapso import Kapso, DeployStrategy
 
 kapso = Kapso()
 
@@ -91,7 +91,7 @@ When `evolve()` is called, the system initializes the workspace:
 | GitHub URL | Clone repository and use as starting point |
 | `None` (default) | Search for relevant workflow via Knowledge Graph. If found, clone workflow's repo. Otherwise, create empty repo. |
 
-## Configuration Modes
+## Configuration modes
 
 Two ship, both running the generic strategy:
 
@@ -110,7 +110,7 @@ solution = kapso.evolve(
 
 Each experiment runs on its own Git branch (`generic_exp_N`), so attempts stay isolated and every one can be checked out later — see [Experiment lifecycle](/docs/evolve/experiment-lifecycle).
 
-### Workspace Structure
+### Workspace structure
 
 After setup, the workspace looks like:
 
@@ -126,16 +126,16 @@ workspace/
 
 ## What does a campaign remember?
 
-The Evolve System uses two memory systems:
+Evolve uses two memory systems:
 
-### Repo Memory
+### Repo memory
 
 Tracks understanding of the codebase:
 - **Architecture** — High-level structure and patterns
 - **Key Claims** — Important facts about the code
 - **File Evidence** — Which files support each claim
 
-### Experiment History
+### Experiment history
 
 Learns from past experiments via MCP tools:
 - **Top Experiments** — Best scoring experiments
@@ -154,7 +154,7 @@ print(f"Total cost: ${cost:.2f}")
 
 Budget limits can be set via `max_iterations` or time/cost budgets in configuration.
 
-## Next Steps
+## Related
 
 <CardGroup cols={2}>
   <Card title="Architecture" icon="building" href="/docs/evolve/architecture">

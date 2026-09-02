@@ -1,7 +1,7 @@
 ---
 title: "The lifecycle of one Kapso experiment, start to finish"
 sidebarTitle: "Experiment lifecycle"
-description: "Solution selection, code generation, execution and optional debugging, with the git branch model that keeps every experiment inspectable after it ends."
+description: "Parent selection, one implementation session, judged feedback, and the git branch model that keeps every experiment inspectable after it ends."
 keywords: ["experiment lifecycle", "git branches", "ExperimentSession", "debugging", "implementation flow"]
 ---
 
@@ -21,7 +21,7 @@ flowchart TB
 
 There is no separate debug loop: a failed evaluation surfaces in the session's tags, the judge marks the evaluation invalid or writes corrective feedback, and the **next** iteration addresses it.
 
-## Git Branch Model
+## Git branch model
 
 Each experiment runs in its own git branch, inheriting code from its parent experiment.
 
@@ -42,7 +42,7 @@ This enables:
 - **Inheritance**: Child experiments build on parent solutions
 - **Versioning**: All code changes are tracked
 
-## Experiment Session
+## Experiment session
 
 The `ExperimentSession` manages a single experiment:
 
@@ -63,7 +63,7 @@ class ExperimentSession:
         self.coding_agent = CodingAgentFactory.create(coding_agent_config)
 ```
 
-## Implementation Flow
+## Implementation flow
 
 One session does the whole build. `run_implementation` renders the implementation prompt — the problem, the chosen solution, the knowledge context and the [repo memory](/docs/evolve/repo-memory) — and hands it to the coding agent with the budget's deadline:
 
@@ -83,11 +83,11 @@ feedback = generate_feedback(node)                      # judge validates and
 
 The agent is responsible for running the evaluation itself and reporting the result in its closing tags (`<code_changes_summary>`, `<evaluation_script_path>`, `<evaluation_output>`, `<score>`, `<technical_difficulties>`). Errors are not retried inside the iteration; they become feedback for the next one.
 
-## Result Structure
+## Result structure
 
 Each experiment is recorded as a `SearchNode` — solution, branch, evaluation tags, judged feedback and score. The full field list is on the [search strategies page](/docs/evolve/search-strategies#node-structure-searchnode).
 
-## Session Finalization
+## Session finalization
 
 After an experiment completes:
 

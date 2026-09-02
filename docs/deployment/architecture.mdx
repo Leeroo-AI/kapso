@@ -28,9 +28,9 @@ flowchart LR
 | **Runner** | `strategies/*/runner.py` | Infrastructure-specific execution |
 | **DeployedSoftware** | `software.py` | Unified wrapper for user interaction |
 
-## Module Breakdown
+## Module breakdown
 
-### Directory Structure
+### Directory structure
 
 ```text
 src/kapso/deployment/
@@ -58,7 +58,7 @@ src/kapso/deployment/
 
 ---
 
-## Core Components
+## Core components
 
 ### DeploymentFactory (`factory.py`)
 
@@ -148,7 +148,7 @@ The adapter looks for special XML tags in the coding agent's output:
 
 ---
 
-### Runner (Abstract Base Class)
+### Runner (abstract base class)
 
 **Infrastructure-specific execution** handler.
 
@@ -221,7 +221,7 @@ strategies/{name}/
 └── __init__.py               # Exports
 ```
 
-### config.yaml Structure
+### config.yaml structure
 
 ```yaml
 name: modal
@@ -249,7 +249,7 @@ run_interface:
 
 ---
 
-## Next Steps
+## Related
 
 <CardGroup cols={2}>
   <Card title="Strategies Reference" icon="layer-group" href="/docs/deployment/strategies">

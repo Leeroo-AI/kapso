@@ -19,12 +19,7 @@ flowchart LR
     F --> G[Next Iteration]
 ```
 
-After the coding agent implements a solution and runs evaluation, the feedback generator:
-
-1. **Validates the evaluation**: Checks if the agent-built evaluation is fair and correct
-2. **Extracts the score**: Parses evaluation output to get numeric scores
-3. **Checks goal completion**: Determines if the goal has been achieved
-4. **Generates feedback**: Provides actionable suggestions for the next iteration
+After the coding agent implements a solution and runs evaluation, the feedback generator validates the evaluation, extracts the score, checks goal completion, and generates feedback — each covered in [What does it check?](#what-does-it-check) below.
 
 ## FeedbackResult
 
@@ -46,7 +41,7 @@ The judge must answer in five XML tags — `<stop>`, `<evaluation_valid>`, `<sco
 
 ## What does it check?
 
-### 1. Validate Evaluation
+### 1. Validate evaluation
 
 The feedback generator checks if the agent-built evaluation is fair and correct:
 
@@ -56,7 +51,7 @@ The feedback generator checks if the agent-built evaluation is fair and correct:
 
 If the evaluation is invalid, the feedback generator sets `evaluation_valid=False` and provides feedback to fix the evaluation.
 
-### 2. Check Goal Completion
+### 2. Check goal completion
 
 The feedback generator determines if the goal has been achieved by:
 
@@ -64,7 +59,7 @@ The feedback generator determines if the goal has been achieved by:
 - Comparing scores against thresholds mentioned in the goal
 - Understanding semantic success (e.g., "all tests passed")
 
-### 3. Extract Score
+### 3. Extract score
 
 The feedback generator parses the evaluation output to extract numeric scores:
 
@@ -76,7 +71,7 @@ The feedback generator parses the evaluation output to extract numeric scores:
 score = 0.95  # Primary metric
 ```
 
-### 4. Generate Feedback
+### 4. Generate feedback
 
 If the goal is not achieved, the feedback generator provides actionable suggestions:
 
@@ -109,7 +104,7 @@ else:
     print(f"Final feedback: {solution.final_feedback.feedback}")
 ```
 
-### Direct Usage
+### Direct usage
 
 ```python
 from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
@@ -169,7 +164,7 @@ A fixed score threshold would need the evaluation format known in advance and wo
 
 ## How do I get useful feedback?
 
-### 1. Include Success Criteria in Goal
+### 1. Include success criteria in goal
 
 The feedback generator works best when the goal includes clear success criteria:
 
@@ -181,7 +176,7 @@ goal = "Build a classifier with accuracy > 0.9 and F1 > 0.85"
 goal = "Build a good classifier"
 ```
 
-### 2. Let Agent Build Evaluation
+### 2. Let agent build evaluation
 
 Don't provide `eval_dir` unless you have specific evaluation requirements. The agent builds domain-appropriate evaluation:
 
@@ -193,7 +188,7 @@ solution = kapso.evolve(
 )
 ```
 
-### 3. Trust the Feedback
+### 3. Trust the feedback
 
 The feedback generator provides actionable suggestions. The next iteration's coding agent receives this feedback and uses it to improve:
 
@@ -208,7 +203,7 @@ Iteration 3: Accuracy 0.92
 Feedback: "Goal achieved! Accuracy 0.92 > 0.9 target"
 ```
 
-## Next Steps
+## Related
 
 <CardGroup cols={2}>
   <Card title="Execution Flow" icon="diagram-project" href="/docs/evolve/execution-flow">

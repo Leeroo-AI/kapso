@@ -7,7 +7,7 @@ keywords: ["custom deployment strategy", "strategy registry", "runner", "extend 
 
 A deployment strategy is a self-contained directory under `src/kapso/deployment/strategies/`. Add one and the registry discovers it; no core code changes.
 
-## Strategy Structure
+## Strategy structure
 
 Each strategy is a directory with these files:
 
@@ -20,13 +20,13 @@ src/kapso/deployment/strategies/my_strategy/
 └── adapter_instruction.txt    # Instructions for code adaptation
 ```
 
-## Step 1: Create Directory
+## Step 1: Create directory
 
 ```bash
 mkdir -p src/kapso/deployment/strategies/my_strategy
 ```
 
-## Step 2: Implement Runner
+## Step 2: Implement runner
 
 Create `runner.py` with a `Runner` class:
 
@@ -85,7 +85,7 @@ class MyStrategyRunner(Runner):
         pass
 ```
 
-## Step 3: Create Configuration
+## Step 3: Create configuration
 
 Create `config.yaml`:
 
@@ -110,7 +110,7 @@ run_interface:
   callable: "predict"
 ```
 
-## Step 4: Selector Instruction
+## Step 4: Selector instruction
 
 Create `selector_instruction.txt` for auto-selection:
 
@@ -138,7 +138,7 @@ A custom deployment strategy for [specific use case].
 - Requirement 2
 ```
 
-## Step 5: Adapter Instruction
+## Step 5: Adapter instruction
 
 Create `adapter_instruction.txt` for code adaptation:
 
@@ -169,7 +169,7 @@ def predict(inputs: dict) -> dict:
 - Handle errors gracefully
 ````
 
-## Step 6: Register Strategy
+## Step 6: Register strategy
 
 Create `__init__.py`:
 
@@ -181,7 +181,7 @@ __all__ = ["MyStrategyRunner"]
 
 The strategy is auto-discovered by the registry.
 
-## Runner Base Class
+## Runner base class
 
 ```python
 from abc import ABC, abstractmethod
@@ -215,7 +215,7 @@ class Runner(ABC):
         return ""
 ```
 
-## Strategy Registry
+## Strategy registry
 
 Strategies are auto-registered when discovered:
 
@@ -239,7 +239,7 @@ selector_inst = registry.get_selector_instruction("my_strategy")
 adapter_inst = registry.get_adapter_instruction("my_strategy")
 ```
 
-## Using Your Strategy
+## Using your strategy
 
 ```python
 from kapso import Kapso
@@ -256,7 +256,7 @@ config = DeployConfig(solution=solution)
 deployed_program = DeploymentFactory.create(DeployStrategy.MY_STRATEGY, config)
 ```
 
-## Testing Your Strategy
+## Testing your strategy
 
 ```python
 import pytest
@@ -282,7 +282,7 @@ def test_runner_lifecycle():
     assert not runner.is_healthy()
 ```
 
-## Example: HTTP Strategy
+## Example: HTTP strategy
 
 A strategy that deploys as an HTTP server:
 

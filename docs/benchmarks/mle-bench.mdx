@@ -96,7 +96,7 @@ The handler automatically adjusts strategy based on budget progress:
 | **FULL TRAINING** | 20-80% | Train on complete dataset |
 | **FINAL ENSEMBLING** | 80-100% | Ensemble best models from history |
 
-## Output Structure
+## Output structure
 
 The agent generates:
 
@@ -109,7 +109,7 @@ experiment_workspace/{uuid}/
 └── sessions/                  # Experiment branches
 ```
 
-## Code Requirements
+## Code requirements
 
 Generated code must:
 - Support `--debug` flag for fast testing
@@ -118,7 +118,7 @@ Generated code must:
 - Handle GPU efficiently (batch size, device selection)
 - Use early stopping and learning rate scheduling
 
-## Competition Types
+## Competition types
 
 | Type | Examples |
 |------|----------|
@@ -127,7 +127,7 @@ Generated code must:
 | Text | `spooky-author-identification`, `jigsaw-toxic-*` |
 | Audio | `mlsp-2013-birds` |
 
-## Environment Variables
+## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|

@@ -20,13 +20,13 @@ A coding agent is what actually writes the code during an experiment. Kapso driv
 
 Both shipped config modes, `GENERIC` and `MINIMAL`, set `coding_agent.type: claude_code`, so that is the agent you get unless you override it.
 
-An agent is only registered if its dependencies import, so `aider` is absent from a default install and `kapso --list-agents` shows five. Run that command to see what is actually available on your machine:
+An agent is only registered if its dependencies import, so `aider` is absent from a default install and `kapso --list-agents` shows five. Run that command to see what is actually available on your machine — it prints each registered agent with its description, default model, install command and the environment variables it reads:
 
 ```bash
 kapso --list-agents
 ```
 
-## Agent Interface
+## Agent interface
 
 All agents implement `CodingAgentInterface`:
 
@@ -202,7 +202,7 @@ When used with `kapso.evolve()`, the coding agent must end its response with XML
 
 The search strategy extracts these tags (`score` becomes a float; `null` or an empty value becomes `None`) and hands them to the feedback generator to validate the evaluation and decide whether to continue. There is no fallback format: output without the tags is a warning and an empty result.
 
-### Example Agent Output
+### Example agent output
 
 ```text
 I've implemented the random forest classifier. Here's what I did:
@@ -297,7 +297,7 @@ CodingAgentFactory.register("my_custom_agent", MyCustomAgent)
 
 Registration is a classmethod call, not a decorator. Agents declared in `agents.yaml` are registered on module import; `register()` is how you add one at runtime.
 
-## How is git handled?
+## How is Git handled?
 
 Two ways, and the agent declares which by returning from `supports_native_git()`:
 
@@ -325,14 +325,6 @@ def get_capabilities(self) -> Dict[str, bool]:
         "streaming": False,
     }
 ```
-
-## How do I see what is installed?
-
-```bash
-kapso --list-agents
-```
-
-It prints each registered agent with its description, default model, install command and the environment variables it reads.
 
 ## Related
 

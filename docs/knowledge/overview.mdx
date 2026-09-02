@@ -19,7 +19,7 @@ Wiki pages — overviews, detailed content, and the links between them — held 
 ### Option 1: Pre-indexed KG
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 # One-time: Index wiki pages
 kapso = Kapso()
@@ -72,7 +72,7 @@ solution = kapso.evolve(
 )
 ```
 
-## Search Backends
+## Search backends
 
 | Backend | Data Format | Storage | Use Case |
 |---------|-------------|---------|----------|
@@ -91,7 +91,7 @@ Both backends require database infrastructure:
 ./scripts/stop_infra.sh
 ```
 
-## Next Steps
+## Related
 
 <CardGroup cols={2}>
   <Card title="Learning Pipeline" icon="graduation-cap" href="/docs/knowledge/learning-pipeline">

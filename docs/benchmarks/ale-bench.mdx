@@ -56,7 +56,7 @@ The reported result covers these ten problems; `--lite` lists the full 13-proble
 Both modes run the `generic` search strategy, but the ALE handler supplies the official evaluation: solutions are scored by the ALE-Bench toolkit via `handler.run()` rather than agent-built evaluation.
 </Note>
 
-## Output Structure
+## Output structure
 
 The agent generates:
 
@@ -89,7 +89,7 @@ The evaluation process works as follows:
 5. **Score Stabilization**: If all tests pass, the solution runs **4 times in total** (3 further runs) and scores are averaged for stability
 6. **Final Ranking**: Private evaluation compares against original contest participants
 
-## Code Requirements
+## Code requirements
 
 Generated C++ must:
 - Be time-aware (limit: time_limit - 100ms for I/O)
@@ -97,7 +97,7 @@ Generated C++ must:
 - Use efficient algorithms and data structures
 - Include compiler optimization pragmas if helpful
 
-## Built-in Domain Knowledge
+## Built-in domain knowledge
 
 The handler includes tips for common algorithms:
 

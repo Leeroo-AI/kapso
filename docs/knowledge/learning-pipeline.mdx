@@ -22,7 +22,7 @@ flowchart LR
 
 ## How do I run the pipeline?
 
-### Full Pipeline
+### Full pipeline
 
 ```python
 from kapso.knowledge_base.learners import KnowledgePipeline, Source
@@ -50,7 +50,7 @@ kapso.learn_knowledge(
 )
 ```
 
-### Extract Only (No Merge)
+### Extract only (no merge)
 
 ```python
 # Get WikiPages without modifying KG
@@ -133,7 +133,7 @@ The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 - **Phase 5d: Verify (code)** - Verify all approved files have pages
 - **Phase 6: Orphan Audit** - Validate orphan nodes
 
-### Research Ingestors
+### Research ingestors
 
 Research ingestors convert web research results into WikiPages using a three-phase agentic pipeline:
 
@@ -169,11 +169,11 @@ ingestor = IngestorFactory.create("idea")
 pages = ingestor.ingest(Source.Idea(query="...", source="...", content="..."))
 ```
 
-## Stage 2: Knowledge Merger
+## Stage 2: Knowledge merger
 
-The merger uses a **hierarchical sub-graph-aware algorithm** with a single Claude Code agent call. It processes connected pages as units, respecting the Knowledge Graph DAG structure.
+The merger uses a **hierarchical sub-graph-aware algorithm** with a single Claude Code agent call. It processes connected pages as units, respecting the knowledge graph DAG structure.
 
-### Wiki Hierarchy
+### Wiki hierarchy
 
 The Knowledge Graph follows a top-down DAG structure:
 
@@ -190,7 +190,7 @@ Environment (Leaf - Target Only)
 Heuristic (Leaf - Target Only)
 ```
 
-### Merge Algorithm
+### Merge algorithm
 
 The merger executes a 5-phase process:
 
@@ -225,7 +225,7 @@ The merger executes a 5-phase process:
 - Categorizes as created (`CREATE_NEW`) or edited (`MERGE`)
 - Writes final summary to `_merge_plan.md`
 
-### Edge Types
+### Edge types
 
 | From | Edge Type | To |
 |------|-----------|-----|
@@ -238,7 +238,7 @@ The merger executes a 5-phase process:
 
 Beyond the phase mechanics above: search is **same-type only** (Principles among Principles, never a Principle merged with an Implementation), and a merge keeps existing edges, only ever **adding** new ones.
 
-### MCP Tools Used
+### MCP tools used
 
 The merger uses these MCP tools via the `kg-graph-search` server:
 
@@ -250,7 +250,7 @@ The merger uses these MCP tools via the `kg-graph-search` server:
 | `kg_index` | Create new page in the graph |
 | `kg_edit` | Update existing page in the graph |
 
-### Using the Merger
+### Using the merger
 
 ```python
 from kapso.knowledge_base.learners import KnowledgeMerger
@@ -266,7 +266,7 @@ print(f"Edited: {len(result.edited)}")
 print(f"Failed: {len(result.failed)}")
 ```
 
-### Merge Modes
+### Merge modes
 
 The merger operates in two modes based on whether a KG index exists:
 
@@ -277,7 +277,7 @@ Index detection order:
 1. Explicit `kg_index_path` from config
 2. Auto-detect `.index` file in wiki directory
 
-### Merge Result
+### Merge result
 
 ```python
 @dataclass
@@ -297,7 +297,7 @@ class MergeResult:
     def total_processed(self) -> int  # created + edited count
 ```
 
-## WikiPage Structure
+## WikiPage structure
 
 ```python
 @dataclass
@@ -332,7 +332,7 @@ python -m kapso.knowledge_base.learners https://github.com/user/repo --wiki-dir 
 python -m kapso.knowledge_base.learners https://github.com/user/repo --verbose
 ```
 
-### CLI Options
+### CLI options
 
 | Option | Short | Description |
 |--------|-------|-------------|

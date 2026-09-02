@@ -17,10 +17,10 @@ keywords: ["OrchestratorAgent", "experiment loop", "budget tracking", "campaign 
 
 ## How do I run one?
 
-### Via Kapso API (Recommended)
+### Via Kapso API (recommended)
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 kapso = Kapso()
 solution = kapso.evolve(
@@ -33,7 +33,7 @@ if solution.succeeded:
     print(f"Goal achieved with score: {solution.final_score}")
 ```
 
-### Direct Usage
+### Direct usage
 
 ```python
 from kapso.execution.orchestrator import OrchestratorAgent
@@ -116,7 +116,7 @@ When any budget reaches 100%, the loop stops.
 
 The orchestrator creates components from configuration:
 
-### Search Strategy
+### Search strategy
 
 ```python
 def _create_search_strategy(self, coding_agent, workspace_dir):
@@ -141,7 +141,7 @@ def _create_search_strategy(self, coding_agent, workspace_dir):
     )
 ```
 
-### Knowledge Search
+### Knowledge search
 
 ```python
 def _create_knowledge_search(self, is_kg_active):
@@ -156,7 +156,7 @@ def _create_knowledge_search(self, is_kg_active):
     return KnowledgeSearchFactory.create_null()
 ```
 
-## Cost Tracking
+## Cost tracking
 
 Every component reports into one `BudgetLedger`: the inference meter, the coding-agent sessions, and per-node phase telemetry all record against it, and `get_cumulative_cost()` returns `self.budget_ledger.total_cost()`. There is no per-component summing to drift out of agreement.
 
@@ -207,7 +207,7 @@ modes:
       preset: "DEFAULT"
 ```
 
-## Constructor Parameters
+## Constructor parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -225,7 +225,7 @@ modes:
 | `iteration_evaluator` | `IterationEvaluator` | Optional [external evaluator](/docs/evolve/external-evaluation) |
 | `strategy_params_overrides` | `dict` | Per-campaign overrides merged over the mode's params |
 
-## Next Steps
+## Related
 
 <CardGroup cols={2}>
   <Card title="Search Strategies" icon="sitemap" href="/docs/evolve/search-strategies">

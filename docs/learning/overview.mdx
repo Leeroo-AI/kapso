@@ -58,7 +58,7 @@ One finished campaign moves through four stages. Each stage is bounded by a **fr
 
 ## Grading before learning
 
-The order matters. The bank is graded **against a trajectory before it learns from that trajectory**, which is what makes the score mean anything: the bank is being asked to predict something it has not seen.
+The order matters: grading always precedes learning, so the bank is scored on a trajectory it has not yet seen — which is what makes the score mean anything. The mechanics are on the [pipeline page](/docs/learning/pipeline).
 
 That is the `exam` argument on [`learn()`](/docs/reference/kapso-api#learn), and it defaults to `True`. Setting it `False` is for development replays only.
 

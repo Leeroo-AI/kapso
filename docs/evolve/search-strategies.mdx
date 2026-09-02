@@ -11,7 +11,7 @@ A search strategy decides which candidate to try next. It generates solution ide
 
 One: `generic` — a coding agent plus MCP gates for ideation and implementation. Both shipped modes and every benchmark run it; benchmarks differ only in the handler that scores each candidate.
 
-## Generic Search
+## Generic search
 
 The main strategy for general problem solving. Uses Claude Code with MCP gates for both ideation and implementation.
 
@@ -70,7 +70,7 @@ strategy.run(context, budget_progress=0.0)
 best = strategy.get_best_experiment()
 ```
 
-### MCP Gates
+### MCP gates
 
 The generic strategy uses MCP gates for external knowledge access:
 
@@ -81,7 +81,7 @@ The generic strategy uses MCP gates for external knowledge access:
 | `repo_memory` | `get_repo_memory_section`, `list_repo_memory_sections`, `get_repo_memory_summary` | Repository understanding |
 | `leeroopedia` | `search_knowledge`, `build_plan`, `review_plan`, `verify_code_math`, `diagnose_failure`, `propose_hypothesis`, `query_hyperparameter_priors`, `get_page` | Curated ML/AI knowledge via [Leeroopedia](https://leeroopedia.com) |
 
-## Node Structure (SearchNode)
+## Node structure (SearchNode)
 
 ```python
 @dataclass

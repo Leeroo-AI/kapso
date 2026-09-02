@@ -7,7 +7,7 @@ keywords: ["deployment API", "DeploymentFactory", "DeployConfig", "Software clas
 
 The deployment module's main exports, with signatures. For choosing a target see [Deployment strategies](/docs/deployment/strategies); for how the pieces fit together see [Deployment architecture](/docs/deployment/architecture).
 
-## Module Exports
+## Module exports
 
 ```python
 from kapso.deployment import (
@@ -245,7 +245,7 @@ print(config.goal)       # "Create a sentiment API"
 
 ---
 
-## Software (Abstract Base Class)
+## Software (abstract base class)
 
 Unified interface for deployed software. Users interact with this class.
 
@@ -423,7 +423,7 @@ print(deployed_program.name)  # "modal"
 
 ---
 
-### Convenience Methods
+### Convenience methods
 
 #### __call__()
 
@@ -460,7 +460,7 @@ for result in results:
 
 ---
 
-#### Context Manager Support
+#### Context manager support
 
 ```python
 with DeploymentFactory.create(strategy, config) as deployed_program:
@@ -474,7 +474,7 @@ with DeploymentFactory.create(strategy, config) as deployed_program:
 
 Concrete implementation of `Software`. Wraps any runner with unified interface.
 
-### Additional Methods
+### Additional methods
 
 #### get_adapted_path()
 
@@ -556,7 +556,7 @@ def get_provider(self) -> Optional[str]
 
 ---
 
-## Data Classes
+## Data classes
 
 ### DeploymentSetting
 
@@ -708,7 +708,7 @@ from kapso.deployment.strategies import StrategyRegistry
 
 ---
 
-## Runner (Abstract Base Class)
+## Runner (abstract base class)
 
 Base class for strategy-specific runners.
 
@@ -732,7 +732,7 @@ Runners follow this lifecycle:
 └─────────────┘    start()   └─────────────┘
 ```
 
-### Abstract Methods
+### Abstract methods
 
 ```python
 class Runner(ABC):
@@ -763,7 +763,7 @@ class Runner(ABC):
 
 ---
 
-## Error Handling
+## Error handling
 
 ```python
 try:
@@ -786,7 +786,7 @@ finally:
 
 ---
 
-## Environment Variables
+## Environment variables
 
 | Variable | Strategy | Description |
 |----------|----------|-------------|
