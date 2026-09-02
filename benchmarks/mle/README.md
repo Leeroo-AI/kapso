@@ -93,8 +93,8 @@ PYTHONPATH=. python -m benchmarks.mle.runner -c tabular-playground-series-dec-20
 PYTHONPATH=. python -m benchmarks.mle.runner \
     -c tabular-playground-series-dec-2021 \
     -i 20 \
-    -m MLE_CONFIGS \
-    -d aider
+    -m MLE_GENERIC \
+    -d codex
 ```
 
 ## CLI Options
@@ -103,7 +103,7 @@ PYTHONPATH=. python -m benchmarks.mle.runner \
 |--------|-------------|---------|
 | `-c, --competition` | Competition ID | Required |
 | `-i, --iterations` | Max experiment iterations | 20 |
-| `-m, --mode` | Config mode | `MLE_CONFIGS` |
+| `-m, --mode` | Config mode | `MLE_GENERIC` |
 | `-d, --coding-agent` | Coding agent | From config |
 | `--no-kg` | Disable knowledge graph | Enabled |
 | `--list` | List all competitions | - |

@@ -127,4 +127,6 @@ __all__ = [
     "EvaluationIntegrityReport",
 ]
 
-__version__ = "0.1.0"
+# Kept in lockstep with pyproject.toml's version — tests/test_version.py
+# fails the suite if the two ever drift (Rule 1: one release number).
+__version__ = "0.4.1"

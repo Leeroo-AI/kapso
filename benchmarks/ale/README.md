@@ -99,9 +99,9 @@ PYTHONPATH=. python -m benchmarks.ale.runner -p ahc039
 # With options
 PYTHONPATH=. python -m benchmarks.ale.runner \
     -p ahc039 \
-    -i 14 \
-    -m ALE_CONFIGS \
-    -d aider
+    -i 30 \
+    -m ALE_GENERIC \
+    -d codex
 ```
 
 ## CLI Options
@@ -109,8 +109,8 @@ PYTHONPATH=. python -m benchmarks.ale.runner \
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-p, --problem` | Problem ID (e.g., `ahc039`) | Required |
-| `-i, --iterations` | Max experiment iterations | 14 |
-| `-m, --mode` | Config mode | `ALE_CONFIGS` |
+| `-i, --iterations` | Max experiment iterations | 30 |
+| `-m, --mode` | Config mode | `ALE_GENERIC` |
 | `-d, --coding-agent` | Coding agent | From config |
 | `--list` | List all problems | - |
 | `--lite` | List lite problems | - |
@@ -141,7 +141,7 @@ The evaluation process works as follows:
 2. **Docker Evaluation**: Code is sent to `ale_bench.public_eval()` which compiles and runs in an isolated Docker container
 3. **Test Execution**: Solution runs against all test cases with strict time limits
 4. **Validation**: Each test case must return `ACCEPTED` with a non-zero score
-5. **Score Stabilization**: If all tests pass, the solution runs **4 additional times** and scores are averaged for stability
+5. **Score Stabilization**: If all tests pass, the solution runs **4 times in total** (3 further runs) and scores are averaged for stability
 6. **Final Ranking**: Private evaluation compares against original contest participants
 
 ## Code Requirements

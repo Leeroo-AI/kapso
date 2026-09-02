@@ -12,7 +12,7 @@ Usage:
     
 Options:
     --problem, -p           Problem ID to solve (e.g., ahc039)
-    --iterations, -i        Maximum iterations (default: 14)
+    --iterations, -i        Maximum iterations (default: 30)
     --mode, -m              Config mode: ALE_GENERIC (default), MINIMAL
     --coding-agent, -d      Coding agent: aider, gemini, claude_code, openhands
     --list                  List all available problems
@@ -74,7 +74,7 @@ def list_agents() -> None:
 
 def solve_problem(
     problem_id: str,
-    max_iterations: int = 14,
+    max_iterations: int = 30,
     mode: Optional[str] = None,
     coding_agent: Optional[str] = None,
     use_kg: bool = False,
