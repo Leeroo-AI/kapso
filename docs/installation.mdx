@@ -106,7 +106,7 @@ These are the same checks each verb runs before it does any work, so `doctor` ca
 | `[FAIL]` | Required by your config and missing. The run will stop |
 | `[-- ]` | Optional. Its absence only removes a feature you may not need |
 
-Each failing item prints three lines: `reason` for what is wrong, `needed by` for the config key that wants it, and `fix` for the command that resolves it.
+Each failing item prints up to three lines: `reason` for what is wrong, `needed by` for the config key that wants it, and `fix` for the command that resolves it.
 
 ### How do I check just one command's requirements?
 
@@ -288,13 +288,7 @@ LEEROOPEDIA_API_KEY=kpsk_...
   </Accordion>
 
   <Accordion title="A run fails partway through on a model error">
-    Probe the models directly rather than guessing:
-
-    ```bash
-    kapso doctor evolve --models
-    ```
-
-    A capped subscription or an expired login shows up here immediately.
+    Probe the models directly with `kapso doctor evolve --models` — see [How do I confirm my models are actually reachable?](#how-do-i-confirm-my-models-are-actually-reachable)
   </Accordion>
 </AccordionGroup>
 

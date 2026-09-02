@@ -18,7 +18,7 @@ kapso learn update --learner-version crew_v4 --batch-manifest batch.yaml
 
 Every stage has the same shape, and it is the reason the output can be trusted: a **frame** stages the work, launches **one** agent session, and then mechanically verifies what came back. The frame never orchestrates the agents and never judges the content. The agents never write the numbers that get aggregated.
 
-When verification fails, the frame allows **one repair round** and then fails loud.
+When verification fails, the frame allows a bounded number of repair rounds — each crew's `repair_rounds` setting, shipped as 1 for mining, 3 for the update crew and 5 for the graders — and then fails loud.
 
 ```mermaid
 sequenceDiagram
@@ -98,7 +98,7 @@ See [Grading](/docs/learning/graders) for what a report contains and how scores 
 
 The update crew folds the batch into the bank. The proposal medium is the working tree: the crew edits card files directly, and the frame validates the **final diff**.
 
-The transaction is rejected whole on any violation. Checks cover the surface, the [diff invariants](/docs/learning/bank#reliability-states), evidence admission, coverage arithmetic and score bounds. One repair bounce, then failure.
+The transaction is rejected whole on any violation. Checks cover the surface, the [diff invariants](/docs/learning/bank#reliability-states), evidence admission, coverage arithmetic and score bounds. Up to `learning.update_crew.repair_rounds` repair bounces (shipped: 3), then failure.
 
 A green transaction commits as **one reviewed commit**, tagged `lr_<id>`, and pushed to the bank home.
 

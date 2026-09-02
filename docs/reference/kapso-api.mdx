@@ -173,7 +173,7 @@ learn(
 | `trajectory_id` | Store id when importing a directory | derived from the goal or directory name |
 | `learner_version` | Update-crew version | `learning.update_crew.default_version` |
 | `exam` | Run the hindcast exam against the pinned pre-lesson bank head first. `False` is for development replays only | `True` |
-| `push` | Push the bank commit to the bank's `origin` remote | from config |
+| `push` | Push the bank commit to the bank's `origin` remote | auto: pushes when the bank has an `origin` remote |
 | `on_status` | Callback fired on each status heartbeat | `None` |
 
 ```python
@@ -187,10 +187,11 @@ print(lesson.explain())
 |-----------|------|---------------|
 | `trajectory_id` | `str` | Id of the trajectory that was learned from |
 | `bank_head_after` | `str` | Bank commit written by this lesson |
-| `cards_updated` | `list[str]` | Cards the update crew touched |
+| `cards_created` | `list[str]` | New cards the update crew wrote |
+| `cards_updated` | `list[str]` | Existing cards the lesson modified |
 | `exam_report_path` | `str \| None` | Hindcast exam report, when `exam=True` |
 | `lesson_report_path` | `str \| None` | The lesson report |
-| `admitted()` | — | Whether the lesson was admitted to the bank |
+| `admitted` | `bool` | Whether the lesson was admitted to the bank |
 | `explain()` | `str` | The above as readable text |
 
 ## learn_knowledge
@@ -233,8 +234,8 @@ kapso.learn_knowledge(
 |---------|-------|
 | `Source.Repo(url)` | A repository URL |
 | `Source.Solution(obj)` | A `SolutionResult` |
-| `Source.Idea(query, content)` | A research idea |
-| `Source.Implementation(query, content)` | An implementation reference |
+| `Source.Idea(query, source, content)` | A research idea |
+| `Source.Implementation(query, source, content)` | An implementation reference |
 | `Source.ResearchReport(...)` | A study-mode research report |
 
 ### PipelineResult
@@ -246,8 +247,8 @@ kapso.learn_knowledge(
 | `extracted_pages` | `list[WikiPage]` | The pages themselves |
 | `merge_result` | `MergeResult \| None` | What the merge changed |
 | `errors` | `list[str]` | Anything that failed |
-| `created()` / `edited()` | — | Pages created and edited by the merge |
-| `success()` | `bool` | Whether the run completed without errors |
+| `created` / `edited` | `int` | Counts of pages the merge created and edited |
+| `success` | `bool` | No errors, or pages were still extracted despite them |
 
 ## deploy
 

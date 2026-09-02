@@ -48,7 +48,11 @@ Names the entry in [`modes`](#modes) used when nothing overrides it. Override pe
 
 ## inference
 
-Routes model calls that are not coding-agent work: research, judging, reranking and utilities.
+Routes model calls that are not coding-agent work: research, reranking and utilities.
+
+<Note>
+  This block is resolved from the packaged platform config, not from the file you pass with `--config`. Overriding `inference` in your own config has no effect today.
+</Note>
 
 ```yaml
 inference:

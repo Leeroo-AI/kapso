@@ -5,22 +5,15 @@ description: "Gather ideas and implementation references from the public web wit
 keywords: ["deep web research", "kapso research", "research modes", "implementation references", "idea generation"]
 ---
 
-Kapso can research a topic on the public web and hand the findings back as structured sources. This is useful when your Knowledge Graph doesn't have the information you need, or when you want fresh implementation references.
+Kapso can research a topic on the public web and hand the findings back as structured sources. This is useful when your knowledge graph doesn't have the information you need, or when you want fresh implementation references.
 
-## Overview
-
-The research system uses OpenAI's `web_search` tool with reasoning capabilities to:
-
-1. **Search the web** for authoritative sources on your topic
-2. **Cross-validate** claims across multiple sources
-3. **Synthesize** findings into structured results
-4. **Return** `ResearchFindings` containing ideas and implementations
+Research runs as one read-only coding-agent CLI session with live web search — by default the Codex CLI on `gpt-5.6-sol`, from the platform's `inference` block — which searches authoritative sources, cross-validates claims across them, and synthesizes the results into typed sources.
 
 ```mermaid
 flowchart LR
-    subgraph Research["Web Research"]
+    subgraph Research["Web research"]
         Q[Query] --> R[Researcher]
-        R --> WS[web_search tool]
+        R --> WS[CLI session with web search]
         WS --> S1[Source 1]
         WS --> S2[Source 2]
         WS --> S3[Source N]
@@ -37,37 +30,36 @@ flowchart LR
 
 ## What are the research modes?
 
-The research system supports three modes:
+`mode` takes one of three values, or a list of them:
 
 | Mode | Description | Returns |
 |------|-------------|---------|
-| `idea` | Conceptual understanding, principles, trade-offs | Ideas only |
-| `implementation` | Code examples, APIs, libraries, configuration | Implementations only |
-| `both` | Both ideas and implementations (default) | Both |
+| `idea` | Conceptual understanding, principles, trade-offs | `List[Source.Idea]` |
+| `implementation` | Code examples, APIs, libraries, configuration | `List[Source.Implementation]` |
+| `study` | A comprehensive report on the topic | `Source.ResearchReport` |
+
+The default is `["idea", "implementation"]`. **A list of modes returns a `ResearchFindings`** with `.ideas`, `.implementations` and `.report` filled per mode; **a single mode string returns that mode's result directly** — a bare list, with no `.ideas` attribute to reach for.
 
 ## How deep should a search go?
 
-Control the thoroughness of research:
-
-| Depth | Reasoning Effort | Use Case |
-|-------|------------------|----------|
+| Depth | Web-search context | Use case |
+|-------|--------------------|----------|
 | `light` | Medium | Quick answers, well-documented topics |
 | `deep` | High | Complex topics, thorough research needed |
 
 ## How do I run research?
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 kapso = Kapso()
 
-# Research returns ResearchFindings
-# mode: "idea" | "implementation" | "both" (default: "both")
+# mode: "idea" | "implementation" | "study", or a list
+#       (default: ["idea", "implementation"])
 # depth: "light" | "deep" (default: "deep")
 
 findings = kapso.research(
     "QLoRA fine-tuning best practices for LLaMA models",
-    mode="both",
     depth="deep",
 )
 
@@ -85,30 +77,15 @@ for impl in findings.implementations:
     print(impl.to_string())  # Formatted for LLM context
 ```
 
-### Idea Mode Only
+### Single-mode calls
+
+A single mode string skips the `ResearchFindings` wrapper and returns the results directly:
 
 ```python
-findings = kapso.research(
-    "QLoRA fine-tuning best practices",
-    mode="idea",
-    depth="deep",
-)
+ideas = kapso.research("QLoRA fine-tuning best practices", mode="idea")
 
-for idea in findings.ideas:
+for idea in ideas:  # List[Source.Idea] — not findings.ideas
     print(idea.to_string())
-```
-
-### Implementation Mode Only
-
-```python
-findings = kapso.research(
-    "unsloth FastLanguageModel example",
-    mode="implementation",
-    depth="deep",
-)
-
-for impl in findings.implementations:
-    print(impl.to_string())
 ```
 
 ## Research → Evolve (Add Context)
@@ -116,14 +93,13 @@ for impl in findings.implementations:
 Use research results to provide additional context during solution building:
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 kapso = Kapso()
 
 # Research
 findings = kapso.research(
     "unsloth FastLanguageModel example",
-    mode="both",
     depth="deep",
 )
 
@@ -135,28 +111,23 @@ solution = kapso.evolve(
 )
 ```
 
-## Research → Learn (Ingest into KG)
+## Research → learn_knowledge (ingest into the graph)
 
-Permanently add research findings to your Knowledge Graph:
+Permanently add research findings to your knowledge graph:
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 kapso = Kapso()
 
 # Research
 findings = kapso.research(
     "LoRA rank selection best practices",
-    mode="both",
     depth="deep",
 )
 
-# Ingest all results into Knowledge Graph
-kapso.learn(
-    *findings.ideas,
-    *findings.implementations,
-    wiki_dir="data/wikis",
-)
+# Ingest everything into the knowledge graph
+kapso.learn_knowledge(findings, wiki_dir="data/wikis")
 ```
 
 ## How are sources filtered?
@@ -202,80 +173,9 @@ Each `Source.Implementation` contains structured content with:
 
 ## Configuration
 
-The research system uses OpenAI's Responses API. Ensure you have:
+Research needs no API key of its own: the session runs on the coding-agent CLI named by the platform's [`inference` block](/docs/reference/configuration#inference) (shipped: Codex, `gpt-5.6-sol`, with the CLI's native web search). `kapso doctor research` verifies the CLI is installed and logged in before a run spends anything.
 
-```bash
-# .env
-OPENAI_API_KEY=your-openai-api-key
-```
-
-## API Reference
-
-### `Kapso.research()`
-
-```python
-def research(
-    self,
-    objective: str,
-    *,
-    mode: str = "both",  # "idea" | "implementation" | "both"
-    depth: str = "deep",  # "light" | "deep"
-) -> ResearchFindings:
-    """
-    Perform deep public web research.
-    
-    Args:
-        objective: What to research (be specific)
-        mode: Research mode - "idea", "implementation", or "both"
-        depth: How thorough - "light" (faster) or "deep" (more comprehensive)
-    
-    Returns:
-        ResearchFindings containing ideas and implementations
-    """
-```
-
-### Data Classes
-
-```python
-from kapso.knowledge_base.types import Source, ResearchFindings
-
-@dataclass
-class Source.Idea:
-    query: str    # Original research query
-    source: str   # URL where this idea came from
-    content: str  # Full content with sections
-    
-    def to_string(self) -> str:
-        """Format for use as context in evolve()"""
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-
-@dataclass
-class Source.Implementation:
-    query: str    # Original research query
-    source: str   # URL where this implementation came from
-    content: str  # Full content with code snippet
-    
-    def to_string(self) -> str:
-        """Format for use as context in evolve()"""
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-
-@dataclass
-class ResearchFindings:
-    query: str                              # Original research query
-    ideas: List[Source.Idea]                # Ideas (if idea mode was run)
-    implementations: List[Source.Implementation]  # Implementations (if implementation mode was run)
-    report: Optional[Source.ResearchReport]  # Report (if study mode was run)
-    
-    def to_string(self) -> str:
-        """Format all findings for use as context in evolve()"""
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-```
+The full `research()` signature and the `Source.Idea` / `Source.Implementation` / `ResearchFindings` shapes are in the [Python API reference](/docs/reference/kapso-api#research).
 
 ## Next Steps
 

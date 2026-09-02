@@ -29,29 +29,31 @@ PYTHONPATH=. python -m benchmarks.ale.runner -p ahc039
 # With options
 PYTHONPATH=. python -m benchmarks.ale.runner \
     -p ahc039 \
-    -i 14 \
-    -m ALE_CONFIGS \
-    -d aider
+    -i 30 \
+    -m ALE_GENERIC \
+    -d codex
 ```
 
-## CLI Options
+## CLI options
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-p, --problem` | Problem ID (e.g., `ahc039`) | Required |
-| `-i, --iterations` | Max experiment iterations | 14 |
-| `-m, --mode` | Config mode | `ALE_CONFIGS` |
+| `-i, --iterations` | Max experiment iterations | 30 |
+| `-m, --mode` | Config mode: `ALE_GENERIC` or `MINIMAL` | `ALE_GENERIC` |
 | `-d, --coding-agent` | Coding agent | From config |
 | `--list` | List all problems | - |
 | `--lite` | List lite problems | - |
 | `--list-agents` | List coding agents | - |
 
-## Available Problems
+## Scored problems
+
+The reported result covers these ten problems; `--lite` lists the full 13-problem lite roster and `--list` every ALE-Bench problem:
 
 `ahc008`, `ahc011`, `ahc015`, `ahc016`, `ahc024`, `ahc025`, `ahc026`, `ahc027`, `ahc039`, `ahc046`
 
 <Note>
-ALE-Bench uses `benchmark_tree_search` strategy which uses the handler's built-in evaluation via `handler.run()`. This is different from `kapso.evolve()` which uses agent-built evaluation.
+Both modes run the `generic` search strategy, but the ALE handler supplies the official evaluation: solutions are scored by the ALE-Bench toolkit via `handler.run()` rather than agent-built evaluation.
 </Note>
 
 ## Output Structure
@@ -84,7 +86,7 @@ The evaluation process works as follows:
 2. **Docker Evaluation**: Code is sent to `ale_bench.public_eval()` which compiles and runs in an isolated Docker container
 3. **Test Execution**: Solution runs against all test cases with strict time limits
 4. **Validation**: Each test case must return `ACCEPTED` with a non-zero score
-5. **Score Stabilization**: If all tests pass, the solution runs **4 additional times** and scores are averaged for stability
+5. **Score Stabilization**: If all tests pass, the solution runs **4 times in total** (3 further runs) and scores are averaged for stability
 6. **Final Ranking**: Private evaluation compares against original contest participants
 
 ## Code Requirements

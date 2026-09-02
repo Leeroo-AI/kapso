@@ -60,7 +60,7 @@ kapso learn behave --all
 kapso learn behave --scenario ./scenarios/serve-thin-bank
 ```
 
-A scenario directory holds `scenario.yaml` naming the machinery under test — `serve`, `grade-exam` or `update` — a `truth.md` with the ground truth and expected outcome, and a `rubric.md` of the reviewer's questions.
+A scenario directory holds `scenario.yaml` naming the machinery under test — `serve`, `grade-exam`, `update` or `frozen` (reviewer-only slices of frozen real artifacts) — a `truth.md` with the ground truth and expected outcome, and a `rubric.md` of the reviewer's questions.
 
 <Note>
   A semantic `FAIL` blocks promotion exactly as a gauntlet `FAIL` does. The reviewer runs on `claude-fable-5`, a different model from the crew it reviews.
@@ -84,6 +84,10 @@ Codify is a separate mechanism worth knowing about: **evolve minus ideation**. T
 ```bash
 kapso learn codify --request requests/card-117.yaml
 ```
+
+<Note>
+  The shipped run target is `gcp_ephemeral`, and `learning.codify.gcp.project` deliberately ships empty: set your own GCP project id in your config (or switch `learning.codify.target` to `local`) before running codify, or provisioning refuses with an error naming the key.
+</Note>
 
 One spec, one lane: implement, evaluate, judge, feed back, iterate, bounded by `learning.codify.max_iterations`, shipped at `3`. The implementor session **adapts** existing code rather than authoring it, the registered evaluation runs on the placement target, and the judge evaluates the claims — reproduction, faithfulness, honesty about preconditions, ledger consistency.
 

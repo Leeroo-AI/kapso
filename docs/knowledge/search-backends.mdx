@@ -45,7 +45,7 @@ result = search.search(
 )
 
 for item in result:
-    print(f"{item.page_title}: {item.score:.2f}")
+    print(f"{item.id}: {item.score:.2f}")
 
 context = result.to_context_string(max_results=3)
 ```
@@ -124,7 +124,7 @@ class KGOutput:
     def to_context_string(self, max_results=5) -> str
 ```
 
-Each result is a `KGResultItem` with `id`, `score`, `page_title`, `page_type`, `overview`, `content` and `metadata`, plus `domains`, `sources` and `last_updated` as properties.
+Each result is a `KGResultItem` with `id`, `score`, `page_type`, `overview`, `content` and `metadata`, plus `domains`, `sources` and `last_updated` as properties.
 
 Narrow a search with `KGSearchFilters`:
 

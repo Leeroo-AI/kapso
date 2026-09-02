@@ -91,24 +91,23 @@ Create `config.yaml`:
 
 ```yaml
 name: my_strategy
-description: "My custom deployment strategy"
+provider: my_provider
+interface: function
 
-# Default run interface
+# Runner class name (in runner.py) — required; the registry
+# refuses a strategy without it
+runner_class: MyStrategyRunner
+
+# Default resource requirements
+default_resources:
+  cpu: "1"
+  memory: "1Gi"
+
+# Default run interface (passed to the runner constructor)
 run_interface:
   type: "function"
   module: "main"
   callable: "predict"
-
-# Resource requirements
-resources:
-  cpu: "1"
-  memory: "1Gi"
-  gpu: false
-
-# Strategy-specific settings
-settings:
-  timeout: 300
-  retries: 3
 ```
 
 ## Step 4: Selector Instruction
@@ -186,14 +185,14 @@ The strategy is auto-discovered by the registry.
 
 ```python
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 class Runner(ABC):
     """Base class for deployment runners."""
 
     @abstractmethod
-    def run(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute with inputs. Returns {"status": ..., "output": ...}."""
+    def run(self, inputs: Union[Dict, str, bytes]) -> Any:
+        """Execute with inputs; DeployedSoftware normalizes the result."""
         pass
 
     @abstractmethod
@@ -227,7 +226,7 @@ registry = StrategyRegistry.get()
 
 # List all strategies
 strategies = registry.list_strategies()
-print(strategies)  # ["local", "docker", "modal", "bentoml", "my_strategy"]
+print(strategies)  # ["bentoml", "docker", "langgraph", "local", "modal", "my_strategy"]
 
 # Check if strategy exists
 exists = registry.strategy_exists("my_strategy")
@@ -243,17 +242,18 @@ adapter_inst = registry.get_adapter_instruction("my_strategy")
 ## Using Your Strategy
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 from kapso.deployment import DeployStrategy
 
-# Add to DeployStrategy enum (or use string)
-deployed_program = kapso.deploy(solution, strategy="my_strategy")
+# The enum member appears automatically: DeployStrategy rebuilds
+# itself from every strategies/ directory that has a config.yaml
+deployed_program = kapso.deploy(solution, strategy=DeployStrategy.MY_STRATEGY)
 
 # Or via factory
 from kapso.deployment import DeploymentFactory, DeployConfig
 
 config = DeployConfig(solution=solution)
-deployed_program = DeploymentFactory.create("my_strategy", config)
+deployed_program = DeploymentFactory.create(DeployStrategy.MY_STRATEGY, config)
 ```
 
 ## Testing Your Strategy

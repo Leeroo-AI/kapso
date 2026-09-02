@@ -37,6 +37,7 @@
 /animation/
 /cache/
 /data/
+/build/            # setuptools bdist staging: a full tree copy with .md files, created by every release build
 /dist/
 /experiments/
 /learning/

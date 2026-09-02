@@ -7,8 +7,6 @@ keywords: ["Kapso deploy", "deployment pipeline", "DeployStrategy", "running sof
 
 `deploy()` turns a finished solution into running software. It adapts the code for a target, starts it, and hands back a `Software` object you can call and stop.
 
-After `evolve()` generates a solution, `deploy()` turns it into running software. The deployment pipeline handles adaptation, strategy selection, and execution.
-
 ## How does a deployment run?
 
 ```mermaid
@@ -56,18 +54,7 @@ deployed_program.stop()
 | `BENTOML` | Deploy with BentoML | Production ML |
 | `LANGGRAPH` | Deploy as LangGraph agent | Agent workflows |
 
-## DeployStrategy Enum
-
-```python
-from kapso.deployment import DeployStrategy
-
-DeployStrategy.AUTO      # System selects
-DeployStrategy.LOCAL     # Local process
-DeployStrategy.DOCKER    # Docker container
-DeployStrategy.MODAL     # Modal.com
-DeployStrategy.BENTOML   # BentoML
-DeployStrategy.LANGGRAPH # LangGraph
-```
+Each value is a `DeployStrategy` enum member (`DeployStrategy.MODAL`, and so on); the enum is [auto-generated from the strategies directory](/docs/deployment/api-reference#deploystrategy).
 
 ## Software Interface
 
@@ -167,7 +154,7 @@ result = deployed_program.run({"data": "..."})
 deployed_program.stop()
 ```
 
-## What happens when a deploy fails?
+## What happens when a run fails?
 
 ```python
 result = deployed_program.run({"data": "..."})

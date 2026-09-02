@@ -7,8 +7,6 @@ keywords: ["learning pipeline", "learn_knowledge", "ingestors", "knowledge merge
 
 Two stages turn a raw source into knowledge a campaign can search: ingestors extract structured wiki pages from each source, then the merger folds those pages into the graph. `learn_knowledge()` runs both.
 
-The Knowledge Learning Pipeline is a two-stage process that transforms raw sources (repositories, research, experiments) into structured wiki pages in the Knowledge Graph.
-
 ```mermaid
 flowchart LR
     subgraph Stage1[Stage 1: Ingestion]
@@ -39,15 +37,15 @@ print(f"Created: {result.created}, Edited: {result.edited}")
 ### Via Kapso API
 
 ```python
-from kapso.kapso import Kapso, Source
+from kapso import Kapso, Source
 
 kapso = Kapso()
 
-# Learn from multiple sources
-findings = kapso.research("QLoRA best practices", mode="idea")
-kapso.learn(
+# Ingest multiple sources
+findings = kapso.research("QLoRA best practices")
+kapso.learn_knowledge(
     Source.Repo("https://github.com/huggingface/transformers"),
-    *findings.ideas,
+    findings,
     wiki_dir="data/wikis",
 )
 ```
@@ -86,7 +84,7 @@ solution = kapso.evolve(goal="...")
 sol_source = Source.Solution(solution)
 
 # Research sources (from research())
-findings = kapso.research("topic", mode="both")
+findings = kapso.research("topic", mode=["idea", "implementation"])
 # findings.ideas is List[Source.Idea]
 # findings.implementations is List[Source.Implementation]
 ```
@@ -160,11 +158,11 @@ There are three specialized research ingestors:
 | `ResearchReportIngestor` | `researchreport` | Extracts comprehensive knowledge from reports |
 
 ```python
-findings = kapso.research("QLoRA best practices", mode="idea")
+ideas = kapso.research("QLoRA best practices", mode="idea")  # List[Source.Idea]
 
 # Ingest into WikiPages (auto-detects ingestor type)
-ingestor = IngestorFactory.for_source(findings.ideas[0])
-pages = ingestor.ingest(findings.ideas[0])
+ingestor = IngestorFactory.for_source(ideas[0])
+pages = ingestor.ingest(ideas[0])
 
 # Or create by type
 ingestor = IngestorFactory.create("idea")
@@ -227,13 +225,6 @@ The merger executes a 5-phase process:
 - Categorizes as created (`CREATE_NEW`) or edited (`MERGE`)
 - Writes final summary to `_merge_plan.md`
 
-### Merge Actions
-
-| Action | Description |
-|--------|-------------|
-| `CREATE_NEW` | New page for novel knowledge |
-| `MERGE` | Update existing page with new content |
-
 ### Edge Types
 
 | From | Edge Type | To |
@@ -243,14 +234,9 @@ The merger executes a 5-phase process:
 | Implementation | `requires_env` | Environment |
 | Implementation | `uses_heuristic` | Heuristic |
 
-### Important Rules
+### Merge rules
 
-1. **Same-type search only**: Principles search among Principles, Implementations among Implementations, etc.
-2. **Scoped search**: When parent is `MERGE`, children search only among the target's children
-3. **Inherited CREATE_NEW**: If parent is `CREATE_NEW`, all descendants are `CREATE_NEW` (no search)
-4. **Additive edges**: When merging, keep existing edges and add new ones
-5. **Bottom-up execution**: Process leaves (Environment, Heuristic) before parents
-6. **No cross-type merges**: Never merge a Principle with an Implementation, etc.
+Beyond the phase mechanics above: search is **same-type only** (Principles among Principles, never a Principle merged with an Implementation), and a merge keeps existing edges, only ever **adding** new ones.
 
 ### MCP Tools Used
 
@@ -317,12 +303,13 @@ class MergeResult:
 @dataclass
 class WikiPage:
     id: str                 # Unique page identifier
-    page_title: str         # Human-readable title
     page_type: str          # Page category
-    overview: str           # Brief summary (for embedding)
+    overview: str           # Brief summary (the "card" content)
     content: str            # Full page content
+    description: str        # Detailed text used for embedding
     domains: List[str]      # Topic domains
     sources: List[Dict]     # Source references
+    last_updated: str       # Last update timestamp
     outgoing_links: List[Dict]  # Graph connections
 ```
 
@@ -330,19 +317,19 @@ class WikiPage:
 
 ```bash
 # Learn from a GitHub repository
-python -m src.knowledge.learners https://github.com/user/repo
+python -m kapso.knowledge_base.learners https://github.com/user/repo
 
 # Specify a branch
-python -m src.knowledge.learners https://github.com/user/repo --branch develop
+python -m kapso.knowledge_base.learners https://github.com/user/repo --branch develop
 
 # Extract only (don't merge)
-python -m src.knowledge.learners https://github.com/user/repo --extract-only
+python -m kapso.knowledge_base.learners https://github.com/user/repo --extract-only
 
 # Custom wiki directory
-python -m src.knowledge.learners https://github.com/user/repo --wiki-dir ./my_wikis
+python -m kapso.knowledge_base.learners https://github.com/user/repo --wiki-dir ./my_wikis
 
 # Verbose logging
-python -m src.knowledge.learners https://github.com/user/repo --verbose
+python -m kapso.knowledge_base.learners https://github.com/user/repo --verbose
 ```
 
 ### CLI Options

@@ -29,15 +29,15 @@
         "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting Started",
+            "group": "Getting started",
             "pages": [
               "docs/index",
-              "docs/quickstart",
-              "docs/installation"
+              "docs/installation",
+              "docs/quickstart"
             ]
           },
           {
-            "group": "Evolve System",
+            "group": "Evolve system",
             "pages": [
               "docs/evolve/overview",
               "docs/evolve/architecture",
@@ -56,12 +56,7 @@
                   "docs/evolve/coding-agents",
                   "docs/evolve/feedback-generator",
                   "docs/evolve/experiment-lifecycle",
-                  {
-                    "group": "Memory",
-                    "pages": [
-                      "docs/evolve/repo-memory"
-                    ]
-                  }
+                  "docs/evolve/repo-memory"
                 ]
               }
             ]
@@ -97,8 +92,7 @@
               "docs/deployment/overview",
               "docs/deployment/architecture",
               "docs/deployment/strategies",
-              "docs/deployment/adding-strategies",
-              "docs/deployment/api-reference"
+              "docs/deployment/adding-strategies"
             ]
           },
           {
@@ -120,6 +114,7 @@
             "pages": [
               "docs/reference/cli",
               "docs/reference/kapso-api",
+              "docs/deployment/api-reference",
               "docs/reference/configuration"
             ]
           }

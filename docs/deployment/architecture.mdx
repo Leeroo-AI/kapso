@@ -157,11 +157,15 @@ class Runner(ABC):
     @abstractmethod
     def run(self, inputs: Union[Dict, str, bytes]) -> Any:
         """Execute with inputs and return result."""
-    
+
+    @abstractmethod
+    def start(self) -> None:
+        """Start or restart a stopped runner back to ready state."""
+
     @abstractmethod
     def stop(self) -> None:
         """Stop and cleanup resources."""
-    
+
     @abstractmethod
     def is_healthy(self) -> bool:
         """Check if runner is healthy and ready."""
@@ -173,7 +177,7 @@ class Runner(ABC):
 | `DockerRunner` | docker | HTTP requests to container |
 | `ModalRunner` | modal | `modal.Function.remote()` |
 | `BentoMLRunner` | bentoml | HTTP to BentoCloud/local |
-| `LangGraphRunner` | langgraph | LangGraph Cloud API |
+| `LangGraphRunner` | langgraph | LangGraph Platform API |
 
 ---
 
@@ -198,42 +202,9 @@ class DeployedSoftware(Software):
 
 ---
 
-## Data Models
+## Data models
 
-### DeployConfig
-
-```python
-@dataclass
-class DeployConfig:
-    solution: SolutionResult  # The built solution
-    env_vars: Dict[str, str]  # Environment variables
-    timeout: int = 300        # Execution timeout (seconds)
-    coding_agent: str = "claude_code"  # Agent for adaptation
-```
-
-### DeploymentSetting
-
-```python
-@dataclass
-class DeploymentSetting:
-    strategy: str              # "local", "docker", "modal", etc.
-    provider: Optional[str]    # Cloud provider name
-    resources: Dict[str, Any]  # CPU, memory, GPU requirements
-    interface: str             # "function", "http", etc.
-    reasoning: str             # Why this was selected
-```
-
-### AdaptationResult
-
-```python
-@dataclass
-class AdaptationResult:
-    success: bool
-    adapted_path: str           # Path to adapted repo (copy)
-    run_interface: Dict[str, Any]  # How to call .run()
-    files_changed: List[str]
-    error: Optional[str]
-```
+The dataclasses that travel between these components — `DeployConfig`, `DeploymentSetting`, `AdaptationResult`, `DeploymentInfo` — are listed field-by-field in the [API reference](/docs/deployment/api-reference#data-classes).
 
 ---
 
@@ -243,11 +214,11 @@ Each strategy is a self-contained directory:
 
 ```text
 strategies/{name}/
-├── config.yaml              # Strategy configuration
-├── selector_instruction.md  # When to use this strategy
-├── adapter_instruction.md   # How to adapt code
-├── runner.py                # Runtime execution class
-└── __init__.py              # Exports
+├── config.yaml               # Strategy configuration
+├── selector_instruction.txt  # When to use this strategy
+├── adapter_instruction.txt   # How to adapt code
+├── runner.py                 # Runtime execution class
+└── __init__.py               # Exports
 ```
 
 ### config.yaml Structure
@@ -268,10 +239,10 @@ run_interface:
   function_name: predict
 ```
 
-### How Strategies Are Discovered
+### How strategies are discovered
 
-1. On import, `StrategyRegistry` scans `strategies/` directory
-2. Each subdirectory with `selector_instruction.md` AND `adapter_instruction.md` is registered
+1. On first use, `StrategyRegistry` scans the `strategies/` directory
+2. Each subdirectory with both instruction files is registered
 3. Runner classes are lazy-loaded from `runner.py` when needed
 
 **Adding a new strategy is adding a directory** - no code changes required in the core system.

@@ -7,32 +7,12 @@ keywords: ["knowledge graph", "domain knowledge", "Weaviate", "Neo4j", "knowledg
 
 The knowledge graph is Kapso's imported memory: what other people have written, drawn from repositories and research and searchable during a campaign. It is the counterpart to the [lesson bank](/docs/learning/overview), which holds what Kapso measured itself.
 
-The knowledge graph provides domain-specific guidance during problem-solving. It helps the agent recommend proven approaches and avoid common pitfalls by learning from repositories, research, and past experiments.
-
 ## What is in the knowledge graph?
 
-### Knowledge Graph (KG)
+Wiki pages — overviews, detailed content, and the links between them — held in Weaviate for semantic search and Neo4j for graph traversal. Two subsystems feed and read it:
 
-The KG stores domain knowledge in a structured format:
-
-- **Vector Storage**: Weaviate for semantic embeddings and similarity search
-- **Graph Storage**: Neo4j for relationships and graph traversal
-- **Content**: Wiki pages with overviews, detailed content, and connections
-
-### Learning Pipeline
-
-A two-stage process for acquiring knowledge from sources:
-
-1. **Stage 1 (Ingestors)**: Extract structured wiki pages from sources
-2. **Stage 2 (Merger)**: Hierarchical sub-graph-aware merge into the existing KG
-
-### Knowledge Search
-
-Hybrid retrieval that combines multiple approaches:
-
-- **Semantic search**: Vector similarity in Weaviate
-- **Graph traversal**: Connected pages from Neo4j
-- **LLM reranking**: Relevance scoring for better results
+- **The [learning pipeline](/docs/knowledge/learning-pipeline)** turns a source into pages (ingestors), then merges them into the existing graph (a hierarchical, sub-graph-aware merge).
+- **[Knowledge search](/docs/knowledge/search-backends)** retrieves at campaign time: semantic search, graph traversal, and reranking.
 
 ## How do I get knowledge into a campaign?
 
@@ -53,35 +33,35 @@ kapso = Kapso(kg_index="data/indexes/llm_finetuning.index")
 solution = kapso.evolve(goal="Fine-tune LLaMA with QLoRA")
 ```
 
-### Option 2: Learn from Sources
+### Option 2: Ingest sources
 
 ```python
-from kapso.kapso import Kapso, Source
+from kapso import Kapso, Source
 
 kapso = Kapso()
 
-# Learn from a repository
-kapso.learn(
+# Ingest a repository
+kapso.learn_knowledge(
     Source.Repo("https://github.com/huggingface/transformers"),
     wiki_dir="data/wikis",
 )
 
-# Learn from web research
-findings = kapso.research("QLoRA best practices", mode="idea")
-kapso.learn(*findings.ideas, wiki_dir="data/wikis")
+# Ingest web research
+findings = kapso.research("QLoRA best practices")
+kapso.learn_knowledge(findings, wiki_dir="data/wikis")
 ```
 
-### Option 3: Research as Context
+### Option 3: Research as context
 
 ```python
-from kapso.kapso import Kapso
+from kapso import Kapso
 
 kapso = Kapso()
 
-# Research without persisting to KG
+# Research without persisting to the knowledge graph
 findings = kapso.research(
     "unsloth FastLanguageModel example",
-    mode="implementation",
+    mode=["idea", "implementation"],
     depth="deep",
 )
 

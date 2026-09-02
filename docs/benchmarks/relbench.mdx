@@ -12,6 +12,25 @@ new v2 autocomplete family. A model receives a multi-table database plus seed ro
 (entity id, seed time) and predicts future outcomes, missing attributes, or ranked future
 links — with every feature and neighborhood censored at each row's seed time.
 
+## Results
+
+<Frame caption="Kapso against KumoRFM-v2 on RelBench outcome prediction, forecasting and recommendations">
+  <img
+    src="/docs/images/relbench.png"
+    alt="Bar chart of three RelBench panels: outcome prediction, Kapso 81.2 AUROC against KumoRFM-v2's 79.6; forecasting, Kapso 0.2476 NMAE against 0.2912, lower being better; recommendations, Kapso 18.4 MAP against the best reported 15.7. Each panel is drawn from its own truncated axis"
+  />
+</Frame>
+
+| Family | Metric | Bar to beat | Kapso |
+|---|---|---|---|
+| Outcome prediction · 12 tasks | AUROC, higher is better | 79.6 (KumoRFM-v2) | **81.2** |
+| Forecasting · 9 tasks | NMAE, lower is better | 0.2912 (KumoRFM-v2) | **0.2476** |
+| Recommendations · 10 tasks | MAP, higher is better | 15.7 (best reported) | **18.4** |
+
+All scores come from the official RelBench evaluator, under the same data, hardware and
+time budget. Published entries live on the
+[official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
+
 ## How Kapso runs it
 
 Each experiment in the tree search is implemented by the coding agent on a git branch and
@@ -31,11 +50,11 @@ then evaluated by `RelBenchHandler`:
 This is exactly the RelBench protocol: tune on validation, report test once.
 
 The problem context injected into ideation includes the database schema, the task's
-label-generating SQL, per-family playbooks (temporal GNNs, censored SQL feature
-engineering + GBDT, repeat-behavior recommendation heuristics, hybrid rankers), and the
-current published state of the art for the task (`benchmarks/relbench/data/sota.json`).
-A starter kit with the official RelBench reference implementations is seeded into every
-workspace under `kapso_datasets/`.
+label-generating SQL, and per-family playbooks (temporal GNNs, censored SQL feature
+engineering + GBDT, repeat-behavior recommendation heuristics, hybrid rankers).
+A starter kit of contract helpers — environment and task loading, prediction saving and
+validation, method choice entirely the agent's — is seeded into every workspace under
+`kapso_datasets/`.
 
 ## Usage
 
@@ -49,26 +68,26 @@ PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-f1 -t driver-position -
 # Full run
 PYTHONPATH=. python -m benchmarks.relbench.runner -s rel-hm -t user-item-purchase -i 25
 
-# Heavy mode with Claude Code
+# Campaign standard, on Claude Code
 PYTHONPATH=. python -m benchmarks.relbench.runner \
-    -s rel-trial -t site-sponsor-run -i 30 -m HEAVY_EXPERIMENTATION -d claude_code
+    -s rel-trial -t site-sponsor-run -i 30 -m RELBENCH_GENERIC -d claude_code
 ```
 
-## CLI Options
+## CLI options
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-s, --dataset` / `-t, --task` | RelBench dataset/task | Required |
 | `-i, --iterations` | Max search iterations | 20 |
-| `-m, --mode` | Config mode | `RELBENCH_CONFIGS` |
-| `-d, --coding-agent` | aider, gemini, claude_code, openhands | from config |
+| `-m, --mode` | `RELBENCH_GENERIC`, `FAST_DEBUG` or `MINIMAL` | `RELBENCH_GENERIC` |
+| `-d, --coding-agent` | codex, gemini, claude_code, openhands | from config |
 | `--target-val` | Early-stop validation bar | none |
 | `--rebuild-cache` | Rebuild the sanitized data cache | cached |
 
 ## Setup
 
 ```bash
-pip install relbench duckdb pooch pyarrow            # evaluation layer
+pip install relbench duckdb pooch pyarrow scikit-learn   # evaluation layer
 pip install "relbench[full]" sentence-transformers \
     lightgbm xgboost catboost tqdm                   # modeling stack (GPU machine)
 ```

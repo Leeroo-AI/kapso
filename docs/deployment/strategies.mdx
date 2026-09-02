@@ -28,7 +28,7 @@ deployed = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)
 result = deployed.run({"data_path": "./data.csv"})
 ```
 
-The adapter writes a `run.py` entry point and the runner imports it. Its `run_interface` is `{type: function, module: main, callable: predict}`.
+The adapter ensures a `main.py` exposing `predict()` and the runner imports it. Its `run_interface` is `{type: function, module: main, callable: predict}`.
 
 ## Docker
 
@@ -42,12 +42,15 @@ Served over HTTP at `http://localhost:8000/predict`, from a container named `sol
 
 <Accordion title="Dockerfile the adapter generates">
 ```dockerfile
-FROM python:3.12-slim
+FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "run.py"]
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD curl -f http://localhost:8000/health || exit 1
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 </Accordion>
 
@@ -59,18 +62,27 @@ Runs on Modal's serverless platform, which is the quickest route to a GPU you do
 deployed = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
 ```
 
-Default resources are a `T4` GPU and `16Gi` of memory, calling a `predict` function.
+The strategy declares `T4`/`16Gi` as its default resources and calls a `predict` function; the generated app itself starts CPU-only, with the GPU line ready to uncomment.
 
 <Accordion title="Modal app the adapter generates">
 ```python
 import modal
 
-app = modal.App("kapso-deployment")
+app = modal.App("solution-name")
 
-@app.function(gpu="A100")
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("fastapi>=0.100.0")
+    .add_local_file("main.py", "/root/main.py")
+)
+
+@app.function(
+    image=image,
+    # gpu="T4",  # Uncomment if GPU needed: "T4", "A10G", "A100"
+    timeout=300,
+)
 def predict(inputs):
-    # Load the model and run inference
-    return result
+    ...
 ```
 </Accordion>
 
@@ -105,7 +117,7 @@ deployed = kapso.deploy(solution, strategy=DeployStrategy.LANGGRAPH)
 result = deployed.run({"query": "What is 2+2?"})
 ```
 
-The adapter writes a `graph.py` of LangGraph nodes; the runner compiles and runs the graph against assistant id `agent`.
+The adapter writes `agent.py`, `main.py` and `langgraph.json`; the runner calls the deployed graph on LangGraph Platform via `langgraph_sdk`, against assistant id `agent`.
 
 ## How does AUTO choose?
 
