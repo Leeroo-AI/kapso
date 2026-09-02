@@ -30,7 +30,7 @@ class SelectorAgent:
     - Resource requirements (CPU, memory, GPU)
     
     Uses StrategyRegistry to discover available strategies and their
-    selector_instruction.md files.
+    selector_instruction.txt files.
     """
     
     def __init__(

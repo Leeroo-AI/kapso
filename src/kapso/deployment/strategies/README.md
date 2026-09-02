@@ -8,8 +8,8 @@ Each subdirectory is a self-contained deployment strategy package.
 strategies/
 ├── base.py                 # StrategyRegistry (auto-discovers strategies)
 ├── local/
-│   ├── selector_instruction.md   # When to choose this strategy
-│   ├── adapter_instruction.md    # How to adapt code for deployment
+│   ├── selector_instruction.txt   # When to choose this strategy
+│   ├── adapter_instruction.txt    # How to adapt code for deployment
 │   └── runner.py                 # Runtime execution class
 ├── docker/
 │   └── ...
@@ -25,7 +25,7 @@ strategies/
 
 1. Create a new directory: `strategies/mycloud/`
 
-2. Create `selector_instruction.md`:
+2. Create `selector_instruction.txt`:
 ```markdown
 # MyCloud
 
@@ -50,7 +50,7 @@ http (or function, modal, bentocloud, langgraph)
 mycloud (or None)
 ```
 
-3. Create `adapter_instruction.md`:
+3. Create `adapter_instruction.txt`:
 ```markdown
 # MyCloud Deployment Instructions
 
@@ -131,13 +131,13 @@ User Request
     │
     ▼
 ┌──────────────┐
-│   Selector   │ ◄── reads selector_instruction.md from all strategies
+│   Selector   │ ◄── reads selector_instruction.txt from all strategies
 │   Agent      │     to determine best deployment option
 └──────────────┘
     │
     ▼
 ┌──────────────┐
-│   Adapter    │ ◄── reads adapter_instruction.md for selected strategy
+│   Adapter    │ ◄── reads adapter_instruction.txt for selected strategy
 │   Agent      │     to adapt code and deploy
 └──────────────┘
     │

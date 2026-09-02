@@ -48,7 +48,7 @@ class Runner(ABC):
     
     To add a new strategy:
     1. Create strategies/{name}/ directory
-    2. Add selector_instruction.md and adapter_instruction.md
+    2. Add selector_instruction.txt and adapter_instruction.txt
     3. Create runner.py with a class inheriting from Runner
     """
     
@@ -124,8 +124,8 @@ class DeployStrategyConfig:
     
     Loaded from a strategy subdirectory containing:
     - config.yaml: Strategy configuration (interface, provider, resources, run_interface)
-    - selector_instruction.md: When to choose this strategy
-    - adapter_instruction.md: How to adapt and deploy
+    - selector_instruction.txt: When to choose this strategy
+    - adapter_instruction.txt: How to adapt and deploy
     - runner.py: Runtime execution class
     """
     name: str
@@ -164,11 +164,11 @@ class DeployStrategyConfig:
         return self._config_cache
     
     def get_selector_instruction(self) -> str:
-        """Load selector_instruction.md content."""
+        """Load selector_instruction.txt content."""
         return self.selector_instruction_path.read_text()
     
     def get_adapter_instruction(self) -> str:
-        """Load adapter_instruction.md content."""
+        """Load adapter_instruction.txt content."""
         return self.adapter_instruction_path.read_text()
     
     def has_runner(self) -> bool:
@@ -252,8 +252,8 @@ class StrategyRegistry:
     
     Strategies are discovered from subdirectories of the strategies/ folder.
     Each subdirectory must contain:
-    - selector_instruction.md
-    - adapter_instruction.md
+    - selector_instruction.txt
+    - adapter_instruction.txt
     
     Usage:
         registry = StrategyRegistry.get()
@@ -299,8 +299,8 @@ class StrategyRegistry:
             if path.name.startswith("_") or path.name.startswith("."):
                 continue
             
-            selector_path = path / "selector_instruction.md"
-            adapter_path = path / "adapter_instruction.md"
+            selector_path = path / "selector_instruction.txt"
+            adapter_path = path / "adapter_instruction.txt"
             
             # Must have both instruction files
             if selector_path.exists() and adapter_path.exists():
@@ -355,7 +355,7 @@ class StrategyRegistry:
             name: Strategy name
             
         Returns:
-            Content of selector_instruction.md
+            Content of selector_instruction.txt
         """
         return self.get_strategy(name).get_selector_instruction()
     
@@ -367,7 +367,7 @@ class StrategyRegistry:
             name: Strategy name
             
         Returns:
-            Content of adapter_instruction.md
+            Content of adapter_instruction.txt
         """
         return self.get_strategy(name).get_adapter_instruction()
     

@@ -322,7 +322,7 @@ class AdapterAgent:
         
         Priority:
         1. Use run_interface from agent output (if provided)
-        2. Fall back to default from strategy's adapter_instruction.md
+        2. Fall back to default from strategy's adapter_instruction.txt
         
         Args:
             strategy: Deployment strategy name
@@ -336,7 +336,7 @@ class AdapterAgent:
         if agent_run_interface:
             interface = agent_run_interface.copy()
         else:
-            # Get defaults from strategy's adapter_instruction.md (no hardcoding!)
+            # Get defaults from strategy's adapter_instruction.txt (no hardcoding!)
             interface = self.registry.get_default_run_interface(strategy)
         
         # Ensure we have at least a type (safe fallback)

@@ -12,8 +12,8 @@
 #
 # Adding a New Strategy:
 #   Create a new directory under strategies/ with:
-#   - selector_instruction.md: When to choose this strategy
-#   - adapter_instruction.md: How to adapt code for this strategy
+#   - selector_instruction.txt: When to choose this strategy
+#   - adapter_instruction.txt: How to adapt code for this strategy
 #   - runner.py: Runtime execution class inheriting from Runner
 #
 # Usage:
