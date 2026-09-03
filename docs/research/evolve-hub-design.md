@@ -157,31 +157,91 @@ stream (`difficulties_fallback.md`). The reconstruction also classifies
 an authentication or permission signature and files the `need` on the
 session's behalf, module `orchestrator`.
 
-### 4.3 The boundary pass
+### 4.3 The cycle — who waits, and where
 
-At every iteration boundary the orchestrator:
+Modules never wait. A session is a one-shot CLI process with a deadline:
+it posts, states what it assumes or does what it can, and ends. The
+waiting lives in one helper owned by the orchestrator, `wait_for_needs`,
+which runs only between sessions — where nothing is spending and the
+clock can be paused. The strategy reaches it through a callback the
+orchestrator hands over at construction, the way budget snapshots and
+fidelity decisions flow into the strategy today.
 
-1. reloads `.env` from the file the run loaded at start, so a value
-   added since is visible to probes and to the next session;
-2. runs the probe of every open `need` — passing probes resolve their
-   items and re-queue the nodes parked on them; a probe that runs on a
-   present-but-wrong value records the masked error on the item;
-3. applies the rule of §2 to nodes blocked on still-open needs: critical
-   → `waiting` (the ledger's clock paused, the status file at
-   `waiting`, re-check every `blocked.recheck_seconds`, up to
-   `blocked.wait_minutes`, then a checkpoint with
-   `last_stop: needs_input` and `stopped_reason: needs_input`); otherwise
-   → parked, campaign continues;
-4. hands answered `question`s and human `note`s to the next ideation
-   round and the next build session as campaign context — the same
-   channel `current_feedback` uses today;
-5. on `--resume`, runs the probes first, then continues the same node on
-   the same branch with a second session told which need is now met.
+**Entry point 1 — at selection (the cheap one).** The selector already
+stress-tests candidates for time-fit, groundedness and rule-safety;
+*access* joins that list, judged against the environment inventory. When
+the chosen candidate needs something absent, the selector posts the
+`need` — `critical` iff no other candidate has a credible path to the
+target — and also names the best candidate that needs nothing. Before
+any build session the strategy calls `wait_for_needs` on that item:
 
-Ideation gets the cheapest ask point this way: a candidate that names a
-need is filed at selection, and the boundary decides before any build
-session whether to wait briefly (critical, attended) or run the next
-candidate and park this one.
+- met → build the chosen candidate;
+- declined, or unmet and not critical → build the runner-up now; the
+  chosen candidate is parked with its item and re-queued once the probe
+  passes;
+- unmet and critical → wait per policy; on timeout or `q`, pause with
+  `needs_input`. The round's candidates are kept in the checkpoint's
+  strategy state so `--resume` builds directly instead of re-ideating.
+
+**Entry point 2 — mid-build.** The session posts the `need` the moment
+it hits the wall, does whatever does not depend on it, commits, writes
+its next steps, and ends with `<blocked hub=N>`. The strategy records
+the node as `blocked` (no judge call — nothing to judge) and returns it;
+the orchestrator's boundary pass then reloads `.env`, probes every open
+need, and calls `wait_for_needs` for the node's item with the same three
+outcomes: met → the node is re-queued; not critical → parked; critical →
+wait, then pause. With node expansion (K>1) a blocked lane ends early,
+the barrier waits only for the lanes still running, and the item is
+handled after the round.
+
+**Continuation.** A re-queued node takes the next iteration slot ahead
+of new ideation: `run()` skips parent selection and ideation, checks out
+the node's branch, and launches a second build session whose prompt is
+the original solution plus the previous session's summary, the next
+steps it wrote, and the line "need X is now verified". That session ends
+with the normal tags, the judge runs, and the node finalizes under its
+original id. The blocked attempt stays in the hub trail, not as a
+separate node; a node with no score is never chosen as a parent, so a
+blocked node cannot be built on while it waits.
+
+**Questions and notices never wait.** A `question` is posted with
+`assume` and the session proceeds on it. The boundary pass folds answers
+and human `note`s into the next ideation context and the next build
+prompt — the channel `current_feedback` travels through today. Answers
+are forward-looking: they steer what comes next, they do not invalidate
+work already done.
+
+**The wait loop** (`wait_for_needs`), in order:
+
+1. pause the ledger's clock — the heartbeat daemon keeps writing, so
+   `elapsed_seconds` stays flat and `watch` never reports a stall;
+2. status file → `waiting`, `on_status` fires with the open items;
+3. print the ask in the preflight row format, with keys when a TTY is
+   attached;
+4. every `blocked.recheck_seconds`: reload `.env` from the file the run
+   loaded; run each blocking need's probe with the environment a session
+   would get (auth-mode handling and `env_strip` included); fold new hub
+   events (`declined`, `answered` filed through `kapso hub` from another
+   terminal); read a key if one was pressed;
+5. until every blocking need is resolved or declined, or
+   `blocked.wait_minutes` elapse, or `q`; then unpause and return the
+   outcome. Non-blocking open items (parked needs, questions) are listed,
+   never held on.
+
+On `--resume` the same loop runs first when a critical need is still
+open, before any session is spawned.
+
+**Accounting.** A blocked attempt's minutes count against the time
+budget (they were spent); waiting minutes count against nothing; a
+blocked attempt is not charged against `--iterations` (it produced no
+measurement) — the continuation session is the iteration that is
+charged. Modes on `blocked.policy: park` never enter the loop.
+
+**Deferred — `hub_wait`.** The in-session variant would let the session
+itself block on the same record and probe, keeping its context. It waits
+on CLI tool-timeout handling (Claude Code and Codex both cap a tool call)
+and on idle-deadline accounting; the boundary loop gives the same
+user-facing behaviour without either.
 
 ### 4.4 Readers
 
@@ -228,7 +288,12 @@ and neither does `.kapso/`.
 - `search_strategies/base.py`: a `blocked` outcome on `SearchNode`
   beside `had_error` and `evaluation_valid`, carrying the hub item id.
 - `generic/strategy.py` and `implementation.py`: file `<blocked>` into
-  the hub at extraction; the resume-session prompt for a met need.
+  the hub at extraction; the continuation iteration (re-queued node
+  ahead of ideation, second session on the same branch); the
+  `wait_for_needs` callback; pending candidates in `dump_state`.
+- `ideation_selector.md`: access as a judging criterion against the
+  environment inventory; when the chosen candidate carries a need, also
+  name the best candidate that carries none.
 - `orchestrator.py`: the boundary pass (§4.3); `waiting` in
   `EvolveStatus`; `needs_input` joins `VALID_LAST_STOPS`; the ledger
   gains a pause; `stopped_reason: needs_input` through `SolveResult` to
