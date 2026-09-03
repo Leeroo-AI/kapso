@@ -62,10 +62,11 @@ spent, the heartbeat keeps writing. Attended only adds keys to press.
 
 Principles that survive every channel choice: ask at the cheapest moment
 (preflight, then the selector, then mid-session); every ask carries a
-copy-pasteable fix and a probe that decides when to continue; secrets
-never pass through Kapso (names of needs only — the value goes to the
-`.env` the run loaded, the probe verifies it); works with nobody
-watching; faking is never the cheaper path; ask once.
+fix for the human and a check that decides when to continue; secrets
+never pass through Kapso (names of needs only — a value goes wherever
+the fix says, usually the `.env` the run loaded, and the check verifies
+it); works with nobody watching; faking is never the cheaper path; ask
+once.
 
 ## 3. Channels compared
 
@@ -129,7 +130,7 @@ Three item types, a closed set:
 
 | Type | Raised when | Carries | Resolved by |
 |---|---|---|---|
-| `need` | something only a person can grant: a credential, a login, a licence click, a permission, credits, an install on this box | `key` (dedupe, e.g. `env:OPENAI_API_KEY`), `for` (node or round + idea), `hit` (the concrete error), `worth` (why it is worth the human's time), `fix` (copy-pasteable), `verify` (a command whose exit 0 means satisfied), `alternatives` (none / what), `critical` | the probe passing (auto, at any re-check), or the human declining with an optional note |
+| `need` | anything only a person can provide: a credential, a login, a licence click, a permission, credits, a dataset dropped at a path, a service started, a tool installed on this box, a bigger disk mounted | `key` (dedupe, e.g. `env:OPENAI_API_KEY`, `data:raw/transactions.csv`, `tool:docker`, `access:hf:meta-llama/…`), `for` (node or round + idea), `hit` (the concrete error), `worth` (why it is worth the human's time), `fix` (what the human does, free text, copy-pasteable where possible), `check` (a shell snippet; exit 0 means satisfied; cheap, read-only, safe to re-run). `alternatives` and `critical` arrive with the park policy later | the check passing at any re-check, or the human declining with an optional note |
 | `question` | a decision the human should make: permission, scope, preference | the question, `options`, `assume` (what the module proceeds with if unanswered), `for` | the human answering; the answer becomes campaign context |
 | `notice` | something left for the human, no action required by evolve: an orphaned better result on disk, a feature dropped for lack of a key (W&B logging), an infeasible-here idea | text, `for` | reading it (`seen`) |
 
@@ -145,28 +146,37 @@ secret-shaped masked.
 never to the feedback judge. The gate appends to `.kapso/hub.jsonl`
 through an env-injected path (`KAPSO_HUB_PATH`), exactly the bank gate's
 pull-log pattern. One call posts a `need` and blocks until one of three
-results: `met` (the probe passed), `declined` (the human declined through
+results: `met` (the check passed), `declined` (the human declined through
 `kapso hub`, with their note), or `timeout` (`blocked.wait_minutes`
-elapsed). While blocked the gate re-checks every
-`blocked.recheck_seconds`: it reloads the `.env` the run loaded, runs
-the probe with the freshly merged environment, and folds any hub events
-written from outside. On every re-check it emits an MCP progress
-notification ("waiting on OPENAI_API_KEY · 12 min · next check in 15 s")
-— this is what keeps the call alive on Claude Code (§4.4) and gives the
-transcript a heartbeat. Nothing is spent while blocked: the model is
-waiting on a tool result, not generating. A second `hub_ask` on a key
-that already has an open item joins that item's wait (server-side
+elapsed). While blocked the gate runs the need's `check` every
+`blocked.recheck_seconds` — in the workspace, under a per-run cap
+(`blocked.check_timeout_seconds`), in an environment rebuilt for each
+run from the process environment plus the `.env` the run loaded, so a
+value added since launch is visible — and folds any hub events written
+from outside. The check is the whole contract: exit 0 is the only thing
+the gate reads, so one loop covers a key in `.env`, a licence accepted
+upstream, a bucket permission, a file dropped at a path, a service
+answering on a port, or `docker info` succeeding. The check's last
+output is attached to the item, masked, so `kapso hub show` tells the
+human why it still fails. On every re-check the gate emits an MCP
+progress notification ("waiting on OPENAI_API_KEY · 12 min · next check
+in 15 s") — this is what keeps the call alive on Claude Code (§4.4) and
+gives the transcript a heartbeat. Nothing is spent while blocked: the
+model is waiting on a tool result, not generating. A second `hub_ask` on
+a key that already has an open item joins that item's wait (server-side
 dedupe); `blocked.max_asks_per_session` caps the calls.
 
 What the session does with the result. `met` → continue in place. The
-result names the `.env` path and the one line that loads it into the
-session's shell, because the session's process environment predates the
-value: Claude Code's Bash tool keeps a persistent shell, so
-`set -a; . <path>/.env; set +a` once is enough; Codex runs each command
-fresh, so it loads per command or through python-dotenv in the code it
-writes. `declined` → the note is the instruction; proceed on it or end
-with the report. `timeout` → commit, write the next steps, end with the
-ordinary session-end report, `technical_difficulties` naming the need.
+result carries the check's passing output and, because the session's
+process environment predates the wait, the one line that reloads the
+`.env` the run loaded — Claude Code's Bash tool keeps a persistent
+shell, so `set -a; . <path>/.env; set +a` once is enough; Codex runs each
+command fresh, so it loads per command or through python-dotenv in the
+code it writes. That line matters when the need was an environment
+variable and is harmless otherwise. `declined` → the note is the
+instruction; proceed on it or end with the report. `timeout` → commit,
+write the next steps, end with the ordinary session-end report,
+`technical_difficulties` naming the need.
 
 **The session-end report.** The implementation contract gains one
 sanctioned exception to "do not ask questions": a blocked session may
@@ -193,7 +203,7 @@ session's behalf, module `orchestrator`.
    writes `waiting` to the status file: `kapso watch` shows the ask,
    `on_status` fires, the attended terminal prints the ask in the
    preflight row format above the session's own transcript. From another
-   terminal, `kapso hub` can `resolve` (runs the probe on demand) or
+   terminal, `kapso hub` can `resolve` (runs the check on demand) or
    `decline`. The heartbeat daemon keeps writing, so `elapsed_seconds`
    stays flat and `watch` never reports a stall.
 3. `wait_ended` with the result → deadline and clock resume. `met`: the
@@ -202,7 +212,7 @@ session's behalf, module `orchestrator`.
    (score null, difficulties) plus the hub item id; the orchestrator
    moves to the next iteration; the item stays open in the hub with its
    node.
-4. Not in v1 — the continuation. When the probe passes later, the
+4. Not in v1 — the continuation. When the check passes later, the
    orchestrator resumes the same CLI session with a follow-up
    ("OPENAI_API_KEY is now verified; continue"), full context restored by
    the CLI's own transcript (§4.4). Until then a need met after a
@@ -233,6 +243,27 @@ same record and are out of v1 (§7).
 The SDK-based adapters (gemini, openhands, aider) carry no MCP: no wait
 there; they end with the report.
 
+**Three clocks, one ordering.** The wait ceiling is bounded by whatever
+ends the tool call first, so kapso orders the clocks so that the gate
+is always the one that ends the wait:
+
+1. `blocked.wait_minutes` — the gate's own ceiling; it returns a clean
+   `timeout` result the session can act on;
+2. the CLI's per-call wall clock — Claude's per-server `timeout`,
+   Codex's `tool_timeout_sec` — set by kapso to the ceiling plus a
+   margin, never below it;
+3. kapso's session deadline — held for the whole wait, so the ceiling
+   is never eaten by the session's remaining minutes; the campaign's
+   budget clock pauses with it.
+
+Claude's idle rule is reset by every progress notification, so it does
+not bound the ceiling. Nothing model-side is open while waiting: the
+assistant turn that issued the tool call has ended, and the next model
+request goes out only when the tool result returns — no API timeout, no
+tokens, no usage-window consumption. If a CLI cap fired first the
+session would see a tool error instead of a `timeout` result and might
+retry or improvise; the ordering above is what prevents that.
+
 Why this settles the "which wait" question. Both mechanisms keep the
 session's context: the in-session wait keeps it in memory for minutes;
 CLI resume keeps it on disk for days and survives a kapso restart. v1
@@ -245,8 +276,8 @@ needs.
 
 | Surface | Shows or does |
 |---|---|
-| terminal (attended) | each ask as it arrives, in the preflight row format (`[NEED]` / for / hit / worth it / fix / verify), above the session's own transcript; the countdown; keys `Enter` (check now), `s` (decline, optional note), `q` (stop waiting now) |
-| `kapso hub <campaign>` | v1: `list` (open first, waiting or not, age), `show <id>`, `resolve <id>` (runs the probe now), `decline <id> [note]`; later: `answer <id> <text>`, `note <text>` (a free-standing hint for the next round), `seen <id>` |
+| terminal (attended) | each ask as it arrives, in the preflight row format (`[NEED]` / for / hit / worth it / fix / check), above the session's own transcript; the countdown; keys `Enter` (run the check now), `s` (decline, optional note), `q` (stop waiting now) |
+| `kapso hub <campaign>` | v1: `list` (open first, waiting or not, age), `show <id>` (the ask plus the check's last output), `resolve <id>` (runs the check now), `decline <id> [note]`; later: `answer <id> <text>`, `note <text>` (a free-standing hint for the next round), `seen <id>` |
 | `kapso watch` | `hub: 2 open (1 critical)` plus the newest item's fix line; `WAITING` and `PAUSED` states |
 | `on_status` | the status dict gains `hub: {open, critical, newest}`; a Slack post is a few lines of caller code; the platform's push notifications hang off the same hook |
 | end summary | needs still open at the end, each with its node and fix; later: parked items with their resume command, answered questions, notices |
@@ -271,24 +302,27 @@ the code can:
 - Per-session cap on asks (`blocked.max_asks_per_session`),
   config-sourced like the change-request cap.
 - Transient versus human: rate limits retry; billing and auth states ask.
+- A `check` is cheap (well under `blocked.check_timeout_seconds`),
+  read-only, safe to run every few seconds, and prints no secret. It is
+  the only thing that ends a wait with `met`.
 
 ### 4.7 Secrets
 
-The hub holds needs. Values go into the `.env` file the run loaded, whose
-path every ask prints. Kapso re-reads that file at re-checks and hands
-the environment to sessions as it does today. Probe output is masked
-before it is stored or shown. `config.yaml` holds no secrets (Rule 3),
-and neither does `.kapso/`.
+The hub holds needs and, masked, the output of their checks. A value
+goes wherever the fix says — usually the `.env` file the run loaded,
+whose path every ask prints — and the check runs with that file re-read,
+so the value never has to pass through the gate. `config.yaml` holds no
+secrets (Rule 3), and neither does `.kapso/`.
 
 ## 5. Landing on today's code (v1)
 
 - `gated_mcp/gates/hub_gate.py` + a `GateDefinition` in `presets.py`
-  with `KAPSO_HUB_PATH` as injected env; `hub_ask` posts, blocks,
-  re-checks (reload `.env`, probe, fold events), emits progress
-  notifications; added to the shipped modes' `ideation_gates` and
-  `implementation_gates`.
-- `execution/hub.py`: the record (append, fold, mask, the probe runner
-  with the merged environment).
+  with `KAPSO_HUB_PATH` as injected env; `hub_ask` posts, blocks, runs
+  the `check` each interval in a rebuilt environment, folds events,
+  emits progress notifications; added to the shipped modes'
+  `ideation_gates` and `implementation_gates`.
+- `execution/hub.py`: the record (append, fold, mask, the check runner
+  with the rebuilt environment and the per-run cap).
 - `coding_agents/adapters/claude_code_agent.py`: the hub server's entry
   in the written MCP config carries `timeout` (ms) derived from
   `blocked.wait_minutes`; the session env carries
@@ -307,8 +341,8 @@ and neither does `.kapso/`.
 - `cli.py`: `kapso hub` (`list`, `show`, `resolve`, `decline`); `watch`
   rendering of `waiting` and open items.
 - `config.yaml` `defaults.blocked`: `policy` (wait | park),
-  `wait_minutes`, `recheck_seconds`, `max_asks_per_session`. Benchmark
-  modes set `policy: park`.
+  `wait_minutes`, `recheck_seconds`, `check_timeout_seconds`,
+  `max_asks_per_session`. Benchmark modes set `policy: park`.
 - Prompts: the one exception to "do not ask questions"; the rules of
   §4.6; the load-the-`.env` line in the tool result.
 - Docs: `docs/evolve/` gains a page; `docs/reference/cli.mdx` and
@@ -336,7 +370,8 @@ environment inventory.
    through the gate — versus the gate returning the value into the
    transcript (never: it would land in the stream artifact).
 5. **Defaults.** `wait_minutes` 30, `recheck_seconds` 15,
-   `max_asks_per_session` 3. Guesses to confirm.
+   `check_timeout_seconds` 30, `max_asks_per_session` 3. Guesses to
+   confirm.
 
 ## 7. Out of scope for v1
 
