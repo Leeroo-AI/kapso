@@ -1,8 +1,12 @@
 # Evolve inbox — how a campaign asks a person for what it needs
 
-**Status:** DESIGN v4 (2026-09-04) for review — the concluded shape after
-the 2026-09-03/04 conversation. Nothing built. Written against the
-shipped code at a9d127ed (0.4.2), on branch `notif-evolve`. Companion:
+**Status:** BUILT on branch `notif-evolve` (2026-09-04) — the concluded
+shape after the 2026-09-03/04 conversation, implemented per
+`docs/plans/evolve-inbox-implementation-plan.md` with the hermetic suites
+green; the live verification and its findings are recorded in
+`docs/plans/evolve-inbox-findings.md`. The user-facing page is
+`docs/evolve/inbox.mdx`. Written against the shipped code at a9d127ed
+(0.4.2). Companion:
 the user-flow page ("Waiting on You"). Earlier revisions of this file
 (a hub with a blocking wait, then a check-and-poll loop) are in the
 branch history; §9 records what was dropped and why.

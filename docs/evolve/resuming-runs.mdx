@@ -133,7 +133,10 @@ Status has two values:
 
 - `running`: the call reached its iteration slice and can be resumed. A budget
   stop stays `running` too — it records why in `last_stop` and waits for the
-  next slice.
+  next slice. A campaign that paused for a reply in the inbox stays `running`
+  with `last_stop: "waiting_for_user"`; resuming it with the request still
+  open pauses again without running anything. See
+  [Waiting on you](/docs/evolve/inbox).
 - `completed`: the goal was achieved. Only goal achievement completes a
   campaign.
 
@@ -209,5 +212,8 @@ such as tree search, should store IDs and rebuild references during
   </Card>
   <Card title="CLI reference" icon="terminal" href="/docs/reference/cli#kapso-evolve">
     The --resume flag
+  </Card>
+  <Card title="Waiting on you" icon="inbox" href="/docs/evolve/inbox">
+    The pause a reply resumes
   </Card>
 </CardGroup>

@@ -1,11 +1,11 @@
 ---
 title: "Kapso CLI reference: every command, flag and default"
 sidebarTitle: "CLI"
-description: "The eight kapso commands and their twelve subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
+description: "The nine kapso commands and their thirteen subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
 keywords: ["kapso CLI", "kapso evolve", "kapso learn", "kapso doctor", "command reference", "CLI flags"]
 ---
 
-Kapso installs a single `kapso` executable with eight commands.
+Kapso installs a single `kapso` executable with nine commands.
 
 | Command | What it does |
 |---------|--------------|
@@ -15,6 +15,7 @@ Kapso installs a single `kapso` executable with eight commands.
 | [`kapso deploy`](#kapso-deploy) | Deploy a solution as running software |
 | [`kapso index_kg`](#kapso-index-kg) | Index a knowledge graph from a wiki or JSON |
 | [`kapso watch`](#kapso-watch) | Watch a running operation |
+| [`kapso inbox`](#kapso-inbox) | What a paused campaign is waiting on you for, and the reply that resumes it |
 | [`kapso bank`](#kapso-bank) | Manage the lesson bank's share remote |
 | [`kapso doctor`](#kapso-doctor) | Check this machine can run what your config asks for |
 
@@ -58,6 +59,8 @@ kapso evolve --goal-file problem.txt --iterations 20
 kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
 kapso evolve --goal "Build a classifier" --output ./campaign --resume
 ```
+
+When a session needs something only you can provide, the campaign pauses: the summary block says `WAITING ON YOU` instead of `COMPLETED`, the exit code stays 0, and [`kapso inbox reply`](#kapso-inbox) resumes it. See [Waiting on you](/docs/evolve/inbox).
 
 ## kapso research
 
@@ -266,6 +269,27 @@ kapso watch ./campaign
 kapso watch learning/status
 kapso watch ./campaign --follow
 kapso watch ./campaign --json | jq -r '[.state] | @tsv'
+```
+
+## kapso inbox
+
+What a paused campaign is waiting on you for, and the reply that resumes it. Inside a campaign directory both forms act on that campaign; elsewhere, name it first. See [Waiting on you](/docs/evolve/inbox).
+
+| Form | What it does |
+|------|--------------|
+| `kapso inbox [CAMPAIGN]` | The open requests of the campaign named, else of the one the current directory is inside, else of every registered campaign that is waiting |
+| `kapso inbox reply [CAMPAIGN] [ID] [NOTE]` | Record the reply and resume the campaign in the foreground. The id may be left out when one request is open; an empty note means done |
+
+| Flag | What it does | Default |
+|------|--------------|---------|
+| `--yes` | Store a reply shaped like a credential anyway. Put it at the end of the line | off |
+| `--config` | Config whose `inbox.registry` lists the campaigns | packaged `config.yaml` |
+
+```bash
+kapso inbox
+kapso inbox ./campaign
+kapso inbox reply 1 "added the key"
+kapso inbox reply ./campaign 1
 ```
 
 ## kapso bank

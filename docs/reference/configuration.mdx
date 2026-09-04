@@ -115,6 +115,10 @@ defaults:
     checkpoint_heartbeat_seconds: 60
   retry:
     request_timeout_seconds: 600
+  inbox:
+    enabled: true
+    stop_grace_seconds: 120
+    registry: "~/.kapso/campaigns.jsonl"
 ```
 
 | Key | What it does | Shipped value |
@@ -122,6 +126,9 @@ defaults:
 | `models.embedding` | Embedding model for knowledge search and memory | `text-embedding-3-small` |
 | `budget.checkpoint_heartbeat_seconds` | How often a run writes its checkpoint and status | `60` |
 | `retry.request_timeout_seconds` | Default request timeout | `600` |
+| `inbox.enabled` | Let a blocked session ask you through the inbox and pause the campaign. See [Waiting on you](/docs/evolve/inbox) | `true` |
+| `inbox.stop_grace_seconds` | How long a session that asked gets to end its own turn before the adapter ends it | `120` |
+| `inbox.registry` | One line per launched campaign, so `kapso inbox` outside a campaign can list every one that waits | `~/.kapso/campaigns.jsonl` |
 
 ## modes
 

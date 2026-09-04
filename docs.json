@@ -43,6 +43,7 @@
               "docs/evolve/architecture",
               "docs/evolve/execution-flow",
               "docs/evolve/resuming-runs",
+              "docs/evolve/inbox",
               "docs/evolve/external-evaluation",
               "docs/evolve/evaluation-integrity",
               {

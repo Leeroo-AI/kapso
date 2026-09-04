@@ -108,10 +108,22 @@ print(solution.explain())
 | `code_path` | `str` | Directory holding the winning code |
 | `experiment_logs` | `list[str]` | One summary per experiment |
 | `final_feedback` | `FeedbackResult` | The last feedback, including the stop decision |
-| `metadata` | `dict` | Cost, iteration count, final evaluation |
+| `metadata` | `dict` | Cost, iteration count, final evaluation, `stopped_reason` |
+| `requests` | `list[dict]` | What the campaign is waiting on you for, when `stopped_reason` is `"waiting_for_user"`; empty otherwise |
 | `final_score` | `float \| None` | Score of the delivered solution |
 | `succeeded` | `bool` | Whether the goal was met |
 | `explain()` | `str` | All of the above as readable text |
+
+### inbox and reply
+
+A campaign pauses when a session needs something only you can provide; see [Waiting on you](/docs/evolve/inbox). Two static methods act on a paused campaign directory.
+
+```python
+Kapso.inbox(campaign: str) -> list[Request]
+Kapso.reply(campaign: str, request_id: int, note: str = "") -> SolutionResult | None
+```
+
+`inbox` returns the open requests, oldest first, each with `id`, `key`, `hit`, `tried`, `fix` and `next_steps`. `reply` records the note and, once every request of the node that asked is answered, resumes the campaign in this process and returns its result. It returns `None` when another request of that node is still open, or when the campaign was started with an `iteration_evaluator`: the callback lives in your script, so call `evolve()` again there with `resume=True`. It raises while a live process holds the campaign.
 
 ## research
 
