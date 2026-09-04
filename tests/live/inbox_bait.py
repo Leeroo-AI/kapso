@@ -314,12 +314,15 @@ def run_bait(root: Path) -> Dict[str, object]:
     return result
 
 
-def api_evolve(root: Path) -> None:
+def api_evolve(root: Path, *, resume: bool = False) -> None:
+    """One iteration with the fixture's config; `resume` runs one more
+    iteration on the existing campaign (the ask-once check)."""
     from kapso.kapso import Kapso
 
     solution = Kapso(config_path=str(root / "config.yaml")).evolve(
         goal=(root / "goal.txt").read_text(), output_path=str(root / "campaign"),
-        initial_repo=str(root / "seed"), max_iterations=1, mode="MINIMAL",
+        initial_repo=None if resume else str(root / "seed"), max_iterations=1,
+        mode="MINIMAL", resume=resume,
     )
     print(f"stopped_reason={solution.metadata.get('stopped_reason')} requests={solution.requests}")
 
@@ -533,6 +536,7 @@ def main(argv: List[str]) -> None:
     run.add_argument("root")
     api = sub.add_parser("api-evolve")
     api.add_argument("root")
+    api.add_argument("--resume", action="store_true")
     judge = sub.add_parser("judge")
     judge.add_argument("root")
     batch_parser = sub.add_parser("batch")
@@ -550,7 +554,7 @@ def main(argv: List[str]) -> None:
     elif args.command == "run":
         print(json.dumps(run_bait(Path(args.root).resolve()), indent=2))
     elif args.command == "api-evolve":
-        api_evolve(Path(args.root).resolve())
+        api_evolve(Path(args.root).resolve(), resume=args.resume)
     elif args.command == "judge":
         print(json.dumps(judge_tried(Path(args.root).resolve()), indent=2))
     elif args.command == "batch":
