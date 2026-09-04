@@ -1,32 +1,26 @@
-# Evolve hub — the proxy between evolve modules and the human
+# Evolve inbox — how a campaign asks a person for what it needs
 
-**Status:** DESIGN v3 (2026-09-04, revised the same day with the writer,
-judge and reply decisions) for review. Nothing built. Written against
-the shipped code at a9d127ed (0.4.2), on branch `notif-evolve`.
-Companion: the user-flow page ("Waiting on You").
+**Status:** DESIGN v4 (2026-09-04) for review — the concluded shape after
+the 2026-09-03/04 conversation. Nothing built. Written against the
+shipped code at a9d127ed (0.4.2), on branch `notif-evolve`. Companion:
+the user-flow page ("Waiting on You"). Earlier revisions of this file
+(a hub with a blocking wait, then a check-and-poll loop) are in the
+branch history; §9 records what was dropped and why.
 
 **Decision driver (user, 2026-09-03):** when evolve is blocked on access
 or credentials an idea needs, it should ask the user and, once the user
-provides it, continue from where it left off. The ask goes through a
-**hub**; the user works the hub one item at a time; the hub is the proxy
-between evolve modules and the human.
+provides it, continue from where it left off — without losing the
+coding session's context.
 
-**v3 direction (user, 2026-09-04):** when a session needs something it
-puts the need in the hub and stops. If nothing else is running the
-campaign stops too, waiting on the user. When the user responds the
-campaign resumes and the session is continued through the coding-agent
-CLI's own resume, with the response as new input. If the user never
-responds, the session is never continued. No wait ceiling, no polling,
-no in-session holding. The writer is a tool, so the call itself is the
-signal that stops the session. A paused node is judged only when it
-completes.
-
-This supersedes v2 (the in-session wait). Everything that existed only
-to keep a session alive while a human was away — the re-check interval,
-progress notifications, the idle rule, the ordering of three clocks, the
-held session deadline, the paused budget clock — is gone. What replaces
-it is one fact both CLIs give us: a finished non-interactive session can
-be resumed later with its full context.
+**The concluded shape (user, 2026-09-04):** a session that needs
+something posts a request through a tool and is stopped; the campaign
+pauses and exits; the person reads the request in an **inbox** and
+replies; the reply resumes the campaign, and the very session is
+continued through the coding-agent CLI's own resume with the reply as
+new input. No checks run by Kapso — the coder verifies for itself and
+posts again if still blocked. No polling, no daemon, no cron: the
+person's reply is the only trigger. A switch turns the whole feature
+off.
 
 ---
 
@@ -46,211 +40,156 @@ Preflight (`core/preflight.py`, `kapso doctor evolve`) covers what the
 
 ## 2. The rule
 
-A session that hits something only a person can provide records the need
-and is stopped. The campaign stops as soon as nothing else is running.
-The person does the fix, tells the hub, and resumes the campaign; the
-session that stopped is continued with its full context and the person's
-response. A need nobody responds to is never continued. There is no
-attended-versus-unattended distinction, because nothing ever holds.
+A session that hits something only a person can provide posts a request
+and is stopped. The campaign stops as soon as nothing else is running,
+and exits. The person does the fix, replies in the inbox, and the reply
+resumes the campaign; the session that stopped is continued with its
+full context and the reply. A request nobody replies to is never
+continued. There is no attended-versus-unattended distinction, because
+nothing ever holds.
 
-| # | Situation | v3 | Later |
+| # | Situation | v4 | Later |
 |---|---|---|---|
-| 1 | Idea needs a key mid-build | records the need, is stopped; campaign pauses; resumed with full context once the check passes | |
-| 2 | Nobody at the terminal | identical — a paused campaign costs nothing; `kapso watch` shows it, `on_status` fired once | |
-| 3 | Other candidates could run | pauses anyway; v3 has no parking | park the node, run the runner-up, continue it when the check passes |
-| 4 | The evaluation suite itself needs the key | the first session records it; one response covers every later session | preflight fails in seconds before any session |
-| 5 | The goal names a provider with no key present | recorded when a session hits it | preflight advisory; an environment inventory steers ideation |
-| 6 | A human action, not a value (a gated model) | the fix is numbered steps, the check is the access call; same cycle | |
-| 7 | Provided but wrong, expired, out of credits | `kapso hub resolve` shows the check failing and why; fix, resolve again; `--resume` re-runs open checks and pauses again if they still fail | |
-| 8 | No GPU on this machine | not a need — nobody provides it in minutes; the session reports it | an infeasible-here outcome; the inventory keeps ideation off it |
-| 9 | Rate limit on a key that exists | retried inside the session; never a need | |
-| 10 | The user declines, or hands back an alternative | `kapso hub reply 3 "note"`; `--resume` continues the session with the note; a replied key never pauses the campaign again | replied keys join the environment inventory |
+| 1 | Idea needs a key mid-build | posts the request, is stopped; campaign pauses; `kapso inbox reply` resumes it with full context | |
+| 2 | Nobody at the terminal | identical — a paused campaign costs nothing; `kapso inbox` shows it whenever someone looks | |
+| 3 | Other candidates could run | pauses anyway; v4 has no parking | park the node, run the runner-up, continue it on reply |
+| 4 | The evaluation suite itself needs the key | the first session posts it; one reply covers every later session | preflight fails in seconds before any session |
+| 5 | The goal names a provider with no key present | posted when a session hits it | preflight advisory; an environment inventory steers ideation |
+| 6 | A human action, not a value (a gated model) | the fix is numbered steps; the reply says it is done; same cycle | |
+| 7 | Provided but wrong, expired, out of credits | the continued session fails again and posts again; the new request quotes the previous reply, so the loop is visible at once | |
+| 8 | No GPU on this machine | not a request — nobody provides it in minutes; the session reports it | an infeasible-here outcome; the inventory keeps ideation off it |
+| 9 | Rate limit on a key that exists | retried inside the session; never a request | |
+| 10 | The user declines, or hands back an alternative | the reply says so; the continued session proceeds on it | replies join the environment inventory |
 
-Principles that survive: every ask carries a fix for the human and a
-check that decides whether it is satisfied; secrets never pass through
-Kapso; faking is never the cheaper path; ask once.
+Principles that survive: every request carries a fix the person can act
+on; secrets never pass through Kapso; faking is never the cheaper path;
+the person's action is the only trigger.
 
-## 3. Channels compared
+## 3. Vocabulary
 
-Five ways a module can reach the human, kept for the record of why the
-shape is what it is.
+| Thing | Name |
+|---|---|
+| the place, the command, the file | inbox — `kapso inbox` — `.kapso/inbox.jsonl` |
+| one item | a request, with a simple per-campaign id (`#1`, `#2`) |
+| the tool the coder calls | `request_from_user` |
+| the person's answer | a reply — one kind, free text; empty means done |
+| the campaign's state, everywhere it is shown | "waiting on you" — `stopped_reason: waiting_for_user` |
+| the switch | `inbox.enabled` |
 
-| Channel | What it is | Precedent in the code |
-|---|---|---|
-| **A. Session-end report** | the session ends with a structured block; the strategy files it | `<evaluation_change_request>` → maintainer routing, with a cap and a freeze |
-| **B. Blocking tool** | an MCP tool that holds inside the session until the human answers | none |
-| **C. Non-blocking tool** | an MCP tool that posts to the hub and returns; the session is stopped | the bank gate's pull log: a gate appending to a campaign file |
-| **D. Prevention only** | preflight scans and an environment inventory | preflight `Requirement` rows; the selector's groundedness criterion |
-| **E. Notify-and-resume** | status file, `on_status`, a checkpoint with `last_stop`, `--resume` | observability layer, checkpoint schema 2 |
-
-v3 is C as the writer (user decision 2026-09-04: with a tool, the call
-itself tells Kapso to stop the session — nothing to parse, nothing that
-depends on the agent ending its turn well), E as the stop-and-resume
-machinery, and the CLI's own session resume as the continuation. B is
-retired: it existed to keep context alive, and CLI resume keeps context
-alive on disk without holding anything. A is not needed once C exists.
-D stays the first line of defence, later.
+"Hub" was dropped because a hub is a place things pass through, not a
+place a person goes to act. An inbox says what to do with it.
 
 ## 4. The design
 
-### 4.1 The hub's structure
+### 4.1 The inbox on disk
 
-One append-only JSONL file per campaign, `.kapso/hub.jsonl`, beside
+One append-only JSONL file per campaign, `.kapso/inbox.jsonl`, beside
 `run_state.json`, `status.json` and `experiment_history.json`: locked
 appends, gitignored with the rest of `.kapso/`. One JSON object per
-line, each an **event** about an **item**. An item's state is the fold of
+line, each an event about a request. A request's state is the fold of
 its events; nothing is ever rewritten.
 
 | Event | Written by | Carries |
 |---|---|---|
-| `posted` | the session, through the `hub_post` tool | the whole need (fields below), the node, the CLI session id |
-| `checked` | `kapso hub resolve`, or the orchestrator at `--resume` | exit code, the check's output tail, masked, duration |
-| `met` | whoever ran the check that passed | — |
-| `replied` | `kapso hub reply` | the human's note |
-| `continued` | the orchestrator, when the session was resumed | the session id, the follow-up text |
-
-A need (the `posted` event) carries:
+| `requested` | the session, through the tool | `id`, `key`, `for`, `hit`, `fix`, `next_steps`, `node`, `session`; when the same key was requested before, `previous_reply` |
+| `replied` | `kapso inbox reply` | `id`, `note` |
+| `continued` | the orchestrator, when the session was resumed | `id`, `node`, `session` |
 
 | Field | What it is |
 |---|---|
-| `id` | campaign-local integer, the handle in every command |
-| `key` | dedupe handle and history label: `env:OPENAI_API_KEY`, `data:raw/transactions.csv`, `tool:docker`, `access:hf:meta-llama/…` |
-| `node`, `session` | the experiment node and the CLI session id, so the continuation knows what to resume |
-| `for` | the idea in one line, so the human knows what their minutes buy |
+| `id` | campaign-local integer, the only handle the person uses |
+| `key` | what is needed, as the coder names it: `env:OPENAI_API_KEY`, `data/transactions-2019.csv`, `tool:docker`, `access:hf:meta-llama/…` |
+| `for` | the idea in one line, so the person knows what their minutes buy |
 | `hit` | the concrete error the session ran into |
-| `fix` | what the human does — free text, copy-pasteable where it can be: a line for `.env`, a licence URL plus a login command, a path to drop a file at, an install command |
-| `check` | a shell snippet; exit 0 means satisfied (§4.2) |
-| `next_steps` | what the session would have done next, in its own words; fed back at the continuation |
+| `fix` | what the person does — free text, copy-pasteable where it can be: a line for `.env`, a licence URL plus a login command, a path to drop a file at, an install command |
+| `next_steps` | what the session would have done next, in its own words; fed back to it at the continuation |
+| `node`, `session` | the experiment node and the CLI session id, so the continuation knows what to resume |
 
-States, from the fold: **open** (posted, nothing else), **answered**
-(`met` or `replied`), **continued**. `kapso hub list` shows open items
-first. No item ever carries a value; check output is masked before it is
-written.
-
-The file, for the example on the page:
+States, from the fold: **open** (requested, no reply), **answered**
+(replied), **continued**. No request ever carries a value.
 
 ```jsonl
-{"ts":"2026-09-04T09:12:31Z","event":"posted","id":3,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000","key":"env:OPENAI_API_KEY","for":"node 3 · re-rank candidates with text-embedding-3-large","hit":"openai.AuthenticationError at the embedding step — no key in the environment","fix":"add OPENAI_API_KEY=sk-... to /home/me/churn/.env","check":"python -c \"import openai; openai.OpenAI().models.list()\"","next_steps":"embed the candidate texts with text-embedding-3-large, re-rank, run kapso_evaluation/evaluate.py"}
-{"ts":"2026-09-04T11:40:02Z","event":"checked","id":3,"exit":1,"seconds":0.8,"output":"OpenAIError: The api_key client option must be set"}
-{"ts":"2026-09-04T11:41:15Z","event":"checked","id":3,"exit":0,"seconds":1.3,"output":""}
-{"ts":"2026-09-04T11:41:15Z","event":"met","id":3}
-{"ts":"2026-09-04T11:42:00Z","event":"continued","id":3,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000"}
+{"ts":"2026-09-04T09:12:31Z","event":"requested","id":1,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000","key":"env:OPENAI_API_KEY","for":"node 3 · re-rank candidates with text-embedding-3-large","hit":"openai.AuthenticationError at the embedding step — no key in the environment","fix":"add OPENAI_API_KEY=sk-... to /home/me/churn/.env","next_steps":"embed the candidate texts with text-embedding-3-large, re-rank, run kapso_evaluation/evaluate.py"}
+{"ts":"2026-09-04T11:41:15Z","event":"replied","id":1,"note":"added the key"}
+{"ts":"2026-09-04T11:41:16Z","event":"continued","id":1,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000"}
 ```
 
-A reply instead of a fix:
+Who reads it: `kapso inbox`, `kapso watch` (the open requests on the
+paused state), the orchestrator at resume (which nodes can continue,
+with what), and the build prompt and the experiment-history render (an
+open key means the resource is absent; an answered key carries the note
+and is not requested again unless the coder cannot proceed on it).
 
-```jsonl
-{"ts":"2026-09-04T11:40:40Z","event":"replied","id":3,"note":"use the local bge-large model instead"}
-```
+### 4.2 The tool: `request_from_user`
 
-Who reads it: `kapso hub` (the inbox), `kapso watch` (the open items on
-the paused state), the orchestrator at `--resume` (which nodes can
-continue, with what), the build prompt and the experiment-history render
-(an open key means the resource is absent; a replied key carries the
-note and is never asked for again).
-
-### 4.2 The check
-
-Every need carries a shell snippet the session writes, because the
-session knows what it tried. It succeeds — exit code 0 — only when the
-need is satisfied. Kapso runs it in the campaign workspace, in a fresh
-process with the run's environment (the `.env` the run loads at start
-included), capped at `blocked.check_timeout_seconds` so a hanging
-command cannot hang `kapso hub resolve` or `--resume`. Its exit code
-decides `met`; its output, masked, is stored and shown so the human sees
-why it still fails.
-
-It runs at most twice: once when the human runs `kapso hub resolve
-<id>`, and once more at `--resume` before anything is spawned. Never on
-an interval. It is the guard against situation 7: without it, a wrong
-key would cost a whole resume, a failed session, a new post and a new
-pause.
-
-| Need | Check |
-|---|---|
-| a key in `.env` | `python -c "import openai; openai.OpenAI().models.list()"` |
-| a gated model | `python -c "from huggingface_hub import model_info; model_info('meta-llama/Llama-3.1-8B-Instruct')"` |
-| a dataset at a path | `test -s kapso_datasets/raw/transactions.csv` |
-| a tool on the box | `docker info` |
-| a service | `curl -sf http://localhost:6333/healthz` |
-| a bucket permission | `python -c "import boto3; boto3.client('s3').head_bucket(Bucket='my-bucket')"` |
-
-When the check is wrong rather than the fix — the key is there and the
-snippet is bad — the human answers with `reply` instead, which
-continues the session with the note and no check.
-
-### 4.3 The writer: the `hub_post` tool
-
-A bundled `hub` gate in `gated_mcp/presets.py`, given to implementation
+A bundled `inbox` gate in `gated_mcp/presets.py`, given to implementation
 sessions (ideation later), never to the feedback judge. Its one tool,
-`hub_post(key, hit, fix, check, next_steps)`, appends the `posted` event
-through the env-injected hub path (`KAPSO_HUB_PATH`, the bank gate's
-pull-log pattern) and returns at once: `{"id": 3, "stopping": true}`.
+`request_from_user(requests=[{key, hit, fix, next_steps}, …])`, takes a
+list so a session that needs two things asks for both in one call,
+appends one `requested` event per entry through the env-injected inbox
+path (`KAPSO_INBOX_PATH`, the bank gate's pull-log pattern), and returns
+at once: `{"ids": [1, 2], "stopping": true}`.
 
 The call is the signal. The adapter, which already polls the session
-process every half second for its deadline, tails the hub file; on a
-`posted` event for its node it gives the session `blocked.stop_grace_seconds`
-to end its turn (the tool result tells the agent to stop, and the
-prompt says the same), then SIGTERMs it — which both CLIs treat as a
-resumable state. Either way the session close runs as today: the working
-tree is committed and pushed to the node's branch. Nothing depends on
-the agent's cooperation: the next steps are in the tool's arguments, the
-work is in the branch.
+process every half second for its deadline, tails the inbox file; on a
+`requested` event for its node it gives the session
+`inbox.stop_grace_seconds` to end its turn (the tool result tells the
+agent to stop, and the prompt says the same), then SIGTERMs it — a state
+both CLIs treat as resumable. Either way the session close runs as
+today: the working tree is committed and pushed to the node's branch.
+Nothing depends on the agent's cooperation: the next steps are in the
+call, the work is in the branch.
 
-Dedupe is server-side: a `hub_post` on a key that is open joins it
-(same id back); on a key that was replied, the tool returns the reply
-instead of posting, and the session carries on with it — a replied key
-never stops a session again. The build prompt also renders the hub's
-open and replied items, so a session rarely gets that far.
+When a key was requested before in this campaign, the new request
+carries `previous_reply`, and the pause message shows it ("again — your
+reply to #1 was: …"), so a loop is visible the moment it starts.
 
 Sessions without MCP — the SDK-based adapters, codex ideation members —
-have no tool in v3 and end with their report as today.
+have no tool in v4 and end with their report as today. With
+`inbox.enabled: false` no session has the tool and nothing pauses.
 
-### 4.4 The cycle
+### 4.3 The cycle
 
-1. **Post.** The session hits the wall and calls `hub_post`. The gate
-   writes `posted`; the tool result says the session is stopping.
+1. **Request.** The session hits the wall and calls `request_from_user`
+   with what it needs and what it would do next. The gate writes the
+   requests; the tool result says the session is stopping.
 2. **Stop.** The adapter ends the session (grace, then SIGTERM); the
    session close commits and pushes the working tree; the strategy marks
-   the node **suspended** with its hub item ids and CLI session id, runs
+   the node **suspended** with its request ids and CLI session id, runs
    no judge, returns.
 3. **Pause.** When the iteration's lanes are done (a suspended lane
    returns early; the barrier waits only for lanes still building, and
    the finished lanes are judged as usual), the orchestrator saves the
-   checkpoint with `last_stop: needs_input`, prints the ask in the
-   preflight row format with the two commands to run next, writes the
-   status file `done` with `stopped_reason: needs_input` and the open
-   items, fires `on_status` once, and returns
-   `SolveResult(stopped_reason="needs_input")`. The budget clock needs no
-   special handling: the process exits, and elapsed time is only
+   checkpoint with `last_stop: waiting_for_user`, prints the requests
+   with the reply line, writes the status file `done` with
+   `stopped_reason: waiting_for_user` and the open requests, fires
+   `on_status` once, and returns
+   `SolveResult(stopped_reason="waiting_for_user")`. The process exits.
+   The budget clock needs nothing special: elapsed time is only
    accumulated in-process, exactly like a budget stop today.
-4. **Respond.** The person does the fix. `kapso hub resolve 3` runs the
-   check once and records `checked` and, on exit 0, `met`; `kapso hub
-   reply 3 "note"` records `replied`. Both optional: `--resume` runs the
-   open checks itself.
-5. **Resume.** `kapso evolve … --resume` validates the checkpoint as
-   today, runs the check of every open item once, then for every
-   suspended node whose items are all answered continues its session:
-   recreate the session folder at its deterministic path from the
-   node's branch, then the CLI's own resume with one follow-up message —
-   "hub #3 OPENAI_API_KEY: met, check passed. Your next steps were: …
-   Continue." or "hub #3: reply — 'use the local bge-large model
-   instead'. Continue with that." — with the same MCP config, model,
-   permissions and sandbox flags as the original launch. A suspended
-   node with an item still open prints the ask again and pauses again,
-   spawning nothing. The continued session takes the first iteration
-   slot, ahead of any new ideation.
-6. **Finish.** The continued session ends with its normal tags, the
-   judge runs — this is the first time the judge sees the node, and it
-   sees a completed one — and the node finalizes under its original id
-   as the iteration it always was. The campaign proceeds.
+4. **Reply.** The person does the fix and runs `kapso inbox reply <id>
+   "note"`. The command appends `replied`, then — if the campaign lives
+   on this machine, no process holds it, and at least one suspended node
+   has all its requests answered — resumes the campaign in the
+   foreground through the same path `kapso evolve --resume` uses, with
+   the arguments from the launch record (§4.5). Otherwise it says what
+   is still open, or why it cannot resume here.
+5. **Resume.** For every suspended node whose requests are all answered:
+   recreate the session folder at its deterministic path from the node's
+   branch, then the CLI's own resume with one follow-up message —
+   "Request #1 OPENAI_API_KEY — reply: added the key. Your next steps
+   were: … Continue." — with the same MCP config, model, permissions and
+   sandbox flags as the original launch. A campaign never starts new
+   work while a request is open: it continues what it can, and when
+   that is done it pauses again showing what is still waiting.
+6. **Finish.** The continued session verifies for itself and carries on.
+   If it still cannot proceed, it posts again (§4.2) and the cycle
+   repeats. Otherwise it ends with its normal tags, the judge runs —
+   the first and only time it sees this node, and it sees a completed
+   one — and the node finalizes under its original id as the iteration
+   it always was.
 
-A need nobody responds to leaves the campaign paused with a resumable
-checkpoint. Modes on `blocked.policy: continue` (the benchmark harnesses,
-where nobody is at the keyboard by design) do not expose the tool;
-sessions there behave as today.
-
-### 4.5 What the two CLIs give us (checked 2026-09-03/04 against the current docs)
+### 4.4 What the two CLIs give us (checked 2026-09-03/04 against the current docs)
 
 | | Claude Code, `claude -p` | Codex, `codex exec` |
 |---|---|---|
@@ -268,116 +207,183 @@ recreating it from the branch before a resume is the existing setup step
 with the branch checked out. Installed here: Claude Code 2.1.260, Codex
 0.144.1; the adapter comments pin behaviours verified on 2.1.157.
 
-### 4.6 The human's side
+### 4.5 Two small records that make the reply self-sufficient
+
+**The launch record**, `.kapso/launch.json`, written by `kapso evolve`
+at the first run: the resolved arguments the checkpoint does not hold —
+goal source, output path, mode, coding agent, eval dir, data dir,
+iterations and budgets, KG index, config path — so `kapso inbox reply`
+can resume without the person retyping anything. A campaign started
+from the Python API with a callback that cannot be serialized (an
+`iteration_evaluator`) is written with `resumable_from_inbox: false`,
+and the reply command records the note and says to resume from the
+script with `resume=True`.
+
+**The campaign registry**, one append-only file whose path is the
+config key `inbox.registry`: `kapso evolve` adds a line at launch with
+the campaign path and goal, so `kapso inbox` with no campaign can list
+every campaign waiting on you. A line whose directory no longer exists
+is skipped (a missing file is the documented default; a corrupt line
+raises). Deleting the registry loses only the cross-campaign view;
+`kapso inbox <path>` works on any campaign directly.
+
+### 4.6 The person's side
+
+Two commands, no flags.
+
+```
+kapso inbox                        # what is waiting on you
+kapso inbox reply <id> "…"         # answer it; the campaign resumes when it can
+```
+
+Run inside a campaign directory (the nearest ancestor with
+`.kapso/inbox.jsonl`), both act on that campaign. Run anywhere else,
+`kapso inbox` lists every campaign in the registry with open requests,
+and `kapso inbox reply` takes the campaign path first. With one request
+open the id may be omitted. An empty reply means done.
+
+```
+$ kapso inbox
+./campaign  churn model  waiting 2h
+
+  #1  OPENAI_API_KEY
+      for   node 3 · re-rank candidates with text-embedding-3-large
+      hit   openai.AuthenticationError at the embedding step — no key in the environment
+      fix   add OPENAI_API_KEY=sk-... to /home/me/churn/.env
+      next  embed the candidate texts, re-rank, run kapso_evaluation/evaluate.py
+
+  reply with   kapso inbox reply 1 "…"
+
+$ kapso inbox reply 1 "added the key"
+  #1 answered. Resuming ./campaign: continuing node 3's session on generic_exp_3. Ctrl-C stops it.
+```
+
+With two requests: `#1 answered. #2 still open, so node 3 waits; nothing
+else to run.` — then `kapso inbox reply 2` resumes. The reply resumes in
+the foreground; anyone who wants to walk away wraps it in `nohup` as
+with any long run. What the command never does: run anything the person
+did not ask for, repeat, or hide. If a live process holds the campaign
+(status file pid and heartbeat), it says so and stops. If the campaign
+is not on this machine, it records the reply and says so. If the resume
+fails, it prints the error and the manual `kapso evolve --resume` line.
+
+Replies are stored verbatim and handed to the coder as text: a note,
+never a value. The fix says where a value goes.
 
 | Surface | Shows or does |
 |---|---|
-| terminal | at the pause: each need in the preflight row format (`[NEED]` / for / hit / fix / check), then the two commands: `kapso hub <campaign> resolve <id>` and the exact `kapso evolve … --resume` line; at resume: "hub #3 met — continuing node 3's session" or the ask again |
-| `kapso hub <campaign>` | `list` (open first, age, last check result), `show <id>` (the ask, the next steps, the check's last output masked), `resolve <id>` (runs the check once), `reply <id> "note"` (continue with this note, no check — a decline, an alternative, or "done, your check is wrong") |
-| `kapso watch` | `PAUSED · needs input · hub #3` on the done state, readable after the process is gone; `--json` for scripts |
-| `on_status` | fires once at the pause with `stopped_reason: "needs_input"` and the open items |
-| Python API | `solution.metadata["stopped_reason"] == "needs_input"`, `solution.needs`; `evolve(..., resume=True)` continues |
-| end summary | the open needs, each with its node, fix and the resume line |
-| experiment history / ideation | a suspended node renders with its open item ("absent"); a replied key renders with its note ("do not propose") |
+| terminal at the pause | the requests (`#id` / for / hit / fix / next), then `reply with kapso inbox reply <id> "…"` and `any time kapso inbox`; the summary block says `WAITING ON YOU` |
+| `kapso inbox` | the two commands above |
+| `kapso watch` | `WAITING ON YOU · 1 request` on the done state, readable after the process is gone; `--json` for scripts |
+| `on_status` | fires once at the pause with `stopped_reason: "waiting_for_user"` and the open requests |
+| Python API | `solution.metadata["stopped_reason"] == "waiting_for_user"`, `solution.requests`; `Kapso.inbox(campaign)` and `Kapso.reply(campaign, id, note)` as thin wrappers over the same operations |
+| experiment history / ideation | a suspended node renders with its open request ("absent"); an answered key renders with its reply |
 
-### 4.7 Rules for modules
+### 4.7 Rules for the coder
 
 - Ask only for what a person must do. Installing a package, downloading
   public data, retrying a rate limit are the session's own job.
-- A need is load-bearing or it is not asked for: W&B logging without a
+- A request is load-bearing or it is not made: W&B logging without a
   key is dropped and mentioned in the report.
 - Never stub, mock, fabricate the resource, or search the machine for
   credentials. Asking must be the cheaper path.
-- Put the next steps in the call; do nothing after it. The session is
-  being stopped and its working tree committed.
-- One item per key per campaign; the prompt shows what is open and what
-  was replied; a replied key is never asked for again.
-- A `check` is cheap, read-only, safe to run by hand, prints no secret,
-  and is the only thing that turns a need into `met`.
+- Ask for everything you need in one call, with the next steps; do
+  nothing after it. The session is being stopped and its working tree
+  committed.
+- After a reply, verify for yourself. If you still cannot proceed, ask
+  again and say what you tried; the person sees their previous reply
+  next to the new request.
+- A reply that says the resource is not available is an instruction:
+  proceed on it, do not ask for that key again.
 - Transient versus human: rate limits retry; billing and auth states
-  block.
+  request.
 
 ### 4.8 Secrets
 
-The hub holds needs and, masked, the output of their checks. A value
-goes wherever the fix says — usually the `.env` file the run loaded,
-whose path every ask prints — and a resumed campaign is a fresh process
-that reads that file at start, so the value never passes through Kapso.
+The inbox holds requests and replies as text. A value goes wherever the
+fix says — usually the `.env` file the run loaded, whose path every
+request prints — and a resumed campaign is a fresh process that reads
+that file at start, so the value never passes through Kapso.
 `config.yaml` holds no secrets (Rule 3), and neither does `.kapso/`.
 
-## 5. Landing on today's code (v3)
+## 5. Landing on today's code (v4)
 
-- `execution/hub.py`: the record (locked append, fold, mask, the check
-  runner with a per-run cap).
-- `gated_mcp/gates/hub_gate.py` + a `GateDefinition` in `presets.py`
-  with `KAPSO_HUB_PATH` as injected env; `hub_post`; server-side dedupe
-  and the replied-key answer; added to the shipped modes'
-  `implementation_gates`.
+- `execution/inbox.py`: the record (locked append, fold), the launch
+  record, the registry.
+- `gated_mcp/gates/inbox_gate.py` + a `GateDefinition` in `presets.py`
+  with `KAPSO_INBOX_PATH` as injected env; `request_from_user` with a
+  list argument and the `previous_reply` lookup; added to the shipped
+  modes' `implementation_gates` when `inbox.enabled`.
 - Prompts: the one exception to "do not ask questions"; the rules of
-  §4.7; the hub's open and replied items rendered into the build prompt.
+  §4.7; the inbox's open and answered requests rendered into the build
+  prompt.
 - `coding_agents/base.py` + adapters: a `resume(session_id, follow_up)`
-  method beside `run`; the poll loop tails the hub file and ends the
+  method beside `run`; the poll loop tails the inbox file and ends the
   session after `stop_grace_seconds`; Claude passes `--session-id` at
   launch and `--resume` on continuation; Codex passes `--json` at
   launch, records `thread_id`, runs `codex exec resume`; both repeat
   their launch flags.
 - `generic/strategy.py` + `implementation.py`: mark the node suspended
-  on a `posted` event (no judge); on the first `run()` after a resume,
-  continue suspended nodes whose items are answered before any ideation.
-- `search_strategies/base.py`: `suspended`, `hub_item_ids`,
+  on a `requested` event (no judge); on the first `run()` after a
+  resume, continue suspended nodes whose requests are answered, before
+  any ideation; never ideate while a request is open.
+- `search_strategies/base.py`: `suspended`, `request_ids`,
   `cli_session_id` on `SearchNode`; round-tripped through `dump_state`
   and the experiment store.
 - `experiment_workspace`: recreate a session folder from a branch at the
   deterministic path without cutting a new branch.
-- `orchestrator.py`: the `needs_input` stop (`VALID_LAST_STOPS`,
-  `stopped_reason`), the check pass at resume, the open items in the
-  status file and the `on_status` payload.
-- `kapso.py`: `solution.needs`.
-- `cli.py`: `kapso hub` (`list`, `show`, `resolve`, `reply`); `watch`
-  rendering of the paused state; the exact resume line in the pause
-  message.
-- `config.yaml` `defaults.blocked`: `policy` (pause | continue),
-  `check_timeout_seconds`, `stop_grace_seconds`. Benchmark modes set
-  `policy: continue`.
+- `orchestrator.py`: the `waiting_for_user` stop (`VALID_LAST_STOPS`,
+  `stopped_reason`), the open requests in the status file and the
+  `on_status` payload.
+- `kapso.py`: `solution.requests`; `Kapso.inbox`, `Kapso.reply`; the
+  launch record and registry writes at the start of `evolve`.
+- `cli.py`: `kapso inbox` and `kapso inbox reply`; `watch` rendering of
+  the paused state; the reply line in the pause message.
+- `config.yaml` `defaults.inbox`: `enabled`, `stop_grace_seconds`,
+  `registry`. GENERIC and MINIMAL inherit `enabled: true`; benchmark
+  modes set `enabled: false`.
 - Docs: `docs/evolve/` gains a page; `docs/reference/cli.mdx` and
-  `configuration.mdx` gain the verb and the block.
+  `configuration.mdx` gain the command and the block.
 
 ## 6. Decisions
 
-Settled (user, 2026-09-03/04): the hub is the record and the human
-surface; a session that needs something posts it through the tool and is
-stopped — the call is the signal; the campaign pauses when nothing else
-runs; the person responds through the hub with `resolve` or `reply`;
-`--resume` continues the very session with the response; no response
-means no continuation; no ceilings, no polling; the check snippet is the
-contract; implementation sessions only (ideation later); a replied key
-never pauses the campaign again; a paused node is judged only when it
-completes, because the judge only ever receives completed nodes; a
-transcript that has expired is not handled now.
+Settled (user, 2026-09-03/04): the name is inbox; a session that needs
+something requests it through the tool and is stopped — the call is the
+signal; the campaign pauses and exits when nothing else runs; the person
+replies with free text through `kapso inbox reply <id>`; the reply
+resumes the campaign in the foreground, and the very session is
+continued with the reply; no checks run by Kapso — the coder verifies
+and asks again if still blocked; no polling, no daemon, no cron; a
+simple per-campaign id per request; implementation sessions only
+(ideation later); a paused node is judged only when it completes; a
+campaign never starts new work while a request is open; `inbox.enabled`
+turns the feature off; an expired transcript is not handled now.
 
 Open:
 
-1. **Defaults.** `check_timeout_seconds` 30, `stop_grace_seconds` 120.
-   Benchmark modes on `continue`.
+1. **Defaults.** `stop_grace_seconds` 120; `inbox.registry` under the
+   user's Kapso home.
 
-## 7. Out of scope for v3
+## 7. Out of scope for v4
 
-Questions and notices that do not stop a session; park and re-queue;
-ideation asks; the selector's access criterion; the preflight sources and
-the environment inventory; the hosted inbox and push notifications (the
-hook and the record are built for them); asking through the feedback
-judge; questions from the learning crews; an expired transcript.
+Requests that do not stop a session (questions, notices); park and
+re-queue; ideation asks; the selector's access criterion; the preflight
+sources and the environment inventory; a local page (`kapso inbox
+serve`) and the hosted inbox — both are further clients of the same two
+operations, and only the hosted one needs something local to react to a
+remote reply; asking through the feedback judge; questions from the
+learning crews; an expired transcript.
 
-## 8. Open concerns (v3)
+## 8. Open concerns (v4)
 
 Verify live, on the installed CLIs:
 
 1. `claude -p --resume <id>` after the adapter's SIGTERM: the docs say
    the interrupted turn is continued; confirm the follow-up lands after
-   the `hub_post` tool result, not before, and that a session that ended
-   its turn cleanly within the grace behaves the same. The follow-up on
-   stdin (the adapter never puts prompts in argv), `--mcp-config`
-   re-passed, the session folder recreated first.
+   the tool result, not before, and that a session that ended its turn
+   cleanly within the grace behaves the same. The follow-up on stdin
+   (the adapter never puts prompts in argv), `--mcp-config` re-passed,
+   the session folder recreated first.
 2. `codex exec resume <thread_id>` with `--json` at the original launch,
    the `-c` overrides and `--sandbox` repeated, `--output-last-message`
    on the resumed run, and what an interrupted turn does on resume.
@@ -388,11 +394,29 @@ Implementation care:
 
 4. The session close must still commit on the stopped path; confirm the
    SIGTERM-then-close ordering leaves a clean commit on the branch.
-5. Masking is heuristic; the check runs by hand through `kapso hub
-   resolve` in the user's shell — `show` prints the check first.
-6. Lock the appends: the gate, the CLI and the orchestrator all write.
-7. The `.env` path: record which file `find_dotenv` loaded and print it
+5. Lock the appends: the gate, the CLI and the orchestrator all write.
+6. The `.env` path: record which file `find_dotenv` loaded and print it
    in the fix; when none was found, name where to create it.
-8. A node with several posts continues only when all are answered.
-9. The status file's done state carries the items so `watch` can render
-   them after the process is gone.
+7. The status file's done state carries the requests so `watch` and
+   `kapso inbox` can render them after the process is gone.
+8. The launch record must hold everything `evolve` needs; the API path
+   with a callback is the one it cannot.
+9. The registry with concurrent campaigns: append-only, locked, stale
+   lines skipped.
+
+## 9. What was dropped, and why
+
+- **A blocking in-session wait** (v2): kept context by holding a tool
+  call open; needed ceilings, progress notifications, idle rules and an
+  ordering of three clocks. Unnecessary once the CLI's own session
+  resume keeps context on disk.
+- **Checks run by Kapso** (v2/v3): a snippet per request, run on an
+  interval or on demand. Delegated to the coder, which verifies after
+  the resume and asks again if still blocked; Kapso never runs
+  agent-written snippets outside a session.
+- **`done` and `decline` as separate verbs**, and reply-by-key: one
+  free-text reply per request id is enough; a decline is a reply.
+- **A watcher, daemon or cron** to resume campaigns: in an open-source
+  tool such a thing is what users break first. The reply command is the
+  trigger.
+- **"Hub"**: replaced by inbox.
