@@ -1,24 +1,29 @@
 # Evolve hub — the proxy between evolve modules and the human
 
-**Status:** DESIGN v2 (2026-09-03; same-day revision narrowing v1 to
-the in-session wait) for review. Nothing built. Written against the
-shipped code at a9d127ed (0.4.2), on branch `notif-evolve`.
-Companion: the user-flow simulation ("Waiting on You", ten situations
-with terminal mock-ups) — §2 carries its condensed form.
+**Status:** DESIGN v3 (2026-09-04) for review. Nothing built. Written
+against the shipped code at a9d127ed (0.4.2), on branch `notif-evolve`.
+Companion: the user-flow page ("Waiting on You").
 
 **Decision driver (user, 2026-09-03):** when evolve is blocked on access
-or credentials an idea needs, critical cases wait for the user and then
-continue from where they left off. The ask should go through a tool given
-to the ideation and implementation modules, posting to a **hub**; the
-user works the hub one item at a time; the hub is the proxy between
-evolve modules and the human. This document compares that with the other
-channels we have and pins the hub's shape.
+or credentials an idea needs, it should ask the user and, once the user
+provides it, continue from where it left off. The ask goes through a
+**hub**; the user works the hub one item at a time; the hub is the proxy
+between evolve modules and the human.
 
-**Second direction (user, same day):** to lose no context in any module,
-the session stays idle until it gets the result — a tool that checks the
-hub until a maximum. v1 has only this wait option; a wait that runs out
-ends in the report the session already gives today. §4.4 records what
-the two coding-agent CLIs allow, checked against their current docs.
+**v3 direction (user, 2026-09-04):** when a session needs something it
+puts the need in the hub and stops. If nothing else is running the
+campaign stops too, waiting on the user. When the user responds the
+campaign resumes and the session is continued through the coding-agent
+CLI's own resume, with the response as new input. If the user never
+responds, the session is never continued. No wait ceiling, no polling,
+no in-session holding.
+
+This supersedes v2 (the in-session wait). Everything that existed only
+to keep a session alive while a human was away — the re-check interval,
+progress notifications, the idle rule, the ordering of three clocks, the
+held session deadline, the paused budget clock — is gone. What replaces
+it is one fact both CLIs give us: a finished non-interactive session can
+be resumed later with its full context.
 
 ---
 
@@ -30,463 +35,315 @@ it is blocked. Today a missing `OPENAI_API_KEY` ends as a null score or an
 invalid evaluation with the real cause inside `technical_difficulties`;
 ideation reads that text through the experiment-history tools but nothing
 stops it re-proposing the idea, and nothing in the contract forbids the
-agent from stubbing the call to get an evaluation out. Ideation has no
-channel at all: a question such as "may I use a hosted LLM on this data?"
-cannot be asked, so it is either assumed or avoided.
+agent from stubbing the call to get an evaluation out. The user learns
+about it, if at all, by reading feedback after the run.
 
 Preflight (`core/preflight.py`, `kapso doctor evolve`) covers what the
-**config** needs — CLIs, the embedding key, gate credentials, backends —
-in seconds. It cannot know what an **idea** will need.
+**config** needs in seconds. It cannot know what an **idea** will need.
 
-## 2. The situations and the one rule
+## 2. The rule
 
-| # | Situation | Found by | Evolve does |
+A session that hits something only a person can provide records the need
+and ends. The campaign stops as soon as nothing else is running. The
+person does the fix, tells the hub, and resumes the campaign; the session
+that stopped is continued with its full context and the person's
+response. A need nobody responds to is never continued. That is the
+whole rule; there is no attended-versus-unattended distinction any more,
+because nothing ever holds.
+
+| # | Situation | v3 | Later |
 |---|---|---|---|
-| 1 | Idea needs a key mid-build, attended, no equal substitute | agent, in session | waits in place, budget clock paused |
-| 2 | Same, nobody at the terminal (nohup, VM, CI) | agent, in session | waits a bounded time, then pauses with a resumable checkpoint |
-| 3 | Idea needs Kaggle credentials; other candidates runnable | agent, in session | parks the node, continues, re-queues when the need is met, lists it at the end |
-| 4 | The evaluation suite itself needs the key | preflight | fails in seconds, standard report |
-| 5 | The goal names a provider with no key present | preflight | advisory row; ideation told to avoid it |
-| 6 | Human action, not a value (gated HF model) | agent, in session | numbered steps plus a probe; same rule |
-| 7 | Provided but wrong, expired, out of credits | probe | masked probe error, keeps waiting; no session spent |
-| 8 | No GPU on this machine | agent, in session | closed as infeasible here; ideation told; no waiting |
-| 9 | Rate limit on a key that exists | agent, in session | retried inside the session; never an ask |
-| 10 | User declines or hands back an alternative | user | node closed as declined; remembered; note passed to ideation |
+| 1 | Idea needs a key mid-build | records the need, ends; campaign pauses; resumed with full context once the check passes | |
+| 2 | Nobody at the terminal | identical — a paused campaign costs nothing; `kapso watch` shows it, `on_status` fired once | |
+| 3 | Other candidates could run | pauses anyway; v3 has no parking | park the node, run the runner-up, continue it when the check passes |
+| 4 | The evaluation suite itself needs the key | the first session records it; one response covers every later session | preflight fails in seconds before any session |
+| 5 | The goal names a provider with no key present | recorded when a session hits it | preflight advisory; an environment inventory steers ideation |
+| 6 | A human action, not a value (a gated model) | the fix is numbered steps, the check is the access call; same cycle | |
+| 7 | Provided but wrong, expired, out of credits | `kapso hub resolve` shows the check failing and why; fix, resolve again; `--resume` re-runs open checks and pauses again if they still fail | |
+| 8 | No GPU on this machine | not a need — nobody provides it in minutes; the session reports it | an infeasible-here outcome; the inventory keeps ideation off it |
+| 9 | Rate limit on a key that exists | retried inside the session; never a need | |
+| 10 | The user declines, or hands back an alternative | `kapso hub decline 3 "note"`; `--resume` continues the session with the decline; a declined key never pauses the campaign again | declined keys join the environment inventory |
 
-The rule: **criticality comes from the campaign, never from the kind of
-thing missing.** Critical means nothing else can run, or the goal or the
-evaluation mandates it, or the idea was judged best with no substitute.
-Critical waits; everything else parks and the campaign keeps scoring.
-While waiting the time budget is paused, no session runs, nothing is
-spent, the heartbeat keeps writing. Attended only adds keys to press.
-
-Principles that survive every channel choice: ask at the cheapest moment
-(preflight, then the selector, then mid-session); every ask carries a
-fix for the human and a check that decides when to continue; secrets
-never pass through Kapso (names of needs only — a value goes wherever
-the fix says, usually the `.env` the run loaded, and the check verifies
-it); works with nobody watching; faking is never the cheaper path; ask
-once.
+Principles that survive: every ask carries a fix for the human and a
+check that decides whether it is satisfied; secrets never pass through
+Kapso; faking is never the cheaper path; ask once.
 
 ## 3. Channels compared
 
-Five ways a module can reach the human. Three of them exist in some form.
+Five ways a module can reach the human, kept for the record of why the
+shape is what it is.
 
 | Channel | What it is | Precedent in the code |
 |---|---|---|
-| **A. Session-end report** | the session ends with a structured `<blocked>` block; the orchestrator parses it at the boundary | `<evaluation_change_request>` → maintainer routing, with a per-campaign cap and a late-budget freeze (`orchestrator._route_change_requests`) |
-| **B. Blocking tool** | an MCP tool that waits inside the session until the human answers or a timeout expires | none — gates are read/append only today |
-| **C. Hub** (the proposal) | a non-blocking MCP tool posts an item to a durable per-campaign inbox; the module states what it assumes and keeps working or ends; the orchestrator reads the hub at boundaries; the human works the inbox at their own pace, including replies back into the campaign | the bank gate's pull log: a gate appending JSONL to a campaign file through an env-injected path, read later by the runner |
-| **D. Prevention only** | preflight scans plus an environment inventory handed to ideation; no runtime channel | preflight `Requirement` rows; the selector's groundedness and rule-safety criteria |
-| **E. Notify-and-resume** | status file + `on_status` + pause with `last_stop` + `--resume`; no structured record of the need | observability layer, checkpoint schema 2 |
+| **A. Session-end report** | the session ends with a structured `<blocked>` block; the strategy files it | `<evaluation_change_request>` → maintainer routing, with a cap and a freeze |
+| **B. Blocking tool** | an MCP tool that holds inside the session until the human answers | none |
+| **C. Non-blocking tool** | an MCP tool that posts to the hub and returns; the session ends | the bank gate's pull log: a gate appending to a campaign file |
+| **D. Prevention only** | preflight scans and an environment inventory | preflight `Requirement` rows; the selector's groundedness criterion |
+| **E. Notify-and-resume** | status file, `on_status`, a checkpoint with `last_stop`, `--resume` | observability layer, checkpoint schema 2 |
 
-What matters, and how each channel does:
+v3 is A (or C — §6 decision 1) as the writer, E as the stop-and-resume
+machinery, and the CLI's own session resume as the continuation. B is
+retired: it existed to keep context alive, and CLI resume keeps context
+alive on disk without holding anything. D stays the first line of
+defence, later.
 
-| Criterion | A report | B blocking tool | C hub | D prevention | E notify |
-|---|---|---|---|---|---|
-| Reaches ideation (a question *before* an idea is proposed) | awkward — ideation output is a solution text, no boundary waits on it | yes | **yes** — post, assume a default, the answer lands next round | partly (avoids what is absent; cannot ask permission) | no |
-| Cheapest ask point (need declared at selection, before a build session) | no | no | **yes** — the selector can pick an idea conditionally; the boundary applies the rule before implementation | n/a | no |
-| Works unattended | yes | no (times out, degrades to A) | **yes, by construction** | yes | yes |
-| Session keeps working after raising the ask (does the parts that need nothing) | no — raising is ending | no — raising is waiting | **yes** | n/a | no |
-| Keeps the session's context while waiting | no (branch + notes carry it) | **yes** | **yes** — v1's `hub_ask` blocks in-session; a wait that ran out keeps it through CLI session resume (§4.4) | n/a | no |
-| Human sees everything in one place, at their own pace, in batch | no — asks are moments in a log | no — modal | **yes, the point of it** | end summary only | no |
-| Two-way: hints, decisions, "never do X" into the campaign | no | one answer to one question | **yes** — answers and free-standing notes read at the next round | no | no |
-| Coverage across agents | every session, any CLI | Claude + Codex builds; not codex ideation members (no MCP by design) | same as B — needs A as a second writer | all | all |
-| Implementation risk | low (regex on output, like change requests) | high (MCP tool timeouts in both CLIs, session deadline and budget clamp while idle) | medium (a gate, a record, a CLI verb; no IPC — gates already write campaign files) | low | none |
-| Over-asking risk | low — ending a session costs the agent | medium | **highest — posting is free**; needs rules, caps, dedupe | none | none |
-| Minimalism | smallest | adds machinery, no record | one component that *replaces* the parked list, the declined memory and the needs field in the checkpoint | smallest | smallest |
-| Platform fit (hosted inbox, push notifications) | no | no | **direct** — the inbox is the surface; the CLI is its first client | no | partial |
-
-Verdict. The hub is the right **record and human surface**. It subsumes
-A (the session-end report becomes a second writer into the same record,
-which is needed anyway for codex ideation members and for sessions that
-die without posting) and takes B as its v1 writer: the blocking wait is
-one tool on the same record (§4.2), within the limits the two CLIs set
-(§4.4). D stays the first line of defence — the cheapest ask is the one
-never raised — and E is what the hub's notification side plugs into.
-
-Two things the framing must not become. First, the hub is not modal: a
-module that posts a `question` declares what it will assume and keeps
-working; only a `need` with no alternative can hold the campaign, and only
-under the wait rule of §2. Otherwise an unattended run turns into a stall
-machine. Second, the hub is never where a value goes: it holds needs,
-`.env` holds values, the probe verifies. A hosted inbox will tempt a
-"paste your key here" box; if that ever exists, the value goes straight
-into the run's process environment or a secrets manager, never into the
-record.
-
-## 4. The hub
+## 4. The design
 
 ### 4.1 The record
 
 One append-only JSONL file per campaign, `.kapso/hub.jsonl`, in the same
-family as the checkpoint and the serving pull log: atomic appends,
-gitignored with the rest of `.kapso/`, read by `kapso hub`, `kapso watch`
-and the orchestrator's boundary pass. Events, not mutable rows: `posted`,
-`answered`, `resolved`, `declined`, `expired`; the current state of an
-item is the fold of its events.
+family as the checkpoint and the serving pull log: locked appends,
+gitignored with the rest of `.kapso/`, read by `kapso hub`, `kapso
+watch`, the orchestrator at resume, and the experiment-history render.
+Events, not mutable rows: `posted`, `checked`, `met`, `declined`. An
+item's state is the fold of its events.
 
-Three item types, a closed set:
+A need carries:
 
-| Type | Raised when | Carries | Resolved by |
-|---|---|---|---|
-| `need` | anything only a person can provide: a credential, a login, a licence click, a permission, credits, a dataset dropped at a path, a service started, a tool installed on this box, a bigger disk mounted | `key` (dedupe, e.g. `env:OPENAI_API_KEY`, `data:raw/transactions.csv`, `tool:docker`, `access:hf:meta-llama/…`), `for` (node or round + idea), `hit` (the concrete error), `worth` (why it is worth the human's time), `fix` (what the human does, free text, copy-pasteable where possible), `check` (a shell snippet; exit 0 means satisfied; cheap, read-only, safe to re-run). `alternatives` and `critical` arrive with the park policy later | the check passing at any re-check, or the human declining with an optional note |
-| `question` | a decision the human should make: permission, scope, preference | the question, `options`, `assume` (what the module proceeds with if unanswered), `for` | the human answering; the answer becomes campaign context |
-| `notice` | something left for the human, no action required by evolve: an orphaned better result on disk, a feature dropped for lack of a key (W&B logging), an infeasible-here idea | text, `for` | reading it (`seen`) |
+| Field | What it is |
+|---|---|
+| `key` | dedupe handle and history label: `env:OPENAI_API_KEY`, `data:raw/transactions.csv`, `tool:docker`, `access:hf:meta-llama/…` |
+| `for` | the node and the idea, so the human knows what their minutes buy |
+| `hit` | the concrete error the session ran into |
+| `fix` | what the human does — free text, copy-pasteable where it can be: a line for `.env`, a licence URL plus a login command, a path to drop a file at, an install command |
+| `check` | a shell snippet; exit 0 means satisfied; cheap, read-only, prints no secret. Run once on `kapso hub resolve` and once more at `--resume`; never on an interval |
 
-Every item names its `module` (`ideation`, `implementation`, or
-`orchestrator` for backstop-raised items) and its `node` or `round`.
-No item ever carries a value. Probe output is stored with anything
-secret-shaped masked.
+Every item names its node and the CLI session it came from. No item ever
+carries a value. Check output is stored masked. `worth`, `alternatives`
+and `critical` are not in v3: the campaign pauses on every need, so
+there is nothing to rank against.
 
-### 4.2 Writers — v1 is the in-session wait
+### 4.2 The writer
 
-**`hub_ask`, the one v1 tool.** A bundled `hub` gate in
-`gated_mcp/presets.py`, given to implementation sessions in v1 (user
-decision 2026-09-04: ideation stays without it for the moment; a
-blocking tool there would stall a parallel ideation round on
-speculative needs), never to the feedback judge. The gate appends to `.kapso/hub.jsonl`
-through an env-injected path (`KAPSO_HUB_PATH`), exactly the bank gate's
-pull-log pattern. One call posts a `need` and blocks until one of three
-results: `met` (the check passed), `declined` (the human declined through
-`kapso hub`, with their note), or `timeout` (`blocked.wait_minutes`
-elapsed). While blocked the gate runs the need's `check` every
-`blocked.recheck_seconds` — in the workspace, under a per-run cap
-(`blocked.check_timeout_seconds`), in an environment rebuilt for each
-run from the process environment plus the `.env` the run loaded, so a
-value added since launch is visible — and folds any hub events written
-from outside. The check is the whole contract: exit 0 is the only thing
-the gate reads, so one loop covers a key in `.env`, a licence accepted
-upstream, a bucket permission, a file dropped at a path, a service
-answering on a port, or `docker info` succeeding. The check's last
-output is attached to the item, masked, so `kapso hub show` tells the
-human why it still fails. On every re-check the gate emits an MCP
-progress notification ("waiting on OPENAI_API_KEY · 12 min · next check
-in 15 s") — this is what keeps the call alive on Claude Code (§4.4) and
-gives the transcript a heartbeat. Nothing is spent while blocked: the
-model is waiting on a tool result, not generating. A second `hub_ask` on
-a key that already has an open item joins that item's wait (server-side
-dedupe); `blocked.max_asks_per_session` caps the calls.
+**The `<blocked>` block.** The implementation contract gains one
+sanctioned exception to "do not ask questions": when a session hits
+something only a person can provide, it commits its partial work, writes
+its next steps to `PLAN.md` and `changes.log`, and ends with the usual
+tags plus one `<blocked>` block per need — `key`, `hit`, `fix`, `check`.
+The strategy files each block into the hub at extraction time, dedupes
+by key against the campaign's open and declined items, and records the
+node as **suspended** with its hub item ids and its CLI session id. No
+judge runs on a suspended node: it has not finished.
 
-What the session does with the result. `met` → continue in place. The
-result carries the check's passing output and, because the session's
-process environment predates the wait, the one line that reloads the
-`.env` the run loaded — Claude Code's Bash tool keeps a persistent
-shell, so `set -a; . <path>/.env; set +a` once is enough; Codex runs each
-command fresh, so it loads per command or through python-dotenv in the
-code it writes. That line matters when the need was an environment
-variable and is harmless otherwise. `declined` → the note is the
-instruction; proceed on it or end with the report. `timeout` → commit,
-write the next steps, end with the ordinary session-end report,
-`technical_difficulties` naming the need.
+Why a block and not a tool in v3: with no waiting there is nothing for a
+tool to do that the session's final message cannot do. The block works
+on every adapter (Claude, Codex, the SDK-based ones, codex ideation
+members later); it needs no MCP gate, no per-CLI timeout configuration,
+no new process. A non-blocking `hub_post` tool would give the session an
+earlier, crash-safe record and an immediate "already open as #3" answer;
+it is the natural addition once mid-session questions arrive (§7), and
+the record is identical either way — §6 decision 1.
 
-**The session-end report.** The implementation contract gains one
-sanctioned exception to "do not ask questions": a blocked session may
-call `hub_ask`; when the wait runs out it commits the partial work,
-writes the next steps, and ends with its report. Sessions without the
-gate (codex ideation members run without MCP by design) end with the
-report directly. The strategy files the need into the hub at extraction
-time when no `hub_ask` was made, so the record is complete either way.
+**Ask once.** The build prompt renders the hub's open and declined items
+with their notes, so a session does not re-raise what the campaign
+already knows. If a session ends `<blocked>` on a key that was declined
+anyway, the strategy does not pause the campaign: it continues the
+session at once (§4.3 step 4) with the decline as the response. A key
+that is open is joined, never duplicated.
 
-**The backstop.** A session that dies without either — killed at its
-deadline, crashed — already gets its difficulties reconstructed from the
-stream (`difficulties_fallback.md`). The reconstruction also classifies
-an authentication or permission signature and files the `need` on the
-session's behalf, module `orchestrator`.
+**The dead-session backstop** (later): a session killed at its deadline
+gets its difficulties reconstructed from the stream; the reconstruction
+can also recognise an authentication or permission signature and file
+the need. Both CLIs can resume a SIGTERM-killed session, so the
+continuation works for it too.
 
-### 4.3 The cycle in v1
+### 4.3 The cycle
 
-1. The session hits the wall and calls `hub_ask(need)`. The gate appends
-   `posted` and `wait_started` to `.kapso/hub.jsonl` and blocks.
-2. While the call blocks, the adapter's poll loop — it already polls the
-   process every half second for the deadline — tails the hub file. On
-   `wait_started` it holds the session deadline and reports to the
-   orchestrator through a callback, which pauses the ledger's clock and
-   writes `waiting` to the status file: `kapso watch` shows the ask,
-   `on_status` fires, the attended terminal prints the ask in the
-   preflight row format above the session's own transcript. From another
-   terminal, `kapso hub` can `resolve` (runs the check on demand) or
-   `decline`. The heartbeat daemon keeps writing, so `elapsed_seconds`
-   stays flat and `watch` never reports a stall.
-3. `wait_ended` with the result → deadline and clock resume. `met`: the
-   session continues; the orchestrator is not involved. `declined` or
-   `timeout`: the session ends with its report; the node records as today
-   (score null, difficulties) plus the hub item id; the orchestrator
-   moves to the next iteration; the item stays open in the hub with its
-   node.
-4. Not in v1 — the continuation. When the check passes later, the
-   orchestrator resumes the same CLI session with a follow-up
-   ("OPENAI_API_KEY is now verified; continue"), full context restored by
-   the CLI's own transcript (§4.4). Until then a need met after a
-   timeout only means the next ideation round sees the resource as
-   available and may propose the idea again.
+1. **Block.** The session hits the wall, commits, writes its next steps,
+   ends with `<blocked>`. The strategy files the item(s), marks the node
+   suspended with its session id, runs no judge, returns.
+2. **Pause.** When the iteration's lanes are done (a suspended lane
+   returns early; the barrier waits only for lanes still building, and
+   the finished lanes are judged as usual), the orchestrator saves the
+   checkpoint with `last_stop: needs_input`, prints the ask in the
+   preflight row format with the two commands to run next, writes the
+   status file `done` with `stopped_reason: needs_input`, fires
+   `on_status` once, and returns `SolveResult(stopped_reason="needs_input")`.
+   The budget clock needs no special handling: the process exits, and
+   elapsed time is only accumulated in-process, exactly like a budget
+   stop today.
+3. **Respond.** The person does the fix. `kapso hub resolve 3` runs the
+   check once and records `met` or the masked failure; `kapso hub
+   decline 3 [note]` records a decline. Both optional: `--resume` runs
+   the open checks itself.
+4. **Resume.** `kapso evolve … --resume` validates the checkpoint as
+   today, runs the check of every open item once, then for every
+   suspended node whose items all have a response (`met` or `declined`)
+   continues its session: recreate the session folder at its
+   deterministic path from the node's branch, then the CLI's own resume
+   with a follow-up message — "hub #3 OPENAI_API_KEY: met, check passed
+   (output …). Continue from your next steps." or "hub #3: declined —
+   note: … Continue without it." — with the same MCP config, model,
+   permissions and sandbox flags as the original launch. A suspended
+   node whose items are still open prints the ask again and pauses
+   again, without spawning anything. The continued session runs inside
+   the resumed campaign's first iteration slot, ahead of any new
+   ideation.
+5. **Finish.** The continued session ends with its normal tags, the
+   judge runs, the node finalizes under its original id and counts as
+   the iteration it always was. The campaign proceeds.
 
-With node expansion (K>1) a waiting lane holds only itself; the barrier
-waits for it at most `wait_minutes`. Waiting minutes count against
-neither the time budget nor the session deadline; a wait that ran out is
-an ordinary failed iteration in v1 and is charged as one. Modes on
-`blocked.policy: park` never expose the tool.
+A need nobody responds to leaves the campaign paused with a resumable
+checkpoint, for as long as the CLI keeps the transcript (§4.4). Modes on
+`blocked.policy: continue` (the benchmark harnesses) file the item, mark
+the node failed, and keep going; nothing pauses and nothing is resumed.
 
-Questions and notices (`hub_post` without waiting), the park-and-re-queue
-policy, and the runner-up at selection are the natural next steps on the
-same record and are out of v1 (§7).
-
-### 4.4 What the two CLIs allow (checked 2026-09-03 against the current docs)
+### 4.4 What the two CLIs give us (checked 2026-09-03/04 against the current docs)
 
 | | Claude Code, `claude -p` | Codex, `codex exec` |
 |---|---|---|
-| Blocking MCP tool call, wall clock | `MCP_TOOL_TIMEOUT` (ms), default about 28 h; a per-server `timeout` (ms) in the `--mcp-config` entry overrides it → set to `wait_minutes` plus a margin | `mcp_servers.<id>.tool_timeout_sec`, **default 60 s** → the hub server's entry must override it to `wait_minutes` plus a margin, through the `-c mcp_servers.<id>.…` overrides the adapter already emits |
-| Idle abort | `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` (ms): a call with no response and no progress notification for the window aborts; default 30 min for stdio servers (v2.1.203+) → the gate's progress notification on every re-check keeps the call alive; set the variable to the wait ceiling as well | no separate idle rule documented; `tool_timeout_sec` is the cap |
-| Backgrounding of long calls | main-conversation calls over 2 min move to a background task (v2.1.212+) **except in non-interactive mode** unless `CLAUDE_AUTO_BACKGROUND_TASKS=1` → in kapso's `-p` sessions the call blocks the turn, as required | not applicable |
-| Session persistence and resume | transcripts at `~/.claude/projects/<project>/<session-id>.jsonl`, 30-day `cleanupPeriodDays`; `claude -p --resume <session-id> "<follow-up>"` restores the full history including tool results; `--mcp-config`, `--model`, `--dangerously-skip-permissions` are not restored and must be passed again; a SIGTERM-killed run resumes "the turn that SIGTERM left unfinished"; `--no-session-persistence` must never be set | rollout files persist by default (`--ephemeral` disables); `codex exec resume <SESSION_ID> "<follow-up>"` or `--last`; the `-c` overrides are per invocation and must be repeated |
-| Session id capture | `session_id` on the `system/init` and `result` events of `--output-format stream-json`; the adapter already streams but does not record it | `{"type":"thread.started","thread_id":"…"}` on `--json`; the adapter does not pass `--json` yet |
-| kapso's own deadline | the adapter SIGTERMs at its deadline → hold the deadline while a `wait_started` is open | same |
+| Pin or capture the session id | `--session-id <uuid>` at launch — kapso mints the id, nothing to parse; also present on the `system/init` and `result` events of `--output-format stream-json` | `--json` at launch; `{"type":"thread.started","thread_id":"…"}` is the first event; the adapter does not pass `--json` yet |
+| Resume with a follow-up | `claude -p --resume <session-id> "<follow-up>"`; restores the full history including tool calls and results; findable from any directory (v2.1.223+) | `codex exec resume <SESSION_ID> "<follow-up>"` (or `--last`); rollout files persist unless `--ephemeral` |
+| What must be repeated | `--mcp-config`, `--model`, `--dangerously-skip-permissions`, `--append-system-prompt`, output format: none of it is restored | the `-c` overrides (MCP servers, effort), `--sandbox`, `-m`, `--output-last-message`: per invocation |
+| Working directory | transcripts live under `~/.claude/projects/<cwd-derived name>/<session-id>.jsonl`; the agent's file paths are absolute, so the session folder must exist at the same path | rollouts under `$CODEX_HOME/sessions`; same requirement on the working directory |
+| Retention | 30 days by default (`cleanupPeriodDays`); `--no-session-persistence` must never be set | not documented; assume rollouts persist until removed |
+| A killed session | SIGTERM leaves the turn unfinished; resuming continues that turn | not documented |
+| The environment | a resumed session is a fresh process: it sees the `.env` the run reloads at start, so no reload line is needed | same |
 
-The SDK-based adapters (gemini, openhands, aider) carry no MCP: no wait
-there; they end with the report.
+The session folder is `<workspace>/sessions/<branch>` — deterministic —
+and `ExperimentSession` already removes and re-clones it at setup, so
+recreating it from the branch before a resume is the existing setup step
+with the branch checked out. Anything the agent did not commit is lost,
+which is why the block contract commits first (and the session close
+commits anyway).
 
-**Three clocks, one ordering.** The wait ceiling is bounded by whatever
-ends the tool call first, so kapso orders the clocks so that the gate
-is always the one that ends the wait:
+Installed here: Claude Code 2.1.260, Codex 0.144.1. The adapter comments
+pin behaviours verified on 2.1.157; every resume claim above is a live
+test on whatever the deployment pins (§8).
 
-1. `blocked.wait_minutes` — the gate's own ceiling; it returns a clean
-   `timeout` result the session can act on;
-2. the CLI's per-call wall clock — Claude's per-server `timeout`,
-   Codex's `tool_timeout_sec` — set by kapso to the ceiling plus a
-   margin, never below it;
-3. kapso's session deadline — held for the whole wait, so the ceiling
-   is never eaten by the session's remaining minutes; the campaign's
-   budget clock pauses with it.
-
-Claude's idle rule is reset by every progress notification, so it does
-not bound the ceiling. Nothing model-side is open while waiting: the
-assistant turn that issued the tool call has ended, and the next model
-request goes out only when the tool result returns — no API timeout, no
-tokens, no usage-window consumption. If a CLI cap fired first the
-session would see a tool error instead of a `timeout` result and might
-retry or improvise; the ordering above is what prevents that.
-
-Why this settles the "which wait" question. Both mechanisms keep the
-session's context: the in-session wait keeps it in memory for minutes;
-CLI resume keeps it on disk for days and survives a kapso restart. v1
-takes the in-session wait — the user's direction, and the simplest
-orchestration (no continuation prompt, no re-queue). Recording the
-session ids in v1 costs nothing and is exactly what v1.1's continuation
-needs.
-
-### 4.5 Readers
+### 4.5 The human's side
 
 | Surface | Shows or does |
 |---|---|
-| terminal (attended) | each ask as it arrives, in the preflight row format (`[NEED]` / for / hit / worth it / fix / check), above the session's own transcript; the countdown; keys `Enter` (run the check now), `s` (decline, optional note), `q` (stop waiting now) |
-| `kapso hub <campaign>` | v1: `list` (open first, waiting or not, age), `show <id>` (the ask plus the check's last output), `resolve <id>` (runs the check now), `decline <id> [note]`; later: `answer <id> <text>`, `note <text>` (a free-standing hint for the next round), `seen <id>` |
-| `kapso watch` | `hub: 2 open (1 critical)` plus the newest item's fix line; `WAITING` and `PAUSED` states |
-| `on_status` | the status dict gains `hub: {open, critical, newest}`; a Slack post is a few lines of caller code; the platform's push notifications hang off the same hook |
-| end summary | needs still open at the end, each with its node and fix; later: parked items with their resume command, answered questions, notices |
-| experiment history / ideation | a node whose wait ran out renders with its need through the experiment-history tools; later: declined keys join the environment inventory as *declined by user* so no candidate proposes them again |
-| preflight / `doctor` (later) | the evaluation suite as a required source, the goal as an advisory source, and the environment inventory (names of credentials and logins present, hardware found) handed to ideation and the selector |
+| terminal | at the pause: each need in the preflight row format (`[NEED]` / for / hit / fix / check), then the two commands: `kapso hub <campaign> resolve <id>` and the exact `kapso evolve … --resume` line; at resume: "hub #3 met — continuing node 3's session" or the ask again |
+| `kapso hub <campaign>` | `list` (open first, age, last check result), `show <id>` (the ask plus the check's last output, masked), `resolve <id>` (runs the check once), `decline <id> [note]`; later: `answer`, `note`, `seen` |
+| `kapso watch` | `PAUSED · needs input · hub #3` on the done state; `--json` for scripts |
+| `on_status` | fires at the pause with `stopped_reason: "needs_input"` and the open items; a Slack post is a few lines of caller code |
+| Python API | `solution.metadata["stopped_reason"] == "needs_input"`, `solution.needs`; `evolve(..., resume=True)` continues |
+| end summary | the open needs, each with its node, fix and the resume line |
+| experiment history / ideation | a suspended node renders with its open item ("absent"); a declined key renders with its note ("do not propose") |
 
 ### 4.6 Rules for modules
 
-Written into the ideation and implementation prompts, and enforced where
-the code can:
-
-- Post only what a person must do. Installing a package, downloading
+- Ask only for what a person must do. Installing a package, downloading
   public data, retrying a rate limit are the session's own job.
-- A `question` (later) always states its `assume`; the session proceeds
-  on it.
-- A `need` is load-bearing or it is a `notice`: W&B logging without a
-  key is dropped and noticed, not asked for.
+- A need is load-bearing or it is not asked for: W&B logging without a
+  key is dropped and mentioned in the report.
 - Never stub, mock, fabricate the resource, or search the machine for
-  credentials. Reporting the block must be the cheaper path.
-- One item per key per campaign: a second `hub_ask` on an open key joins
-  its wait (server-side dedupe).
-- Per-session cap on asks (`blocked.max_asks_per_session`),
-  config-sourced like the change-request cap.
-- Transient versus human: rate limits retry; billing and auth states ask.
-- A `check` is cheap (well under `blocked.check_timeout_seconds`),
-  read-only, safe to run every few seconds, and prints no secret. It is
-  the only thing that ends a wait with `met`.
+  credentials. Asking must be the cheaper path.
+- Commit before ending blocked; write the next steps down. The
+  continuation starts from them.
+- One item per key per campaign; the prompt shows what is open and what
+  was declined, and a declined key is never asked for again.
+- A `check` is cheap, read-only, safe to run by hand, prints no secret,
+  and is the only thing that turns a need into `met`.
+- Transient versus human: rate limits retry; billing and auth states
+  block.
 
 ### 4.7 Secrets
 
 The hub holds needs and, masked, the output of their checks. A value
 goes wherever the fix says — usually the `.env` file the run loaded,
-whose path every ask prints — and the check runs with that file re-read,
-so the value never has to pass through the gate. `config.yaml` holds no
-secrets (Rule 3), and neither does `.kapso/`.
+whose path every ask prints — and a resumed campaign is a fresh process
+that reads that file at start, so the value never passes through Kapso.
+`config.yaml` holds no secrets (Rule 3), and neither does `.kapso/`.
 
-## 5. Landing on today's code (v1)
+## 5. Landing on today's code (v3)
 
-- `gated_mcp/gates/hub_gate.py` + a `GateDefinition` in `presets.py`
-  with `KAPSO_HUB_PATH` as injected env; `hub_ask` posts, blocks, runs
-  the `check` each interval in a rebuilt environment, folds events,
-  emits progress notifications; added to the shipped modes'
-  `implementation_gates` (ideation later).
-- `execution/hub.py`: the record (append, fold, mask, the check runner
-  with the rebuilt environment and the per-run cap).
-- `coding_agents/adapters/claude_code_agent.py`: the hub server's entry
-  in the written MCP config carries `timeout` (ms) derived from
-  `blocked.wait_minutes`; the session env carries
-  `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` at the same ceiling; the poll loop
-  tails the hub file and holds the deadline across `wait_started` →
-  `wait_ended`; `session_id` from `system/init` lands in the node's
-  telemetry.
-- `coding_agents/adapters/codex_agent.py`: `tool_timeout_sec` in the hub
-  server's `-c` overrides; the same deadline hold; `--json` added and
-  `thread_id` recorded (the final message still comes from
-  `--output-last-message`).
-- `search_strategies/base.py`: the hub item id and the CLI session id on
-  `SearchNode`.
-- `orchestrator.py`: a wait callback from the adapters → ledger pause,
-  `waiting` in `EvolveStatus`, `on_status` payload with the open ask.
+- `execution/hub.py`: the record (locked append, fold, mask, the check
+  runner with a per-run cap).
+- Prompts: the one exception to "do not ask questions"; the `<blocked>`
+  block in the session-end contract beside the five existing tags; the
+  rules of §4.6; the hub's open and declined items rendered into the
+  build prompt.
+- `generic/strategy.py` + `implementation.py`: extract `<blocked>`, file
+  it, mark the node suspended (no judge); on the first `run()` after a
+  resume, continue suspended nodes whose items have a response before
+  any ideation; the "declined key" immediate continuation.
+- `search_strategies/base.py`: `suspended`, `hub_item_ids`,
+  `cli_session_id` on `SearchNode`; round-tripped through `dump_state`
+  and the experiment store.
+- `coding_agents/base.py` + adapters: a `resume(session_id, follow_up)`
+  method beside `run`; Claude passes `--session-id` at launch and
+  `--resume` on continuation; Codex passes `--json` at launch, records
+  `thread_id`, and runs `codex exec resume` on continuation; both repeat
+  their launch flags.
+- `experiment_workspace`: recreate a session folder from a branch at the
+  deterministic path without creating a new branch.
+- `orchestrator.py`: the `needs_input` stop (`VALID_LAST_STOPS`,
+  `stopped_reason`), the check pass at resume, `on_status` payload with
+  the open items.
+- `kapso.py`: `solution.needs`.
 - `cli.py`: `kapso hub` (`list`, `show`, `resolve`, `decline`); `watch`
-  rendering of `waiting` and open items.
-- `config.yaml` `defaults.blocked`: `policy` (wait | park),
-  `wait_minutes`, `recheck_seconds`, `check_timeout_seconds`,
-  `max_asks_per_session`. Benchmark modes set `policy: park`.
-- Prompts: the one exception to "do not ask questions"; the rules of
-  §4.6; the load-the-`.env` line in the tool result.
+  rendering of the paused state; the exact resume line in the pause
+  message.
+- `config.yaml` `defaults.blocked`: `policy` (pause | continue),
+  `check_timeout_seconds`. Benchmark modes set `policy: continue`.
 - Docs: `docs/evolve/` gains a page; `docs/reference/cli.mdx` and
   `configuration.mdx` gain the verb and the block.
 
-v1.1, on the same record: the continuation by CLI session resume at the
-boundary; `hub_post` for questions and notices; park and re-queue; the
-selector's access criterion and runner-up; the preflight sources and the
-environment inventory.
+## 6. Decisions
 
-## 6. Open decisions
+Settled (user, 2026-09-03/04): the hub is the record and the human
+surface; a session that needs something records it and stops; the
+campaign pauses when nothing else runs; the person responds through the
+hub; `--resume` continues the very session with the response; no
+response means no continuation; no ceilings, no polling; the check
+snippet is the contract; implementation sessions only (ideation later);
+a declined key never pauses the campaign again; a wait that ends with a
+response is the same iteration it always was.
 
-1. **v1 scope** — settled (user, 2026-09-03): the in-session wait only;
-   a wait that runs out ends in the existing report.
-2. **The continuation (v1.1).** CLI session resume of the very session
-   that timed out — recommended: context on disk for 30 days, survives a
-   kapso restart, no idle process — versus a fresh session on the same
-   branch with a written summary. Record `session_id` / `thread_id` in
-   v1 either way.
-3. **Ideation** — settled (user, 2026-09-04): no tool in ideation for
-   v1, so the codex-ideation-member question returns only when ideation
-   asks. Also settled the same day: the judge still runs on a node whose
-   wait ran out (§8.1 item 5), and such a node is a charged iteration
-   (§8.1 item 6).
-4. **Where the value is loaded on `met`.** The tool result tells the
-   session to load `.env` itself — recommended: the value never passes
-   through the gate — versus the gate returning the value into the
-   transcript (never: it would land in the stream artifact).
-5. **Defaults.** `wait_minutes` 30, `recheck_seconds` 15,
-   `check_timeout_seconds` 30, `max_asks_per_session` 3. Guesses to
-   confirm.
+Open:
 
-## 7. Out of scope for v1
+1. **The writer.** The `<blocked>` block at session end (recommended:
+   every adapter, no gate, no per-CLI configuration, identical record)
+   versus a non-blocking `hub_post` tool (earlier record, immediate
+   dedupe answer, the natural home for later questions). Either can be
+   swapped for the other without touching the record.
+2. **The judge on a suspended node.** v2 ran it on a node whose wait had
+   run out because that node was finished. A suspended node is not
+   finished; recommendation: no judge until the continued session ends.
+3. **When the transcript is gone.** Claude keeps transcripts 30 days.
+   Recommendation: if the CLI reports no such session, continue with a
+   fresh session on the same branch fed the item and the next steps the
+   agent wrote — a documented default for a missing file, not a
+   fallback around an error.
+4. **Defaults.** `check_timeout_seconds` 30. Benchmark modes on
+   `continue`.
 
-The continuation (§4.3 step 4); `hub_post` for questions and notices;
-park and re-queue; the selector's access criterion and runner-up; the
-preflight sources and the environment inventory; the hosted inbox and
-push notifications (the hook and the record are built for them); asking
-through the feedback judge (the judge stays tool-locked and card-blind
-by design); questions from the learning crews.
+## 7. Out of scope for v3
 
-## 8. Open concerns (2026-09-04)
+`hub_post` for questions and notices that do not end a session; park and
+re-queue; ideation asks; the selector's access criterion; the preflight
+sources and the environment inventory; the hosted inbox and push
+notifications (the hook and the record are built for them); asking
+through the feedback judge; questions from the learning crews.
 
-Beyond the decisions in §6. Grouped by what resolves them.
+## 8. Open concerns (v3)
 
-### 8.1 Need a decision
+Verify live, on the installed CLIs:
 
-1. **The repeat-ask loop.** After a timeout the session's report says
-   it was blocked, and ideation reads that report through the
-   experiment-history tools (the render carries `technical_difficulties`
-   verbatim). User view (2026-09-04): that context is the mechanism.
-   Agreed as the primary path, with two small additions: the history
-   render also shows the hub item's state (open, timed out N min ago,
-   met, declined), and the ideation prompt gains one line — an open
-   need in the hub means the resource is absent; do not propose an idea
-   that requires it unless the hub shows it met. Still open: whether to
-   keep a gate-level backstop — a key that already timed out returns
-   `timeout` at once until a human touches it — one line in the gate,
-   for the case where a different idea needs the same resource or the
-   model ignores the history.
-2. **Ideation holding** — settled (user, 2026-09-04): implementation
-   only for the moment.
-3. **Unattended runs.** A 30-minute hold per ask with nobody there is
-   wall clock spent for nothing; the record is still worth having. So
-   `wait_minutes: 0` means: post the item, return `timeout` at once —
-   the same tool, a zero ceiling, no new mechanism. The session ends
-   with its report as usual and the item waits in `kapso hub`. Explicit,
-   not auto-detected: a run under nohup can still be attended through
-   `kapso hub` from another terminal, so a TTY check would guess wrong.
-   Proposed: a `--wait-minutes` flag on `kapso evolve`, explicit
-   argument over config like the budget flags. Benchmark modes hide the
-   tool.
-4. **Node expansion and the clock.** Two clocks are involved. The
-   campaign's time budget measures whether the campaign is doing work;
-   a session's deadline bounds one session. With K>1 lanes an iteration
-   builds K candidates in parallel sessions, then a barrier, then the
-   judge in order. If lane 1 calls `hub_ask` while lane 0 is still
-   building, the campaign is still working, so the budget must keep
-   ticking — pause it only when every running session is waiting. Lane
-   1's own deadline is held regardless, so the hold never kills its
-   session. The round cannot end until lane 1 returns (met, declined or
-   timeout), so lane 0's finished result waits for the judge by up to
-   the ceiling. With the default K=1 none of this arises; the rule only
-   has to be right when it does.
-5. **The judge on a timed-out node** — settled (user, 2026-09-04): the
-   judge runs as today; the judge prompt names the hub item so the
-   feedback says "blocked on X", not "no evaluation".
-6. **Iteration accounting** — settled (user, 2026-09-04): a wait that
-   ran out is a charged iteration.
+1. `claude -p --resume <id>` with `--session-id` minted at launch, the
+   follow-up on stdin (the adapter never puts prompts in argv), the
+   `--mcp-config` re-passed, and the session folder recreated first.
+2. `codex exec resume <thread_id>` with `--json` at the original launch,
+   the `-c` overrides and `--sandbox` repeated, `--output-last-message`
+   on the resumed run.
+3. What each CLI does when the working directory differs from the
+   original, and when the transcript has been cleaned up.
 
-### 8.2 Verify before building (live, on the installed CLIs)
+Implementation care:
 
-The box runs Claude Code 2.1.260 and Codex 0.144.1; the adapter comments
-pin behaviours verified on 2.1.157. The docs describe current versions,
-so every item below is a live test on the versions the deployment
-actually pins.
-
-7. **Claude per-server `timeout`** in the `--mcp-config` entry honoured
-   for a stdio server under `-p` (the tracker has a history of
-   "timeout not honoured" reports). Test with a 2-minute cap.
-8. **The idle rule.** 2.1.260 applies the 30-minute stdio idle abort.
-   Progress notifications need a progress token the client passes on the
-   call; the gate server sends none today and whether Claude Code passes
-   a token is unverified. The fallback is
-   `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` set to the ceiling; test both.
-9. **Codex `tool_timeout_sec`** through `-c mcp_servers.hub.…`, and
-   whether `codex exec` has any other per-turn cap. Test a 5-minute
-   hold.
-10. **Liveness during a long call.** The gate's `handle_call` runs in an
-    executor, so the event loop can answer pings; verify neither CLI
-    pings-and-kills during a long tool call.
-
-### 8.3 Implementation care
-
-11. **Telemetry.** Node `duration_seconds` and the implementation phase
-    telemetry must subtract wait spans; record a `wait` phase so the
-    efficiency reports separate waiting from working.
-12. **Hub file concurrency.** Gate processes, `kapso hub` and the
-    orchestrator all append; items exceed the atomic-append size — lock
-    around appends.
-13. **Masking is heuristic.** The check's output also goes into the tool
-    result, which the CLI writes to its own transcript unmasked: mask
-    before returning, keep only the tail, and the prompt rule says
-    checks print no secrets.
-14. **Agent-authored checks run outside the session** — by `kapso hub
-    resolve` in the user's shell and, in v1.1, by the orchestrator at
-    boundaries. Same trust level as the session's own commands, but
-    `show` prints the check before `resolve` runs it, and every run is
-    capped.
-15. **The `worth` field.** The selector's `<selection_reasoning>` is
-    extracted in ideation but not passed to the implementation prompt,
-    so the implementer cannot honestly write "ranked 1st of 4". Pass a
-    one-line selection summary into the build prompt, or drop `worth`
-    until the selector asks for itself.
-16. **The `.env` path.** Kapso must record which file `find_dotenv`
-    loaded and inject it for the gate and the fix text; when none was
-    found, the fix names where to create it.
-17. **Sandbox mismatch.** The gate runs outside a Codex sandbox while the
-    agent's shell runs inside it, so a check can pass where the agent's
-    commands cannot reach the network. Kapso runs full access today;
-    revisit if sandboxes are tightened.
-18. **Small ones.** The attended keys need a TTY-aware non-blocking read
-    and are skipped without a TTY; when `--allowedTools` is set,
-    `mcp__hub__hub_ask` must be in it; the judge prompt should name the
-    hub item so feedback says "blocked on X", not "no evaluation".
+4. Uncommitted work at the block is lost; the contract commits, and the
+   session close commits anyway — confirm the close still runs on the
+   `<blocked>` path.
+5. Masking is heuristic; the check runs by hand through `kapso hub
+   resolve` in the user's shell — `show` prints the check first.
+6. Fewer writers on the hub file now (the strategy and the CLI), still
+   lock the appends.
+7. The `.env` path: record which file `find_dotenv` loaded and print it
+   in the fix; when none was found, name where to create it.
+8. A node with several needs continues only when all have a response.
+9. `on_status` fires once at the pause; the status file's done state
+   must carry the items so `watch` can render them after the process is
+   gone.
