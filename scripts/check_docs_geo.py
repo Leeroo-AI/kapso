@@ -7,7 +7,9 @@ rules only a writer can. This gates the first kind and prints the second.
 Gated, because each is objectively true or false:
   * a page opens with prose, not a heading — an answer engine quoting the top
     of a page needs something to quote
-  * every page links to at least one other page — topic clusters
+  * every page carries an inline Markdown link to at least one other page —
+    topic clusters that survive the Markdown rendition AI agents fetch
+  * every page names the repository URL — the citation an answer engine needs
   * no banned marketing word, per Mintlify's own style guide
   * no banned terminology alias, so one concept keeps one name
 
@@ -26,6 +28,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 DOCS_CONFIG = REPO / "docs.json"
+
+REPO_URL = "https://github.com/Leeroo-AI/kapso"
 
 BANNED_WORDS = ("powerful", "seamless", "robust", "cutting-edge", "blazingly")
 
@@ -83,8 +87,17 @@ def main() -> int:
         if body.lstrip().startswith("#"):
             failures.append(f"{page}: opens with a heading; lead with a sentence")
 
-        if 'href="/docs/' not in body:
-            failures.append(f"{page}: links to no other page; add a Related group")
+        # Mintlify serves a Markdown rendition of each page to AI agents (and to
+        # anyone sending Accept: text/markdown). <Card href> links do not survive
+        # that rendition; inline Markdown links do. So the gate asks for inline.
+        if "](/docs/" not in body:
+            failures.append(
+                f"{page}: no inline Markdown link to another page; "
+                "add a 'Related pages:' line (Card links vanish for agent readers)"
+            )
+
+        if REPO_URL not in body:
+            failures.append(f"{page}: does not name the repository; keep the project line at the end")
 
         lowered = prose.lower()
         for word in BANNED_WORDS:
