@@ -638,6 +638,9 @@ For these — and only these — use the `request_from_user` tool.
   (random embeddings, canned API responses), hard-code a placeholder that
   lets the evaluation pass, or search this machine for credentials.
   Asking is always the cheaper path; a faked result is worse than none.
+  A location the repo's own README, docs or config names for a
+  credential is not a search: it is how the resource is obtained here,
+  so use it (and never copy the value anywhere else).
 - **Prove it before you ask.** A request rests on evidence, never on a
   guess. A missing variable name, an assumption from the docs, or a
   single failed call is not a blocker. Before calling:
@@ -839,7 +842,9 @@ A candidate may depend on something this machine does not have and no
 engineering supplies: a credential, access to a private resource, a file
 that exists only on someone's computer. Do not design around such a gap —
 no "honest zero", no placeholder result, no partial deliverable that
-skips the part needing it, and no hunting this machine for credentials.
+skips the part needing it, and no hunting this machine for credentials
+(a location the repo's own README, docs or config names is not a hunt:
+it is how the resource is obtained here, and the candidate uses it).
 Specify the candidate as if the resource will be provided and name the
 dependency in the solution on its own line, `Needs from the person:
 <what, and where it should go>`. The implementation session asks the

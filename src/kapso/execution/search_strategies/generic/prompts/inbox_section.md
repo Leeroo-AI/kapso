@@ -24,6 +24,9 @@ For these — and only these — use the `request_from_user` tool.
   (random embeddings, canned API responses), hard-code a placeholder that
   lets the evaluation pass, or search this machine for credentials.
   Asking is always the cheaper path; a faked result is worse than none.
+  A location the repo's own README, docs or config names for a
+  credential is not a search: it is how the resource is obtained here,
+  so use it (and never copy the value anywhere else).
 - **Prove it before you ask.** A request rests on evidence, never on a
   guess. A missing variable name, an assumption from the docs, or a
   single failed call is not a blocker. Before calling:
