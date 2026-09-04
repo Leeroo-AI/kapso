@@ -213,6 +213,15 @@ GATES: Dict[str, GateDefinition] = {
             "KAPSO_PROBE_BUDGET",
         ],
     ),
+    # The campaign inbox (docs/research/evolve-hub-design.md v4): one
+    # tool, request_from_user. Implementation sessions only; the three
+    # variables are set by the launching runner, never by the user.
+    "inbox": GateDefinition(
+        tools=["request_from_user"],
+        default_params={},
+        required_env=["KAPSO_INBOX_PATH", "KAPSO_SESSION_ID", "KAPSO_NODE_ID"],
+        injected_env=["KAPSO_INBOX_PATH", "KAPSO_SESSION_ID", "KAPSO_NODE_ID"],
+    ),
     # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
     # Runs as a separate process, not bundled in gated-knowledge
     "leeroopedia": GateDefinition(
@@ -387,6 +396,7 @@ def get_mcp_config(
     gate_failure_policy: str = "warn",
     command_resolver: Optional[Callable[[str], Optional[str]]] = None,
     bank_serving: Optional[Dict[str, str]] = None,
+    inbox: Optional[Dict[str, str]] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
@@ -414,6 +424,9 @@ def get_mcp_config(
                       KAPSO_SERVING_PULL_LOG, KAPSO_TASK_FAMILY,
                       KAPSO_PROBE_BUDGET, optional KAPSO_TASK_DATASET).
                       Required for the gate to resolve.
+        inbox: Campaign parameters for the "inbox" gate, keyed by its KAPSO_*
+               env names (KAPSO_INBOX_PATH, KAPSO_SESSION_ID, KAPSO_NODE_ID).
+               Required for the gate to resolve.
     
     Returns:
         Tuple of (mcp_servers dict, allowed_tools list)
@@ -435,6 +448,7 @@ def get_mcp_config(
         "EXPERIMENT_EMBEDDING_MODEL": experiment_embedding_model,
         "REPO_MEMORY_ROOT": repo_root,
         **(bank_serving or {}),
+        **(inbox or {}),
     }
     effective_env.update(
         {key: str(value) for key, value in explicit_env.items() if value}

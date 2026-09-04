@@ -17,6 +17,10 @@ modes:
   # grader (data/generic_eval — official val scoring only; test physically
   # unscorable in-loop). Runner wires eval_dir for this mode.
   RELBENCH_GENERIC:
+    # Benchmark harness: nobody is at the keyboard, so a session never
+    # asks a person and never pauses (defaults.inbox in the platform config).
+    inbox:
+      enabled: false
     search_strategy:
       type: "generic"
       params:
@@ -189,6 +193,10 @@ modes:
   # e.g.: -s rel-f1 -t driver-circuit-compete (27-row val/test, seconds-fast
   # evals). Iterations ~15-20 min instead of ~90.
   FAST_DEBUG:
+    # Benchmark harness: nobody is at the keyboard, so a session never
+    # asks a person and never pauses (defaults.inbox in the platform config).
+    inbox:
+      enabled: false
     search_strategy:
       type: "generic"
       params:
@@ -224,6 +232,10 @@ modes:
   # Quick smoke testing (rel-f1 scale)
   # ===========================================
   MINIMAL:
+    # Benchmark harness: nobody is at the keyboard, so a session never
+    # asks a person and never pauses (defaults.inbox in the platform config).
+    inbox:
+      enabled: false
     search_strategy:
       type: "generic"
       params:

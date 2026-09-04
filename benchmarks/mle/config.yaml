@@ -18,6 +18,10 @@ modes:
   # Production Mode
   # ===========================================
   MLE_GENERIC:
+    # Benchmark harness: nobody is at the keyboard, so a session never
+    # asks a person and never pauses (defaults.inbox in the platform config).
+    inbox:
+      enabled: false
     search_strategy:
       type: "generic"
       params:
@@ -70,6 +74,10 @@ modes:
   # Quick smoke testing
   # ===========================================
   MINIMAL:
+    # Benchmark harness: nobody is at the keyboard, so a session never
+    # asks a person and never pauses (defaults.inbox in the platform config).
+    inbox:
+      enabled: false
     search_strategy:
       type: "generic"
       params:

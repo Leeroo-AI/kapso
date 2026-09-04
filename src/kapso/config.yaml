@@ -84,6 +84,19 @@ defaults:
     # a connection the server abandons mid-stream blocks the calling thread
     # forever (first live wedge: rel-event/user-ignore re-run, 2026-08-09).
     request_timeout_seconds: 600
+  # The campaign inbox (docs/research/evolve-hub-design.md v4): a session
+  # that needs something only a person can provide asks through the
+  # request_from_user tool and is stopped; the campaign pauses and exits;
+  # `kapso inbox reply` resumes it and continues the very session.
+  inbox:
+    # Off means no session gets the tool and nothing ever pauses.
+    enabled: true
+    # After request_from_user returns, how long the session gets to end
+    # its own turn before the adapter ends it.
+    stop_grace_seconds: 120
+    # One line per launched campaign, so `kapso inbox` with no campaign
+    # can list every campaign waiting on a person.
+    registry: "~/.kapso/campaigns.jsonl"
 
 # =============================================================================
 # Available configuration modes

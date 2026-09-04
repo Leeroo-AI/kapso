@@ -38,6 +38,7 @@ from kapso.gated_mcp.gates import (
     ExperimentHistoryGate,
     RepoMemoryGate,
     BankGate,
+    InboxGate,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +53,7 @@ GATE_CLASSES: Dict[str, Type[ToolGate]] = {
     "experiment_history": ExperimentHistoryGate,
     "repo_memory": RepoMemoryGate,
     "bank": BankGate,
+    "inbox": InboxGate,
 }
 
 

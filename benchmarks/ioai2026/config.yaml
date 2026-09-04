@@ -13,6 +13,10 @@ default_mode: KAGGLE
 
 modes:
   KAGGLE:
+    # Benchmark harness: nobody is at the keyboard, so a session never
+    # asks a person and never pauses (defaults.inbox in the platform config).
+    inbox:
+      enabled: false
     # Launch defaults (CLI --hours / --node-expansion override these). k=8
     # fans out 8 implementation lanes per round; the runner pins one GPU per
     # lane (CUDA_VISIBLE_DEVICES 0..7), so k=8 assumes an 8-GPU box — the
