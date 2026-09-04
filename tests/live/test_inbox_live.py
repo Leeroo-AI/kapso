@@ -66,7 +66,6 @@ def _paused(root: Path, cli: str):
     request = requests[0]
     assert request.open and KEY_VAR in request.key and KEY_VAR in request.tried
     assert request.fix and request.next_steps
-    _no_secret_on_disk(root)
 
     saved = checkpoint(campaign)
     assert saved["last_stop"] == "waiting_for_user" and saved["completed_iterations"] == 0
@@ -81,14 +80,15 @@ def _paused(root: Path, cli: str):
     return campaign, node, request
 
 
-def _no_secret_on_disk(root: Path) -> None:
-    """§3.4: no key value in anything Kapso wrote (the key is not on disk
-    before the reply either, so this checks the request text and state)."""
+def _no_secret_on_disk(root: Path, key: str) -> None:
+    """§3.4: the key value is in nothing Kapso wrote, although the .env
+    holds it and the continued session used it. (Any 64-hex token would be
+    the wrong test: the checkpoint carries sha256 fingerprints.)"""
     campaign = root / "campaign"
     for name in ("inbox.jsonl", "status.json", "run_state.json", "launch.json"):
-        text = (campaign / ".kapso" / name).read_text()
-        assert not any(len(token) == 64 and all(c in "0123456789abcdef" for c in token)
-                       for token in text.replace('"', ' ').split()), name
+        assert key not in (campaign / ".kapso" / name).read_text(), name
+    assert key not in (root / "evolve.log").read_text()
+    assert key not in (root / "reply.log").read_text()
 
 
 def _continued_cleanly(campaign: Path, node: dict, cli: str) -> None:
@@ -137,7 +137,7 @@ def test_stop_and_resume_continues_the_same_session(tmp_path, cli):
     assert positions[FOLLOW_UP_MARK] is not None, "the follow-up never reached the session"
     assert positions[STOP_MARK] < positions[FOLLOW_UP_MARK]
     _continued_cleanly(campaign, node, cli)
-    _no_secret_on_disk(root)
+    _no_secret_on_disk(root, key)
     assert run_sum(campaign, node["branch_name"], key) == str(TOTAL)
 
 
