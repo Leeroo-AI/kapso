@@ -68,3 +68,4 @@ For these — and only these — use the `request_from_user` tool.
 - **Transient is not a blocker.** Rate limits, timeouts and flaky
   networks are retried with backoff inside your session. Authentication,
   authorization and billing errors are blockers.
+- **Where values go.** {{where_values_go}}

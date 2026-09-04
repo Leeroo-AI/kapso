@@ -46,7 +46,10 @@ def _utcnow() -> str:
 
 
 def inbox_path(workspace_dir: str | Path) -> Path:
-    return Path(workspace_dir) / INBOX_RELATIVE_PATH
+    """Absolute: the path crosses into the gate server, whose cwd is the
+    session folder (live L1 run 2: a relative campaign dir put the
+    request under the session's tree and the campaign never paused)."""
+    return Path(workspace_dir).resolve() / INBOX_RELATIVE_PATH
 
 
 @dataclass

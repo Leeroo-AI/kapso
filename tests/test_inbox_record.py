@@ -145,6 +145,14 @@ def test_stop_text_names_ids_and_the_previous_reply():
     assert "env:A was requested" not in text
 
 
+def test_inbox_path_is_absolute_whatever_the_workspace_argument(tmp_path, monkeypatch):
+    """The path crosses into the gate server, whose cwd is the session
+    folder; a relative campaign dir lost the request (live L1 run 2)."""
+    monkeypatch.chdir(tmp_path)
+    assert inbox_path("campaign") == tmp_path.resolve() / "campaign" / ".kapso" / "inbox.jsonl"
+    assert inbox_path("campaign").is_absolute()
+
+
 def test_launch_record_round_trip_and_missing_default(tmp_path):
     assert read_launch_record(tmp_path) is None
     write_launch_record(tmp_path, {"output_path": str(tmp_path), "max_iterations": 4})

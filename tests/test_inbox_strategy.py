@@ -20,6 +20,7 @@ from kapso.execution.inbox import (
     inbox_path,
     load_requests,
     record_reply,
+    write_launch_record,
 )
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.implementation import (
@@ -190,9 +191,10 @@ def test_node_inbox_fields_round_trip_and_validate():
 def test_resolve_inbox_settings_mounts_the_gate_or_turns_off_for_lanes(capsys):
     gates = ["research", "repo_memory"]
     settings = {"enabled": True, "path": "/x/inbox.jsonl", "stop_grace_seconds": 120}
-    assert resolve_inbox_settings(settings, 1, gates) == settings
+    resolved = {**settings, "dotenv_path": ""}
+    assert resolve_inbox_settings(settings, 1, gates) == resolved
     assert gates == ["research", "repo_memory", "inbox"]
-    assert resolve_inbox_settings(settings, 1, gates) == settings
+    assert resolve_inbox_settings(settings, 1, gates) == resolved
     assert gates.count("inbox") == 1
 
     gates = ["research"]
@@ -203,3 +205,17 @@ def test_resolve_inbox_settings_mounts_the_gate_or_turns_off_for_lanes(capsys):
     off = {"enabled": False}
     assert resolve_inbox_settings(off, 1, gates) == off and "inbox" not in gates
     assert resolve_inbox_settings(None, 1, gates) is None
+
+
+def test_resolve_inbox_settings_derives_an_absolute_path_and_the_dotenv(tmp_path, monkeypatch):
+    """A relative campaign dir (the CLI's --output campaign) still yields
+    an absolute inbox path, and the launch record's dotenv path rides
+    along for the prompt (empty without a record)."""
+    monkeypatch.chdir(tmp_path)
+    settings = {"enabled": True, "stop_grace_seconds": 120}
+    resolved = resolve_inbox_settings(settings, 1, [], "campaign")
+    assert resolved["path"] == str(tmp_path.resolve() / "campaign" / ".kapso" / "inbox.jsonl")
+    assert resolved["dotenv_path"] == ""
+    assert settings == {"enabled": True, "stop_grace_seconds": 120}
+    write_launch_record(tmp_path / "campaign", {"dotenv_path": str(tmp_path / ".env")})
+    assert resolve_inbox_settings(settings, 1, [], "campaign")["dotenv_path"] == str(tmp_path / ".env")

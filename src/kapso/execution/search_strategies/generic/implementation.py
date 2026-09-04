@@ -281,7 +281,8 @@ def run_implementation(
             lane_brief=lane_brief,
             **(
                 {"inbox_section": render_inbox_section(
-                    load_requests(inbox_settings["path"])
+                    load_requests(inbox_settings["path"]),
+                    dotenv_path=inbox_settings.get("dotenv_path", ""),
                 )}
                 if inbox_on else {}
             ),
@@ -528,12 +529,35 @@ def render_inbox_state(requests: Dict[int, Request]) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def render_inbox_section(requests: Dict[int, Request]) -> str:
+def render_where_values_go(dotenv_path: str) -> str:
+    """Where a `fix` sends a value: the campaign's .env when the launch
+    found one, else the file the person should create. Nothing under the
+    session folder survives the session (live L1 run 2 told the person
+    to drop .env there)."""
+    if dotenv_path:
+        return (
+            f"The campaign's `.env` is `{dotenv_path}`; it is loaded when the "
+            "campaign resumes, so a `fix` for a missing variable names that file "
+            "and the exact line to add. Nothing under this session folder "
+            "survives the session — never point the person here."
+        )
+    return (
+        "No `.env` was found for this campaign. A `fix` for a missing variable "
+        "names the file the person should create — `.env` in the directory "
+        "they run kapso from — and the exact line to add. Nothing under this "
+        "session folder survives the session — never point the person here."
+    )
+
+
+def render_inbox_section(requests: Dict[int, Request], *, dotenv_path: str = "") -> str:
     """The implementation prompt's inbox section (Appendix A.1)."""
     template = load_prompt(
         "execution/search_strategies/generic/prompts/inbox_section.md"
     )
-    return render_prompt(template, {"inbox_state": render_inbox_state(requests)})
+    return render_prompt(template, {
+        "inbox_state": render_inbox_state(requests),
+        "where_values_go": render_where_values_go(dotenv_path),
+    })
 
 
 def render_follow_up(requests: List[Request]) -> str:

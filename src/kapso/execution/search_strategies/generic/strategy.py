@@ -68,6 +68,7 @@ from kapso.execution.inbox import (
     all_answered,
     inbox_path,
     load_requests,
+    read_launch_record,
     record_continued,
     requests_for_ids,
 )
@@ -136,11 +137,18 @@ def resolve_inbox_settings(
         return {**inbox, "enabled": False}
     if "inbox" not in implementation_gates:
         implementation_gates.append("inbox")
-    if not inbox.get("path"):
+    resolved = dict(inbox)
+    if not resolved.get("path"):
         if not workspace_dir:
             raise ValueError("an enabled inbox needs a path or a workspace_dir")
-        return {**inbox, "path": str(inbox_path(workspace_dir))}
-    return inbox
+        resolved["path"] = str(inbox_path(workspace_dir))
+    # Where a value goes: the .env the launch loaded (the launch record;
+    # empty for a campaign started without one), named in the prompt so a
+    # fix points at a file that survives the session (live L1 run 2).
+    if "dotenv_path" not in resolved:
+        record = read_launch_record(workspace_dir) if workspace_dir else None
+        resolved["dotenv_path"] = record.get("dotenv_path", "") if record else ""
+    return resolved
 
 
 @register_strategy("generic")

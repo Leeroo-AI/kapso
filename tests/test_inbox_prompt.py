@@ -77,6 +77,16 @@ def test_inbox_state_is_empty_on_a_fresh_campaign():
     assert "Requests already" not in section
 
 
+def test_inbox_section_names_where_values_go():
+    """A fix must point at the campaign's .env, never at the session
+    folder (live L1 run 2 sent the person there)."""
+    with_env = render_inbox_section({}, dotenv_path="/home/me/churn/.env")
+    assert "The campaign's `.env` is `/home/me/churn/.env`" in with_env
+    assert "never point the person here" in with_env and "{{" not in with_env
+    without = render_inbox_section({})
+    assert "No `.env` was found for this campaign" in without and "{{" not in without
+
+
 def test_follow_up_carries_every_reply_and_the_next_steps():
     requests = [
         request(1, "env:OPENAI_API_KEY", reply="added the key"),

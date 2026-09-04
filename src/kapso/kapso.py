@@ -1353,7 +1353,7 @@ class Kapso:
                 "kg_index": self._kg_index_path,
                 "mode": mode,
                 "coding_agent": coding_agent,
-                "output_path": workspace_dir,
+                "output_path": str(Path(workspace_dir).resolve()),
                 "max_iterations": max_iterations,
                 "time_budget_minutes": time_budget_minutes,
                 "cost_budget": cost_budget,
