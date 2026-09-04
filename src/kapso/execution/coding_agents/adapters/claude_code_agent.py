@@ -510,6 +510,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
 
         start_time = time.time()
         raw_lines: List[str] = []
+        # The CLI's last stderr lines: the reason a failed exit gives
+        # (live L8: `No conversation found with session ID` was printed
+        # and lost, and the error read as an empty string).
+        stderr_tail: List[str] = []
         artifact_fh = None
         if self._stream_artifact_path:
             os.makedirs(
@@ -621,6 +625,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     if err_line:
                         err_line = err_line.rstrip('\n')
                         print(f"{c['yellow']}  [stderr] {err_line}{c['reset']}", file=sys.stderr, flush=True)
+                        stderr_tail = (stderr_tail + [err_line])[-20:]
                         got_output = True
                         last_heartbeat = time.time()
                 
@@ -672,6 +677,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     if process.stderr:
                         for err_line in process.stderr:
                             print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
+                            stderr_tail = (stderr_tail + [err_line.rstrip()])[-20:]
                     break
 
                 # The inbox stop: a request filed for this session means the
@@ -919,7 +925,11 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 )
 
             if retcode != 0 or is_error:
-                error_msg = result_text if is_error else f"CLI exited with code {retcode}"
+                error_msg = (
+                    (result_text if is_error else "")
+                    or "\n".join(stderr_tail)
+                    or f"CLI exited with code {retcode}"
+                )
                 # Failed calls report their parsed cost like successful ones do;
                 # expensive failures are exactly what a cost budget must see.
                 self._cumulative_cost += total_cost
