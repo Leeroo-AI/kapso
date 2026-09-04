@@ -1040,7 +1040,7 @@ class OrchestratorAgent:
             node.node_id: idea_line(node.solution)
             for node in self.search_strategy.get_experiment_history()
         }
-        campaign_dir = self.search_strategy.workspace.workspace_dir
+        campaign_dir = str(Path(self.search_strategy.workspace.workspace_dir).resolve())
         print("\n" + render_pause_block(requests, ideas, campaign_dir))
         self._waiting_payload = [
             request_payload(request, ideas.get(request.node, ""))
