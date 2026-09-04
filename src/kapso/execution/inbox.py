@@ -298,6 +298,33 @@ def record_continued(
             }) + "\n")
 
 
+def new_requests_for_session(
+    path: str | Path, session_id: str, seen_bytes: int
+) -> Tuple[int, List[int]]:
+    """The adapters' tail: request ids filed for ``session_id`` in the
+    bytes appended since ``seen_bytes``. Only complete lines are read; a
+    line still being written is left for the next poll. Returns the new
+    high-water mark and the ids."""
+    path = Path(path)
+    if not path.is_file():
+        return seen_bytes, []
+    size = path.stat().st_size
+    if size <= seen_bytes:
+        return seen_bytes, []
+    with open(path, "rb") as handle:
+        handle.seek(seen_bytes)
+        chunk = handle.read()
+    last_newline = chunk.rfind(b"\n")
+    if last_newline < 0:
+        return seen_bytes, []
+    complete = chunk[: last_newline + 1]
+    ids = []
+    for event in _parse_events(complete.decode("utf-8"), str(path)):
+        if event["event"] == "requested" and event.get("session") == session_id:
+            ids.append(event["id"])
+    return seen_bytes + len(complete), ids
+
+
 def render_stop_text(results: Sequence[Tuple[int, Optional[str]]], keys: Sequence[str]) -> str:
     """The tool result the session reads (Appendix A.2)."""
     ids = [request_id for request_id, _ in results]

@@ -53,6 +53,7 @@ _COLORS = {
     "magenta": "\033[35m",
 }
 
+from kapso.execution.inbox import new_requests_for_session
 from kapso.execution.coding_agents.base import (
     CodingAgentInterface, 
     CodingAgentConfig, 
@@ -195,6 +196,25 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # lines are flushed as they arrive.
         self._stream_artifact_path: Optional[str] = config.agent_specific.get(
             "stream_artifact_path"
+        )
+
+        # The campaign inbox (docs/research/evolve-hub-design.md v4 §4.2):
+        # kapso mints the session id up front (--session-id) so neither the
+        # record nor the resume needs parsing; the run loop tails the inbox
+        # file and ends the session once a request for this id appears,
+        # after the configured grace (inbox.stop_grace_seconds).
+        self._session_id: Optional[str] = config.agent_specific.get("session_id")
+        self._inbox_path: Optional[str] = config.agent_specific.get("inbox_path")
+        if self._inbox_path and not self._session_id:
+            raise ValueError("inbox_path requires session_id")
+        if self._inbox_path and "inbox_stop_grace_seconds" not in config.agent_specific:
+            raise ValueError(
+                "inbox_path requires inbox_stop_grace_seconds "
+                "(config inbox.stop_grace_seconds)"
+            )
+        self._inbox_stop_grace_seconds: float = (
+            float(config.agent_specific["inbox_stop_grace_seconds"])
+            if self._inbox_path else 0.0
         )
 
         # Verify Claude Code CLI is installed and credentials are available
@@ -397,6 +417,27 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 error=str(e)
             )
     
+    def resume(
+        self,
+        cli_session_id: str,
+        follow_up: str,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
+        """Continue a stored session with one more user message (the inbox
+        continuation). Always the streaming runner: the continuation needs
+        the stream to capture how the session ends."""
+        if self.workspace is None:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+        effective_timeout = (
+            timeout_seconds if timeout_seconds is not None else self._timeout
+        )
+        return self._run_streaming(
+            follow_up,
+            self.config.model,
+            effective_timeout,
+            resume_session_id=cli_session_id,
+        )
+
     def _run_buffered(
         self, prompt: str, model: str, timeout_seconds: Optional[float]
     ) -> CodingResult:
@@ -446,16 +487,27 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         )
     
     def _run_streaming(
-        self, prompt: str, model: str, timeout_seconds: Optional[float]
+        self,
+        prompt: str,
+        model: str,
+        timeout_seconds: Optional[float],
+        resume_session_id: Optional[str] = None,
     ) -> CodingResult:
         """
         Run Claude Code CLI with live streaming output using stream-json format.
-        
+
         Parses JSON events and displays Claude's thinking, tool calls, and results
-        in real-time for maximum visibility.
+        in real-time for maximum visibility. With ``resume_session_id`` the
+        CLI continues that stored session and ``prompt`` is its next user
+        message (the inbox continuation).
         """
-        stream_cmd = self._build_command(model, use_stream_json=True)
-        
+        if resume_session_id:
+            stream_cmd = self._build_command(
+                model, use_stream_json=True, resume_session_id=resume_session_id
+            )
+        else:
+            stream_cmd = self._build_command(model, use_stream_json=True)
+
         start_time = time.time()
         raw_lines: List[str] = []
         artifact_fh = None
@@ -508,6 +560,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         deadline_exceeded = False
         completed_reaped = False
         completion_armed_at = None  # set when a result event carries all markers
+        # The inbox tail: bytes of the inbox file already read, the request
+        # ids filed for this session, when the grace runs out, and whether
+        # the grace ran out before the session ended itself.
+        inbox_seen_bytes = 0
+        inbox_request_ids: List[int] = []
+        inbox_stop_at: Optional[float] = None
+        inbox_killed = False
         
         try:
             # Use select for non-blocking I/O on both stdout and stderr
@@ -615,6 +674,44 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                             print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
                     break
 
+                # The inbox stop: a request filed for this session means the
+                # session is done for now. It gets the grace to end its own
+                # turn; then the same kill sequence as the deadline. Checked
+                # before the deadline so a request always wins the tie.
+                if self._inbox_path and inbox_stop_at is None:
+                    inbox_seen_bytes, new_ids = new_requests_for_session(
+                        self._inbox_path, self._session_id, inbox_seen_bytes
+                    )
+                    if new_ids:
+                        inbox_request_ids.extend(new_ids)
+                        inbox_stop_at = time.time() + self._inbox_stop_grace_seconds
+                        print(
+                            f"{c['yellow']}  Session asked the person (requests "
+                            f"{', '.join(f'#{i}' for i in new_ids)}) — ending it "
+                            f"after {self._inbox_stop_grace_seconds:.0f}s unless "
+                            f"it ends itself{c['reset']}",
+                            flush=True,
+                        )
+                if (
+                    inbox_stop_at is not None
+                    and retcode is None
+                    and time.time() >= inbox_stop_at
+                ):
+                    inbox_killed = True
+                    print(
+                        f"{c['yellow']}  Grace over — ending the session for the "
+                        f"inbox{c['reset']}",
+                        flush=True,
+                    )
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    grace_end = time.time() + _DEADLINE_GRACE_SECONDS
+                    while process.poll() is None and time.time() < grace_end:
+                        time.sleep(0.1)
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    break
+
                 # Enforce the configured deadline. SIGTERM first so the CLI can
                 # flush its final result event (which carries the real cost),
                 # SIGKILL after the grace window. The group kill relies on
@@ -639,7 +736,15 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         os.killpg(process.pid, signal.SIGKILL)
                     break
 
-            if deadline_exceeded and process.stdout:
+            if self._inbox_path and not inbox_request_ids:
+                # A session that asked and ended its own turn between two
+                # polls still asked: one last read after the loop.
+                inbox_seen_bytes, new_ids = new_requests_for_session(
+                    self._inbox_path, self._session_id, inbox_seen_bytes
+                )
+                inbox_request_ids.extend(new_ids)
+
+            if (deadline_exceeded or inbox_killed) and process.stdout:
                 # Collect anything the CLI flushed during the grace window so a
                 # terminated call still reports the cost it managed to emit.
                 for line in process.stdout:
@@ -696,6 +801,24 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 except json.JSONDecodeError:
                     continue
             
+            # The CLI's own session id, from the init event: the handle a
+            # later resume needs. A fresh session was told its id, so a
+            # different one is a wiring bug, not a fact to record.
+            cli_session_id = resume_session_id or self._session_id
+            for line in raw_lines:
+                if '"init"' not in line:
+                    continue
+                event = json.loads(line)
+                if event.get("type") == "system" and event.get("subtype") == "init":
+                    reported = event.get("session_id")
+                    if reported and cli_session_id and reported != cli_session_id:
+                        raise RuntimeError(
+                            f"Claude Code reports session {reported!r} but "
+                            f"this session is {cli_session_id!r}"
+                        )
+                    cli_session_id = reported or cli_session_id
+                    break
+
             # Use result-level tokens if available, else fall back to summed per-turn
             if input_tokens == 0 and cumulative_input > 0:
                 input_tokens = cumulative_input
@@ -715,6 +838,34 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 m in all_output for m in self._completion_markers
             )
 
+            if inbox_request_ids:
+                # The session asked the person and is done for now. Not a
+                # failure however the process ended (its own turn end, our
+                # grace kill, or the deadline in between): the node is
+                # suspended and the CLI keeps the transcript for the resume.
+                self._cumulative_cost += total_cost
+                return CodingResult(
+                    success=True,
+                    output="\n".join(assistant_texts),
+                    error=None,
+                    cost=total_cost,
+                    metadata={
+                        "model": model,
+                        "auth_mode": self._auth_mode,
+                        "elapsed_seconds": elapsed,
+                        "stopped_for_inbox": True,
+                        "inbox_request_ids": list(inbox_request_ids),
+                        "inbox_killed": inbox_killed,
+                        "session_id": self._session_id,
+                        "cli_session_id": cli_session_id,
+                        "tool_call_count": tool_call_count,
+                        "last_tool": last_tool,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "raw_log_lines": raw_lines,
+                    },
+                )
+
             if completed_reaped:
                 self._cumulative_cost += total_cost
                 return CodingResult(
@@ -726,6 +877,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "model": model,
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
+                        "cli_session_id": cli_session_id,
                         "completed_reaped": True,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
@@ -755,6 +907,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "model": model,
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
+                        "cli_session_id": cli_session_id,
                         "deadline_exceeded": True,
                         "completed_before_kill": completed_before_kill,
                         "tool_call_count": tool_call_count,
@@ -779,6 +932,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "model": model,
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
+                        "cli_session_id": cli_session_id,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
@@ -799,6 +953,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "model": model,
                     "planning_mode": self._planning_mode,
                     "elapsed_seconds": elapsed,
+                    "cli_session_id": cli_session_id,
                     "streaming": True,
                     "auth_mode": self._auth_mode,
                     "tool_call_count": tool_call_count,
@@ -946,7 +1101,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     # structurally rather than via config: no -p session can ever use it.
     PRINT_MODE_DEAD_TOOLS: List[str] = ["ScheduleWakeup"]
 
-    def _build_command(self, model: str, use_stream_json: bool = False) -> List[str]:
+    def _build_command(
+        self,
+        model: str,
+        use_stream_json: bool = False,
+        resume_session_id: Optional[str] = None,
+    ) -> List[str]:
         """Build the Claude Code CLI command.
 
         The prompt is deliberately NOT part of argv: it is piped via stdin.
@@ -960,6 +1120,13 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "-p",  # Non-interactive (print) mode; prompt arrives on stdin
             "--dangerously-skip-permissions",  # Auto-approve all tool calls
         ]
+        # A continuation resumes the stored session; a fresh session gets
+        # the id kapso minted, so the inbox record and a later resume never
+        # depend on parsing the stream.
+        if resume_session_id:
+            cmd.extend(["--resume", resume_session_id])
+        elif self._session_id:
+            cmd.extend(["--session-id", self._session_id])
         
         # Output format: stream-json for live visibility, text for buffered
         if use_stream_json:

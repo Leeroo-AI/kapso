@@ -142,6 +142,31 @@ class CodingAgentInterface(ABC):
         """
         pass
     
+    def resume(
+        self,
+        cli_session_id: str,
+        follow_up: str,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
+        """
+        Continue a finished session of this CLI with one more user message.
+
+        The inbox continuation (docs/research/evolve-hub-design.md v4):
+        a session that asked the person was stopped; once the person
+        replied, the same session is resumed with the reply as its next
+        turn, full context restored by the CLI's own transcript. Only the
+        CLI adapters implement it — the SDK-based ones never get the tool.
+
+        Args:
+            cli_session_id: What the CLI needs to find the session — the
+                Claude session id kapso minted, or the Codex thread id.
+            follow_up: The message the resumed session reads first.
+            timeout_seconds: Per-call deadline override, as generate_code.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot resume a finished session"
+        )
+
     @abstractmethod
     def cleanup(self) -> None:
         """

@@ -27,6 +27,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+from kapso.execution.inbox import new_requests_for_session
 from kapso.execution.coding_agents.base import (
     CodingAgentConfig,
     CodingAgentInterface,
@@ -35,6 +36,11 @@ from kapso.execution.coding_agents.base import (
 
 _DEADLINE_GRACE_SECONDS = 5.0
 _POLL_INTERVAL_SECONDS = 0.5
+# The first `--json` event names the thread; the stream is merged with
+# stderr, so the id is matched on the line rather than parsed as JSON.
+_THREAD_STARTED_PATTERN = re.compile(
+    r'"type"\s*:\s*"thread\.started".*?"thread_id"\s*:\s*"([^"]+)"'
+)
 _DEFAULT_TIMEOUT_SECONDS = 3600.0
 _STREAM_TAIL_CHARS = 2000
 
@@ -86,6 +92,15 @@ class CodexCodingAgent(CodingAgentInterface):
         env_defaults: env vars applied set-if-absent (ambient wins)
         stream_artifact_path: persist the transcript stream to this path
             (append mode — one session may span several calls)
+        session_id: the id kapso minted for the campaign inbox (the gate
+            files requests under it; the run loop stops the session when
+            one appears)
+        inbox_path: the campaign's inbox file to tail
+        inbox_stop_grace_seconds: how long the session gets to end its own
+            turn after asking, before it is ended (config
+            inbox.stop_grace_seconds)
+        capture_thread_id: pass --json and record the thread id from the
+            thread.started event — what `resume` needs
     """
 
     def __init__(self, config: CodingAgentConfig):
@@ -107,6 +122,20 @@ class CodexCodingAgent(CodingAgentInterface):
             str(k): str(v) for k, v in (spec.get("env_defaults") or {}).items()
         }
         self._stream_artifact_path: Optional[str] = spec.get("stream_artifact_path")
+        self._session_id: Optional[str] = spec.get("session_id")
+        self._inbox_path: Optional[str] = spec.get("inbox_path")
+        if self._inbox_path and not self._session_id:
+            raise ValueError("inbox_path requires session_id")
+        if self._inbox_path and "inbox_stop_grace_seconds" not in spec:
+            raise ValueError(
+                "inbox_path requires inbox_stop_grace_seconds "
+                "(config inbox.stop_grace_seconds)"
+            )
+        self._inbox_stop_grace_seconds: float = (
+            float(spec["inbox_stop_grace_seconds"]) if self._inbox_path else 0.0
+        )
+        self._capture_thread_id: bool = bool(spec.get("capture_thread_id", False))
+        self._thread_id: Optional[str] = None
         self._workspace: str = ""
         if not shutil.which("codex"):
             raise RuntimeError(
@@ -126,7 +155,55 @@ class CodexCodingAgent(CodingAgentInterface):
             raise RuntimeError("CodexCodingAgent used before initialize()")
         model = self.config.debug_model if debug_mode else self.config.model
         timeout = float(timeout_seconds) if timeout_seconds is not None else self._timeout
+        return self._run_session(model, [], prompt, timeout)
 
+    def resume(
+        self,
+        cli_session_id: str,
+        follow_up: str,
+        timeout_seconds: Optional[float] = None,
+    ) -> CodingResult:
+        """Continue a stored thread with one more user message (the inbox
+        continuation): `codex exec <options> resume <thread> -`, the
+        message on stdin. Exec options precede `resume` (verified on
+        codex-cli 0.144.1)."""
+        if not self._workspace:
+            raise RuntimeError("CodexCodingAgent used before initialize()")
+        timeout = float(timeout_seconds) if timeout_seconds is not None else self._timeout
+        return self._run_session(
+            self.config.model, ["resume", cli_session_id, "-"], follow_up, timeout
+        )
+
+    def _exec_command(self, model: str, last_message_path: str) -> List[str]:
+        """`codex [--search] exec <exec options>` — the shared head of a
+        fresh session and a resumed one."""
+        cmd = ["codex"]
+        if self._web_search:
+            cmd.append("--search")
+        cmd.extend(
+            [
+                "exec",
+                "--sandbox",
+                self._sandbox,
+                "--skip-git-repo-check",
+                "--color",
+                "never",
+                "--output-last-message",
+                last_message_path,
+                "-m",
+                model,
+            ]
+        )
+        if self._effort:
+            cmd.extend(["-c", f'model_reasoning_effort="{self._effort}"'])
+        cmd.extend(self._mcp_overrides)
+        if self._capture_thread_id:
+            cmd.append("--json")
+        return cmd
+
+    def _run_session(
+        self, model: str, tail: List[str], prompt: str, timeout: float
+    ) -> CodingResult:
         last_fd, last_path = tempfile.mkstemp(prefix="codex_agent_", suffix=".last")
         os.close(last_fd)
         if self._stream_artifact_path:
@@ -142,26 +219,7 @@ class CodexCodingAgent(CodingAgentInterface):
             stream_file = open(stream_path, "w")
             persist_stream = False
 
-        cmd = ["codex"]
-        if self._web_search:
-            cmd.append("--search")
-        cmd.extend(
-            [
-                "exec",
-                "--sandbox",
-                self._sandbox,
-                "--skip-git-repo-check",
-                "--color",
-                "never",
-                "--output-last-message",
-                last_path,
-                "-m",
-                model,
-            ]
-        )
-        if self._effort:
-            cmd.extend(["-c", f'model_reasoning_effort="{self._effort}"'])
-        cmd.extend(self._mcp_overrides)
+        cmd = self._exec_command(model, last_path) + tail
 
         env = os.environ.copy()
         # OPENAI_API_KEY passes through: the CLI's billing is pinned to the
@@ -194,10 +252,15 @@ class CodexCodingAgent(CodingAgentInterface):
         # Drain stdout continuously (a full pipe would deadlock the child):
         # every line lands in the stream artifact; streaming mode also tees
         # it to the console, matching the claude adapter's live transcript.
+        # With --json the first event names the thread, the resume handle.
         def _drain() -> None:
             for line in process.stdout:
                 stream_file.write(line)
                 stream_file.flush()
+                if self._capture_thread_id and self._thread_id is None:
+                    match = _THREAD_STARTED_PATTERN.search(line)
+                    if match:
+                        self._thread_id = match.group(1)
                 if self._streaming:
                     print(f"[codex] {line.rstrip()}", flush=True)
 
@@ -206,12 +269,42 @@ class CodexCodingAgent(CodingAgentInterface):
         process.stdin.write(prompt)
         process.stdin.close()
 
+        # The inbox stop (design v4 §4.2): a request filed for this session
+        # means the session is done for now; it gets the grace to end its
+        # own turn, then a PID-only SIGTERM like the deadline's.
         deadline = started + timeout
+        inbox_seen_bytes = 0
+        inbox_request_ids: List[int] = []
+        inbox_stop_at: Optional[float] = None
+        inbox_killed = False
         while process.poll() is None and time.monotonic() < deadline:
+            if self._inbox_path and inbox_stop_at is None:
+                inbox_seen_bytes, new_ids = new_requests_for_session(
+                    self._inbox_path, self._session_id, inbox_seen_bytes
+                )
+                if new_ids:
+                    inbox_request_ids.extend(new_ids)
+                    inbox_stop_at = time.monotonic() + self._inbox_stop_grace_seconds
+                    print(
+                        "[codex] session asked the person (requests "
+                        f"{', '.join(f'#{i}' for i in new_ids)}) — ending it after "
+                        f"{self._inbox_stop_grace_seconds:.0f}s unless it ends itself",
+                        flush=True,
+                    )
+            if inbox_stop_at is not None and time.monotonic() >= inbox_stop_at:
+                inbox_killed = True
+                break
             time.sleep(_POLL_INTERVAL_SECONDS)
+        if self._inbox_path and not inbox_request_ids:
+            # A session that asked and ended its own turn before the first
+            # poll still asked: one last read after the loop.
+            inbox_seen_bytes, new_ids = new_requests_for_session(
+                self._inbox_path, self._session_id, inbox_seen_bytes
+            )
+            inbox_request_ids.extend(new_ids)
 
-        timed_out = process.poll() is None
-        if timed_out:
+        timed_out = process.poll() is None and not inbox_killed
+        if process.poll() is None:
             # PID only — children (e.g. a running registered evaluation)
             # survive for the strategy-level teardown guard.
             os.kill(process.pid, signal.SIGTERM)
@@ -235,7 +328,12 @@ class CodexCodingAgent(CodingAgentInterface):
 
         output = last_message if last_message else stream
         error: Optional[str] = None
-        if timed_out:
+        if inbox_request_ids:
+            # Asked the person and stopped — not a failure however the
+            # process ended; the node is suspended and the thread keeps
+            # its context for the resume.
+            error = None
+        elif timed_out:
             error = f"Codex CLI killed by its deadline after {elapsed:.0f}s"
         elif process.returncode != 0:
             error = (
@@ -257,6 +355,11 @@ class CodexCodingAgent(CodingAgentInterface):
                 "elapsed_seconds": elapsed,
                 "returncode": process.returncode,
                 "stream_path": stream_path if persist_stream else None,
+                "stopped_for_inbox": bool(inbox_request_ids),
+                "inbox_request_ids": list(inbox_request_ids),
+                "inbox_killed": inbox_killed,
+                "session_id": self._session_id,
+                "cli_session_id": self._thread_id,
             },
         )
 
