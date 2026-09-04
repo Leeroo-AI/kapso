@@ -93,7 +93,7 @@ its events; nothing is ever rewritten.
 
 | Event | Written by | Carries |
 |---|---|---|
-| `requested` | the session, through the tool | `id`, `key`, `for`, `hit`, `fix`, `next_steps`, `node`, `session`; when the same key was requested before, `previous_reply` |
+| `requested` | the session, through the tool | `id`, `key`, `for`, `hit`, `tried`, `fix`, `next_steps`, `node`, `session`; when the same key was requested before, `previous_reply` |
 | `replied` | `kapso inbox reply` | `id`, `note` |
 | `continued` | the orchestrator, when the session was resumed | `id`, `node`, `session` |
 
@@ -102,7 +102,8 @@ its events; nothing is ever rewritten.
 | `id` | campaign-local integer, the only handle the person uses |
 | `key` | what is needed, as the coder names it: `env:OPENAI_API_KEY`, `data/transactions-2019.csv`, `tool:docker`, `access:hf:meta-llama/…` |
 | `for` | the idea in one line, so the person knows what their minutes buy |
-| `hit` | the concrete error the session ran into |
+| `hit` | the exact error from the session's smallest reproduction of the failure |
+| `tried` | what the session ruled out and tried before asking — other variable names, config files, paths, packages, retries, alternative routes; the person judges from this whether the request is real |
 | `fix` | what the person does — free text, copy-pasteable where it can be: a line for `.env`, a licence URL plus a login command, a path to drop a file at, an install command |
 | `next_steps` | what the session would have done next, in its own words; fed back to it at the continuation |
 | `node`, `session` | the experiment node and the CLI session id, so the continuation knows what to resume |
@@ -111,7 +112,7 @@ States, from the fold: **open** (requested, no reply), **answered**
 (replied), **continued**. No request ever carries a value.
 
 ```jsonl
-{"ts":"2026-09-04T09:12:31Z","event":"requested","id":1,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000","key":"env:OPENAI_API_KEY","for":"node 3 · re-rank candidates with text-embedding-3-large","hit":"openai.AuthenticationError at the embedding step — no key in the environment","fix":"add OPENAI_API_KEY=sk-... to /home/me/churn/.env","next_steps":"embed the candidate texts with text-embedding-3-large, re-rank, run kapso_evaluation/evaluate.py"}
+{"ts":"2026-09-04T09:12:31Z","event":"requested","id":1,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000","key":"env:OPENAI_API_KEY","for":"node 3 · re-rank candidates with text-embedding-3-large","hit":"openai.AuthenticationError at the embedding step — no key in the environment","tried":"OPENAI_KEY / OPENAI_API_TOKEN unset too; no .env or config in the repo; README says export OPENAI_API_KEY; two retries","fix":"add OPENAI_API_KEY=sk-... to /home/me/churn/.env","next_steps":"embed the candidate texts with text-embedding-3-large, re-rank, run kapso_evaluation/evaluate.py"}
 {"ts":"2026-09-04T11:41:15Z","event":"replied","id":1,"note":"added the key"}
 {"ts":"2026-09-04T11:41:16Z","event":"continued","id":1,"node":3,"session":"550e8400-e29b-41d4-a716-446655440000"}
 ```
@@ -250,10 +251,11 @@ $ kapso inbox
 ./campaign  churn model  waiting 2h
 
   #1  OPENAI_API_KEY
-      for   node 3 · re-rank candidates with text-embedding-3-large
-      hit   openai.AuthenticationError at the embedding step — no key in the environment
-      fix   add OPENAI_API_KEY=sk-... to /home/me/churn/.env
-      next  embed the candidate texts, re-rank, run kapso_evaluation/evaluate.py
+      for    node 3 · re-rank candidates with text-embedding-3-large
+      hit    openai.AuthenticationError at the embedding step — no key in the environment
+      tried  OPENAI_KEY / OPENAI_API_TOKEN unset too; no .env or config in the repo; README says export OPENAI_API_KEY; two retries
+      fix    add OPENAI_API_KEY=sk-... to /home/me/churn/.env
+      next   embed the candidate texts, re-rank, run kapso_evaluation/evaluate.py
 
   reply with   kapso inbox reply 1 "…"
 
@@ -275,7 +277,7 @@ never a value. The fix says where a value goes.
 
 | Surface | Shows or does |
 |---|---|
-| terminal at the pause | the requests (`#id` / for / hit / fix / next), then `reply with kapso inbox reply <id> "…"` and `any time kapso inbox`; the summary block says `WAITING ON YOU` |
+| terminal at the pause | the requests (`#id` / for / hit / tried / fix / next), then `reply with kapso inbox reply <id> "…"` and `any time kapso inbox`; the summary block says `WAITING ON YOU` |
 | `kapso inbox` | the two commands above |
 | `kapso watch` | `WAITING ON YOU · 1 request` on the done state, readable after the process is gone; `--json` for scripts |
 | `on_status` | fires once at the pause with `stopped_reason: "waiting_for_user"` and the open requests |
@@ -290,6 +292,11 @@ never a value. The fix says where a value goes.
   key is dropped and mentioned in the report.
 - Never stub, mock, fabricate the resource, or search the machine for
   credentials. Asking must be the cheaper path.
+- Prove it before you ask: reproduce the failure with the smallest
+  command, rule out every cause you can fix yourself, read how the
+  resource is normally obtained here, retry if it could be transient,
+  try routes that need no person. A request says what was tried; the
+  person judges from it.
 - Ask for everything you need in one call, with the next steps; do
   nothing after it. The session is being stopped and its working tree
   committed.
@@ -467,12 +474,30 @@ For these — and only these — use the `request_from_user` tool.
   (random embeddings, canned API responses), hard-code a placeholder that
   lets the evaluation pass, or search this machine for credentials.
   Asking is always the cheaper path; a faked result is worse than none.
+- **Prove it before you ask.** A request rests on evidence, never on a
+  guess. A missing variable name, an assumption from the docs, or a
+  single failed call is not a blocker. Before calling:
+  1. reproduce the failure with the smallest command that shows it, and
+     keep the exact error;
+  2. rule out causes you can fix yourself — the variable under another
+     name, a config or `.env` file the repo expects you to load, a wrong
+     path, a missing package, a typo in a model id, a stale cache, a
+     wrong region or endpoint;
+  3. read the repo's README, docs and repo memory for how this resource
+     is normally obtained here;
+  4. if it could be transient, retry with backoff;
+  5. try any route that needs no person and stays within the <solution>'s
+     intent (a public mirror, the same asset from another host).
+  Only when the smallest reproduction still fails after all of that is it
+  a blocker, and you say so with high confidence, not "it seems".
 - **One call, everything you need.** Before calling, list every blocker
   you can already see and put them all in ONE call. Each request carries
   `key` (what is needed: `env:OPENAI_API_KEY`,
   `access:hf:meta-llama/Llama-3.1-8B-Instruct`,
   `data/transactions-2019.csv`, `tool:docker`), `hit` (the exact error
-  or symptom you saw), `fix` (what the person should do, copy-pasteable:
+  from your smallest reproduction), `tried` (what you ruled out and
+  tried, from the list above — the person judges from this whether the
+  request is real), `fix` (what the person should do, copy-pasteable:
   the line to add to `.env`, the URL to accept terms at plus the login
   command, the path to drop the file at), and `next_steps` (what you
   will do once it is met, in your own words — you will be resumed with
@@ -514,9 +539,12 @@ Tool(
         "a file, credits — when the solution cannot be implemented without "
         "it. Calling this STOPS your session: the campaign pauses until the "
         "person replies, then this same session is resumed with their "
-        "reply. Put every blocker you can see into one call. Never use it "
-        "for things you can do yourself (installs, downloads, retries, "
-        "design choices), and never fake the resource instead of asking."
+        "reply. Call it only after you have reproduced the failure with the "
+        "smallest command that shows it and ruled out every cause you could "
+        "fix yourself; say what you tried. Put every blocker you can see "
+        "into one call. Never use it for things you can do yourself "
+        "(installs, downloads, retries, design choices), and never fake the "
+        "resource instead of asking."
     ),
     inputSchema={
         "type": "object",
@@ -538,7 +566,18 @@ Tool(
                         },
                         "hit": {
                             "type": "string",
-                            "description": "The exact error or symptom you saw",
+                            "description": (
+                                "The exact error from your smallest reproduction "
+                                "of the failure"
+                            ),
+                        },
+                        "tried": {
+                            "type": "string",
+                            "description": (
+                                "What you ruled out and tried before asking: "
+                                "other variable names, config files, paths, "
+                                "packages, retries, alternative routes"
+                            ),
                         },
                         "fix": {
                             "type": "string",
@@ -556,7 +595,7 @@ Tool(
                             ),
                         },
                     },
-                    "required": ["key", "hit", "fix", "next_steps"],
+                    "required": ["key", "hit", "tried", "fix", "next_steps"],
                 },
             }
         },
@@ -582,6 +621,10 @@ Your session was stopped while waiting on the person running this
 campaign. They have replied.
 
 Request #1 — env:OPENAI_API_KEY
+  you saw: openai.AuthenticationError at the embedding step — no key in
+    the environment
+  you tried: OPENAI_KEY / OPENAI_API_TOKEN unset too; no .env or config
+    in the repo; README says "export OPENAI_API_KEY"; two retries
   you asked them to: add OPENAI_API_KEY=sk-... to /home/me/churn/.env
   their reply: "added the key"
 
