@@ -51,6 +51,8 @@
 
 KAPSO builds software for goals you can measure.
 
+Kapso is an open-source Python framework by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/). It is unrelated to the WhatsApp developer platform that shares the name.
+
 Give it a goal. It runs **experiment campaigns**: designing candidates, implementing them, scoring each one, and refining the best. Every claim of progress is a score, and the winner ships to your infrastructure.
 
 The factory is **self-improving** because it learns from its own work. Finished campaigns become evidence-priced lessons. It also learns from public knowledge, including repos and papers. Everything compounds in one knowledge hub, so each campaign starts where the last one left off.
@@ -298,6 +300,11 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
   - [Python API](https://docs.leeroo.com/docs/reference/kapso-api) — every public method on `Kapso`
   - [Configuration](https://docs.leeroo.com/docs/reference/configuration) — every key in `config.yaml`
   - [Trajectory learning](https://docs.leeroo.com/docs/learning/overview) — the lesson bank, grading and serving
+- **From your coding agent**: the docs run an MCP server at `https://docs.leeroo.com/mcp`, and every page is served as Markdown — see [llms.txt](https://docs.leeroo.com/llms.txt) and [Docs in your coding agent](https://docs.leeroo.com/docs/agent-access).
+  ```bash
+  claude mcp add --transport http kapso-docs https://docs.leeroo.com/mcp   # Claude Code
+  codex mcp add kapso-docs --url https://docs.leeroo.com/mcp              # Codex CLI
+  ```
 - **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
 - **Website**: [leeroo.com](https://leeroo.com)
 

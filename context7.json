@@ -1,0 +1,13 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Kapso by Leeroo",
+  "description": "Open-source framework that builds software toward measurable goals by running experiment campaigns with coding agents; learns from finished campaigns and from repositories and papers. pip install leeroo-kapso.",
+  "folders": ["docs"],
+  "excludeFolders": ["docs/plans", "docs/research", "docs/images"],
+  "excludeFiles": ["docs/README.md"],
+  "rules": [
+    "Kapso here is the Leeroo ML/AI framework (PyPI: leeroo-kapso, GitHub: Leeroo-AI/kapso), not the WhatsApp platform of the same name.",
+    "Install with `pip install leeroo-kapso`; the coding-agent CLIs (Claude Code or Codex) must be installed and logged in.",
+    "Prefer the CLI and configuration reference pages for exact flag and key names."
+  ]
+}
