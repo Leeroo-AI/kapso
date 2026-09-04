@@ -68,4 +68,6 @@ For these — and only these — use the `request_from_user` tool.
 - **Transient is not a blocker.** Rate limits, timeouts and flaky
   networks are retried with backoff inside your session. Authentication,
   authorization and billing errors are blockers.
-- **Where values go.** {{where_values_go}}
+- **Where values go.** {{where_values_go}} Never print a secret's value —
+  not in a command, an evaluation output or your report: check it by its
+  length or by using it.

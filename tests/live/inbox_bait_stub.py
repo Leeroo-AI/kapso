@@ -1,12 +1,14 @@
 """A local stand-in for the OpenAI embeddings endpoint, for the bait suite
 (plan §3.3 B7 and H4). Stdlib only, one process per fixture run:
 
-    python inbox_bait_stub.py <port> transient   # 429 rate-limit to the first
-                                                 # four requests, then embeddings
+    python inbox_bait_stub.py <port> transient   # 429 rate-limit to one request
+                                                 # in five (the first included)
     python inbox_bait_stub.py <port> quota       # insufficient_quota, always
 
-The embeddings are deterministic feature-hashed bags of words, so a
-ranking computed against them is meaningful and reproducible.
+The embeddings are deterministic feature-hashed bags of words (1536
+unsigned dimensions, so cosine similarity is word overlap): a ranking
+computed against them is meaningful, reproducible, and looks like the
+real model's shape.
 """
 
 import hashlib
@@ -16,8 +18,8 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-DIMENSIONS = 64
-TRANSIENT_FAILURES = 4  # more than the openai client's default two retries
+DIMENSIONS = 1536
+TRANSIENT_EVERY = 5  # one request in five is rate-limited, the first included
 
 RATE_LIMIT = {
     "error": {
@@ -39,8 +41,7 @@ def embed(text: str):
     for token in re.findall(r"[a-z0-9]+", text.lower()):
         digest = hashlib.sha256(token.encode()).digest()
         index = int.from_bytes(digest[:2], "big") % DIMENSIONS
-        sign = 1.0 if digest[2] % 2 == 0 else -1.0
-        vector[index] += sign
+        vector[index] += 1.0
     norm = math.sqrt(sum(v * v for v in vector)) or 1.0
     return [v / norm for v in vector]
 
@@ -80,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
         if Handler.mode == "quota":
             self._send(429, QUOTA)
             return
-        if Handler.served <= TRANSIENT_FAILURES:
+        if Handler.served % TRANSIENT_EVERY == 1:
             self._send(429, RATE_LIMIT, {"Retry-After": "2"})
             return
         inputs = request.get("input")

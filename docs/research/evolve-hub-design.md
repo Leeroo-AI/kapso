@@ -692,6 +692,11 @@ final tags is never read. The one way to ask for something is the
 Final Checklist's item about returning the XML tags gains "— unless you
 called `request_from_user`, in which case return nothing".
 
+The section ends with **Where values go** (added after the live runs,
+2026-09-04): the campaign's `.env` by path when the launch found one —
+or the file to create — never the session folder; and never print a
+secret's value, not in a command, an evaluation output or the report.
+
 ### A.2 The tool as the agent sees it
 
 ```python

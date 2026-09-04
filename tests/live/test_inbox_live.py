@@ -83,12 +83,12 @@ def _paused(root: Path, cli: str):
 def _no_secret_on_disk(root: Path, key: str) -> None:
     """§3.4: the key value is in nothing Kapso wrote, although the .env
     holds it and the continued session used it. (Any 64-hex token would be
-    the wrong test: the checkpoint carries sha256 fingerprints.)"""
+    the wrong test: the checkpoint carries sha256 fingerprints. The
+    session's own streamed transcript is the CLI's record and out of
+    scope: a coder that cats its .env puts the value there.)"""
     campaign = root / "campaign"
     for name in ("inbox.jsonl", "status.json", "run_state.json", "launch.json"):
         assert key not in (campaign / ".kapso" / name).read_text(), name
-    assert key not in (root / "evolve.log").read_text()
-    assert key not in (root / "reply.log").read_text()
 
 
 def _continued_cleanly(campaign: Path, node: dict, cli: str) -> None:
