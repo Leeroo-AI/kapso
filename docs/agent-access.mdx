@@ -1,0 +1,72 @@
+---
+title: "Use the Kapso docs from Claude Code, Codex and Cursor"
+sidebarTitle: "Docs in your coding agent"
+description: "Connect the Kapso documentation to your coding agent through its MCP server, or read any page as plain Markdown. One command for Claude Code, one for Codex, one snippet for Cursor."
+keywords: ["Kapso MCP", "Kapso documentation", "Claude Code", "Codex CLI", "Cursor", "llms.txt", "coding agent docs"]
+---
+
+This documentation is built for two readers: people and the coding agents they work with. An agent that can query these pages while it writes code against Kapso gets the current CLI flags, configuration keys and API signatures instead of a guess from training data. There are two ways to give it access: the docs MCP server, and plain Markdown.
+
+## Add the docs MCP server
+
+The site runs a Model Context Protocol server at `https://docs.leeroo.com/mcp`. It exposes search and retrieval over every published page, so an agent can look up "how do I set the evaluation directory" and quote the [configuration reference](/docs/reference/configuration) rather than invent a key.
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add --transport http kapso-docs https://docs.leeroo.com/mcp
+    ```
+    Then, in a session, ask about Kapso as you normally would. Claude Code calls the server when a question needs the docs.
+  </Tab>
+  <Tab title="Codex CLI">
+    ```bash
+    codex mcp add kapso-docs --url https://docs.leeroo.com/mcp
+    ```
+    The entry lands in `~/.codex/config.toml` and is shared by the Codex CLI and IDE extension.
+  </Tab>
+  <Tab title="Cursor">
+    Add the server to `~/.cursor/mcp.json` (or the project's `.cursor/mcp.json`):
+    ```json
+    {
+      "mcpServers": {
+        "kapso-docs": { "url": "https://docs.leeroo.com/mcp" }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+The server is read-only and needs no key. It answers from the same content you see here, so the [CLI reference](/docs/reference/cli) and [Python API](/docs/reference/kapso-api) an agent quotes match the release you installed.
+
+## Read any page as Markdown
+
+Every page is also served as plain Markdown, which is the form agents fetch on their own:
+
+- `https://docs.leeroo.com/llms.txt` lists every page with its title and description.
+- `https://docs.leeroo.com/llms-full.txt` holds the full text of the whole site in one file.
+- Append `.md` to any page URL, or send `Accept: text/markdown`, to get that page alone.
+
+```bash
+curl -s https://docs.leeroo.com/docs/quickstart.md | head
+```
+
+Paste a page URL into a session and the agent reads the Markdown, not the rendered HTML.
+
+## Kapso and coding agents, the other way round
+
+Kapso itself drives Claude Code and Codex as the engine that implements each experiment inside a campaign. That is a different topic: see [coding agents in Kapso](/docs/evolve/coding-agents) for how those sessions are launched, sandboxed and scored.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/docs/quickstart">
+    Your first campaign in under ten minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/docs/installation">
+    The package, the coding-agent CLIs, and `kapso doctor`
+  </Card>
+</CardGroup>
+
+Related pages: [Quickstart](/docs/quickstart) · [Installation](/docs/installation) · [What is Kapso](/docs)
+
+Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).
