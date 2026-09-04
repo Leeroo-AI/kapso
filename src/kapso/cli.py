@@ -20,12 +20,14 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -36,7 +38,9 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(usecwd=True))
 
 from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH
-from kapso.core.config import load_config
+from kapso.core.config import load_config, load_mode_config
+from kapso.execution.inbox import list_registered_campaigns, render_requests
+from kapso.execution.run_checkpoint import RunCheckpointStore
 from kapso.core.preflight import (
     VERBS,
     configured_bank_home,
@@ -104,8 +108,26 @@ def cmd_evolve(args) -> None:
         resume=args.resume,
     )
     
-    # Print summary
+    _print_evolve_summary(solution)
+
+
+def _print_evolve_summary(solution) -> None:
+    """The block after a campaign: COMPLETED, or WAITING ON YOU when it
+    paused for a reply in the inbox (design v4 §4.6). A pause is not a
+    failure: the exit code stays 0."""
     print("\n" + "=" * 60)
+    if solution.metadata.get("stopped_reason") == "waiting_for_user":
+        campaign = solution.code_path
+        requests = solution.requests
+        target = f" {requests[0]['id']}" if len(requests) > 1 else ""
+        print("WAITING ON YOU")
+        print("=" * 60)
+        print(f"Solution so far: {campaign}")
+        if solution.final_score is not None:
+            print(f"Best score so far: {solution.final_score}")
+        print(f'Reply with:  kapso inbox reply{target} "…"   (inside {campaign})')
+        print(f"Any time:    kapso inbox {campaign}")
+        return
     print("COMPLETED")
     print("=" * 60)
     print(f"Solution: {solution.code_path}")
@@ -114,6 +136,141 @@ def cmd_evolve(args) -> None:
         print(f"Final score: {solution.final_score}")
     print(f"Cost: {solution.metadata.get('cost', 'N/A')}")
     print(f"Stopped reason: {solution.metadata.get('stopped_reason', 'N/A')}")
+
+
+# =============================================================================
+# INBOX (docs/research/evolve-hub-design.md v4 §4.6)
+# =============================================================================
+
+# A reply that looks like a credential. Replies are stored in plain text
+# and handed to the coder as text, so the value belongs in the file the
+# fix names, never here. Shapes of common tokens — structural, not knobs.
+_SECRET_SHAPES = (
+    re.compile(r"sk-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"hf_[A-Za-z0-9]{16,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
+    re.compile(r"xox[abp]-[A-Za-z0-9-]{20,}"),
+)
+
+
+def _looks_like_a_secret(note: str) -> bool:
+    return any(shape.search(note) for shape in _SECRET_SHAPES)
+
+
+def _campaign_here(start: Path) -> Optional[Path]:
+    """The nearest ancestor of `start` that is a campaign directory."""
+    for candidate in (start, *start.parents):
+        if (candidate / ".kapso" / "run_state.json").is_file():
+            return candidate
+    return None
+
+
+def _inbox_campaign(explicit: Optional[str]) -> Optional[Path]:
+    """The campaign a `kapso inbox` invocation means: the named directory,
+    else the campaign the cwd is inside, else None."""
+    if explicit is not None:
+        path = Path(explicit).expanduser()
+        if not path.is_dir():
+            raise FileNotFoundError(f"{explicit} is not a directory")
+        return path.resolve()
+    return _campaign_here(Path.cwd().resolve())
+
+
+def _campaign_goal(campaign: Path) -> str:
+    store = RunCheckpointStore(str(campaign))
+    if not store.exists():
+        return ""
+    goal = store.load().goal.strip()
+    return goal.splitlines()[0] if goal else ""
+
+
+def _waiting_since(requests) -> str:
+    newest = max(request.requested_at for request in requests)
+    seconds = (datetime.now(timezone.utc) - datetime.fromisoformat(newest)).total_seconds()
+    if seconds < 3600:
+        return f"{max(1, int(seconds // 60))}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    return f"{int(seconds // 86400)}d"
+
+
+def _render_campaign_inbox(campaign: Path) -> str:
+    requests = Kapso.inbox(str(campaign))
+    if not requests:
+        return f"Nothing waiting on you in {campaign}."
+    label = f"  waiting {_waiting_since(requests)}"
+    if len(requests) > 1:
+        label += f" · {len(requests)} requests"
+    goal = _campaign_goal(campaign)
+    header = f"{campaign}  {goal}{label}" if goal else f"{campaign}{label}"
+    target = f" {requests[0].id}" if len(requests) > 1 else ""
+    return "\n".join([
+        header,
+        "",
+        render_requests(requests, Kapso.inbox_ideas(str(campaign))),
+        "",
+        f'  reply with   kapso inbox reply{target} "…"',
+    ])
+
+
+def cmd_inbox(args) -> None:
+    """`kapso inbox [CAMPAIGN]` — what is waiting on you; `kapso inbox
+    reply [CAMPAIGN] [ID] [NOTE]` — answer it, and the campaign resumes."""
+    words = list(args.words)
+    if words and words[0] == "reply":
+        cmd_inbox_reply(words[1:], yes=args.yes)
+        return
+    if len(words) > 1:
+        print("Error: kapso inbox takes at most a campaign directory")
+        sys.exit(1)
+    campaign = _inbox_campaign(words[0] if words else None)
+    if campaign is not None:
+        print(_render_campaign_inbox(campaign))
+        return
+    registry = load_mode_config(args.config or DEFAULT_CONFIG_PATH)["inbox"]["registry"]
+    waiting = [
+        Path(entry["path"])
+        for entry in list_registered_campaigns(registry)
+        if Kapso.inbox(entry["path"])
+    ]
+    if not waiting:
+        print("Nothing waiting on you.")
+        return
+    print("\n\n".join(_render_campaign_inbox(campaign) for campaign in waiting))
+
+
+def cmd_inbox_reply(words, *, yes: bool) -> None:
+    """Answer one request; the campaign resumes here when it can. The id
+    may be left out when one request is open; an empty note means done."""
+    words = list(words)
+    explicit = None
+    if words and not words[0].isdigit() and Path(words[0]).expanduser().is_dir():
+        explicit = words.pop(0)
+    campaign = _inbox_campaign(explicit)
+    if campaign is None:
+        print("Error: not inside a campaign — name it: kapso inbox reply <campaign> [id] [note]")
+        sys.exit(1)
+    if words and words[0].isdigit():
+        request_id = int(words.pop(0))
+    else:
+        open_requests = Kapso.inbox(str(campaign))
+        if len(open_requests) != 1:
+            print("Error: which request? kapso inbox reply <id> [note]")
+            sys.exit(1)
+        request_id = open_requests[0].id
+    note = " ".join(words)
+    if _looks_like_a_secret(note) and not yes:
+        print(
+            "This reply looks like a credential. Replies are stored in plain "
+            "text and handed to the coder as text; put the value where the "
+            "fix says (usually the .env the run loaded) and reply with a note "
+            "instead. To store it anyway, add --yes at the end."
+        )
+        sys.exit(1)
+    solution = Kapso.reply(str(campaign), request_id, note)
+    if solution is not None:
+        _print_evolve_summary(solution)
 
 
 def cmd_research(args) -> None:
@@ -587,6 +744,7 @@ Commands:
   deploy     Deploy solutions as running software
   index_kg   Index knowledge graph from wiki or JSON data
   watch      Watch a running evolve / learn / learn_knowledge operation
+  inbox      What evolve is waiting on you for, and how to answer it
   doctor     Check this machine is ready to run Kapso
 
 Examples:
@@ -882,6 +1040,41 @@ Examples:
     )
 
     # =========================================================================
+    # INBOX command (docs/research/evolve-hub-design.md v4 §4.6)
+    # =========================================================================
+    inbox_parser = subparsers.add_parser(
+        "inbox",
+        help="What evolve is waiting on you for, and how to answer it",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "A session that needs something only a person can provide asks "
+            "through the inbox and the campaign pauses. `kapso inbox` shows "
+            "what is waiting; `kapso inbox reply` answers one request and "
+            "resumes the campaign here, continuing the session that asked."
+        ),
+        epilog="""
+Examples:
+  kapso inbox                              # every campaign waiting on you (this one, inside a campaign)
+  kapso inbox ./campaign                   # this campaign's requests
+  kapso inbox reply 1 "added the key"      # answer request 1 here; the campaign resumes
+  kapso inbox reply "added the key"        # the id may be left out when one request is open
+  kapso inbox reply ./campaign 1           # answer from elsewhere; an empty note means done
+""",
+    )
+    inbox_parser.add_argument(
+        "words", nargs="*",
+        help="[CAMPAIGN]  or  reply [CAMPAIGN] [ID] [NOTE]",
+    )
+    inbox_parser.add_argument(
+        "--yes", action="store_true",
+        help="Store a reply that looks like a credential anyway",
+    )
+    inbox_parser.add_argument(
+        "--config", type=str, default=None,
+        help="Config whose inbox.registry lists the campaigns (default: packaged config.yaml)",
+    )
+
+    # =========================================================================
     # BANK command (lesson-bank sharing)
     # =========================================================================
     bank_parser = subparsers.add_parser(
@@ -979,13 +1172,15 @@ Examples:
         cmd_index_kg(args)
     elif args.command == "watch":
         cmd_watch(args)
+    elif args.command == "inbox":
+        cmd_inbox(args)
     elif args.command == "bank":
         cmd_bank(args)
     elif args.command == "doctor":
         cmd_doctor(args)
     else:
         parser.print_help()
-        print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg, watch, bank, doctor)")
+        print("\nError: Please specify a command (evolve, research, learn, deploy, index_kg, watch, inbox, bank, doctor)")
         sys.exit(1)
 
 
