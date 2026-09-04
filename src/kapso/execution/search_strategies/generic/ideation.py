@@ -887,11 +887,12 @@ def build_ideation_prompt(
     *,
     budget_status: str,
     shared_artifacts_brief: str,
-    inbox_answered: str = "",
+    inbox_ideation: str = "",
 ) -> str:
-    """Build the ideation prompt for Claude Code. ``inbox_answered`` is
-    the rendered block about requests the person already answered (empty
-    keeps the prompt byte-identical to before the inbox)."""
+    """Build the ideation prompt for Claude Code. ``inbox_ideation`` is
+    the rendered inbox block — the rule against designing around a
+    person-only gap and what the person already answered (empty keeps
+    the prompt byte-identical to before the inbox)."""
     # Load and render the prompt template
     template = load_prompt("execution/search_strategies/generic/prompts/ideation_claude_code.md")
     return render_prompt(
@@ -901,7 +902,7 @@ def build_ideation_prompt(
             "repo_memory_brief": repo_memory_brief or "(No repo memory available)",
             "budget_status": budget_status,
             "shared_artifacts_brief": shared_artifacts_brief,
-            "inbox_answered": inbox_answered,
+            "inbox_ideation": inbox_ideation,
         },
     )
 

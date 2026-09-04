@@ -19,7 +19,7 @@ from kapso.execution.search_strategies.generic.implementation import (
     CLOSING_LINE_WITHOUT_INBOX,
     build_implementation_prompt,
     render_follow_up,
-    render_inbox_answered,
+    render_inbox_ideation,
     render_inbox_section,
     render_inbox_state,
 )
@@ -95,16 +95,19 @@ def test_follow_up_carries_every_reply_and_the_next_steps():
         render_follow_up([])
 
 
-def test_ideation_prompt_lists_answered_requests_only_when_there_are_any():
+def test_ideation_prompt_carries_the_rule_and_the_answered_requests():
     off = build_ideation_prompt("goal", "brief", budget_status="b", shared_artifacts_brief="none")
-    assert "{{" not in off and "answered about resources" not in off
-    assert render_inbox_answered({1: request(1, "env:X")}) == ""
-    block = render_inbox_answered({
+    assert "{{" not in off and "only a person can provide" not in off
+    rule_only = render_inbox_ideation({1: request(1, "env:X")})
+    assert "### Things only a person can provide" in rule_only
+    assert "Needs from the person:" in rule_only and "already answered" not in rule_only
+    block = render_inbox_ideation({
         1: request(1, "env:X", reply="not available, use bge-large"),
         2: request(2, "data/y.csv", reply=""),
     })
-    on = build_ideation_prompt("goal", "brief", budget_status="b", shared_artifacts_brief="none", inbox_answered=block)
-    assert "### What the person has already answered about resources" in on
+    on = build_ideation_prompt("goal", "brief", budget_status="b", shared_artifacts_brief="none", inbox_ideation=block)
+    assert "### Things only a person can provide" in on
+    assert "What the person has already answered about resources:" in on
     assert "- env:X: 'not available, use bge-large'" in on
     assert "- data/y.csv: provided" in on
     assert "{{" not in on

@@ -59,7 +59,7 @@ from kapso.execution.search_strategies.generic.implementation import (
     build_implementation_prompt,
     ensure_technical_difficulties,
     render_follow_up,
-    render_inbox_answered,
+    render_inbox_ideation,
     run_implementation,
 )
 from kapso.execution.inbox import (
@@ -974,16 +974,17 @@ class GenericSearch(SearchStrategy):
             repo_memory_brief,
             budget_status=self._render_budget_status(),
             shared_artifacts_brief=self.shared_artifacts_brief,
-            inbox_answered=self._render_inbox_answered(),
+            inbox_ideation=self._render_inbox_ideation(),
         )
 
-    def _render_inbox_answered(self) -> str:
-        """What the person already answered, for ideation (empty with the
-        inbox off or nothing answered)."""
+    def _render_inbox_ideation(self) -> str:
+        """The inbox block for ideation: the rule against designing around
+        a person-only gap, and what the person already answered (empty
+        with the inbox off)."""
         settings = getattr(self, "inbox_settings", None)
         if not settings or not settings.get("enabled"):
             return ""
-        return render_inbox_answered(load_requests(settings["path"]))
+        return render_inbox_ideation(load_requests(settings["path"]))
 
     def waiting_requests(self) -> List[Request]:
         """Open requests of the nodes that asked the person (design v4):

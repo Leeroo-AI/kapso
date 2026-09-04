@@ -294,6 +294,13 @@ never a value. The fix says where a value goes.
   public data, retrying a rate limit are the session's own job.
 - A request is load-bearing or it is not made: W&B logging without a
   key is dropped and mentioned in the report.
+- The idea does not get to plan around a person-only gap. Ideation is
+  told the same (§A.5): specify the candidate as if the resource will
+  be provided and name the dependency (`Needs from the person:`); an
+  idea that plans an "honest zero" or a placeholder is not the goal,
+  and the implementer asks instead of following it. (Finding L1-1,
+  2026-09-04: the first live run's idea designed around the missing
+  key and the implementer delivered a 0.0 without asking.)
 - Never stub, mock, fabricate the resource, or search the machine for
   credentials. Asking must be the cheaper path.
 - Prove it before you ask: reproduce the failure with the smallest
@@ -621,6 +628,12 @@ For these — and only these — use the `request_from_user` tool.
   as specified without it. A missing key for optional logging or
   telemetry is dropped and mentioned in `technical_difficulties`, not
   requested.
+- **The idea does not get to plan around it.** If the <solution> works
+  around a missing person-only resource — an "honest zero", a
+  placeholder result, a partial deliverable that skips the part needing
+  it — that workaround is not the goal. The goal needs the resource: ask
+  for it and stop; you will be resumed with it. A `Needs from the
+  person:` line in the <solution> is exactly such a request to make.
 - **Never fake it.** Do not stub or mock the resource, fabricate outputs
   (random embeddings, canned API responses), hard-code a placeholder that
   lets the evaluation pass, or search this machine for credentials.
@@ -806,3 +819,32 @@ as `their reply: (done)`.
 ```
 
 Empty on a fresh campaign, in which case the heading is omitted.
+
+### A.5 The ideation block (with the inbox on)
+
+Rendered into the ideation prompt whenever the inbox is on — the rule
+first, then what the person already answered (that part only when
+there is something). Added after finding L1-1 (2026-09-04): the first
+live run's idea planned an "honest 0.0" around the missing key and the
+implementer followed the idea instead of asking.
+
+```markdown
+### Things only a person can provide
+A candidate may depend on something this machine does not have and no
+engineering supplies: a credential, access to a private resource, a file
+that exists only on someone's computer. Do not design around such a gap —
+no "honest zero", no placeholder result, no partial deliverable that
+skips the part needing it, and no hunting this machine for credentials.
+Specify the candidate as if the resource will be provided and name the
+dependency in the solution on its own line, `Needs from the person:
+<what, and where it should go>`. The implementation session asks the
+person for it and is resumed once it is provided; that is cheaper than
+any workaround.
+
+What the person has already answered about resources:
+- env:OPENAI_API_KEY: 'not available, use bge-large'
+- data/y.csv: provided
+A reply holds for the whole campaign: do not propose a candidate that
+needs a resource the person said is unavailable, and do not plan around
+one they declined. Anything they provided can be assumed present.
+```

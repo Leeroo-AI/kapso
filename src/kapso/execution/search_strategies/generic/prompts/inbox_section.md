@@ -14,6 +14,12 @@ For these — and only these — use the `request_from_user` tool.
   as specified without it. A missing key for optional logging or
   telemetry is dropped and mentioned in `technical_difficulties`, not
   requested.
+- **The idea does not get to plan around it.** If the <solution> works
+  around a missing person-only resource — an "honest zero", a
+  placeholder result, a partial deliverable that skips the part needing
+  it — that workaround is not the goal. The goal needs the resource: ask
+  for it and stop; you will be resumed with it. A `Needs from the
+  person:` line in the <solution> is exactly such a request to make.
 - **Never fake it.** Do not stub or mock the resource, fabricate outputs
   (random embeddings, canned API responses), hard-code a placeholder that
   lets the evaluation pass, or search this machine for credentials.

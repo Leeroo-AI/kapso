@@ -569,20 +569,29 @@ def render_follow_up(requests: List[Request]) -> str:
     )
 
 
-def render_inbox_answered(requests: Dict[int, Request]) -> str:
-    """The ideation prompt's block about answered requests (empty when
-    none): a reply holds for the whole campaign."""
-    answered = [r for r in sorted(requests.values(), key=lambda r: r.id) if not r.open]
-    if not answered:
-        return ""
+def render_inbox_ideation(requests: Dict[int, Request]) -> str:
+    """The ideation prompt's block with the inbox on: never design around
+    a person-only gap (finding L1-1: an idea planned an "honest 0.0" and
+    the implementer followed it instead of asking), then what the
+    person already answered — a reply holds for the whole campaign."""
     template = load_prompt(
-        "execution/search_strategies/generic/prompts/inbox_answered.md"
+        "execution/search_strategies/generic/prompts/inbox_ideation.md"
     )
-    lines = "\n".join(
-        f"- {r.key}: {r.reply!r}" if r.reply else f"- {r.key}: provided"
-        for r in answered
-    )
-    return "\n\n" + render_prompt(template, {"answered_lines": lines})
+    answered = [r for r in sorted(requests.values(), key=lambda r: r.id) if not r.open]
+    answered_block = ""
+    if answered:
+        lines = "\n".join(
+            f"- {r.key}: {r.reply!r}" if r.reply else f"- {r.key}: provided"
+            for r in answered
+        )
+        answered_block = (
+            "\n\nWhat the person has already answered about resources:\n"
+            f"{lines}\n"
+            "A reply holds for the whole campaign: do not propose a candidate that\n"
+            "needs a resource the person said is unavailable, and do not plan around\n"
+            "one they declined. Anything they provided can be assumed present."
+        )
+    return "\n\n" + render_prompt(template, {"answered_block": answered_block})
 
 
 def ensure_technical_difficulties(
