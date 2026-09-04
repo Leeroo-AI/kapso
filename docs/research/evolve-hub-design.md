@@ -20,7 +20,9 @@ continued through the coding-agent CLI's own resume with the reply as
 new input. No checks run by Kapso — the coder verifies for itself and
 posts again if still blocked. No polling, no daemon, no cron: the
 person's reply is the only trigger. A switch turns the whole feature
-off.
+off. v4 covers one implementation lane: a campaign whose mode sets
+`node_expansion_value` above 1 runs with the inbox off (user decision
+2026-09-04), and parallel lanes come in a later implementation.
 
 ---
 
@@ -146,7 +148,10 @@ reply to #1 was: …"), so a loop is visible the moment it starts.
 
 Sessions without MCP — the SDK-based adapters, codex ideation members —
 have no tool in v4 and end with their report as today. With
-`inbox.enabled: false` no session has the tool and nothing pauses.
+`inbox.enabled: false` no session has the tool and nothing pauses. The
+same holds when the mode's `node_expansion_value` is above 1: v4 handles
+one implementation lane, so a campaign with parallel lanes runs with the
+inbox off and says so once at launch.
 
 ### 4.3 The cycle
 
@@ -157,10 +162,8 @@ have no tool in v4 and end with their report as today. With
    session close commits and pushes the working tree; the strategy marks
    the node **suspended** with its request ids and CLI session id, runs
    no judge, returns.
-3. **Pause.** When the iteration's lanes are done (a suspended lane
-   returns early; the barrier waits only for lanes still building, and
-   the finished lanes are judged as usual), the orchestrator saves the
-   checkpoint with `last_stop: waiting_for_user`, prints the requests
+3. **Pause.** The orchestrator saves the checkpoint with
+   `last_stop: waiting_for_user`, prints the requests
    with the reply line, writes the status file `done` with
    `stopped_reason: waiting_for_user` and the open requests, fires
    `on_status` once, and returns
@@ -341,7 +344,9 @@ that file at start, so the value never passes through Kapso.
   the paused state; the reply line in the pause message.
 - `config.yaml` `defaults.inbox`: `enabled`, `stop_grace_seconds`,
   `registry`. GENERIC and MINIMAL inherit `enabled: true`; benchmark
-  modes set `enabled: false`.
+  modes set `enabled: false`. At the start of `evolve`, an enabled inbox
+  with `node_expansion_value` above 1 is turned off for that campaign
+  with one printed line.
 - Docs: `docs/evolve/` gains a page; `docs/reference/cli.mdx` and
   `configuration.mdx` gain the command and the block.
 
@@ -357,7 +362,9 @@ and asks again if still blocked; no polling, no daemon, no cron; a
 simple per-campaign id per request; implementation sessions only
 (ideation later); a paused node is judged only when it completes; a
 campaign never starts new work while a request is open; `inbox.enabled`
-turns the feature off; an expired transcript is not handled now.
+turns the feature off; one implementation lane only — a mode with
+`node_expansion_value` above 1 runs with the inbox off; an expired
+transcript is not handled now.
 
 Open:
 
@@ -366,8 +373,11 @@ Open:
 
 ## 7. Out of scope for v4
 
-Requests that do not stop a session (questions, notices); park and
-re-queue; ideation asks; the selector's access criterion; the preflight
+Parallel implementation lanes (`node_expansion_value` above 1: a
+suspended lane returning early, the barrier waiting only for lanes still
+building, the finished lanes judged as usual); requests that do not stop
+a session (questions, notices); park and re-queue; ideation asks; the
+selector's access criterion; the preflight
 sources and the environment inventory; a local page (`kapso inbox
 serve`) and the hosted inbox — both are further clients of the same two
 operations, and only the hosted one needs something local to react to a
