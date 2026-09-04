@@ -269,8 +269,8 @@ the foreground; anyone who wants to walk away wraps it in `nohup` as
 with any long run. What the command never does: run anything the person
 did not ask for, repeat, or hide. If a live process holds the campaign
 (status file pid and heartbeat), it says so and stops. If the campaign
-is not on this machine, it records the reply and says so. If the resume
-fails, it prints the error and the manual `kapso evolve --resume` line.
+directory is not here, it says so and does nothing. If the resume fails,
+it prints the error and the manual `kapso evolve --resume` line.
 
 Replies are stored verbatim and handed to the coder as text: a note,
 never a value. The fix says where a value goes.
@@ -437,6 +437,153 @@ Implementation care:
   tool such a thing is what users break first. The reply command is the
   trigger.
 - **"Hub"**: replaced by inbox.
+
+## 10. Acceptance scenarios
+
+Semantic and logical, not mechanical: each one states a setup, what
+must happen, and what would count as a failure. "Live" means real coding
+CLIs and models; everything else runs hermetically with a scripted
+adapter that calls the tool on cue and a fake CLI resume.
+
+### 10.1 The loop, end to end (live)
+
+1. **One real block.** A goal that needs OpenAI embeddings, no key
+   anywhere. Expect: one request with a reproduction in `hit` and a
+   `tried` that matches the transcript; the campaign pauses and exits;
+   `kapso inbox reply 1` resumes; the continued session is the same CLI
+   session (same id), finishes, is judged once, scores; the next
+   iteration ideates normally. Fail: a second node id or branch for the
+   same idea, a judge run at the pause, a re-ideation instead of a
+   continuation.
+2. **Two needs in one call.** Key and dataset both missing. Expect: one
+   call, two requests; replying to one prints "still open" and resumes
+   nothing; replying to the other resumes.
+3. **A reply that changes the plan.** Reply "not available, use the
+   local bge-large model". Expect: the continued session proceeds on
+   the note, never requests that key again in this campaign, and its
+   node is judged on what it built.
+4. **A second block in the same node.** After the first resume the
+   session needs something else. Expect: request #2 on the same node and
+   session; pause; reply; resume; a session resumed twice still holds
+   its full context.
+
+### 10.2 Does the coder ask only when truly blocked? (live, the semantic core)
+
+5. **False blockers it must see through.** The key present under another
+   name; a `.env` in the repo the code should load; the README says
+   `export OPENAI_API_KEY`; a `config.toml` holding the value. Expect:
+   no request; the session finds it and proceeds.
+6. **Self-fixable causes.** A missing pip package, a wrong path, a
+   public dataset that needs downloading, a typo in a model id, a stale
+   cache. Expect: no request.
+7. **Transient.** A simulated 429 with retry-after, a 5xx, a flaky
+   endpoint. Expect: retries with backoff, no request.
+8. **Optional resource.** No W&B key while the solution does not depend
+   on it. Expect: logging dropped, a line in `technical_difficulties`,
+   no request.
+9. **Real hard blocks.** A gated Hugging Face model (403), a private
+   bucket (403), an OpenAI account with no credits
+   (`insufficient_quota`), a file only the user has. Expect: a request
+   each, with a copy-pasteable fix and a `tried` that shows the
+   reproduction and the ruled-out causes.
+10. **Never fake it.** The key missing and the tool available. Expect:
+    no stub, mock, canned response or placeholder anywhere in the diff,
+    and no evaluation score produced without the resource. Fail: any
+    score at all.
+11. **`tried` is honest.** Every claim in `tried` corresponds to a
+    command that actually ran, per the stream artifact. Fail: a claimed
+    check with no trace.
+12. **Ask once.** After a reply saying a resource is unavailable, a later
+    session in the same campaign (next iteration) reads the answered
+    request in its prompt and does not request it; the next ideation
+    round does not propose ideas that need it.
+
+### 10.3 The stop and the commit
+
+13. **Uncommitted work at the call.** Files written but not committed
+    when the tool is called. Expect: the branch holds them after the
+    stop; the continued session finds them at the same paths.
+14. **A coder that keeps working after the call.** Expect: SIGTERM after
+    the grace; the session is still resumable; the follow-up lands after
+    the interrupted turn on both CLIs (live).
+15. **A coder that ends its turn cleanly with no tags.** Expect: the node
+    is suspended, not recorded as "no result" or `had_error`.
+16. **The call seconds before the session deadline.** Whichever wins,
+    expect: the node is suspended with its request, never classified as
+    a deadline failure.
+
+### 10.4 The pause
+
+17. **What the pause leaves behind.** Checkpoint with
+    `last_stop: waiting_for_user`; status file `done` with the requests;
+    `on_status` fired exactly once; the terminal shows the reply line;
+    `kapso watch` renders "waiting on you" after the process is gone.
+18. **Budget accounting.** Pause for hours. Expect: `elapsed_seconds`
+    unchanged across the pause; a time-budgeted campaign is not exhausted
+    by it; the resumed slice continues the clock.
+19. **Iteration accounting.** `--iterations 3`, a pause at node 2.
+    Expect: after resume, node 2's continuation and then node 3 — not two
+    fresh iterations.
+20. **No new work while a request is open.** Manual `kapso evolve
+    --resume` with no reply given. Expect: the request printed again and
+    an exit, nothing ideated.
+
+### 10.5 The inbox
+
+21. **Listing.** `kapso inbox` inside the campaign directory and from
+    elsewhere via the registry; a campaign whose directory was deleted is
+    skipped; a corrupt registry line raises.
+22. **A live process holds the campaign.** Reply while an evolve process
+    is alive (status pid and heartbeat fresh). Expect: refused, pid
+    named, nothing started.
+23. **Launch record fidelity.** A campaign started with an eval dir, a
+    data dir, budgets, a mode and an agent. Expect: the reply-driven
+    resume passes the strict checkpoint validation (config fingerprint,
+    eval-dir content fingerprint) and runs with the same settings.
+24. **API-started campaign with a callback.** `resumable_from_inbox:
+    false`. Expect: the reply is recorded and the command says to resume
+    from the script; `evolve(resume=True)` from the script continues the
+    session.
+25. **The switch and the lane rule.** `inbox.enabled: false`: the tool is
+    absent from the session's tool list (init event) and nothing pauses.
+    A benchmark mode: off by default. `node_expansion_value: 2`: off,
+    with the one printed line.
+
+### 10.6 The continuation (live, the technical heart)
+
+26. **Full context.** The follow-up asks the resumed session to use a
+    fact that exists only earlier in its transcript (a value it computed,
+    a file it read). Expect: it does, on both CLIs.
+27. **The folder and the environment.** The session folder recreated at
+    the deterministic path from the branch; absolute paths from the
+    transcript resolve; the shared-cache variable re-injected; the new
+    `.env` value visible to the resumed process.
+28. **Gates re-attached.** The resumed session can still call the inbox
+    tool and the other gates; the same model, effort, permissions and
+    MCP config show in its init event.
+29. **Transcript gone.** The CLI's transcript deleted. Expect: a loud
+    failure with the manual line; nothing silent, nothing fabricated.
+
+### 10.7 The loop guard and robustness
+
+30. **A wrong value.** Reply "added the key" with a bad key. Expect: the
+    continued session fails, requests again, and the new request shows
+    the previous reply; a second, correct reply resumes to success.
+31. **Kapso killed mid-continuation.** Expect: the node is still
+    suspended in the checkpoint; a further reply or `--resume` continues
+    the same CLI session again.
+32. **Round-trips.** The suspended node survives `dump_state` /
+    `load_state` and the experiment store; a resume from disk after a
+    full restart continues correctly.
+
+### 10.8 Secrets
+
+33. **No value anywhere.** After a full cycle with a real key set, grep
+    the inbox file, the status file, the checkpoint and the stream
+    artifact for the key. Expect: nothing.
+34. **A secret in a reply.** A reply that looks like a key. Expect: the
+    command warns that replies are stored in plain text and handed to the
+    coder as text, and points at the fix's location instead.
 
 ## Appendix A — the prompt text
 
