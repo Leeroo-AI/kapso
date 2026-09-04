@@ -142,8 +142,10 @@ secret-shaped masked.
 ### 4.2 Writers — v1 is the in-session wait
 
 **`hub_ask`, the one v1 tool.** A bundled `hub` gate in
-`gated_mcp/presets.py`, given to ideation and implementation sessions,
-never to the feedback judge. The gate appends to `.kapso/hub.jsonl`
+`gated_mcp/presets.py`, given to implementation sessions in v1 (user
+decision 2026-09-04: ideation stays without it for the moment; a
+blocking tool there would stall a parallel ideation round on
+speculative needs), never to the feedback judge. The gate appends to `.kapso/hub.jsonl`
 through an env-injected path (`KAPSO_HUB_PATH`), exactly the bank gate's
 pull-log pattern. One call posts a `need` and blocks until one of three
 results: `met` (the check passed), `declined` (the human declined through
@@ -320,7 +322,7 @@ secrets (Rule 3), and neither does `.kapso/`.
   with `KAPSO_HUB_PATH` as injected env; `hub_ask` posts, blocks, runs
   the `check` each interval in a rebuilt environment, folds events,
   emits progress notifications; added to the shipped modes'
-  `ideation_gates` and `implementation_gates`.
+  `implementation_gates` (ideation later).
 - `execution/hub.py`: the record (append, fold, mask, the check runner
   with the rebuilt environment and the per-run cap).
 - `coding_agents/adapters/claude_code_agent.py`: the hub server's entry
@@ -362,9 +364,11 @@ environment inventory.
    kapso restart, no idle process — versus a fresh session on the same
    branch with a written summary. Record `session_id` / `thread_id` in
    v1 either way.
-3. **Ideation MCP for codex members.** Give the codex ideation runner
-   the gate (the adapter can carry MCP) or keep them on the report.
-   Recommendation: the report for v1.
+3. **Ideation** — settled (user, 2026-09-04): no tool in ideation for
+   v1, so the codex-ideation-member question returns only when ideation
+   asks. Also settled the same day: the judge still runs on a node whose
+   wait ran out (§8.1 item 5), and such a node is a charged iteration
+   (§8.1 item 6).
 4. **Where the value is loaded on `met`.** The tool result tells the
    session to load `.env` itself — recommended: the value never passes
    through the gate — versus the gate returning the value into the
@@ -388,32 +392,48 @@ Beyond the decisions in §6. Grouped by what resolves them.
 
 ### 8.1 Need a decision
 
-1. **The repeat-ask loop.** After a timeout nothing remembers the key:
-   the next ideation round can propose the same idea and the next
-   session waits another ceiling — unattended, a campaign can spend most
-   of its wall clock holding. Recommendation: ask once per campaign —
-   after one timeout on a key, further asks on it return `timeout` at
-   once until a human touches the item (`resolve` or `decline`), and the
-   open item is rendered into experiment history so ideation sees it.
-2. **Ideation holding.** Ideation members run in parallel under a round
-   timeout; a blocking tool there stalls the round on speculative needs.
-   Recommendation: v1 exposes `hub_ask` to implementation only, or
-   ideation gets a short ceiling (about 5 min) and a prompt rule that
-   only a need certain to block the proposed idea is asked for.
+1. **The repeat-ask loop.** After a timeout the session's report says
+   it was blocked, and ideation reads that report through the
+   experiment-history tools (the render carries `technical_difficulties`
+   verbatim). User view (2026-09-04): that context is the mechanism.
+   Agreed as the primary path, with two small additions: the history
+   render also shows the hub item's state (open, timed out N min ago,
+   met, declined), and the ideation prompt gains one line — an open
+   need in the hub means the resource is absent; do not propose an idea
+   that requires it unless the hub shows it met. Still open: whether to
+   keep a gate-level backstop — a key that already timed out returns
+   `timeout` at once until a human touches it — one line in the gate,
+   for the case where a different idea needs the same resource or the
+   model ignores the history.
+2. **Ideation holding** — settled (user, 2026-09-04): implementation
+   only for the moment.
 3. **Unattended runs.** A 30-minute hold per ask with nobody there is
-   waste. Give `wait_minutes: 0` a meaning — post the item, return
-   `timeout` immediately, so the record exists without the hold — and
-   recommend it for nohup, VM and CI runs; benchmark modes hide the tool.
-4. **Node expansion and the clock.** With K>1, pausing the campaign
-   clock while another lane works is wrong: pause only when every
-   running session is waiting; a waiting lane always holds its own
-   deadline. The round's barrier is delayed by up to the ceiling.
-5. **The judge on a timed-out node.** Today the judge session would
-   still run on a node with no evaluation. Skip it when the node ended
-   on an open hub item and derive the feedback from the item.
-6. **Iteration accounting.** A timeout is a charged failed iteration;
-   three of them consume 30% of `--iterations 10`. Accept for v1 or
-   exempt; tied to concern 1.
+   wall clock spent for nothing; the record is still worth having. So
+   `wait_minutes: 0` means: post the item, return `timeout` at once —
+   the same tool, a zero ceiling, no new mechanism. The session ends
+   with its report as usual and the item waits in `kapso hub`. Explicit,
+   not auto-detected: a run under nohup can still be attended through
+   `kapso hub` from another terminal, so a TTY check would guess wrong.
+   Proposed: a `--wait-minutes` flag on `kapso evolve`, explicit
+   argument over config like the budget flags. Benchmark modes hide the
+   tool.
+4. **Node expansion and the clock.** Two clocks are involved. The
+   campaign's time budget measures whether the campaign is doing work;
+   a session's deadline bounds one session. With K>1 lanes an iteration
+   builds K candidates in parallel sessions, then a barrier, then the
+   judge in order. If lane 1 calls `hub_ask` while lane 0 is still
+   building, the campaign is still working, so the budget must keep
+   ticking — pause it only when every running session is waiting. Lane
+   1's own deadline is held regardless, so the hold never kills its
+   session. The round cannot end until lane 1 returns (met, declined or
+   timeout), so lane 0's finished result waits for the judge by up to
+   the ceiling. With the default K=1 none of this arises; the rule only
+   has to be right when it does.
+5. **The judge on a timed-out node** — settled (user, 2026-09-04): the
+   judge runs as today; the judge prompt names the hub item so the
+   feedback says "blocked on X", not "no evaluation".
+6. **Iteration accounting** — settled (user, 2026-09-04): a wait that
+   ran out is a charged iteration.
 
 ### 8.2 Verify before building (live, on the installed CLIs)
 
