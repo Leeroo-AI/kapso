@@ -848,6 +848,13 @@ class SearchStrategy(ABC):
         """Checkout and return the best experiment branch, if one exists."""
         pass
 
+    def waiting_requests(self) -> List[Any]:
+        """Open inbox requests of nodes that asked the person and wait for
+        a reply (docs/research/evolve-hub-design.md v4). The orchestrator
+        pauses the campaign while any exist. Strategies without an inbox
+        have none."""
+        return []
+
     def dump_state(self) -> Dict[str, Any]:
         """Return JSON-compatible strategy state for a run checkpoint."""
         raise NotImplementedError(

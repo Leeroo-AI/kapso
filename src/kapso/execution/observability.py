@@ -371,6 +371,14 @@ class OperationStatusView:
                 )
             if d.get("iteration") is not None:
                 lines.append(f"iteration {d['iteration']}")
+            if d.get("stopped_reason") == "waiting_for_user":
+                requests = d.get("requests") or []
+                label = "request" if len(requests) == 1 else "requests"
+                lines.append(f"WAITING ON YOU · {len(requests)} {label}")
+                for request in requests:
+                    lines.append(f"  #{request['id']}  {request['key']}")
+                    lines.append(f"      fix  {request['fix']}")
+                lines.append("  reply with: kapso inbox reply <id> \"…\"")
             best, last = d.get("best"), d.get("last")
             if best or last:
                 parts = []

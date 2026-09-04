@@ -15,7 +15,7 @@ import re
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -30,6 +30,7 @@ from kapso.execution.search_strategies import (
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.search_strategies.generic import FeedbackGenerator, FeedbackResult
 from kapso.environment.handlers.base import ProblemHandler
+from kapso.execution.inbox import idea_line, render_pause_block, request_payload
 from kapso.core.cli_inference import CliInference, resolve_inference_config
 from kapso.core.config import load_mode_config
 from kapso.execution.search_strategies.base import ExperimentResult, SearchNode
@@ -109,6 +110,9 @@ class SolveResult:
     # Which budget dial triggered a budget_exhausted stop:
     # "time_budget" | "cost_budget" | "finalization_reserve" | None
     stop_detail: Optional[str] = None
+    # The open inbox requests when stopped_reason is "waiting_for_user":
+    # what the person must answer before the campaign continues.
+    requests: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class OrchestratorAgent:
@@ -191,6 +195,14 @@ class OrchestratorAgent:
             self.strategy_type,
             self.strategy_params,
         ) = self._resolve_search_strategy_config()
+        # The campaign inbox (docs/research/evolve-hub-design.md v4) rides
+        # the mode config into the strategy params — fingerprinted like
+        # every other setting, so a resume never flips it silently.
+        inbox_block = self.mode_config.get("inbox")
+        if inbox_block is not None:
+            self.strategy_params = {
+                **self.strategy_params, "inbox": dict(inbox_block),
+            }
         # Budgets are operator dials, not campaign identity — like
         # max_iterations (a solve() argument that was never fingerprinted).
         # Excluding the budget block keeps "resume with a bigger budget"
@@ -333,6 +345,9 @@ class OrchestratorAgent:
             self._transition_freeze_fraction,
         ) = self._create_evaluation_maintainer()
         self._change_requests_filed = 0
+        # The open requests a waiting_for_user stop leaves behind, as the
+        # status file, the result and the on_status hook carry them.
+        self._waiting_payload: List[Dict[str, Any]] = []
         self._fidelity_active = False
         if (
             self.fidelity_spec.mode != "off"
@@ -1011,6 +1026,33 @@ class OrchestratorAgent:
             candidates.append(returned_node)
         return candidates
 
+    def _waiting_requests(self) -> List[Any]:
+        """Open inbox requests of nodes waiting for the person; empty for
+        strategies without an inbox."""
+        hook = getattr(self.search_strategy, "waiting_requests", None)
+        return list(hook()) if callable(hook) else []
+
+    def _pause_for_user(self, requests: List[Any]) -> None:
+        """The campaign pauses: print what the person must answer, save a
+        resumable checkpoint marked waiting_for_user, and remember the
+        requests for the status file and the result (design v4 §4.3)."""
+        ideas = {
+            node.node_id: idea_line(node.solution)
+            for node in self.search_strategy.get_experiment_history()
+        }
+        campaign_dir = self.search_strategy.workspace.workspace_dir
+        print("\n" + render_pause_block(requests, ideas, campaign_dir))
+        self._waiting_payload = [
+            request_payload(request, ideas.get(request.node, ""))
+            for request in requests
+        ]
+        self._save_run_checkpoint(status="running", last_stop="waiting_for_user")
+        self.operation_status.note(
+            "waiting on the person: requests "
+            + ", ".join(f"#{request.id}" for request in requests),
+            requests=list(self._waiting_payload),
+        )
+
     def _evaluate_candidates(
         self,
         candidates: List[SearchNode],
@@ -1185,6 +1227,14 @@ class OrchestratorAgent:
 
         try:
             for i in range(experiment_max_iter):
+                # A node waiting for the person means no new work: the
+                # campaign pauses until the reply is in (design v4 §4.3).
+                waiting = self._waiting_requests()
+                if waiting:
+                    self._pause_for_user(waiting)
+                    stopped_reason = "waiting_for_user"
+                    break
+
                 # The escrow is re-derived from history each round: once a
                 # full-measured champion exists, the reserve shrinks to the
                 # contingency residual and the freed time flows back into
@@ -1357,11 +1407,14 @@ class OrchestratorAgent:
                 # Run one iteration of search strategy
                 # Search strategy handles: solution generation, implementation, feedback
                 # Returns SearchNode with all data including should_stop
+                # A node that asked the person is not finalized: it stays
+                # out of the "seen" set so its continuation counts as new.
                 previous_node_ids = {
                     candidate.node_id
                     for candidate in (
                         self.search_strategy.get_experiment_history()
                     )
+                    if not getattr(candidate, "suspended", False)
                 }
                 node = self.search_strategy.run(
                     context, 
@@ -1373,11 +1426,15 @@ class OrchestratorAgent:
                     print(f"[Orchestrator] Warning: No result from iteration {i+1}")
                     continue
 
-                finalized_candidates = self._new_candidates(
-                    previous_node_ids,
-                    self.search_strategy.get_experiment_history(),
-                    node,
-                )
+                finalized_candidates = [
+                    candidate
+                    for candidate in self._new_candidates(
+                        previous_node_ids,
+                        self.search_strategy.get_experiment_history(),
+                        node,
+                    )
+                    if not getattr(candidate, "suspended", False)
+                ]
                 enforce_integrity = getattr(
                     self.search_strategy,
                     "enforce_evaluation_integrity",
@@ -1405,6 +1462,14 @@ class OrchestratorAgent:
 
                 self._route_change_requests(finalized_candidates)
                 
+                if getattr(node, "suspended", False):
+                    # The session asked the person and was stopped: no
+                    # judgement, no iteration counted — pause until the
+                    # reply is in (design v4 §4.3).
+                    self._pause_for_user(self._waiting_requests())
+                    stopped_reason = "waiting_for_user"
+                    break
+
                 # Log result
                 print(f"[Orchestrator] Iteration {i+1} result:")
                 print(f"  - Score: {node.score}")
@@ -1560,6 +1625,10 @@ class OrchestratorAgent:
                     stopped_reason=stopped_reason,
                     stop_detail=stop_detail,
                     budget=self._status_budget_view(),
+                    **(
+                        {"requests": list(self._waiting_payload)}
+                        if stopped_reason == "waiting_for_user" else {}
+                    ),
                 )
             # Best-effort cleanup: prevents leaked sockets from KG/Episodic clients.
 
@@ -1578,4 +1647,8 @@ class OrchestratorAgent:
             total_cost=self.get_cumulative_cost(),
             cumulative_iterations=self.completed_iterations,
             stop_detail=stop_detail,
+            requests=(
+                list(self._waiting_payload)
+                if stopped_reason == "waiting_for_user" else []
+            ),
         )

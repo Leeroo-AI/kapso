@@ -408,3 +408,76 @@ def list_registered_campaigns(registry_path: str | Path) -> List[Dict[str, Any]]
             campaigns.append(entry)
     campaigns.reverse()
     return campaigns
+
+
+# =============================================================================
+# WHAT THE PERSON READS
+# =============================================================================
+
+def idea_line(solution: str) -> str:
+    """The idea in one line, for the `for` row: the first content line
+    after a `# Core Idea` heading when there is one, else the first
+    non-empty line. Display only — never model input."""
+    lines = [line.strip() for line in solution.splitlines()]
+    content = [line for line in lines if line]
+    for index, line in enumerate(content):
+        if line.lower().lstrip("# ").startswith("core idea") and index + 1 < len(content):
+            return content[index + 1].lstrip("-* ")
+    return content[0].lstrip("#-* ").strip() if content else ""
+
+
+def request_payload(request: Request, idea: str) -> Dict[str, Any]:
+    """One request as the status file, the result metadata and the
+    `on_status` hook carry it."""
+    return {
+        "id": request.id,
+        "node": request.node,
+        "key": request.key,
+        "for": idea,
+        "hit": request.hit,
+        "tried": request.tried,
+        "fix": request.fix,
+        "next_steps": request.next_steps,
+        "previous_reply": request.previous_reply,
+        "requested_at": request.requested_at,
+    }
+
+
+def render_requests(requests: Sequence[Request], ideas: Dict[int, str]) -> str:
+    """The request rows of the pause message and `kapso inbox`."""
+    blocks = []
+    for request in requests:
+        again = (
+            f"   again — your previous reply was: {request.previous_reply!r}"
+            if request.previous_reply is not None else ""
+        )
+        rows = [f"  #{request.id}  {request.key}{again}"]
+        idea = ideas.get(request.node, "")
+        if idea:
+            rows.append(f"      for    node {request.node} · {idea}")
+        else:
+            rows.append(f"      for    node {request.node}")
+        rows.extend([
+            f"      hit    {request.hit}",
+            f"      tried  {request.tried}",
+            f"      fix    {request.fix}",
+            f"      next   {request.next_steps}",
+        ])
+        blocks.append("\n".join(rows))
+    return "\n\n".join(blocks)
+
+
+def render_pause_block(
+    requests: Sequence[Request], ideas: Dict[int, str], campaign_dir: str | Path
+) -> str:
+    """What the terminal shows when the campaign pauses (design v4 §4.6)."""
+    first = requests[0].id if requests else 1
+    reply_target = f" {first}" if len(requests) > 1 else ""
+    return "\n".join([
+        "kapso evolve — waiting on you",
+        "",
+        render_requests(requests, ideas),
+        "",
+        f'  reply with   kapso inbox reply{reply_target} "…"        # after the fix, or with what to do instead',
+        f"  any time     kapso inbox {campaign_dir}",
+    ])

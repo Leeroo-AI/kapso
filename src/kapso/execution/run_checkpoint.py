@@ -71,7 +71,12 @@ class RunCheckpoint:
 
     SCHEMA_VERSION = 2
     VALID_STATUSES = {"running", "completed"}
-    VALID_LAST_STOPS = {"time_budget", "cost_budget", "finalization_reserve"}
+    # waiting_for_user: the campaign paused for a reply in the inbox
+    # (docs/research/evolve-hub-design.md v4); a resume continues the
+    # session that asked once the reply is in.
+    VALID_LAST_STOPS = {
+        "time_budget", "cost_budget", "finalization_reserve", "waiting_for_user",
+    }
 
     @classmethod
     def create(

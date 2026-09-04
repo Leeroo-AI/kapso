@@ -53,6 +53,13 @@ class SolutionResult:
         if self.final_feedback:
             return self.final_feedback.score
         return None
+
+    @property
+    def requests(self) -> List[Dict[str, Any]]:
+        """What the campaign waits on when it paused for the person
+        (metadata["stopped_reason"] == "waiting_for_user"); empty
+        otherwise. Reply with `kapso inbox reply` or Kapso.reply()."""
+        return list(self.metadata.get("requests") or [])
     
     def explain(self) -> str:
         """Return a summary of the solution and its experiments."""

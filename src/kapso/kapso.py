@@ -54,6 +54,17 @@ from kapso.core.cli_inference import resolve_inference_config
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
 from kapso.core.config import load_config, load_mode_config
+from kapso.execution.inbox import (
+    Request,
+    idea_line,
+    inbox_path,
+    load_requests,
+    read_launch_record,
+    record_reply,
+    register_campaign,
+    write_launch_record,
+)
+from kapso.execution.run_checkpoint import RunCheckpointStore
 from kapso.core.preflight import run_preflight
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.lesson_result import LessonResult, MemoryStatus
@@ -1328,6 +1339,42 @@ class Kapso:
             print(f"  Knowledge bank: serving at head {serving['bank_head']}")
             print(f"  Bank tools mounted in gates: {mounted}")
 
+        # The campaign inbox (docs/research/evolve-hub-design.md v4): on a
+        # fresh campaign, record the launch so `kapso inbox reply` can
+        # resume it without the person retyping anything, and register the
+        # campaign so `kapso inbox` can list it.
+        inbox_block = (
+            load_mode_config(self.config_path, mode).get("inbox") or {}
+        )
+        if not resume and inbox_block.get("enabled"):
+            workspace_dir = orchestrator.search_strategy.workspace.workspace_dir
+            write_launch_record(workspace_dir, {
+                "config_path": self.config_path,
+                "kg_index": self._kg_index_path,
+                "mode": mode,
+                "coding_agent": coding_agent,
+                "output_path": workspace_dir,
+                "max_iterations": max_iterations,
+                "time_budget_minutes": time_budget_minutes,
+                "cost_budget": cost_budget,
+                "finalization_reserve_minutes": finalization_reserve_minutes,
+                "eval_dir": eval_dir,
+                "data_dir": data_dir,
+                "additional_context": additional_context,
+                "context": (
+                    list(context)
+                    if context and all(isinstance(item, str) for item in context)
+                    else None
+                ),
+                "serving_scope": serving_scope,
+                "resumable_from_inbox": (
+                    iteration_evaluator is None
+                    and all(isinstance(item, str) for item in (context or []))
+                ),
+                "dotenv_path": find_dotenv(usecwd=True),
+            })
+            register_campaign(inbox_block["registry"], workspace_dir, goal)
+
         # Run experimentation
         print("Running experiments...")
         solve_result = orchestrator.solve(
@@ -1370,6 +1417,9 @@ class Kapso:
                 "resumed": resume,
                 # Observability (design §1): the durable last frame.
                 "status_path": str(orchestrator.operation_status.path),
+                # The inbox: what the person must answer when the campaign
+                # paused for them (empty otherwise).
+                "requests": list(getattr(solve_result, "requests", []) or []),
                 # Memory provenance (design §8.2): the exact stores this
                 # solution drew on.
                 "kg_index": self._kg_index_path,
@@ -1410,6 +1460,107 @@ class Kapso:
             print(f"Final score: {solution.final_score}")
         
         return solution
+
+    # =========================================================================
+    # THE INBOX (docs/research/evolve-hub-design.md v4)
+    # =========================================================================
+
+    @staticmethod
+    def inbox(campaign: str) -> List[Request]:
+        """The campaign's open requests, oldest first — what the person
+        must answer before it continues. Empty when nothing waits."""
+        requests = load_requests(inbox_path(campaign))
+        return sorted(
+            (request for request in requests.values() if request.open),
+            key=lambda request: request.id,
+        )
+
+    @staticmethod
+    def inbox_ideas(campaign: str) -> Dict[int, str]:
+        """One line per node of the campaign — the `for` row of a request
+        — read from the checkpoint. Empty without a checkpoint."""
+        store = RunCheckpointStore(campaign)
+        if not store.exists():
+            return {}
+        nodes = store.load().strategy_state.get("node_history") or []
+        return {
+            int(node["node_id"]): idea_line(str(node.get("solution", "")))
+            for node in nodes
+        }
+
+    @classmethod
+    def reply(
+        cls, campaign: str, request_id: int, note: str = ""
+    ) -> Optional[SolutionResult]:
+        """Answer a request and, when the node that asked has every request
+        answered, resume the campaign in this process: the session that
+        asked is continued with the reply. Returns the campaign's result,
+        or None when it could not be resumed here (another request still
+        open, or a campaign started from a script with a callback — resume
+        it from the script with resume=True).
+
+        Refuses while a live process holds the campaign, so nothing runs
+        twice. An empty note means "done"."""
+        campaign_dir = str(Path(campaign).resolve())
+        if not Path(campaign_dir, ".kapso").is_dir():
+            raise FileNotFoundError(
+                f"{campaign_dir} is not a campaign directory on this machine"
+            )
+        status_file = Path(campaign_dir) / ".kapso" / "status.json"
+        if status_file.is_file() and OperationStatusView(status_file).alive:
+            pid = OperationStatusView(status_file).data.get("pid")
+            raise RuntimeError(
+                f"{campaign_dir} is running (pid {pid}); wait for it to pause "
+                "before replying"
+            )
+        path = inbox_path(campaign_dir)
+        request = record_reply(path, request_id, note)
+        print(f"#{request_id} answered.")
+        still_open = sorted(
+            other.id
+            for other in load_requests(path).values()
+            if other.node == request.node and other.open
+        )
+        if still_open:
+            print(
+                f"{', '.join(f'#{i}' for i in still_open)} still open, so node "
+                f"{request.node} waits; nothing else to run."
+            )
+            return None
+        record = read_launch_record(campaign_dir)
+        if record is None or not record.get("resumable_from_inbox"):
+            print(
+                f"Recorded. This campaign cannot be resumed from the inbox "
+                "(started from a script with a callback, or before the inbox "
+                "existed) — resume it from your script with resume=True."
+            )
+            return None
+        checkpoint = RunCheckpointStore(campaign_dir).load()
+        remaining = max(
+            1, int(record["max_iterations"]) - int(checkpoint.completed_iterations)
+        )
+        print(
+            f"Resuming {campaign_dir}: continuing node {request.node}'s session. "
+            "Ctrl-C stops it; resume later with kapso evolve --output "
+            f"{campaign_dir} --resume"
+        )
+        kapso = cls(config_path=record["config_path"], kg_index=record["kg_index"])
+        return kapso.evolve(
+            goal=checkpoint.goal,
+            context=record.get("context"),
+            output_path=campaign_dir,
+            max_iterations=remaining,
+            time_budget_minutes=record["time_budget_minutes"],
+            cost_budget=record["cost_budget"],
+            finalization_reserve_minutes=record["finalization_reserve_minutes"],
+            resume=True,
+            mode=record["mode"],
+            coding_agent=record["coding_agent"],
+            eval_dir=record["eval_dir"],
+            data_dir=record["data_dir"],
+            additional_context=record["additional_context"] or "",
+            serving_scope=record["serving_scope"],
+        )
 
     @staticmethod
     def _validate_resume_workspace(output_path: Optional[str]) -> None:
@@ -1604,7 +1755,12 @@ class Kapso:
         history = orchestrator.search_strategy.get_experiment_history()
         
         for exp in history:
-            if hasattr(exp, 'had_error') and exp.had_error:
+            if getattr(exp, "suspended", False):
+                logs.append(
+                    f"Waiting: {exp.solution[:100]}... (asked the person, "
+                    f"requests {', '.join(f'#{i}' for i in exp.request_ids)})"
+                )
+            elif hasattr(exp, 'had_error') and exp.had_error:
                 logs.append(f"Failed: {exp.solution[:100]}... (Error: {exp.error_message})")
             elif not getattr(exp, "evaluation_valid", True):
                 integrity_error = getattr(

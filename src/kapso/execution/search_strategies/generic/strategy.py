@@ -64,7 +64,9 @@ from kapso.execution.search_strategies.generic.implementation import (
 )
 from kapso.execution.inbox import (
     InboxOpenError,
+    Request,
     all_answered,
+    inbox_path,
     load_requests,
     record_continued,
     requests_for_ids,
@@ -117,11 +119,13 @@ def resolve_inbox_settings(
     inbox: Optional[Dict[str, Any]],
     node_expansion_value: int,
     implementation_gates: List[str],
+    workspace_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """The campaign's effective inbox settings. On with one implementation
     lane, the request_from_user gate is mounted for implementation
-    sessions; with parallel lanes the inbox is off for this campaign (one
-    printed line — lanes come later)."""
+    sessions and the inbox file lives at <workspace>/.kapso/inbox.jsonl
+    unless the settings name a path; with parallel lanes the inbox is off
+    for this campaign (one printed line — lanes come later)."""
     if not inbox or not inbox.get("enabled"):
         return inbox
     if node_expansion_value > 1:
@@ -132,6 +136,10 @@ def resolve_inbox_settings(
         return {**inbox, "enabled": False}
     if "inbox" not in implementation_gates:
         implementation_gates.append("inbox")
+    if not inbox.get("path"):
+        if not workspace_dir:
+            raise ValueError("an enabled inbox needs a path or a workspace_dir")
+        return {**inbox, "path": str(inbox_path(workspace_dir))}
     return inbox
 
 
@@ -361,6 +369,7 @@ class GenericSearch(SearchStrategy):
             self.params.get("inbox"),
             self.node_expansion_value,
             self.implementation_gates,
+            self.workspace_dir,
         )
         # A staged bank MUST be reachable: serving injects an intro that
         # instructs sessions to call bank_index / bank_get_card /
@@ -975,6 +984,25 @@ class GenericSearch(SearchStrategy):
         if not settings or not settings.get("enabled"):
             return ""
         return render_inbox_answered(load_requests(settings["path"]))
+
+    def waiting_requests(self) -> List[Request]:
+        """Open requests of the nodes that asked the person (design v4):
+        while any exist the campaign pauses instead of iterating."""
+        settings = getattr(self, "inbox_settings", None)
+        if not settings or not settings.get("enabled"):
+            return []
+        waiting_nodes = {
+            node.node_id
+            for node in self.node_history
+            if getattr(node, "suspended", False)
+        }
+        if not waiting_nodes:
+            return []
+        return [
+            request
+            for request in load_requests(settings["path"]).values()
+            if request.open and request.node in waiting_nodes
+        ]
 
     def _salvage_ideation_output(self, result) -> Optional[str]:
         """Recover a deadline-terminated ideation's partial output
