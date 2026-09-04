@@ -430,3 +430,185 @@ Implementation care:
   tool such a thing is what users break first. The reply command is the
   trigger.
 - **"Hub"**: replaced by inbox.
+
+## Appendix A — the prompt text
+
+Three pieces. All three are rendered only when the inbox is on for the
+campaign; with it off, the prompts are byte-identical to today.
+
+### A.1 The implementation prompt section
+
+Rendered as `{{inbox_section}}` in `implementation_claude_code.md` and
+`coding_agent_implement.md`, placed after "Session Runtime Discipline"
+(it is about the session's lifecycle). The tool also gets one line under
+"Available Tools" pointing here. `{{inbox_state}}` inside it lists the
+campaign's requests so far (§A.4); it is empty on a fresh campaign.
+
+```markdown
+## When you are blocked on something only a person can provide
+
+{{inbox_state}}
+
+Some blockers no amount of engineering removes: a credential that was
+never provided, a licence someone must accept, a permission on a bucket,
+a dataset that exists only on someone's machine, credits on an account.
+For these — and only these — use the `request_from_user` tool.
+
+- **What qualifies.** Something a PERSON must do that you cannot: provide
+  a secret, accept terms, grant access, drop a file, pay, install
+  software you lack permission for. Installing a package, downloading
+  public data, retrying a rate limit, working around a flaky service, or
+  choosing between reasonable designs is YOUR job — never a request.
+- **Load-bearing only.** Ask when the <solution> cannot be implemented
+  as specified without it. A missing key for optional logging or
+  telemetry is dropped and mentioned in `technical_difficulties`, not
+  requested.
+- **Never fake it.** Do not stub or mock the resource, fabricate outputs
+  (random embeddings, canned API responses), hard-code a placeholder that
+  lets the evaluation pass, or search this machine for credentials.
+  Asking is always the cheaper path; a faked result is worse than none.
+- **One call, everything you need.** Before calling, list every blocker
+  you can already see and put them all in ONE call. Each request carries
+  `key` (what is needed: `env:OPENAI_API_KEY`,
+  `access:hf:meta-llama/Llama-3.1-8B-Instruct`,
+  `data/transactions-2019.csv`, `tool:docker`), `hit` (the exact error
+  or symptom you saw), `fix` (what the person should do, copy-pasteable:
+  the line to add to `.env`, the URL to accept terms at plus the login
+  command, the path to drop the file at), and `next_steps` (what you
+  will do once it is met, in your own words — you will be resumed with
+  this).
+- **The call stops your session.** Commit any uncommitted work BEFORE
+  calling. After the call returns, do nothing else: the session is being
+  ended and your working tree committed; write no further code and
+  return no final tags. You will be resumed later, in this same
+  conversation, with the person's reply.
+- **Continuing after a reply.** The reply is the first thing you read
+  when resumed. Verify for yourself that the blocker is gone — try the
+  call, read the file, run the command. If it still fails, call
+  `request_from_user` again and say what you tried; the person sees
+  their previous reply next to your new request. If the reply says the
+  resource is not available, that is an instruction: proceed on it — use
+  the alternative it names, or drop that part — and do not ask for that
+  key again.
+- **Transient is not a blocker.** Rate limits, timeouts and flaky
+  networks are retried with backoff inside your session. Authentication,
+  authorization and billing errors are blockers.
+```
+
+The closing line of both prompts, "Do not ask any questions. Implement
+everything as specified and run the evaluation.", becomes, when the
+inbox is on: "Do not ask questions in your output — text outside the
+final tags is never read. The one way to ask for something is the
+`request_from_user` tool, and only for what a person must do." The
+Final Checklist's item about returning the XML tags gains "— unless you
+called `request_from_user`, in which case return nothing".
+
+### A.2 The tool as the agent sees it
+
+```python
+Tool(
+    name="request_from_user",
+    description=(
+        "Ask the person running this campaign for something only a person "
+        "can provide — a credential, a licence acceptance, an access grant, "
+        "a file, credits — when the solution cannot be implemented without "
+        "it. Calling this STOPS your session: the campaign pauses until the "
+        "person replies, then this same session is resumed with their "
+        "reply. Put every blocker you can see into one call. Never use it "
+        "for things you can do yourself (installs, downloads, retries, "
+        "design choices), and never fake the resource instead of asking."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "requests": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": (
+                                "What is needed, short and stable: "
+                                "env:OPENAI_API_KEY, "
+                                "access:hf:meta-llama/Llama-3.1-8B-Instruct, "
+                                "data/transactions-2019.csv, tool:docker"
+                            ),
+                        },
+                        "hit": {
+                            "type": "string",
+                            "description": "The exact error or symptom you saw",
+                        },
+                        "fix": {
+                            "type": "string",
+                            "description": (
+                                "What the person should do, copy-pasteable: the "
+                                "line to add to .env, the URL to accept terms at "
+                                "and the login command, the path to drop a file at"
+                            ),
+                        },
+                        "next_steps": {
+                            "type": "string",
+                            "description": (
+                                "What you will do once this is met, in your own "
+                                "words — you will be resumed with this"
+                            ),
+                        },
+                    },
+                    "required": ["key", "hit", "fix", "next_steps"],
+                },
+            }
+        },
+        "required": ["requests"],
+    },
+)
+```
+
+The tool result, as text: `Recorded as request #1. Your session is being
+stopped now — do nothing further. You will be resumed in this
+conversation with the person's reply.` When a key was requested earlier
+in the campaign, one more line: `Note: #1 for env:OPENAI_API_KEY was
+answered before — "added the key". The person will see that reply next
+to this request.`
+
+### A.3 The follow-up the resumed session receives
+
+Sent as the one user message of `claude -p --resume` / `codex exec
+resume`, built by the orchestrator from the inbox record:
+
+```text
+Your session was stopped while waiting on the person running this
+campaign. They have replied.
+
+Request #1 — env:OPENAI_API_KEY
+  you asked them to: add OPENAI_API_KEY=sk-... to /home/me/churn/.env
+  their reply: "added the key"
+
+Your next steps, as you recorded them:
+  embed the candidate texts with text-embedding-3-large, re-rank, run
+  kapso_evaluation/evaluate.py
+
+Continue from there. This is a fresh process: the current .env is
+loaded, and your working tree is the branch as you committed it.
+Verify the blocker is gone before relying on it; if it is not, call
+request_from_user again and say what you tried. If the reply says the
+resource is not available, proceed without it as instructed and do not
+ask for that key again. Everything else about this session is
+unchanged — same branch, same directories, same final output format:
+end with the XML result tags as required.
+```
+
+With two requests, one block per request. A reply that is empty renders
+as `their reply: (done)`.
+
+### A.4 The inbox state, rendered into the prompt
+
+```markdown
+### Requests already in this campaign's inbox
+- #1 env:OPENAI_API_KEY — answered (node 3): "added the key"
+- #2 data/transactions-2019.csv — open, no reply yet: treat as ABSENT and
+  do not request it again
+```
+
+Empty on a fresh campaign, in which case the heading is omitted.
