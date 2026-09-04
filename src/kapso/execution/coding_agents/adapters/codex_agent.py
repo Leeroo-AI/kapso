@@ -107,7 +107,13 @@ class CodexCodingAgent(CodingAgentInterface):
         super().__init__(config)
         spec = config.agent_specific or {}
         self._effort: Optional[str] = spec.get("effort")
-        self._timeout: float = float(spec.get("timeout", _DEFAULT_TIMEOUT_SECONDS))
+        # None is what a lane with no implementation_timeout and no time budget
+        # passes (the strategy clamps to "unbounded"); the adapter needs a
+        # deadline, so that is the default one (live L2, 2026-09-04).
+        configured_timeout = spec.get("timeout")
+        self._timeout: float = (
+            float(configured_timeout) if configured_timeout is not None else _DEFAULT_TIMEOUT_SECONDS
+        )
         self._sandbox: str = str(spec.get("sandbox", "danger-full-access"))
         self._web_search: bool = bool(spec.get("web_search", True))
         self._mcp_overrides: List[str] = mcp_config_overrides(

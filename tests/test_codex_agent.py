@@ -209,3 +209,11 @@ def test_buffered_by_default_no_console_output(tmp_path, fake_codex, capfd):
     assert result.success
     assert "stream line" in artifact.read_text()
     assert "[codex]" not in capfd.readouterr().out
+
+
+def test_none_timeout_is_the_default_deadline(tmp_path, fake_codex):
+    """A lane with no implementation_timeout and no time budget hands the
+    adapter timeout=None (the strategy's "unbounded"); that is the default
+    deadline, not a crash (live L2 on codex, 2026-09-04)."""
+    assert make_agent(tmp_path, timeout=None)._timeout == 3600.0
+    assert make_agent(tmp_path, timeout=120)._timeout == 120.0
