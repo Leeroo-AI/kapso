@@ -52,6 +52,7 @@ class ExperimentSession:
         repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
         repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
         llm_backend: Any = None,
+        continue_branch: bool = False,
     ):
         """
         Initialize an experiment session.
@@ -68,6 +69,9 @@ class ExperimentSession:
             repo_memory_max_retries: Structured-response repair attempts after
                 the first RepoMemory response
             llm_backend: Shared configured backend for utility completions
+            continue_branch: The inbox continuation — the branch already
+                holds a stopped session's commits; check it out as it is
+                instead of recreating it from the parent
         """
         self.main_repo = main_repo
         self.session_folder = session_folder
@@ -110,17 +114,23 @@ class ExperimentSession:
             git_config.set_value("user", "name", branch_name)
             git_config.set_value("user", "email", branch_name+"@experiment.com")
 
-        # CRITICAL: Checkout parent branch first (inherit parent's code)
-        self.repo.git.checkout(parent_branch_name)
+        if continue_branch:
+            # The inbox continuation: the stopped session pushed its work to
+            # this branch at close; the resumed session must find it there.
+            self.repo.git.checkout(branch_name)
+        else:
+            # CRITICAL: Checkout parent branch first (inherit parent's code)
+            self.repo.git.checkout(parent_branch_name)
 
-        # Create new branch from parent. When the session runs directly on the
-        # parent branch (e.g. the benchmark workspace bootstrap uses
-        # branch_name == parent_branch_name == "main"), there is no corpse to
-        # clear and deleting the checked-out branch is invalid — stay on it.
-        if branch_name != parent_branch_name:
-            if branch_name in [ref.name for ref in self.repo.heads]:
-                self.repo.git.branch("-D", branch_name)
-            self.repo.git.checkout('-b', branch_name)
+            # Create new branch from parent. When the session runs directly on
+            # the parent branch (e.g. the benchmark workspace bootstrap uses
+            # branch_name == parent_branch_name == "main"), there is no corpse
+            # to clear and deleting the checked-out branch is invalid — stay
+            # on it.
+            if branch_name != parent_branch_name:
+                if branch_name in [ref.name for ref in self.repo.heads]:
+                    self.repo.git.branch("-D", branch_name)
+                self.repo.git.checkout('-b', branch_name)
         
         # Record the base commit SHA for this experiment branch.
         # This is the exact repo state we "started from" (inherited from parent_branch_name).

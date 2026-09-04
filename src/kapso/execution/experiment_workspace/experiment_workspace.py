@@ -372,6 +372,7 @@ class ExperimentWorkspace:
         branch_name: str, 
         parent_branch_name: str = "main",
         llm=None,
+        continue_branch: bool = False,
     ) -> ExperimentSession:
         """
         Create a new experiment session.
@@ -386,6 +387,8 @@ class ExperimentWorkspace:
             branch_name: Name for the experiment branch
             parent_branch_name: Branch to inherit code from
             llm: Optional LLM used for RepoMemory enrichment
+            continue_branch: The inbox continuation — take the branch as it
+                is instead of recreating it from the parent
             
         Returns:
             ExperimentSession ready for code generation
@@ -407,6 +410,7 @@ class ExperimentWorkspace:
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
             llm_backend=self.llm_backend,
+            continue_branch=continue_branch,
         )
         
         return session

@@ -26,6 +26,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 from contextlib import contextmanager
 
+class InboxOpenError(RuntimeError):
+    """A suspended node still waits for a reply: the campaign must pause,
+    never run an iteration."""
+
+
 INBOX_RELATIVE_PATH = Path(".kapso") / "inbox.jsonl"
 LAUNCH_RELATIVE_PATH = Path(".kapso") / "launch.json"
 LAUNCH_SCHEMA_VERSION = 1

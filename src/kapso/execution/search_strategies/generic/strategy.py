@@ -55,9 +55,19 @@ from kapso.execution.search_strategies.generic.ideation import (
     select_from_candidates,
 )
 from kapso.execution.search_strategies.generic.implementation import (
+    Continuation,
     build_implementation_prompt,
     ensure_technical_difficulties,
+    render_follow_up,
+    render_inbox_answered,
     run_implementation,
+)
+from kapso.execution.inbox import (
+    InboxOpenError,
+    all_answered,
+    load_requests,
+    record_continued,
+    requests_for_ids,
 )
 from kapso.execution.search_strategies.generic.lens_planning import (
     design_axes_brief,
@@ -101,6 +111,28 @@ class ParentSelection:
 
     branch_name: str
     node_id: Optional[int]
+
+
+def resolve_inbox_settings(
+    inbox: Optional[Dict[str, Any]],
+    node_expansion_value: int,
+    implementation_gates: List[str],
+) -> Optional[Dict[str, Any]]:
+    """The campaign's effective inbox settings. On with one implementation
+    lane, the request_from_user gate is mounted for implementation
+    sessions; with parallel lanes the inbox is off for this campaign (one
+    printed line — lanes come later)."""
+    if not inbox or not inbox.get("enabled"):
+        return inbox
+    if node_expansion_value > 1:
+        print(
+            "[GenericSearch] Inbox off for this campaign: node expansion above "
+            "1 is not supported by the inbox yet"
+        )
+        return {**inbox, "enabled": False}
+    if "inbox" not in implementation_gates:
+        implementation_gates.append("inbox")
+    return inbox
 
 
 @register_strategy("generic")
@@ -321,6 +353,15 @@ class GenericSearch(SearchStrategy):
         self.implementation_timeout = self.params.get("implementation_timeout")
         self.gate_failure_policy = self.params.get("gate_failure_policy", "warn")
         self.implementation_gates = self.params.get("implementation_gates", ["research", "repo_memory", "leeroopedia"])
+        # The campaign inbox (docs/research/evolve-hub-design.md v4): with
+        # it on, implementation sessions get the request_from_user gate and
+        # a session that asks is stopped; the campaign pauses until the
+        # person replies. One implementation lane only for now.
+        self.inbox_settings = resolve_inbox_settings(
+            self.params.get("inbox"),
+            self.node_expansion_value,
+            self.implementation_gates,
+        )
         # A staged bank MUST be reachable: serving injects an intro that
         # instructs sessions to call bank_index / bank_get_card /
         # bank_get_card_with_evidence, so the gate that provides them is
@@ -412,6 +453,12 @@ class GenericSearch(SearchStrategy):
         3. Extract results from agent output
         4. Generate feedback
         
+        A node that asked the person and whose requests are all answered
+        is continued instead (the inbox continuation): no new ideation,
+        the same node and branch, the stored CLI session resumed with the
+        reply. A suspended node whose request is still open raises — the
+        orchestrator never calls run() in that state.
+        
         Args:
             context: Either a ContextData object (legacy) or a problem string
             budget_progress: Budget progress percentage (0-100)
@@ -419,6 +466,16 @@ class GenericSearch(SearchStrategy):
         Returns:
             SearchNode with solution, evaluation_output, feedback, should_stop
         """
+        # Extract problem from context (support both string and ContextData)
+        if isinstance(context, str):
+            problem = context
+        else:
+            problem = str(getattr(context, "problem", context))
+
+        waiting = self._answered_suspended_node()
+        if waiting is not None:
+            return self._continue_node(waiting, problem)
+
         self.iteration_count += 1
         print(f"\n[GenericSearch] Iteration {self.iteration_count}, budget: {budget_progress:.1f}%")
 
@@ -428,12 +485,6 @@ class GenericSearch(SearchStrategy):
         decision = self.fidelity_decision
         if decision is not None and decision.profile == PROFILE_VALIDATE:
             return self._run_validate(decision)
-        
-        # Extract problem from context (support both string and ContextData)
-        if isinstance(context, str):
-            problem = context
-        else:
-            problem = str(getattr(context, "problem", context))
         
         iteration_started_monotonic = time.monotonic()
         iteration_started_at = datetime.now(timezone.utc).isoformat()
@@ -512,13 +563,17 @@ class GenericSearch(SearchStrategy):
         )
 
         self._status_phase("implementation")
-        agent_output, implementation_telemetry, recovered = self._implement(
+        # _implement returns (output, telemetry, recovered manifest line) and,
+        # with the inbox wired, the suspended-session record as a fourth
+        # element; stubs that return three are still whole.
+        agent_output, implementation_telemetry, recovered, *rest = self._implement(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
             parent_branch_name=parent.branch_name,
             ideation_repo_memory_sections_consulted=ideation_sections,
             lane_index=lane_index,
+            node_id=node.node_id,
         )
         node.phase_telemetry["implementation"] = implementation_telemetry
 
@@ -527,7 +582,21 @@ class GenericSearch(SearchStrategy):
         node.parent_branch_name = parent.branch_name
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(branch_name, parent.branch_name)
+        self._absorb_implementation(
+            node, agent_output, recovered, rest[0] if rest else None, lane_tag
+        )
+        return node
 
+    def _absorb_implementation(
+        self,
+        node: SearchNode,
+        agent_output: str,
+        recovered: Optional[str],
+        suspended,
+        lane_tag: str = "",
+    ) -> None:
+        """Steps 3–3c of the lane: the session's tags into the node, or the
+        suspension when the session asked the person and was stopped."""
         # Step 3: Extract results from agent output JSON
         agent_result = self._extract_agent_result(agent_output)
 
@@ -545,6 +614,20 @@ class GenericSearch(SearchStrategy):
             node.evaluation_output = agent_output
             print(f"{lane_tag}[GenericSearch] Warning: No JSON result from agent, using raw output")
 
+        if suspended is not None:
+            # The session asked the person and was stopped: nothing to
+            # judge, nothing to reconstruct — the node waits for the reply.
+            node.suspended = True
+            node.request_ids = list(suspended.request_ids)
+            node.cli_session_id = suspended.cli_session_id
+            print(
+                f"{lane_tag}[GenericSearch] node {node.node_id} stopped — asked "
+                "the person (requests "
+                f"{', '.join(f'#{i}' for i in node.request_ids)}); waiting for "
+                "a reply"
+            )
+            return
+
         # Step 3b: the implementor is the primary author of
         # technical_difficulties; the fallback reconstructs it when the tag
         # is missing. Purely mechanical trigger — never score/outcome-based.
@@ -557,6 +640,76 @@ class GenericSearch(SearchStrategy):
             node.evaluation_output = (
                 (node.evaluation_output or "") + "\n" + recovered
             )
+
+    def _answered_suspended_node(self) -> Optional[SearchNode]:
+        """The suspended node whose requests the person has all answered,
+        or None when nothing is suspended. A suspended node still waiting
+        raises: the orchestrator pauses the campaign in that state and
+        never runs an iteration."""
+        settings = getattr(self, "inbox_settings", None)
+        if not settings or not settings.get("enabled"):
+            return None
+        suspended = [
+            node for node in self.node_history if getattr(node, "suspended", False)
+        ]
+        if not suspended:
+            return None
+        node = min(suspended, key=lambda item: item.node_id)
+        requests = load_requests(settings["path"])
+        if not all_answered(requests, node.request_ids):
+            raise InboxOpenError(
+                f"node {node.node_id} waits for a reply to requests "
+                f"{', '.join(f'#{i}' for i in node.request_ids)}"
+            )
+        return node
+
+    def _continue_node(self, node: SearchNode, problem: str) -> SearchNode:
+        """The inbox continuation: resume the node's stored CLI session with
+        the replies, then judge it like any finished node — the same node
+        id, the same branch, no new ideation, no iteration counted."""
+        settings = self.inbox_settings
+        requests = requests_for_ids(load_requests(settings["path"]), node.request_ids)
+        follow_up = render_follow_up(requests)
+        print(
+            f"\n[GenericSearch] Continuing node {node.node_id} on "
+            f"{node.branch_name} with the replies to requests "
+            f"{', '.join(f'#{i}' for i in node.request_ids)}"
+        )
+        record_continued(
+            settings["path"], node.request_ids,
+            node=node.node_id, session=node.cli_session_id,
+        )
+        continued_at_monotonic = time.monotonic()
+        self._status_phase("implementation")
+        agent_output, implementation_telemetry, recovered, *rest = self._implement(
+            solution=node.solution,
+            problem=problem,
+            branch_name=node.branch_name,
+            parent_branch_name=node.parent_branch_name,
+            ideation_repo_memory_sections_consulted=None,
+            lane_index=0,
+            node_id=node.node_id,
+            continuation=Continuation(node.cli_session_id, follow_up),
+        )
+        # Implementation telemetry accumulates across the node's sessions.
+        prior = node.phase_telemetry.get("implementation", {})
+        node.phase_telemetry["implementation"] = {
+            "cost_usd": prior.get("cost_usd", 0.0)
+            + implementation_telemetry.get("cost_usd", 0.0),
+            "duration_seconds": prior.get("duration_seconds", 0.0)
+            + implementation_telemetry.get("duration_seconds", 0.0),
+        }
+        node.agent_output = agent_output
+        node.code_diff = self._get_code_diff(node.branch_name, node.parent_branch_name)
+        node.suspended = False
+        node.request_ids = []
+        self._absorb_implementation(
+            node, agent_output, recovered, rest[0] if rest else None
+        )
+        if node.suspended:
+            # Asked again: the orchestrator pauses the campaign again.
+            return node
+        self._finalize_nodes([node], continued_at_monotonic, append=False)
         return node
 
     def _expand_round(
@@ -611,11 +764,38 @@ class GenericSearch(SearchStrategy):
                     )
                 )
 
-        # Post-barrier: integrity + feedback serialized in node-id order —
-        # deterministic history, no interleaved feedback sessions.
+        self._finalize_nodes(nodes, iteration_started_monotonic, append=True)
+
+        representative = pick_representative(
+            nodes, self.problem_handler.maximize_scoring
+        )
+        if lane_count > 1:
+            representative.should_stop = any(n.should_stop for n in nodes)
+            print(
+                "[GenericSearch] Round winner: node "
+                f"{representative.node_id} (score={representative.score}); "
+                f"stop={representative.should_stop}"
+            )
+        return representative
+
+    def _finalize_nodes(
+        self,
+        nodes: List[SearchNode],
+        iteration_started_monotonic: float,
+        append: bool,
+    ) -> None:
+        """Post-barrier: integrity + feedback serialized in node-id order —
+        deterministic history, no interleaved feedback sessions. A node
+        that asked the person is stamped and recorded, never judged: it
+        is not finished."""
         self._status_phase("feedback")
         for node in nodes:
-            if self.enforce_evaluation_integrity(node):
+            if getattr(node, "suspended", False):
+                print(
+                    f"[GenericSearch] node {node.node_id} waits for the person "
+                    "— not judged until it is continued"
+                )
+            elif self.enforce_evaluation_integrity(node):
                 self._generate_feedback(node)
                 self._record_evaluation_attempt(node)
             else:
@@ -632,23 +812,13 @@ class GenericSearch(SearchStrategy):
                 phase.get("cost_usd", 0.0)
                 for phase in node.phase_telemetry.values()
             )
-            self.node_history.append(node)
-            print(
-                f"[GenericSearch] ✓ Node {node.node_id} completed: "
-                f"score={node.score}, should_stop={node.should_stop}"
-            )
-
-        representative = pick_representative(
-            nodes, self.problem_handler.maximize_scoring
-        )
-        if lane_count > 1:
-            representative.should_stop = any(n.should_stop for n in nodes)
-            print(
-                "[GenericSearch] Round winner: node "
-                f"{representative.node_id} (score={representative.score}); "
-                f"stop={representative.should_stop}"
-            )
-        return representative
+            if append:
+                self.node_history.append(node)
+            if not getattr(node, "suspended", False):
+                print(
+                    f"[GenericSearch] ✓ Node {node.node_id} completed: "
+                    f"score={node.score}, should_stop={node.should_stop}"
+                )
 
     def _generate_solution(
         self, problem: str, parent_branch: str
@@ -795,7 +965,16 @@ class GenericSearch(SearchStrategy):
             repo_memory_brief,
             budget_status=self._render_budget_status(),
             shared_artifacts_brief=self.shared_artifacts_brief,
+            inbox_answered=self._render_inbox_answered(),
         )
+
+    def _render_inbox_answered(self) -> str:
+        """What the person already answered, for ideation (empty with the
+        inbox off or nothing answered)."""
+        settings = getattr(self, "inbox_settings", None)
+        if not settings or not settings.get("enabled"):
+            return ""
+        return render_inbox_answered(load_requests(settings["path"]))
 
     def _salvage_ideation_output(self, result) -> Optional[str]:
         """Recover a deadline-terminated ideation's partial output
@@ -810,9 +989,12 @@ class GenericSearch(SearchStrategy):
         parent_branch_name: str = "main",
         ideation_repo_memory_sections_consulted: Optional[List[str]] = None,
         lane_index: int = 0,
-    ) -> Tuple[str, Dict[str, float], Optional[str]]:
+        node_id: int = 0,
+        continuation: Optional[Continuation] = None,
+    ) -> Tuple[str, Dict[str, float], Optional[str], Any]:
         """Implementation session with MCP gates; returns (agent output,
-        phase telemetry, recovered manifest line)."""
+        phase telemetry, recovered manifest line, suspended-session record
+        or None)."""
         lane_env = lane_env_overlay(self.expansion_lane_env, lane_index)
         return run_implementation(
             solution=solution,
@@ -862,6 +1044,9 @@ class GenericSearch(SearchStrategy):
                 )
             ),
             await_registered_evaluation=self._await_registered_evaluation,
+            node_id=node_id,
+            inbox_settings=getattr(self, "inbox_settings", None),
+            continuation=continuation,
         )
 
     def _build_implementation_prompt(
@@ -873,6 +1058,7 @@ class GenericSearch(SearchStrategy):
         repo_memory_detail_access_instructions: str,
         previous_errors: str,
         lane_brief: str = "",
+        inbox_section: str = "",
     ) -> str:
         """Build the implementation prompt for Claude Code."""
         return build_implementation_prompt(
@@ -888,6 +1074,7 @@ class GenericSearch(SearchStrategy):
             evaluation_instructions=self._evaluation_instructions(),
             shared_artifacts_brief=self.shared_artifacts_brief,
             lane_brief=lane_brief,
+            inbox_section=inbox_section,
         )
 
     def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:
@@ -1168,6 +1355,7 @@ class GenericSearch(SearchStrategy):
             for node in self.node_history
             if not node.had_error
             and not node.evaluation_integrity_error
+            and not getattr(node, "suspended", False)
             and node.code_diff.strip()
             and node.branch_name
         ]

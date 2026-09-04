@@ -112,6 +112,30 @@ class SearchNode:
     # Implementor-reported build difficulties (fallback-generated when the
     # session died before writing its tag) — the per-experiment lesson record.
     technical_difficulties: str = ""
+    # The campaign inbox (docs/research/evolve-hub-design.md v4): the session
+    # asked the person for something and was stopped; the node waits for
+    # the reply and is then continued in the same CLI session.
+    suspended: bool = False
+    request_ids: List[int] = field(default_factory=list)
+    cli_session_id: str = ""
+    # The campaign inbox (docs/research/evolve-hub-design.md v4): the session
+    # asked the person for something and was stopped; the node waits for
+    # the reply and is then continued in the same CLI session.
+    suspended: bool = False
+    request_ids: List[int] = field(default_factory=list)
+    cli_session_id: str = ""
+    # The campaign inbox (docs/research/evolve-hub-design.md v4): the session
+    # asked the person for something and was stopped; the node waits for
+    # the reply and is then continued in the same CLI session.
+    suspended: bool = False
+    request_ids: List[int] = field(default_factory=list)
+    cli_session_id: str = ""
+    # The campaign inbox (docs/research/evolve-hub-design.md v4): the session
+    # asked the person for something and was stopped; the node waits for
+    # the reply and is then continued in the same CLI session.
+    suspended: bool = False
+    request_ids: List[int] = field(default_factory=list)
+    cli_session_id: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize stable base-node fields to JSON-compatible data."""
@@ -170,6 +194,7 @@ class SearchNode:
             "external_evaluation_error",
             "evaluation_integrity_error",
             "started_at",
+            "cli_session_id",
         }
         invalid_strings = sorted(
             name
@@ -182,9 +207,18 @@ class SearchNode:
                 + ", ".join(invalid_strings)
             )
 
-        for name in ("should_stop", "evaluation_valid", "had_error"):
+        for name in ("should_stop", "evaluation_valid", "had_error", "suspended"):
             if name in values and not isinstance(values[name], bool):
                 raise ValueError(f"Search node {name} must be a boolean")
+
+        request_ids = values.get("request_ids", [])
+        if not isinstance(request_ids, list) or not all(
+            isinstance(item, int) and not isinstance(item, bool) and item >= 0
+            for item in request_ids
+        ):
+            raise ValueError(
+                "Search node request_ids must be a list of non-negative integers"
+            )
 
         provenance = values.get("evaluation_provenance", AGENT_GENERATED)
         if (
