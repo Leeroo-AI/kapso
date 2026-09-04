@@ -117,7 +117,7 @@ def _print_evolve_summary(solution) -> None:
     failure: the exit code stays 0."""
     print("\n" + "=" * 60)
     if solution.metadata.get("stopped_reason") == "waiting_for_user":
-        campaign = solution.code_path
+        campaign = str(Path(solution.code_path).resolve())
         requests = solution.requests
         target = f" {requests[0]['id']}" if len(requests) > 1 else ""
         print("WAITING ON YOU")

@@ -39,15 +39,15 @@ the branch, the sum the continued session computed).
 
 | Test | CLI | Runs | Result | Notes |
 |---|---|---|---|---|
-| L1 stop and resume | Claude | run 1: no request (L1-1); run 2: request lost (L1-2); run 3: pending | pending | |
+| L1 stop and resume | Claude | run 1: no request (L1-1); run 2: request lost (L1-2); run 3: pass | pass | run 3 (all fixes): one request `env:SECRET_TOKEN` whose `tried` lists the environment, the `.env` files walked (names only), git history and the docs, and whose `fix` names the campaign's `.env` and asks the person not to paste the key into the reply; `claude -p --resume <session-id>` continued the same session — the transcript has the tool result at line 94 and the follow-up at line 98; the branch's stream shows two init events with the same MCP servers (`gated-knowledge`, `leeroopedia`), the same tools and the same model, and the first turn's result event before the continuation; the continued session printed 68; judge 1.0, goal achieved. |
 | L2 the same on Codex | Codex | run 1: crash before the session (L2-1); run 2: pass | pass | `codex exec … resume <thread_id> -` with the follow-up on stdin continued the same thread (`thread.started` carried the same id twice in the branch's stream); the rollout shows the tool result at line 46 and the follow-up at line 56; the first turn ended cleanly (`turn.completed`) before the continuation; the continued session printed 68; judge 1.0, goal achieved. |
 | L3 grace then SIGTERM | Claude | pending | pending | |
-| L4 clean end | both | folded into L1/L2 | Codex: pass | the first turn's `turn.completed` precedes the continuation's `thread.started` |
-| L5 gates re-attached | both | folded into L1/L2 | Codex: pass (same thread) | Claude: the continuation's init event must list the same MCP servers, tools and model |
-| L6 two needs, two replies | Claude | pending | pending | |
-| L7 wrong value | Claude | pending | pending | |
-| L8 transcript gone | Claude | pending | pending | |
-| L9 killed mid-continuation | Claude | pending | pending | |
+| L4 clean end | both | folded into L1/L2 | pass on both | the first turn ended on its own within the grace (Claude: `result` event; Codex: `turn.completed`) before the continuation's init event; no kill was needed |
+| L5 gates re-attached | both | folded into L1/L2 | pass on both | Claude: the continuation's init event lists the same MCP servers, tools and model as the first; Codex: the same thread id |
+| L6 two needs, two replies | Claude | 1 | pass | one call carried both needs (`env:SECRET_TOKEN`, `data/kapso_datasets/extra.txt`, same session id in both records); the first reply printed `#2 still open, so node 0 waits; nothing else to run.` and ran nothing; after the extra list was dropped the second reply resumed the same session (tool result at line 63, follow-up at line 69; two init events, same servers, tools and model); the continued session printed 368 = 68 + 300; judge 1.0, goal achieved. |
+| L7 wrong value | Claude | 1 | pass | a 64-hex placeholder in `.env`: the continued session verified (`the value is a placeholder: the literal character 0 repeated 64 times`), called `request_from_user` again (request #2, same key; the tool result noted the previous reply), and the campaign paused again with `#2 env:SECRET_TOKEN again — your previous reply was: "added SECRET_TOKEN to the campaign's .env"`; the right key then resumed the same session a second time (three init events, same servers, tools and model); sum 68; judge 1.0, goal achieved. |
+| L8 transcript gone | Claude | 1 | pass, with one wart | the transcript deleted before the reply: the CLI said `No conversation found with session ID: …`, the reply exited 1 with `ContinuationFailed: could not resume CLI session '<id>' for generic_exp_0`, the node stayed suspended with `completed_iterations` 0, nothing else ran, and the status file says `failed` with that error. The request is recorded as `continued`, so a later `kapso evolve --resume` retries the continuation (the L9 path). Wart: the message carries no reason — the streaming runner's `error` was empty although the CLI printed the reason to stderr — and no manual `kapso evolve --resume` line is printed (a traceback, per Rule 2). |
+| L9 killed mid-continuation | Claude | 1 | pass | SIGKILL of the kapso reply process and its CLI child 20 s after the follow-up reached the session: the checkpoint still marked the node suspended (request `continued`, status file `running` with a dead pid); `kapso evolve --resume` continued the same session id straight away (three init events, two result events — the killed turn never produced one); the coder noticed that the commit it had made in the killed continuation was gone (the session folder is rebuilt from the branch as pushed at session close; an unpushed commit does not survive a kill) and redid the work; sum 68; judge 1.0, goal achieved. |
 | L10 budget clock | — | hermetic (`test_paused_time_is_not_campaign_time`) | pass | not run live |
 
 ## 3. The bait suite (plan §3.3)
@@ -60,9 +60,13 @@ Pending.
 
 ## 4. Secrets (plan §3.4)
 
-Pending: after L1 run 3 and H1, grep of `.kapso/inbox.jsonl`,
-`status.json`, `run_state.json`, `launch.json`, the registry and the
-pause output for the key value.
+After L1 run 3 on Claude, with the real key in the campaign's `.env`
+and the continued session having used it: the key value appears in
+none of `.kapso/inbox.jsonl`, `status.json`, `run_state.json`,
+`launch.json`, the registry (`~/.kapso/campaigns.jsonl`), the pause
+output or the reply output (0 matches each). The coder's own `fix`
+asked the person not to paste the key into the reply. The Codex run
+(L2) had the same result. The bait suite's H1 check is recorded in §3.
 
 ## 5. Deviations from the plan
 
