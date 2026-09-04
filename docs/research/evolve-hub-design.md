@@ -381,3 +381,92 @@ preflight sources and the environment inventory; the hosted inbox and
 push notifications (the hook and the record are built for them); asking
 through the feedback judge (the judge stays tool-locked and card-blind
 by design); questions from the learning crews.
+
+## 8. Open concerns (2026-09-04)
+
+Beyond the decisions in §6. Grouped by what resolves them.
+
+### 8.1 Need a decision
+
+1. **The repeat-ask loop.** After a timeout nothing remembers the key:
+   the next ideation round can propose the same idea and the next
+   session waits another ceiling — unattended, a campaign can spend most
+   of its wall clock holding. Recommendation: ask once per campaign —
+   after one timeout on a key, further asks on it return `timeout` at
+   once until a human touches the item (`resolve` or `decline`), and the
+   open item is rendered into experiment history so ideation sees it.
+2. **Ideation holding.** Ideation members run in parallel under a round
+   timeout; a blocking tool there stalls the round on speculative needs.
+   Recommendation: v1 exposes `hub_ask` to implementation only, or
+   ideation gets a short ceiling (about 5 min) and a prompt rule that
+   only a need certain to block the proposed idea is asked for.
+3. **Unattended runs.** A 30-minute hold per ask with nobody there is
+   waste. Give `wait_minutes: 0` a meaning — post the item, return
+   `timeout` immediately, so the record exists without the hold — and
+   recommend it for nohup, VM and CI runs; benchmark modes hide the tool.
+4. **Node expansion and the clock.** With K>1, pausing the campaign
+   clock while another lane works is wrong: pause only when every
+   running session is waiting; a waiting lane always holds its own
+   deadline. The round's barrier is delayed by up to the ceiling.
+5. **The judge on a timed-out node.** Today the judge session would
+   still run on a node with no evaluation. Skip it when the node ended
+   on an open hub item and derive the feedback from the item.
+6. **Iteration accounting.** A timeout is a charged failed iteration;
+   three of them consume 30% of `--iterations 10`. Accept for v1 or
+   exempt; tied to concern 1.
+
+### 8.2 Verify before building (live, on the installed CLIs)
+
+The box runs Claude Code 2.1.260 and Codex 0.144.1; the adapter comments
+pin behaviours verified on 2.1.157. The docs describe current versions,
+so every item below is a live test on the versions the deployment
+actually pins.
+
+7. **Claude per-server `timeout`** in the `--mcp-config` entry honoured
+   for a stdio server under `-p` (the tracker has a history of
+   "timeout not honoured" reports). Test with a 2-minute cap.
+8. **The idle rule.** 2.1.260 applies the 30-minute stdio idle abort.
+   Progress notifications need a progress token the client passes on the
+   call; the gate server sends none today and whether Claude Code passes
+   a token is unverified. The fallback is
+   `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` set to the ceiling; test both.
+9. **Codex `tool_timeout_sec`** through `-c mcp_servers.hub.…`, and
+   whether `codex exec` has any other per-turn cap. Test a 5-minute
+   hold.
+10. **Liveness during a long call.** The gate's `handle_call` runs in an
+    executor, so the event loop can answer pings; verify neither CLI
+    pings-and-kills during a long tool call.
+
+### 8.3 Implementation care
+
+11. **Telemetry.** Node `duration_seconds` and the implementation phase
+    telemetry must subtract wait spans; record a `wait` phase so the
+    efficiency reports separate waiting from working.
+12. **Hub file concurrency.** Gate processes, `kapso hub` and the
+    orchestrator all append; items exceed the atomic-append size — lock
+    around appends.
+13. **Masking is heuristic.** The check's output also goes into the tool
+    result, which the CLI writes to its own transcript unmasked: mask
+    before returning, keep only the tail, and the prompt rule says
+    checks print no secrets.
+14. **Agent-authored checks run outside the session** — by `kapso hub
+    resolve` in the user's shell and, in v1.1, by the orchestrator at
+    boundaries. Same trust level as the session's own commands, but
+    `show` prints the check before `resolve` runs it, and every run is
+    capped.
+15. **The `worth` field.** The selector's `<selection_reasoning>` is
+    extracted in ideation but not passed to the implementation prompt,
+    so the implementer cannot honestly write "ranked 1st of 4". Pass a
+    one-line selection summary into the build prompt, or drop `worth`
+    until the selector asks for itself.
+16. **The `.env` path.** Kapso must record which file `find_dotenv`
+    loaded and inject it for the gate and the fix text; when none was
+    found, the fix names where to create it.
+17. **Sandbox mismatch.** The gate runs outside a Codex sandbox while the
+    agent's shell runs inside it, so a check can pass where the agent's
+    commands cannot reach the network. Kapso runs full access today;
+    revisit if sandboxes are tightened.
+18. **Small ones.** The attended keys need a TTY-aware non-blocking read
+    and are skipped without a TTY; when `--allowedTools` is set,
+    `mcp__hub__hub_ask` must be in it; the judge prompt should name the
+    hub item so feedback says "blocked on X", not "no evaluation".
