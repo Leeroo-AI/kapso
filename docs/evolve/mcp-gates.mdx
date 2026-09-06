@@ -23,6 +23,12 @@ experiment.
 | `repo_memory` | — | — | Bundled |
 | `bank` | `KAPSO_BANK_DIR`, `KAPSO_BANK_HEAD`, `KAPSO_SERVING_PULL_LOG`, `KAPSO_TASK_FAMILY`, `KAPSO_PROBE_BUDGET` | — | Bundled |
 | `leeroopedia` | `LEEROOPEDIA_API_KEY` | `leeroopedia-mcp` | External |
+| `inbox` | `KAPSO_INBOX_PATH`, `KAPSO_SESSION_ID`, `KAPSO_NODE_ID` (injected by Kapso per session) | — | Bundled |
+
+The `inbox` gate carries one tool, `request_from_user`, through which an
+implementation session asks you for a credential, access or a file; Kapso
+injects the gate's three variables for each session when `inbox.enabled`
+is true, so the gate always resolves. See the [inbox](/docs/evolve/inbox).
 
 `GateDefinition.required_env` checks for a non-empty value.
 `required_commands` uses the system command lookup. These checks establish that

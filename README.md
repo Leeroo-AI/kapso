@@ -154,6 +154,9 @@ kapso = Kapso()   # no knowledge graph needed to start
 # Evolve: build a solution through experimentation. The campaign prints
 # `status: <path>` at launch — watch it live from another terminal with
 #     kapso watch ./campaign
+# If a session needs something only you can provide (an API key, a file),
+# the campaign pauses and `kapso inbox reply` resumes it:
+#     https://docs.leeroo.com/docs/evolve/inbox
 solution = kapso.evolve(
     goal="Optimize the model in train.py; target accuracy > 0.80 on evaluate.py",
     initial_repo="./my_project",         # or omit to start from scratch

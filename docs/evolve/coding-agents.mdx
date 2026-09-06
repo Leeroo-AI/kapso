@@ -202,6 +202,8 @@ When used with `kapso.evolve()`, the coding agent must end its response with XML
 
 The search strategy extracts these tags (`score` becomes a float; `null` or an empty value becomes `None`) and hands them to the feedback generator to validate the evaluation and decide whether to continue. There is no fallback format: output without the tags is a warning and an empty result.
 
+An implementation session may also end without the tags by calling the `request_from_user` tool when the session needs something only a person can provide. Kapso later resumes that very session with your reply, through `claude -p --resume` for Claude Code and `codex exec resume` for Codex, which is why implementation sessions are launched with a session id (`--session-id` on Claude Code, `--json` on Codex to capture the thread id). See the [inbox](/docs/evolve/inbox).
+
 ### Example agent output
 
 ```text

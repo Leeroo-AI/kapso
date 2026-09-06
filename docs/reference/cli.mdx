@@ -60,7 +60,7 @@ kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
 kapso evolve --goal "Build a classifier" --output ./campaign --resume
 ```
 
-When a session needs something only you can provide, the campaign pauses: the summary block says `WAITING ON YOU` instead of `COMPLETED`, the exit code stays 0, and [`kapso inbox reply`](#kapso-inbox) resumes it. See [Waiting on you](/docs/evolve/inbox).
+When a session needs something only you can provide, the campaign pauses: the summary block says `WAITING ON YOU` instead of `COMPLETED`, the exit code stays 0, and [`kapso inbox reply`](#kapso-inbox) resumes it. See [the inbox](/docs/evolve/inbox).
 
 ## kapso research
 
@@ -273,7 +273,7 @@ kapso watch ./campaign --json | jq -r '[.state] | @tsv'
 
 ## kapso inbox
 
-What a paused campaign is waiting on you for, and the reply that resumes it. Inside a campaign directory both forms act on that campaign; elsewhere, name it first. See [Waiting on you](/docs/evolve/inbox).
+What a paused campaign is waiting on you for, and the reply that resumes it. Inside a campaign directory both forms act on that campaign; elsewhere, name it first. See [the inbox](/docs/evolve/inbox).
 
 | Form | What it does |
 |------|--------------|

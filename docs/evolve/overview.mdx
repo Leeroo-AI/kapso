@@ -31,8 +31,9 @@ The system works by:
 2. **Initializing repo**: From `initial_repo`, workflow search, or empty
 3. **Gathering context**: From the knowledge graph and repo memory
 4. **Generating solutions**: Via pluggable coding agents
-5. **Running evaluation**: Agent builds and runs evaluation in `kapso_evaluation/`
-6. **Generating feedback**: Feedback generator validates results and decides stop/continue
+5. **Asking you when only you can help**: A session that needs a credential, access or a file only a person can provide records a request in the [inbox](/docs/evolve/inbox); the campaign pauses and your reply continues that same session
+6. **Running evaluation**: Agent builds and runs evaluation in `kapso_evaluation/`
+7. **Generating feedback**: Feedback generator validates results and decides stop/continue
 
 ## What are the pieces?
 
@@ -51,6 +52,9 @@ The system works by:
   </Card>
   <Card title="Repo Memory" icon="brain" href="/docs/evolve/repo-memory">
     Tracks code understanding with file-level evidence
+  </Card>
+  <Card title="Inbox" icon="inbox" href="/docs/evolve/inbox">
+    Where a session asks you for what only you can provide, and how your reply resumes it
   </Card>
 </CardGroup>
 

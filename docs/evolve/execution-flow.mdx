@@ -107,6 +107,13 @@ provided evaluation without changing its source. Kapso fingerprints the suite
 and verifies the finalized candidate ref before accepting its score. See
 [Evaluation Integrity](/docs/evolve/evaluation-integrity).
 
+A session can also stop instead of finishing. When the session needs
+something only a person can provide, the session calls the
+`request_from_user` tool; the session ends, the node is suspended, the
+campaign pauses with `stopped_reason: waiting_for_user`, and the judge
+never sees the node. Your reply through the [inbox](/docs/evolve/inbox)
+continues the same session at this step, with the reply as its next input.
+
 Each experiment gets its own **Git branch** via `ExperimentWorkspace`:
 
 ```text

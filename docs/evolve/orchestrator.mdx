@@ -59,7 +59,7 @@ result = orchestrator.solve(
     cost_budget=50.0,
 )
 
-print(result.stopped_reason)   # "goal_achieved" | "max_iterations" | "budget_exhausted" | "legacy_stop"
+print(result.stopped_reason)   # "goal_achieved" | "max_iterations" | "budget_exhausted" | "legacy_stop" | "waiting_for_user"
 best = result.best_experiment
 ```
 
