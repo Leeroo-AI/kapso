@@ -116,6 +116,12 @@ leave joblib workers spinning at full CPU; the runner now reaps them.
 
 | P7 deploy, **skill v3** | yes | pass; `doctor deploy`, deployed in the foreground through a small script using `SolutionResult(goal, code_path)`, printed the prediction (churn 0.998 for the at-risk profile), then re-ran the judge on the deployed artifact (0.910) because the adapter had retrained the pickle under the venv's sklearn | 15 | 13 | $0.43 | 163s | 39 / $1.34 (max-turns) |
 
+| P6 resume (interrupted fixture), skill v3 | yes | pass; saw RUNNING with a dead pid, read the checkpoint, first `--resume` refused (`RunCheckpointIncompatibleError`), diagnosed from `run_checkpoint.py` that `--eval-dir` is fingerprinted and not read back from `launch.json`, resumed with the launch flags, handed off without polling | 27 | 25 | $1.18 | 194s | pending |
+
+v4 edit: the resume section now says to re-pass eval-dir, data-dir, mode and
+cap, that the launch record is not read back, and that a fresh corpse still
+reads RUNNING for three heartbeats.
+
 v3 edits from this round: deploy is a minutes-long foreground operation, not a
 campaign (the skill now says so and shows the Python path that returns the
 running software, using the real `SolutionResult(goal, code_path)`
@@ -131,6 +137,20 @@ Product findings from round 2:
 - **`learning.bank.local_path` defaults to `data/kapso-bank.git`**, resolved
   against the CWD, so a project that passes `--data-dir data` ships its bank
   into `kapso_datasets/` and the seed commit.
+- **`--resume` needs the launch flags re-typed, and the refusal does not say
+  which one.** The checkpoint's `config_fingerprint` includes
+  `provided_evaluation_fingerprint` only when `--eval-dir` is passed, so a
+  resume without it fails with a bare `RunCheckpointIncompatibleError`;
+  `.kapso/launch.json` holds every original argument but resume does not read
+  it (the inbox reply path does).
+- **`kapso watch` reports RUNNING for up to three heartbeat intervals after
+  the process is gone**; the status file cannot record its own writer's death.
+- **An unreachable target goes to the inbox, not to the judge.** A fixture run
+  with target 0.95 on data whose ceiling is ~0.91 reached 0.913, then the
+  session filed a request offering three routes (accept the below-goal
+  result, regenerate the data with a named slope, or a route the user
+  names) and the campaign paused with `WAITING ON YOU` after $2.97. Kept as
+  `fixtures/campaign-waiting-ceiling`.
 
 P3's fictional path was a prompt defect: both arms spent their calls searching
 the machine for `/home/me`. Replaced by a real paused campaign copied from the
