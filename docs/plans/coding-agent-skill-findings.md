@@ -200,3 +200,5 @@ have an evaluation script, just do whatever makes sense".
 | Prompt | Arm | Outcome | Turns | Tool calls | Cost | Time |
 |---|---|---|---|---|---|---|
 | P11 vague, no judge | base | **max-turns, no reply**: read the evaluation maintainer, integrity, fidelity and registered-evaluation sources; never asked, never launched | 26 | 37 | $1.69 | 207s |
+| P12 vague, user has no evaluation | skill v5 | launched without re-asking; goal carries metric, target 0.87, baseline 0.722, data rules and the interface; said "0.87 is my number, not yours" and offered F1/AUC instead; **but wrote `eval/evaluate.py` itself and passed `--eval-dir`** instead of leaving evaluation to the campaign | 22 | 20 | $0.81 | 226s |
+| P11 vague, no judge | skill v5 | **fail**: did not ask; wrote `eval/evaluate.py` itself (copying `data/test.csv` into `eval/`), launched at target 0.91 (the ceiling), then polled to **max-turns** with no reply. Cause: the "metric missing" bullet read as licence to create an evaluator before the "no evaluation" bullet applied | 26 | 29 | $1.40 | 254s |

@@ -44,17 +44,22 @@ a success metric and a number, and it helps to name the judge: "accuracy above
 0.85 as measured by eval/evaluate.py". Both are the user's to give and optional;
 whatever the user gives goes into the goal verbatim.
 
-- Metric missing: take the most natural one the repo offers (an evaluation
-  script, a test suite, a benchmark), run it once for the baseline, and write
-  the goal with that metric and a target you propose. Tell the user in one line
-  what you assumed and that their own success metric goes straight into the
-  goal.
-- No evaluation at all, in the repo or the request: ask once, in one line,
-  whether they have a script or command that scores this and what "good"
-  means. A script goes in with `--eval-dir`, protected. If they do not know,
-  launch anyway with the best metric you can state in the goal; the campaign
+First look for an evaluation the repo already has: a scoring script, a test
+suite, a benchmark command. Then:
+
+- The repo has one but the request names no metric or target: run it once for
+  the baseline, write the goal with that metric and a target you propose, and
+  tell the user in one line what you assumed and that their own success metric
+  goes straight into the goal. Leave headroom below any ceiling you can see; a
+  target the data cannot reach ends in the inbox, not in a result.
+- The repo has none and the request names none: ask once, in one line, whether
+  they have a script or command that scores this and what "good" means, and
+  end your turn there. A script they have goes in with `--eval-dir`,
+  protected. If they answer that they have none or do not know, launch with
+  the best metric you can state in the goal and no `--eval-dir`: the campaign
   builds its own evaluation in `kapso_evaluation/` from the goal, and the
-  judge checks that it is fair. Do not ask twice.
+  judge checks that it is fair. Never write an evaluator on the user's behalf,
+  and never ask twice.
 - Put rules in the goal, not methods. The judge enforces data rules and
   prohibitions ("do not modify eval/evaluate.py", "do not fit on
   data/test.csv") as invariants for the whole campaign, and would freeze a
