@@ -120,10 +120,11 @@ A campaign pauses when a session needs something only you can provide; see [the 
 
 ```python
 Kapso.inbox(campaign: str) -> list[Request]
+Kapso.inbox_ideas(campaign: str) -> dict[int, str]
 Kapso.reply(campaign: str, request_id: int, note: str = "") -> SolutionResult | None
 ```
 
-`inbox` returns the open requests, oldest first, each with `id`, `key`, `hit`, `tried`, `fix` and `next_steps`. `reply` records the note and, once every request of the node that asked is answered, resumes the campaign in this process and returns its result. It returns `None` when another request of that node is still open, or when the campaign was started with an `iteration_evaluator`: the callback lives in your script, so call `evolve()` again there with `resume=True`. It raises while a live process holds the campaign.
+`inbox` returns the open requests, oldest first, each with `id`, `key`, `hit`, `tried`, `fix` and `next_steps`. `inbox_ideas` returns one line per node of the campaign, the idea a request was made for, keyed by node id; `kapso inbox` prints it as the `for` row. `reply` records the note and, once every request of the node that asked is answered, resumes the campaign in this process and returns its result. It returns `None` when another request of that node is still open, or when the campaign was started with an `iteration_evaluator`: the callback lives in your script, so call `evolve()` again there with `resume=True`. It raises while a live process holds the campaign.
 
 ## research
 
