@@ -1,5 +1,7 @@
 # RelBench Integration
 
+Rendered guide: [docs.leeroo.com/docs/benchmarks/relbench](https://docs.leeroo.com/docs/benchmarks/relbench) · Kapso by Leeroo: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · `pip install leeroo-kapso`
+
 Every company's most valuable data has the same shape: customers, orders, events, and records
 spread across linked tables. [RelBench](https://relbench.stanford.edu) (Stanford/Kumo,
 [v2 paper](https://arxiv.org/abs/2602.12606)) turns that shape into a benchmark: 11 real
