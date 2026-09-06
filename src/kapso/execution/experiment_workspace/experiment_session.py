@@ -132,6 +132,14 @@ class ExperimentSession:
                     self.repo.git.branch("-D", branch_name)
                 self.repo.git.checkout('-b', branch_name)
         
+        # Files a person dropped into the campaign's kapso_datasets/ after
+        # launch (the inbox's data requests, design v4): the clone carries
+        # only what the branch tracks, and data_dir files were committed at
+        # setup, so a dropped file would never reach a session (live L6 on
+        # Codex, 2026-09-06). Bring the untracked ones along; a tracked
+        # file of the same name wins.
+        self._bring_dropped_data(main_repo.working_dir)
+
         # Record the base commit SHA for this experiment branch.
         # This is the exact repo state we "started from" (inherited from parent_branch_name).
         # We use it to compute diffs and update RepoMemory with an accurate change log.
@@ -165,6 +173,22 @@ class ExperimentSession:
         
         # Store solution context for richer commit messages
         self._current_solution_summary: Optional[str] = None
+
+    def _bring_dropped_data(self, workspace_dir: str) -> None:
+        """Copy the campaign's kapso_datasets/ files the session folder
+        lacks (the person dropped them after launch, untracked)."""
+        source = os.path.join(workspace_dir, "kapso_datasets")
+        if not os.path.isdir(source):
+            return
+        target = os.path.join(self.session_folder, "kapso_datasets")
+        for folder, _subfolders, files in os.walk(source):
+            relative = os.path.relpath(folder, source)
+            for name in files:
+                destination = os.path.join(target, relative, name)
+                if os.path.exists(destination):
+                    continue
+                os.makedirs(os.path.dirname(destination), exist_ok=True)
+                shutil.copy2(os.path.join(folder, name), destination)
 
     @staticmethod
     def _mount_repo_memory_mcp(

@@ -141,12 +141,14 @@ def test_stop_and_resume_continues_the_same_session(tmp_path, cli):
     assert run_sum(campaign, node["branch_name"], key) == str(TOTAL)
 
 
-@pytest.mark.parametrize("cli", ["claude", "codex"])
+@pytest.mark.parametrize("cli", ["claude"])
 def test_grace_then_sigterm_still_continues_the_session(tmp_path, cli):
     """L3: the goal orders the coder to keep working after the call; the
     adapter ends the session after the shortened grace, and the reply
     still continues the interrupted turn with the follow-up after the
-    tool result."""
+    tool result. Claude only: a Codex coder ended its turn right after
+    the call, inside the grace, so the kill cannot be provoked there
+    (2026-09-06); the Codex kill path is covered hermetically."""
     root = tmp_path / "keep"
     key = build_fixture(root, cli, variant="keep_working")["key"]
     campaign, node, request = _paused(root, cli)

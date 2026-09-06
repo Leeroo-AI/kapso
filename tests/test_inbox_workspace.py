@@ -44,6 +44,28 @@ def stub_agent(monkeypatch):
     )
 
 
+def test_a_file_dropped_into_kapso_datasets_reaches_the_session(tmp_path, stub_agent):
+    """The person drops a requested file into the campaign's kapso_datasets/
+    after launch (untracked); the continued session's clone must have it,
+    and a tracked file of the same name is not overwritten."""
+    workspace = _workspace(tmp_path)
+    Path(workspace.workspace_dir, "kapso_datasets").mkdir()
+    _commit(workspace, "kapso_datasets/.gitkeep", "", "setup")
+    _commit(workspace, "kapso_datasets/train.csv", "tracked\n", "data")
+    workspace.create_branch("generic_exp_3")
+    _commit(workspace, "PLAN.md", "next: rank\n", "session commit")
+    workspace.switch_branch("main")
+    dropped = Path(workspace.workspace_dir, "kapso_datasets", "private", "extra.txt")
+    dropped.parent.mkdir()
+    dropped.write_text("100\n200\n")
+    Path(workspace.workspace_dir, "kapso_datasets", "train.csv").write_text("edited in place\n")
+
+    session = workspace.create_experiment_session("generic_exp_3", "main", continue_branch=True)
+
+    assert Path(session.session_folder, "kapso_datasets", "private", "extra.txt").read_text() == "100\n200\n"
+    assert Path(session.session_folder, "kapso_datasets", "train.csv").read_text() == "tracked\n"
+
+
 def test_continue_branch_keeps_the_stopped_sessions_commits(tmp_path, stub_agent):
     workspace = _workspace(tmp_path)
     _commit(workspace, "train.py", "parent\n", "baseline")
