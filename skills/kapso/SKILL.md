@@ -27,10 +27,13 @@ the source is large and a session that greps it runs out of turns before answeri
   Add `--models` to live-probe every configured model with one token each; a capped
   plan fails here in seconds instead of hours in.
 - A campaign takes tens of minutes to hours. Launch it in the background with its
-  output in a log file, confirm it started (`kapso watch <campaign>` renders once
-  the first heartbeat lands), then hand the user the `--follow` command and stop.
-  Do not poll the log or arm monitors for the rest of the session unless asked.
-  Never run `kapso evolve` in a foreground tool call.
+  output in a log file, check once that the process is alive, and hand off in
+  your reply right away: the goal you passed, the metric and target you assumed
+  and that the user's own can replace them, the `kapso watch <campaign> --follow`
+  command, and that `WAITING ON YOU` is a pause answered through `kapso inbox`.
+  The status file appears only after the seed copy and repo-memory bootstrap,
+  usually a few minutes in, so do not wait for it, poll the log, or arm
+  monitors unless asked. Never run `kapso evolve` in a foreground tool call.
 - A run that ends with `WAITING ON YOU` has paused, not failed (exit code 0).
   Do not restart it; reply through the inbox (below).
 
