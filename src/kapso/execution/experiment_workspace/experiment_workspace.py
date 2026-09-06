@@ -333,6 +333,10 @@ class ExperimentWorkspace:
             "!changes.log",
             ".kapso/run_state.json",
             ".kapso/.run_state.*.tmp",
+            # The inbox record and the launch record (design v4) are
+            # campaign state like the checkpoint, never branch content.
+            ".kapso/inbox.jsonl",
+            ".kapso/launch.json",
             # Campaign shared cache holds large reusable artifacts (tables,
             # embeddings); they must never enter experiment branches.
             ".kapso/shared_cache/",
