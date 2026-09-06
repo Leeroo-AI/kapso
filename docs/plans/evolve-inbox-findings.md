@@ -168,7 +168,11 @@ rates over the runs made.
   with rank_bm25 instead" continued the node without the key (no new
   request), a second iteration ran (node 1, score 0.567 on the lexical
   ranking) with no request for that key, and its ideation transcript
-  carries "What the person has already answered about resources".
+  carries "What the person has already answered about resources". The
+  same on the Codex H1 campaign (2026-09-06): the reply continued the
+  thread, iteration 2 ran with no request, and its ideation transcript
+  carries the answered key; neither Codex node received a score (the
+  judge gave none to a lexical ranking under an OpenAI-embeddings goal).
 
 ### Harness caveats
 
