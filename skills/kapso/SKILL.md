@@ -46,15 +46,17 @@ nohup kapso evolve \
   --initial-repo . \
   --eval-dir eval \
   --data-dir data \
-  --output ./campaign \
+  --output ../churn-campaign \
   --time-budget-minutes 60 --iterations 10 \
-  > campaign.log 2>&1 &
-kapso watch ./campaign --follow
+  > ../churn-campaign.log 2>&1 &
+kapso watch ../churn-campaign --follow
 ```
 
 - `--initial-repo <path|github url>` seeds the campaign; a non-git directory is
   copied and committed as the baseline. The original is never modified. Every
-  experiment lands on branch `generic_exp_N` inside `--output`, which must be empty.
+  experiment lands on branch `generic_exp_N` inside `--output`, which must be an
+  empty directory outside the repo being seeded (a sibling); an output inside
+  the repo gets copied into itself.
 - `--eval-dir` is copied to `kapso_evaluation/` and integrity-protected: any
   candidate that edits it is rejected and unscored. Use it whenever the user has a
   judge. `--data-dir` is copied to `kapso_datasets/`. The seed copy includes
@@ -160,19 +162,28 @@ or `deep`. In Python `research(objective, mode=[...], depth=...)` with keyword-o
 
 ## Deploy
 
+Deploy runs one claude session that adapts a copy of the solution
+(`<path>_adapted_<strategy>`) for the target and returns when it is ready. It
+takes a few minutes, not hours: run it in the foreground with a long tool
+timeout and use the result, rather than backgrounding it and polling.
+
 ```bash
-kapso deploy --solution-path ./campaign --strategy local   # auto|local|docker|modal|bentoml|langgraph
+kapso doctor deploy
+kapso deploy --solution-path ../churn-campaign --strategy local   # auto|local|docker|modal|bentoml|langgraph
 ```
 
+To call what was deployed, use the Python API, which hands back the running
+software:
+
 ```python
-from kapso import DeployStrategy
-software = k.deploy(solution, strategy=DeployStrategy.LOCAL)
-software.run({"tenure_months": 3, "monthly_spend": 92.0, ...})
+from kapso import Kapso, DeployStrategy, SolutionResult
+solution = SolutionResult(goal="churn model", code_path="../churn-campaign")  # or the object evolve() returned
+software = Kapso().deploy(solution, strategy=DeployStrategy.LOCAL)
+print(software.run({"tenure_months": 3, "monthly_spend": 92.0, "support_tickets": 4, "logins_per_week": 1.0, "plan": "basic"}))
 software.stop()
 ```
 
-Deploy adapts a copy (`<path>_adapted_<strategy>`) with a claude session; the
-original is untouched. `AUTO` lets a selector pick the target.
+The original solution is untouched. `AUTO` lets a selector pick the target.
 
 ## Models and config
 
