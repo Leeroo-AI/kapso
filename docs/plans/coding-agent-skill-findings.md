@@ -205,3 +205,12 @@ have an evaluation script, just do whatever makes sense".
 | P11 vague, no judge | skill v5, reordered | pass; checked the repo for any evaluation, `doctor evolve`, then one one-line question ("Do you have a script or command that scores this model, and what counts as good?") with both branches stated; no launch, no evaluator written | 9 | 7 | $0.17 | 22s |
 | P12 vague, user has no evaluation | base | **max-turns, no reply**: generated its own holdout data, wrote an evaluator, rewrote the user's `train.py` and `predict.py`, and launched with the self-made judge at call 32 | 26 | 32 | $1.69 | 381s |
 | P12 vague, user has no evaluation | skill v5, reordered | pass; no re-ask, no evaluator written, launched with no `--eval-dir` and a goal carrying "Success metric: accuracy on the held-out test set above 0.86", the 0.722 baseline and the data rules; `--data-dir data`, sibling output, bounded; was distracted by a leftover campaign dir on the box | 24 | 22 | $0.66 | 113s |
+| P1 launch, handoff rule | skill v5 | pass; launch by call 10, one `ps` check, then a complete handoff (goal, invariants, `--eval-dir` protection, `watch --follow`, status-file lag, `WAITING ON YOU`, "the 0.85 target is yours as given") | 13 | 11 | $0.36 | 44s |
+| P12 vague, user has no evaluation | skill v5, handoff rule | handoff is the target shape ("What I assumed... your own metric replaces this verbatim", metric, baseline, target with headroom, invariants incl. no copying the label formula, `watch --follow`, status lag, inbox) — but **contaminated**: it found the sibling campaign the P1 rerun had just launched, took that project's `eval/evaluate.py` as this project's judge, and used `--eval-dir` | 24 | 22 | $0.86 | 192s |
+
+Harness: the runner now removes anything a session created beside the project
+(a sibling campaign directory and its log) after each run.
+
+Product finding: `kapso watch` crashes with `KeyError: 'heartbeat_at'` on a
+campaign whose status file was written before the first heartbeat (a run
+killed during the seed copy). Seen by the P12 session on the dead P1 campaign.
