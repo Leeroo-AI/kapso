@@ -5,6 +5,14 @@ Push to `main` and the site rebuilds itself — there is no deploy step to run a
 no machine of ours in the path. The only infrastructure we own is the DNS record
 pointing `docs.leeroo.com` at Mintlify.
 
+## How to write
+
+The house style — page anatomy, the Markdown rendition AI agents read, claims
+discipline, the closing Related and project lines, the checks — lives in the
+`doc-writer` skill at `.claude/skills/doc-writer/SKILL.md`. In Claude Code
+inside this repo it loads on its own; ask for `/doc-writer` or just start
+editing a page. Read it once even if you never use the agent.
+
 ## Change a page
 
 1. Edit the `.mdx` file.
