@@ -20,9 +20,9 @@
 # llms.txt because of exactly that.
 /*.md
 
-# Agent skills and editor config. Markdown, but not documentation: without
-# this the build parses them and `seo.indexing: all` publishes them as hidden
-# pages, the way CLAUDE.md once was.
+# Editor and agent config directories. Any Markdown that lands here is not
+# documentation: without this the build parses it and `seo.indexing: all`
+# publishes it as a hidden page, the way CLAUDE.md once was.
 /.claude/
 /.agents/
 
