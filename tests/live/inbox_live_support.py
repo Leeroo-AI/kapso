@@ -208,24 +208,33 @@ def run_evolve(root: Path, *, iterations: int = 1, log: Optional[Path] = None,
     return _run(command, root, log)
 
 
-def api_evolve(root: Path, iterations: int) -> None:
+def api_evolve(root: Path, iterations: int, *, resume: bool = False) -> None:
+    """The campaign through the Python API with the fixture's config;
+    `resume` continues the existing campaign (the checkpoint's
+    fingerprint is that config, so a CLI resume with the packaged
+    config would be refused)."""
     from kapso.kapso import Kapso
 
     solution = Kapso(config_path=str(root / "config.yaml")).evolve(
         goal=(root / "goal.txt").read_text(), output_path=str(root / "campaign"),
-        initial_repo=str(root / "seed"), max_iterations=iterations, mode="MINIMAL",
+        initial_repo=None if resume else str(root / "seed"), max_iterations=iterations,
+        mode="MINIMAL", resume=resume,
     )
     print(f"stopped_reason={solution.metadata.get('stopped_reason')} requests={solution.requests}")
 
 
 def run_resume(root: Path, *, log: Optional[Path] = None) -> subprocess.CompletedProcess:
-    """`kapso evolve --resume` on the campaign (the CLI form; the fixture
-    config, when there is one, rides in through the launch record's
-    config path only for replies, so this is the packaged config)."""
-    command = [
-        sys.executable, "-m", "kapso.cli", "evolve", "--goal-file", "goal.txt",
-        "--output", "campaign", "--iterations", "1", "-m", "MINIMAL", "--resume",
-    ]
+    """`kapso evolve --resume` on the campaign: the CLI form with the
+    packaged config, or the API form with the fixture's config when the
+    fixture carries one (the checkpoint's fingerprint is that config)."""
+    if (root / "config.yaml").exists():
+        command = [sys.executable, str(Path(__file__).resolve()), "api-evolve", str(root),
+                   "--iterations", "1", "--resume"]
+    else:
+        command = [
+            sys.executable, "-m", "kapso.cli", "evolve", "--goal-file", "goal.txt",
+            "--output", "campaign", "--iterations", "1", "-m", "MINIMAL", "--resume",
+        ]
     return _run(command, root, log)
 
 
@@ -386,6 +395,7 @@ def main(argv: List[str]) -> None:
     api = sub.add_parser("api-evolve")
     api.add_argument("root")
     api.add_argument("--iterations", type=int, default=1)
+    api.add_argument("--resume", action="store_true")
     reply = sub.add_parser("reply")
     reply.add_argument("root")
     reply.add_argument("id", type=int)
@@ -405,7 +415,7 @@ def main(argv: List[str]) -> None:
         completed = run_evolve(root, iterations=args.iterations, log=root / "evolve.log")
         print(f"exit={completed.returncode}")
     elif args.command == "api-evolve":
-        api_evolve(root, args.iterations)
+        api_evolve(root, args.iterations, resume=args.resume)
     elif args.command == "reply":
         completed = run_reply(root, args.id, args.note, log=root / "reply.log")
         print(f"exit={completed.returncode}")

@@ -141,17 +141,18 @@ def test_stop_and_resume_continues_the_same_session(tmp_path, cli):
     assert run_sum(campaign, node["branch_name"], key) == str(TOTAL)
 
 
-def test_grace_then_sigterm_still_continues_the_session(tmp_path):
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_grace_then_sigterm_still_continues_the_session(tmp_path, cli):
     """L3: the goal orders the coder to keep working after the call; the
     adapter ends the session after the shortened grace, and the reply
     still continues the interrupted turn with the follow-up after the
     tool result."""
     root = tmp_path / "keep"
-    key = build_fixture(root, "claude", variant="keep_working")["key"]
-    campaign, node, request = _paused(root, "claude")
+    key = build_fixture(root, cli, variant="keep_working")["key"]
+    campaign, node, request = _paused(root, cli)
     events = stream_events(campaign, node["branch_name"])
     assert not result_events(events), "the session ended on its own; the grace kill was not exercised"
-    transcript = _transcript("claude", node["cli_session_id"])
+    transcript = _transcript(cli, node["cli_session_id"])
 
     set_key(root, key)
     reply = run_reply(root, request.id, "added to .env", log=root / "reply.log")
@@ -164,14 +165,16 @@ def test_grace_then_sigterm_still_continues_the_session(tmp_path):
     assert run_sum(campaign, node["branch_name"], key) == str(TOTAL)
 
 
-def test_two_needs_two_replies(tmp_path):
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_two_needs_two_replies(tmp_path, cli):
     """L6: one call carries both needs; the first reply waits, the second
     resumes, and the continued session uses both."""
     root = tmp_path / "two"
-    key = build_fixture(root, "claude", variant="two_needs")["key"]
+    key = build_fixture(root, cli, variant="two_needs")["key"]
     campaign = root / "campaign"
     evolve = run_evolve(root, log=root / "evolve.log")
-    assert evolve.returncode == 0 and "WAITING ON YOU" in evolve.stdout, evolve.stdout[-3000:]
+    assert evolve.returncode == 0, evolve.stdout[-3000:]
+    assert "WAITING ON YOU" in evolve.stdout or "stopped_reason=waiting_for_user" in evolve.stdout
     requests = sorted(load_requests(inbox_path(campaign)).values(), key=lambda r: r.id)
     assert len(requests) == 2 and all(r.open for r in requests), [r.key for r in requests]
     assert len({r.session for r in requests}) == 1, "the two needs were not one call"
@@ -193,12 +196,13 @@ def test_two_needs_two_replies(tmp_path):
     assert run_sum(campaign, node["branch_name"], key, extra=True) == str(TOTAL + sum(EXTRA_NUMBERS))
 
 
-def test_wrong_value_makes_the_coder_ask_again(tmp_path):
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_wrong_value_makes_the_coder_ask_again(tmp_path, cli):
     """L7: a reply with a wrong key; the continued session verifies, asks
     again with the previous reply attached, and the right key succeeds."""
     root = tmp_path / "wrong"
-    key = build_fixture(root, "claude")["key"]
-    campaign, node, request = _paused(root, "claude")
+    key = build_fixture(root, cli)["key"]
+    campaign, node, request = _paused(root, cli)
 
     set_key(root, "00" * 32)
     reply = run_reply(root, request.id, "added to .env", log=root / "reply1.log")
@@ -219,15 +223,16 @@ def test_wrong_value_makes_the_coder_ask_again(tmp_path):
     assert run_sum(campaign, node["branch_name"], key) == str(TOTAL)
 
 
-def test_transcript_gone_fails_loud_and_keeps_the_node(tmp_path):
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_transcript_gone_fails_loud_and_keeps_the_node(tmp_path, cli):
     """L8: the CLI cannot resume a deleted transcript; the reply fails
     loud with the session named, the node stays suspended, and nothing
     else runs (the request is recorded as continued; a later resume
     retries the continuation)."""
     root = tmp_path / "gone"
-    key = build_fixture(root, "claude")["key"]
-    campaign, node, request = _paused(root, "claude")
-    _transcript("claude", node["cli_session_id"]).unlink()
+    key = build_fixture(root, cli)["key"]
+    campaign, node, request = _paused(root, cli)
+    _transcript(cli, node["cli_session_id"]).unlink()
 
     set_key(root, key)
     reply = run_reply(root, request.id, "added to .env", log=root / "reply.log")
@@ -238,14 +243,15 @@ def test_transcript_gone_fails_loud_and_keeps_the_node(tmp_path):
     assert load_requests(inbox_path(campaign))[request.id].state == "continued"
 
 
-def test_killed_mid_continuation_resumes_the_same_session(tmp_path):
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_killed_mid_continuation_resumes_the_same_session(tmp_path, cli):
     """L9: Kapso dies while the continued session runs; the checkpoint
-    still marks the node suspended, and `kapso evolve --resume` continues
-    the same session id to completion."""
+    still marks the node suspended, and a resume continues the same
+    session id to completion."""
     root = tmp_path / "killed"
-    key = build_fixture(root, "claude")["key"]
-    campaign, node, request = _paused(root, "claude")
-    transcript = _transcript("claude", node["cli_session_id"])
+    key = build_fixture(root, cli)["key"]
+    campaign, node, request = _paused(root, cli)
+    transcript = _transcript(cli, node["cli_session_id"])
 
     set_key(root, key)
     reply = start_reply(root, request.id, "added to .env", root / "reply.log")
