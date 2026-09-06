@@ -1,5 +1,7 @@
 # MLE-Bench Integration
 
+Rendered guide: [docs.leeroo.com/docs/benchmarks/mle-bench](https://docs.leeroo.com/docs/benchmarks/mle-bench) · Kapso by Leeroo: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · `pip install leeroo-kapso`
+
 This module provides integration with [MLE-Bench](https://github.com/openai/mle-bench), OpenAI's benchmark for evaluating ML agents on Kaggle competitions.
 
 Kapso achieved **#1 among open-source systems** on this benchmark. These results were submitted as an [official submission to MLE-Bench](https://github.com/openai/mle-bench/pull/107).

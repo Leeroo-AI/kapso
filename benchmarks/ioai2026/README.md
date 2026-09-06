@@ -1,5 +1,7 @@
 # IOAI 2026 Integration
 
+Rendered guide: [docs.leeroo.com/docs/benchmarks/ioai-2026](https://docs.leeroo.com/docs/benchmarks/ioai-2026) · Kapso by Leeroo: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · `pip install leeroo-kapso`
+
 Every summer the sharpest young AI minds on the planet sit the same exam. The
 [International Olympiad in Artificial Intelligence](https://ioai-official.org) is the IMO of
 the AI era: at IOAI 2026 in Astana, 471 contestants from 108 countries and territories
