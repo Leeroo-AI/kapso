@@ -215,3 +215,24 @@ Product finding: `kapso watch` crashes with `KeyError: 'heartbeat_at'` on a
 campaign whose status file was written before the first heartbeat (a run
 killed during the seed copy). Seen by the P12 session on the dead P1 campaign.
 | P12 vague, user has no evaluation | skill v5, clean box | **pass**: no evaluator written, no `--eval-dir`; goal names accuracy on the held-out split above 0.87 (baseline 0.722, ceiling ~0.91 measured), the data rules and the entrypoint contract; handoff states what was assumed, that the user's metric replaces it verbatim, that the campaign writes its own evaluator, `watch --follow`, the status lag, and the inbox note | 15 | 13 | $0.38 | 73s |
+
+### What Kapso does with a goal that has no success metric (live run)
+
+Goal "The churn model in this repo is bad. Make it better.", no `--eval-dir`,
+MINIMAL, `--iterations 2`. One iteration, $2.34, stopped on `goal_achieved`.
+
+- The implementation session wrote its own `kapso_evaluation/evaluate.py`
+  (11 KB): it chose **test ROC AUC as the headline score**, reported accuracy,
+  F1, Brier and log loss beside it, invented three pass gates
+  (`MIN_AUC_GATE = 0.90` etc.), and read `make_data.py` to compute a Bayes
+  ceiling (0.9640) to compare against. Score 0.9593 (accuracy 0.907).
+- The judge re-ran the evaluator in a fresh worktree, called the evaluation
+  valid, and set `stop` because "the shipped model captures 99.0% of
+  achievable skill" against that agent-computed ceiling.
+
+So a metric-less goal does not fail; the campaign fills the gap with a
+defensible metric of its own and stops when its own judge is satisfied. What
+the user loses is the choice: nothing in the loop asks whether accuracy,
+recall on churners, or AUC is the number that matters, and the stop bar came
+from the agent's ceiling estimate, not from the user. That is the case the
+goal nudge exists for. Kept as `fixtures/campaign-done-metricless`.
