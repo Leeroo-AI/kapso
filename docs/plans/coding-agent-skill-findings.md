@@ -214,3 +214,4 @@ Harness: the runner now removes anything a session created beside the project
 Product finding: `kapso watch` crashes with `KeyError: 'heartbeat_at'` on a
 campaign whose status file was written before the first heartbeat (a run
 killed during the seed copy). Seen by the P12 session on the dead P1 campaign.
+| P12 vague, user has no evaluation | skill v5, clean box | **pass**: no evaluator written, no `--eval-dir`; goal names accuracy on the held-out split above 0.87 (baseline 0.722, ceiling ~0.91 measured), the data rules and the entrypoint contract; handoff states what was assumed, that the user's metric replaces it verbatim, that the campaign writes its own evaluator, `watch --follow`, the status lag, and the inbox note | 15 | 13 | $0.38 | 73s |
