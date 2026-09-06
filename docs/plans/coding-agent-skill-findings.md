@@ -116,7 +116,29 @@ leave joblib workers spinning at full CPU; the runner now reaps them.
 
 | P7 deploy, **skill v3** | yes | pass; `doctor deploy`, deployed in the foreground through a small script using `SolutionResult(goal, code_path)`, printed the prediction (churn 0.998 for the at-risk profile), then re-ran the judge on the deployed artifact (0.910) because the adapter had retrained the pickle under the venv's sklearn | 15 | 13 | $0.43 | 163s | 39 / $1.34 (max-turns) |
 
-| P6 resume (interrupted fixture), skill v3 | yes | pass; saw RUNNING with a dead pid, read the checkpoint, first `--resume` refused (`RunCheckpointIncompatibleError`), diagnosed from `run_checkpoint.py` that `--eval-dir` is fingerprinted and not read back from `launch.json`, resumed with the launch flags, handed off without polling | 27 | 25 | $1.18 | 194s | pending |
+| P6 resume (interrupted fixture), skill v3 | yes | pass; saw RUNNING with a dead pid, read the checkpoint, first `--resume` refused (`RunCheckpointIncompatibleError`), diagnosed from `run_checkpoint.py` that `--eval-dir` is fingerprinted and not read back from `launch.json`, resumed with the launch flags, handed off without polling | 27 | 25 | $1.18 | 194s | 37 / $1.34, **max-turns, no reply**: resumed correctly at call 34 (goal from `run_state.json`, `--eval-dir` from the source), then three sleep loops of polling |
+
+## Scorecard after two rounds (skill v3/v4 vs venv baseline)
+
+| Prompt | Baseline | Skill |
+|---|---|---|
+| P1 launch | pass, 28 calls, $1.10 | pass, 13 calls, $0.41 |
+| P2 script | max-turns, 41, $1.87 | pass, 15, $0.86 |
+| P3 inbox | pass, 16, $0.56 | pass, 7, $0.45 |
+| P4 models | pass, 37, $2.57 | pass, 15, $0.71 |
+| P5 learn/serve | max-turns, 42, $1.64 | pass, 16, $0.71 |
+| P6 resume | max-turns, 37, $1.34 | pass, 25, $1.18 |
+| P7 deploy | max-turns, 39, $1.34 | pass, 13, $0.43 |
+| P8 install | pass, 21, $0.69 | pass, 11, $0.43 |
+| P9 .env | pass, 13, $0.74 | pass, 7, $0.35 |
+| P10 unmentioned | hand fix, 17, $0.60 | hand fix + reason, 14, $0.41 |
+| **Total** | **4 failures, 291 calls, $12.45** | **0 failures, 136 calls, $5.94** |
+
+Every baseline answer that succeeded was reached by reading the installed
+package; the four failures are the prompts where that reading did not fit in
+25 turns (script writing, learn/serve, resume, deploy). The skill's effect is
+not new knowledge the model could not find, it is the first answer being the
+right one: half the tool calls, half the cost, and no turn-cap losses.
 
 v4 edit: the resume section now says to re-pass eval-dir, data-dir, mode and
 cap, that the launch record is not read back, and that a fresh corpse still
