@@ -102,8 +102,13 @@ KEEP_WORKING_GOAL = GOAL + (
     "append one line per second to busy.md for five minutes with a bash loop "
     "(`for i in $(seq 300); do echo line $i >> busy.md; sleep 1; done`).\n"
 )
-VARIANT_GOALS = {"single": GOAL, "two_needs": TWO_NEEDS_GOAL, "keep_working": KEEP_WORKING_GOAL}
-KEEP_WORKING_GRACE_SECONDS = 5
+VARIANT_GOALS = {"single": GOAL, "two_needs": TWO_NEEDS_GOAL, "keep_working": KEEP_WORKING_GOAL,
+                 "zero_grace": GOAL}
+# keep_working: the coder is told to keep going and gets five seconds;
+# zero_grace: the adapter ends the session at the tool result whatever
+# the coder does — the kill path on a CLI whose coders end their turn
+# inside any grace (Codex, 2026-09-06).
+VARIANT_GRACE_SECONDS = {"keep_working": 5, "zero_grace": 0}
 
 
 def _keystream(key: bytes, length: int) -> bytes:
@@ -176,9 +181,8 @@ def build_fixture(root: Path, cli: str, *, variant: str = "single",
     (root / "goal.txt").write_text(VARIANT_GOALS[variant])
     (root / ".env").write_text(_dotenv_without_key(dotenv_source))
     (root / "cli.txt").write_text(cli)
-    if cli == "codex" or variant == "keep_working":
-        grace = KEEP_WORKING_GRACE_SECONDS if variant == "keep_working" else None
-        write_config(root / "config.yaml", cli, stop_grace_seconds=grace)
+    if cli == "codex" or variant in VARIANT_GRACE_SECONDS:
+        write_config(root / "config.yaml", cli, stop_grace_seconds=VARIANT_GRACE_SECONDS.get(variant))
     return {"root": str(root), "campaign": str(root / "campaign"), "key": key.hex(), "cli": cli,
             "variant": variant}
 
