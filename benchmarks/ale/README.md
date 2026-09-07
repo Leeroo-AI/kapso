@@ -1,5 +1,7 @@
 # ALE-Bench Integration
 
+Rendered guide: [docs.leeroo.com/docs/benchmarks/ale-bench](https://docs.leeroo.com/docs/benchmarks/ale-bench) · Kapso by Leeroo: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · `pip install leeroo-kapso`
+
 This module provides integration with [ALE-Bench](https://github.com/SakanaAI/ALE-Bench), a benchmark for evaluating AI agents on AtCoder Heuristic Contests (algorithmic optimization problems).
 
 Kapso achieved **#1 on ALE-Bench**: a final rating of **1909 Elo** against ALE Agent's 1879

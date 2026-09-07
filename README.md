@@ -49,13 +49,11 @@
 
 ## What is KAPSO?
 
-KAPSO builds software for goals you can measure.
+Kapso is a self-improving software factory. State an objective and it runs a campaign: it designs candidate solutions, has coding agents implement them, measures how far each one is from the objective, and keeps refining the closest until the objective is met. The result ships to your infrastructure.
 
-Kapso is an open-source Python framework by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/). It is unrelated to the WhatsApp developer platform that shares the name.
+The factory improves with use. When a campaign ends, Kapso studies its own work: which ideas closed the distance to the objective, which did not, and under what conditions. Each finding is kept as a lesson with the evidence that earned it, and a lesson stays trusted only as long as it keeps holding up. Kapso also reads outside your walls, repositories and papers, and folds what it finds into the same knowledge hub. Every new campaign begins from that hub, so it starts with what earlier work already established, about the problem and about your systems.
 
-Give it a goal. It runs **experiment campaigns**: designing candidates, implementing them, scoring each one, and refining the best. Every claim of progress is a score, and the winner ships to your infrastructure.
-
-The factory is **self-improving** because it learns from its own work. Finished campaigns become evidence-priced lessons. It also learns from public knowledge, including repos and papers. Everything compounds in one knowledge hub, so each campaign starts where the last one left off.
+Kapso is an open-source Python framework by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
 
 ### The Four Pillars
 

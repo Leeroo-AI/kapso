@@ -20,6 +20,12 @@
 # llms.txt because of exactly that.
 /*.md
 
+# Editor and agent config directories. Any Markdown that lands here is not
+# documentation: without this the build parses it and `seo.indexing: all`
+# publishes it as a hidden page, the way CLAUDE.md once was.
+/.claude/
+/.agents/
+
 # Tracked, part of the package rather than the docs
 /src/
 /tests/
