@@ -17,7 +17,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from kapso.core.config import load_deployment_defaults
 from kapso.execution.solution import SolutionResult
+
+# The packaged `deployment:` block — the one source for the dataclass
+# defaults below; the facade layers a user config's block over it.
+DEPLOYMENT_DEFAULTS = load_deployment_defaults()
 
 
 def _discover_strategies() -> Dict[str, str]:
@@ -80,12 +85,14 @@ class DeployConfig:
         solution: The SolutionResult from Kapso.evolve()
         env_vars: Environment variables to pass to the software
         timeout: Execution timeout in seconds
-        coding_agent: Which coding agent to use for adaptation
+        coding_agent: Which coding agent runs the selector and adapter sessions
+        model: The model that agent is asked for (config `deployment.model`)
     """
     solution: SolutionResult
     env_vars: Dict[str, str] = None
     timeout: int = 300
-    coding_agent: str = "claude_code"
+    coding_agent: str = DEPLOYMENT_DEFAULTS["coding_agent"]
+    model: str = DEPLOYMENT_DEFAULTS["model"]
     
     def __post_init__(self):
         if self.env_vars is None:

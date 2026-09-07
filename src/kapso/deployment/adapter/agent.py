@@ -34,8 +34,8 @@ class AdapterAgent:
     
     def __init__(
         self,
-        coding_agent_type: str = "claude_code",
-        model: str = "claude-opus-4-5",
+        coding_agent_type: str,
+        model: str,
         fallback_agent_type: str = "gemini",
         max_retries: int = 2,
     ):

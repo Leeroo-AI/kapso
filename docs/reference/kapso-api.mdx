@@ -49,11 +49,11 @@ Runs the experiment campaign: design a candidate, implement it, score it, refine
 
 ```python
 evolve(
-    goal: str,
+    goal: str | None = None,
     context: list | None = None,
     output_path: str | None = None,
     initial_repo: str | None = None,
-    max_iterations: int = 10,
+    max_iterations: int | None = None,
     time_budget_minutes: float | None = None,
     cost_budget: float | None = None,
     finalization_reserve_minutes: float | None = None,
@@ -72,15 +72,15 @@ evolve(
 
 | Argument | What it does | Default |
 |----------|--------------|---------|
-| `goal` | The objective. State it so it can be scored | required |
+| `goal` | The objective. State it so it can be scored. Required unless resuming, when it comes from the checkpoint | `None` |
 | `context` | Extra context passed to the campaign, such as research findings | `None` |
 | `output_path` | Where the solution repository is written | `None` |
 | `initial_repo` | Start from an existing repository, path or GitHub URL | `None` |
-| `max_iterations` | Maximum experiments | `10` |
+| `max_iterations` | Maximum experiments; a resume keeps the launch's cap | `10` |
 | `time_budget_minutes` | Wall-clock budget, durable across resumes | `None` |
 | `cost_budget` | Best-effort spend budget in USD | `None` |
 | `finalization_reserve_minutes` | Wall clock escrowed for final checkout and evaluation | `None` |
-| `resume` | Continue a compatible checkpoint in `output_path` | `False` |
+| `resume` | Continue a compatible checkpoint in `output_path`. Every argument left out comes from the launch record; a passed mode, coding agent, `eval_dir`, config or index that differs is refused by name | `False` |
 | `iteration_evaluator` | Score candidates with your own evaluator | `None` |
 | `iteration_evaluator_failure_policy` | What to do when your evaluator raises | `"record"` |
 | `mode` | Config mode, `GENERIC` or `MINIMAL` | from config |
@@ -270,7 +270,8 @@ deploy(
     solution: SolutionResult,
     strategy: DeployStrategy = DeployStrategy.AUTO,
     env_vars: dict[str, str] | None = None,
-    coding_agent: str = "claude_code",
+    coding_agent: str | None = None,
+    model: str | None = None,
 ) -> Software
 ```
 
@@ -279,7 +280,8 @@ deploy(
 | `solution` | The result to deploy | required |
 | `strategy` | `AUTO`, `LOCAL`, `DOCKER`, `MODAL`, `BENTOML` or `LANGGRAPH` | `AUTO` |
 | `env_vars` | Environment variables for the deployed software | `None` |
-| `coding_agent` | Agent that adapts the solution for the target | `"claude_code"` |
+| `coding_agent` | Agent behind the selector and adapter sessions | from config (`deployment.coding_agent`) |
+| `model` | The model that agent is asked for | from config (`deployment.model`) |
 
 ```python
 deployed = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)

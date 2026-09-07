@@ -52,6 +52,10 @@ curl -s https://docs.leeroo.com/docs/quickstart.md | head
 
 Paste a page URL into a session and the agent reads the Markdown, not the rendered HTML.
 
+## Teach the agent to run Kapso, not only to read about it
+
+The docs give an agent the facts. The [Kapso skill](/docs/coding-agent-skills) gives it the procedure: one `SKILL.md` per agent, for Claude Code, Codex and OpenCode, that has it verify the install with `kapso doctor`, write a goal with a metric in it, launch the campaign in the background and hand you `kapso watch`. In our runs it removed every rubric failure and cut the tool calls by more than half; the page has the numbers and the install commands.
+
 ## Kapso and coding agents, the other way round
 
 Kapso itself drives Claude Code and Codex as the engine that implements each experiment inside a campaign. That is a different topic: see [coding agents in Kapso](/docs/evolve/coding-agents) for how those sessions are launched, sandboxed and scored.
@@ -65,8 +69,11 @@ Kapso itself drives Claude Code and Codex as the engine that implements each exp
   <Card title="Installation" icon="download" href="/docs/installation">
     The package, the coding-agent CLIs, and `kapso doctor`
   </Card>
+  <Card title="Kapso skill for coding agents" icon="wand-magic-sparkles" href="/docs/coding-agent-skills">
+    One SKILL.md that has the agent run Kapso correctly
+  </Card>
 </CardGroup>
 
-Related pages: [Quickstart](/docs/quickstart) · [Installation](/docs/installation) · [What is Kapso](/docs)
+Related pages: [Quickstart](/docs/quickstart) · [Installation](/docs/installation) · [Kapso skill for coding agents](/docs/coding-agent-skills) · [What is Kapso](/docs)
 
 Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

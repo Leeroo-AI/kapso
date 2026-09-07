@@ -1,0 +1,94 @@
+---
+title: "Give Claude Code, Codex or OpenCode the Kapso skill so it runs campaigns correctly"
+sidebarTitle: "Kapso skill for coding agents"
+description: "Copy one skill folder into your project and your coding agent operates Kapso the way the docs say: it checks the install with kapso doctor, writes a goal with a metric in it, launches the campaign in the background and hands you kapso watch. One folder each for Claude Code, Codex and OpenCode."
+keywords: ["Kapso skill", "Claude Code skill", "Codex skill", "OpenCode skill", "SKILL.md", "coding agent Kapso"]
+---
+
+The Kapso skill is one `SKILL.md` file that teaches a coding agent how to operate Kapso from a session: verify the install, launch and follow a campaign, answer a campaign that is waiting on you, resume an interrupted run, learn from a finished campaign, ingest outside knowledge, run research and deploy the winner. It lives in the repository under [`skills/`](https://github.com/Leeroo-AI/kapso/tree/main/skills), one folder per agent, and an agent that has it reaches the right command first instead of reading the package source until its turn budget runs out. This documentation is also served to agents through an MCP server, described on [Docs in your coding agent](/docs/agent-access); the skill is the complement, for the agent that runs Kapso rather than reads about it.
+
+## What the skill tells the agent
+
+The file is about 270 lines of facts and rules, written for the mistakes agents made without it. The ones that matter most:
+
+- The package is `leeroo-kapso`. The PyPI package named `kapso` is an unrelated tool that shadows the `kapso` command, and an agent that installs it by name breaks the install it was asked to verify.
+- Every model call runs through the `claude` and `codex` CLIs, which must be logged in, and `OPENAI_API_KEY` is read from `.env` in the working directory for embeddings only. `kapso doctor <verb>` comes before any run, and `--models` probes each configured model live.
+- A goal names a success metric and a number, and the judge when there is one: "accuracy above 0.85 as measured by `eval/evaluate.py`". When the repository has no evaluation and the request names none, the agent asks once, in one line, and ends its turn; if you have none, it launches without `--eval-dir` and Kapso builds its own evaluation in `kapso_evaluation/`. It never writes an evaluator on your behalf.
+- A campaign runs for tens of minutes to hours, so the agent launches it in the background with `--output` in a sibling directory, checks once that the process is alive, and hands you `kapso watch <campaign> --follow` in the same reply, with the goal it passed and the note that your own metric can replace the one it assumed.
+- `WAITING ON YOU` is a pause, not a failure. The agent reads the request with `kapso inbox <campaign>` and answers with `kapso inbox reply`, and it never restarts the campaign or puts a secret in the reply. See [the inbox](/docs/evolve/inbox).
+- A dead campaign resumes with `kapso evolve --output <campaign> --resume` and nothing else, since the checkpoint and the launch record carry the goal and the flags. See [Resuming runs](/docs/evolve/resuming-runs).
+- `learn("./campaign")` banks what a campaign taught; served lessons stay off until `learning.serving.enabled: true` in a config passed with `--config`. `learn_knowledge()` is for outside sources. See [Trajectory learning](/docs/learning/overview).
+- `deploy()` is a minutes-long foreground operation on the real `SolutionResult(goal, code_path)`, not a campaign. See [Deployment](/docs/deployment/strategies).
+- A one-file change with an obvious fix is faster by hand. The agent says which it is doing and never launches a campaign you did not ask for.
+
+The full text is in [`skills/claude-code/kapso/SKILL.md`](https://github.com/Leeroo-AI/kapso/blob/main/skills/claude-code/kapso/SKILL.md).
+
+## Install the skill
+
+The skill ships in the repository, not in the PyPI package. Clone the repository once, then copy the folder for your agent into the project you want to run Kapso from, or into your home directory for every project:
+
+```bash
+git clone https://github.com/Leeroo-AI/kapso
+
+# Claude Code: project or ~/.claude/skills/kapso
+mkdir -p .claude/skills && cp -r kapso/skills/claude-code/kapso .claude/skills/kapso
+
+# Codex CLI: project (found walking up to the git root) or ~/.agents/skills/kapso
+mkdir -p .agents/skills && cp -r kapso/skills/codex/kapso .agents/skills/kapso
+
+# OpenCode: project or ~/.config/opencode/skills/kapso
+mkdir -p .opencode/skills && cp -r kapso/skills/opencode/kapso .opencode/skills/kapso
+```
+
+| Agent | Folder in the repository | Where the agent looks |
+|-------|--------------------------|-----------------------|
+| Claude Code | `skills/claude-code/kapso/` | `.claude/skills/kapso` in the project, or `~/.claude/skills/kapso` |
+| Codex CLI | `skills/codex/kapso/` | `.agents/skills/kapso` in the project or any parent up to the git root, or `~/.agents/skills/kapso` |
+| OpenCode | `skills/opencode/kapso/` | `.opencode/skills/kapso` in the project, or `~/.config/opencode/skills/kapso`; OpenCode also reads the Claude Code and Codex locations |
+
+The three copies are separate files on purpose, so each can follow its agent's conventions. They differ in one place today: Codex ends a background child when the shell call that started it returns, so the Codex copy launches and resumes campaigns with `setsid -f`, where the other two use `nohup`. Copy the folder written for your agent.
+
+The skill states facts for Kapso 0.4.x. Copy it from the release you have installed, and copy it again when you upgrade.
+
+## How each agent loads it
+
+Claude Code lists the skill in its catalog by the description in the frontmatter and loads it when a request mentions Kapso, a campaign, or a metric to push in a project where Kapso is installed; you can also invoke it as `/kapso`. Codex either reads the file itself when the request matches or takes `$kapso` in the prompt; the sidecar `agents/openai.yaml` in the Codex folder supplies the display name and one-line description that its `/skills` list shows. OpenCode loads it through its `skill` tool, and a project's `opencode.json` can allow or deny it under `permission.skill`.
+
+A request that never names Kapso may not load the skill at all. That is the intended routing: the agent then fixes the code by hand, which for a small task is the right call, and with the skill loaded it says so and offers a campaign when the task is a search with a judge to beat.
+
+## What changes with the skill
+
+We measured the skill the way it was written: the same prompts, with and without the skill, against a small churn-model repository on one machine, scored against a rubric per prompt. The prompts cover installing, launching, following, the inbox, resuming, learning, deploying, config changes, and two vague requests with no evaluation in the repository. A failure is a run that broke a rule the rubric names: a campaign launched without asking, a foreground run that hit the wall clock without a reply, an invented API, an edit to a file it should not have touched.
+
+| Agent and model | Date | Without the skill | With the skill |
+|-----------------|------|-------------------|----------------|
+| Claude Code, `claude-opus-5`, ten prompts | 2026-09-06 | 4 failures, 291 tool calls, $12.45 | 0 failures, 120 tool calls, $5.14 |
+| Codex CLI, `gpt-6-astra`, eleven prompts | 2026-09-07 | 2 failures, 203 tool calls, 51 min | 0 failures, 80 tool calls, 12.5 min |
+| OpenCode, Kimi K2.7 Code on Fireworks, twelve prompts | 2026-09-07 | 7 failures, 293 tool calls, 80 min, $1.87 | 0 failures, 124 tool calls, 18 min, $0.56 |
+
+The per-prompt tables, the rubric and every product defect the runs turned up are in the [findings log](https://github.com/Leeroo-AI/kapso/blob/main/docs/plans/coding-agent-skill-findings.md) in the repository. The numbers are ours, from one toy project; treat them as the size of the effect, not a benchmark.
+
+## Limits
+
+The skill is instructions, not code. It does not install Kapso or log in the CLIs; [Installation](/docs/installation) does that, and `kapso doctor` is the first thing the skill has the agent run. An agent with the skill can still poll a campaign's log after launching it, or promise to keep watching a run when its session is about to end; the skill tells it not to, and the smaller the model, the more often it does anyway. The skill does not make a model that does not follow instructions follow them: the open-weight model above needed three rules restated as literal actions before it stopped launching campaigns without asking, and the same wording then held on the other two agents.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Docs in your coding agent" icon="plug" href="/docs/agent-access">
+    The docs MCP server and the Markdown rendition
+  </Card>
+  <Card title="Installation" icon="download" href="/docs/installation">
+    The package, the coding-agent CLIs, and `kapso doctor`
+  </Card>
+  <Card title="The inbox" icon="inbox" href="/docs/evolve/inbox">
+    What WAITING ON YOU means and how to answer it
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/docs/reference/cli">
+    Every command and flag the skill names
+  </Card>
+</CardGroup>
+
+Related pages: [Docs in your coding agent](/docs/agent-access) · [Installation](/docs/installation) · [The inbox](/docs/evolve/inbox) · [CLI reference](/docs/reference/cli)
+
+Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

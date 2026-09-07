@@ -250,13 +250,24 @@ class OperationStatusView:
     @staticmethod
     def resolve(path: str | Path) -> Path:
         """A workspace (-> .kapso/status.json), a status file, or a
-        directory of status files (-> newest by mtime)."""
+        directory of status files (-> newest by mtime).
+
+        A workspace whose status file is not there yet raises instead of
+        falling through to some other JSON beside it: a seeded project
+        carries files like result.json, and the status file appears only
+        after the seed copy and the repo-memory bootstrap."""
         p = Path(path).expanduser()
         if p.is_file():
             return p
         workspace_status = p / ".kapso" / "status.json"
         if workspace_status.is_file():
             return workspace_status
+        if (p / ".kapso").is_dir():
+            raise FileNotFoundError(
+                f"{p} is a campaign workspace with no status file yet: it is "
+                "still seeding and bootstrapping repo memory, or it died "
+                "before its first heartbeat"
+            )
         if p.is_dir():
             candidates = sorted(
                 p.glob("*.json"), key=lambda f: f.stat().st_mtime
@@ -308,11 +319,28 @@ class OperationStatusView:
         return round(delta.total_seconds() / 60, 1)
 
     @property
+    def process_alive(self) -> Optional[bool]:
+        """Whether the pid that wrote the file still exists. The status file
+        cannot record its own writer's death, so a fresh heartbeat proves
+        nothing once the process is gone. None where the kernel exposes no
+        /proc to ask; the heartbeat is then the only signal."""
+        pid = self.data.get("pid")
+        proc = Path("/proc")
+        if pid is None or not proc.is_dir():
+            return None
+        return (proc / str(pid)).exists()
+
+    @property
+    def dead(self) -> bool:
+        return self.process_alive is False and self.state not in _TERMINAL_STATES
+
+    @property
     def alive(self) -> Optional[bool]:
-        """True when running with a fresh heartbeat; False when running
-        stale (STALLED) or terminal; None when the file records no
-        heartbeat cadence to judge staleness against."""
-        if self.state in _TERMINAL_STATES:
+        """True when running with a live writer and a fresh heartbeat; False
+        when the writer is gone (DEAD), the heartbeat is stale (STALLED) or
+        the state is terminal; None when the file records no heartbeat
+        cadence to judge staleness against."""
+        if self.state in _TERMINAL_STATES or self.dead:
             return False
         interval = self.data.get("heartbeat_seconds")
         if not interval:
@@ -332,7 +360,9 @@ class OperationStatusView:
         d = self.data
         age = self.heartbeat_age_seconds
         head = f"{d['state'].upper()} ♥ {age:.0f}s ago"
-        if self.stalled:
+        if self.dead:
+            head += f"   ⚠ DEAD (pid {d.get('pid')} is gone)"
+        elif self.stalled:
             head += "   ⚠ STALLED?"
         lines = [head + f"      pid {d.get('pid')}"]
         if self.phase:

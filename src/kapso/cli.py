@@ -37,7 +37,7 @@ from dotenv import find_dotenv, load_dotenv
 # README tells users to create next to their project was never read.
 load_dotenv(find_dotenv(usecwd=True))
 
-from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH
+from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH, DEFAULT_MAX_ITERATIONS
 from kapso.core.config import load_config, load_mode_config
 from kapso.execution.inbox import list_registered_campaigns, render_requests
 from kapso.execution.run_checkpoint import RunCheckpointStore
@@ -85,6 +85,8 @@ def cmd_evolve(args) -> None:
             goal = f.read()
     elif args.goal:
         goal = args.goal
+    elif args.resume:
+        goal = None   # a resume takes the goal from the checkpoint
     else:
         print("Error: --goal or --goal-file required for evolve command")
         sys.exit(1)
@@ -583,6 +585,7 @@ def cmd_deploy(args) -> None:
         strategy=strategy,
         env_vars=env_vars if env_vars else None,
         coding_agent=args.coding_agent,
+        model=args.model,
     )
     
     # Print summary
@@ -787,17 +790,20 @@ Examples:
   kapso evolve --goal "Build a web scraper for news articles"
   kapso evolve --goal-file problem.txt --iterations 20
   kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
-  kapso evolve --goal "Build a classifier" --output ./campaign --resume
+  kapso evolve --output ./campaign --resume      # goal and flags from the launch record
 """
     )
-    
+
     # Goal specification
     goal_group = evolve_parser.add_mutually_exclusive_group()
-    goal_group.add_argument("-g", "--goal", type=str, help="Goal/problem description")
+    goal_group.add_argument("-g", "--goal", type=str, help="Goal/problem description (a resume takes it from the checkpoint)")
     goal_group.add_argument("-f", "--goal-file", type=str, help="File containing goal")
     
     # Basic options
-    evolve_parser.add_argument("-i", "--iterations", type=int, default=10, help="Max iterations (default: 10)")
+    evolve_parser.add_argument(
+        "-i", "--iterations", type=int, default=None,
+        help=f"Max iterations (default: {DEFAULT_MAX_ITERATIONS}; a resume keeps the launch's)",
+    )
     evolve_parser.add_argument("-o", "--output", type=str, help="Output directory")
     evolve_parser.add_argument(
         "--time-budget-minutes",
@@ -982,7 +988,8 @@ Examples:
     deploy_parser.add_argument("--strategy", type=str, choices=DEPLOY_STRATEGIES, default="auto", help="Deploy strategy (default: auto)")
     deploy_parser.add_argument("--goal", type=str, help="Goal description for the solution")
     deploy_parser.add_argument("--env", type=str, action="append", help="Environment variable (KEY=VALUE, can specify multiple)")
-    deploy_parser.add_argument("--coding-agent", type=str, choices=AVAILABLE_AGENTS, default="claude_code", help="Coding agent for adaptation")
+    deploy_parser.add_argument("--coding-agent", type=str, choices=AVAILABLE_AGENTS, default=None, help="Coding agent for the selector and adapter sessions (default: config deployment.coding_agent)")
+    deploy_parser.add_argument("--model", type=str, default=None, help="Model that agent is asked for (default: config deployment.model)")
     deploy_parser.add_argument("--interactive", action="store_true", help="Keep running after deploy")
     
     # =========================================================================
@@ -1131,8 +1138,9 @@ Examples:
             "missing item names the config key that wants it and one fix. "
             "Exits non-zero when a required item is missing. With "
             "--models, additionally fires a one-token live probe per "
-            "{cli, model} pair — a subscription cap surfaces here in "
-            "seconds instead of hours into a run."
+            "{cli, model} pair — a revoked login or a model the plan does "
+            "not include surfaces here in seconds instead of hours into a "
+            "run (a usage cap on a model it can serve does not)."
         ),
     )
     doctor_parser.add_argument(

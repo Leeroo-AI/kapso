@@ -58,8 +58,20 @@ preflight:
   # The live tier: one throwaway token per {cli, model} pair, proving the
   # account can actually serve it. Off by default because it spends real
   # quota on every call; worth turning on for long unattended runs, where
-  # seconds up front beat hours lost to a capped model.
+  # seconds up front beat hours lost to a model the login cannot serve.
+  # (A usage cap on a model it can serve is invisible to a one-token probe.)
   live_model_probe: false
+
+# =============================================================================
+# Deployment — the two sessions deploy() runs: the selector (picks a target
+# for DeployStrategy.AUTO) and the adapter (rewrites a copy of the solution
+# for the target). One coding agent and one model for both. The agent must
+# be able to serve the model: a Claude model name on the codex CLI is refused
+# by a ChatGPT login (seen 2026-09-07 with a hardcoded claude-opus-4-5).
+# =============================================================================
+deployment:
+  coding_agent: claude_code
+  model: "claude-opus-5"
 
 # =============================================================================
 # Platform defaults — the base layer under every mode of every config file
@@ -233,9 +245,12 @@ learning:
   trajectory_store:
     # Identity-addressed campaign bundles (design §3.4). `local` is the
     # cache-through mirror and, until `remote` is configured (P5 per doubt
-    # D2), the whole store. Relative paths resolve against the CWD; the
-    # shipped default assumes repo-root invocation.
-    local: data/trajectories
+    # D2), the whole store. Kapso's own state lives under ~/.kapso, not
+    # under the project it is run from: a store at data/trajectories sat
+    # inside the directory users pass as --data-dir and rode into every
+    # campaign's kapso_datasets/ and seed commit. Relative paths resolve
+    # against the CWD.
+    local: ~/.kapso/trajectories
     remote: null
   # Import reports land under the run-dir home (doubt D6: repo-root
   # `learning/`, gitignored, synced to the artifacts bucket).
@@ -301,8 +316,10 @@ learning:
     # back — single writer per bank. Sharing is git-native: the home's own
     # `origin` remote (attached via `kapso bank connect <url>`) is the push
     # target; no origin means learn() stays local-only. There is no remote
-    # key here — a bank carries its remote itself, like any git repo.
-    local_path: data/kapso-bank.git
+    # key here — a bank carries its remote itself, like any git repo. One
+    # bank per user, under ~/.kapso like the trajectory store: at
+    # data/kapso-bank.git it was copied into campaigns with --data-dir data.
+    local_path: ~/.kapso/bank.git
   serving:
     # Serving v2 (serving-agentic-redesign.md): when enabled, campaign
     # launches pin the bank, the knowledge intro rides after the static

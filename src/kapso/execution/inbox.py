@@ -381,6 +381,49 @@ def read_launch_record(workspace_dir: str | Path) -> Optional[Dict[str, Any]]:
     return record
 
 
+# The launch arguments a resume takes from the record when the caller
+# leaves them unset. Budgets are among them: a resume that names none keeps
+# the launch's, and one that names a bigger one is allowed (the checkpoint
+# does not fingerprint budgets).
+RESUME_FROM_RECORD = (
+    "mode", "coding_agent", "eval_dir", "data_dir", "additional_context",
+    "context", "serving_scope", "max_iterations", "time_budget_minutes",
+    "cost_budget", "finalization_reserve_minutes",
+)
+# The launch settings the checkpoint fingerprints. Changing one is refused
+# by the checkpoint with a fingerprint mismatch that names nothing; naming
+# the setting here is what the person needs.
+FINGERPRINTED_LAUNCH_KEYS = ("mode", "coding_agent", "eval_dir", "kg_index", "config_path")
+_PATH_LAUNCH_KEYS = ("eval_dir", "kg_index", "config_path")
+
+
+def resume_arguments(record: Dict[str, Any], requested: Dict[str, Any]) -> Dict[str, Any]:
+    """What a resume runs with: every argument the caller passed, and the
+    launch record's value for each one the caller left unset."""
+    merged = dict(requested)
+    for key in RESUME_FROM_RECORD:
+        if merged.get(key) in (None, "") and key in record:
+            merged[key] = record[key]
+    return merged
+
+
+def launch_mismatches(record: Dict[str, Any], requested: Dict[str, Any]) -> Dict[str, tuple]:
+    """The fingerprinted launch settings a resume changed, as
+    ``{setting: (recorded, requested)}``. Paths compare resolved, so a
+    respelled directory is not a change."""
+
+    def normal(key: str, value: Any) -> Any:
+        if value is None or key not in _PATH_LAUNCH_KEYS:
+            return value
+        return str(Path(str(value)).expanduser().resolve())
+
+    return {
+        key: (record.get(key), requested.get(key))
+        for key in FINGERPRINTED_LAUNCH_KEYS
+        if key in record and normal(key, record.get(key)) != normal(key, requested.get(key))
+    }
+
+
 def register_campaign(registry_path: str | Path, workspace_dir: str | Path, goal: str) -> None:
     path = Path(registry_path).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)

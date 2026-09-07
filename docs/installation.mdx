@@ -48,6 +48,8 @@ Kapso sends every model call through a coding-agent CLI. Install those CLIs and 
     pip install leeroo-kapso
     ```
 
+    The package is `leeroo-kapso`. The PyPI package named `kapso` is an unrelated WhatsApp tool that installs a `kapso` command of its own and shadows this one; if it is present, `pip uninstall kapso` first.
+
     To work from a source checkout instead:
 
     ```bash
@@ -145,7 +147,7 @@ The five verbs are `research`, `learn_knowledge`, `evolve`, `learn` and `deploy`
 
 ### How do I confirm my models are actually reachable?
 
-Add `--models` to fire a one-token live call per configured CLI and model pair. A subscription cap or a revoked login surfaces here in seconds instead of hours into a campaign:
+Add `--models` to fire a one-token live call per configured CLI and model pair. A revoked login, or a model your plan does not include, surfaces here in seconds instead of hours into a campaign. A usage cap on a model you can serve does not: a one-token probe passes until the cap is hit.
 
 ```bash
 kapso doctor evolve --models
@@ -292,6 +294,10 @@ LEEROOPEDIA_API_KEY=kpsk_...
   </Accordion>
 </AccordionGroup>
 
+## Working through a coding agent
+
+If Claude Code, Codex or OpenCode will be running Kapso for you, copy the [Kapso skill](/docs/coding-agent-skills) into the project as well. It has the agent run `kapso doctor` first, name the right package, and launch campaigns in the background with the handoff you need.
+
 ## Related
 
 <CardGroup cols={2}>
@@ -301,8 +307,11 @@ LEEROOPEDIA_API_KEY=kpsk_...
   <Card title="CLI reference" icon="terminal" href="/docs/reference/cli">
     Commands, modes and flags
   </Card>
+  <Card title="Kapso skill for coding agents" icon="wand-magic-sparkles" href="/docs/coding-agent-skills">
+    Let your coding agent run Kapso correctly
+  </Card>
 </CardGroup>
 
-Related pages: [Quickstart](/docs/quickstart) · [CLI reference](/docs/reference/cli) · [What is Kapso](/docs)
+Related pages: [Quickstart](/docs/quickstart) · [CLI reference](/docs/reference/cli) · [Kapso skill for coding agents](/docs/coding-agent-skills) · [What is Kapso](/docs)
 
 Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

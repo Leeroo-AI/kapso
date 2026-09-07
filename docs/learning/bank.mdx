@@ -80,7 +80,7 @@ Every lesson lands as one commit tagged `lr_<id>`, so a campaign can pin the exa
 kapso learn init-bank
 ```
 
-This creates the bank home — a bare repository plus the founding skeleton — at `learning.bank.local_path`, which ships as `data/kapso-bank.git`.
+This creates the bank home — a bare repository plus the founding skeleton — at `learning.bank.local_path`, which ships as `~/.kapso/bank.git`: one bank per user, outside any project, so a campaign's `--data-dir` never sweeps it up.
 
 The bank is local-only until you give it a remote:
 
