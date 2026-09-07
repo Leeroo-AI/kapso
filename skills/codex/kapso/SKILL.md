@@ -56,9 +56,10 @@ suite, a benchmark command. Then:
   tell the user in one line what you assumed and that their own success metric
   goes straight into the goal. Leave headroom below any ceiling you can see; a
   target the data cannot reach ends in the inbox, not in a result.
-- The repo has none and the request names none: ask once, in one line, whether
-  they have a script or command that scores this and what "good" means, and
-  end your turn there. A script they have goes in with `--eval-dir`,
+- The repo has none and the request names none: your whole reply is one
+  question, one line, asking whether they have a script or command that
+  scores this and what "good" means; nothing is launched, measured or
+  written before the answer. A script they have goes in with `--eval-dir`,
   protected. If they answer that they have none or do not know, launch with
   the best metric you can state in the goal and no `--eval-dir`: the campaign
   builds its own evaluation in `kapso_evaluation/` from the goal, and the
@@ -84,11 +85,14 @@ nohup kapso evolve \
 kapso watch ../churn-campaign --follow
 ```
 
+- The `nohup … &` line is a tool call of its own: nothing chained in front of
+  it. `test … && nohup … &` backgrounds the whole chain instead of Kapso, the
+  call then hangs on it until the harness kills it, campaign included.
 - `--initial-repo <path|github url>` seeds the campaign; a non-git directory is
   copied and committed as the baseline. The original is never modified. Every
-  experiment lands on branch `generic_exp_N` inside `--output`, which must be an
-  empty directory outside the repo being seeded (a sibling); an output inside
-  the repo gets copied into itself.
+  experiment lands on branch `generic_exp_N` inside `--output`, an empty
+  directory outside the repo being seeded (a sibling), so the seed copy never
+  contains the campaign.
 - `--eval-dir` is copied to `kapso_evaluation/` and integrity-protected: any
   candidate that edits it is rejected and unscored. Use it whenever the user has a
   judge. `--data-dir` is copied to `kapso_datasets/`. The seed copy includes
@@ -131,13 +135,17 @@ kapso inbox reply ./campaign 1 "added the key to .env"
 
 ```bash
 kapso watch ../churn-campaign                  # DEAD (pid gone) or STALLED means it died
-kapso evolve --output ../churn-campaign --resume
+nohup kapso evolve --output ../churn-campaign --resume > ../churn-campaign.log 2>&1 &
 ```
 
-The checkpoint in `.kapso/run_state.json` carries the goal and the search
-state; the launch record `.kapso/launch.json` carries every flag of the launch,
-and a resume reads both, so pass only what you mean to change (a bigger
-`--time-budget-minutes`, say). A resume that changes the mode, coding agent,
+A resume is a launch: run it in the background the same way, check once that
+the process is alive, and hand off with `kapso watch … --follow`. Do it in the
+same turn you diagnose the death in; a reply that only announces a resume
+leaves the campaign dead. Other `kapso evolve` processes on the machine belong
+to other campaigns; never kill one. The checkpoint in `.kapso/run_state.json` carries
+the goal and the search state; the launch record `.kapso/launch.json` carries
+every flag of the launch, and a resume reads both, so pass only what you mean
+to change (a bigger `--time-budget-minutes`, say). A resume that changes the mode, coding agent,
 eval-dir, config or knowledge index is refused by name; start a new campaign in
 a new output path instead. A campaign paused by the inbox resumes through
 `kapso inbox reply`, not `--resume`.
