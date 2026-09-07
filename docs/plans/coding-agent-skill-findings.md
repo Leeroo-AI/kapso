@@ -236,3 +236,19 @@ the user loses is the choice: nothing in the loop asks whether accuracy,
 recall on churners, or AUC is the number that matters, and the stop bar came
 from the agent's ceiling estimate, not from the user. That is the case the
 goal nudge exists for. Kept as `fixtures/campaign-done-metricless`.
+
+## Fixed on this branch (2026-09-07)
+
+| Issue | Fix | Commit |
+|---|---|---|
+| `--output` inside `--initial-repo` copied the repo into itself | the seed copy skips the workspace path; regression test in `test_workspace_branch_safety.py` | 479ee3ad |
+| `kapso watch` crashed with `KeyError: 'heartbeat_at'` before the first heartbeat | a workspace with no status file raises a clear error instead of parsing other JSON beside `.kapso/` | 7c2b91e4 |
+| `kapso watch` showed RUNNING for three heartbeats after the process died | the view asks `/proc` about the recorded pid; DEAD beats STALLED | 7c2b91e4 |
+| `--resume` needed the launch flags retyped, and a mismatch named nothing | a resume reads the goal from the checkpoint and every flag from `.kapso/launch.json`; a changed fingerprinted setting is refused by name; `reply()` uses the same path; `--goal` optional with `--resume` | 661829fe |
+| bank and trajectory store defaults under the project's `data/` | `~/.kapso/bank.git` and `~/.kapso/trajectories` | d3842db4 |
+| `pip install kapso` installs an unrelated package | named at the install step in the README and the installation page | 459a96a4 |
+| docs claimed `doctor --models` catches a capped plan | wording in README, installation page, config comment, preflight docstring, CLI help and the skill: it catches a revoked login or an excluded model, not a usage cap | c881c27d |
+
+Not changed: `.env` in the seed commit (the copied `.env` is also how sessions
+find their keys; a deliberate decision is needed), and the code-read items
+(deployment `env_vars`, the unused validator, the KG preset, codex cost).
