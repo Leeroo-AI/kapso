@@ -11,9 +11,11 @@ ingest knowledge, deploy.
 | `codex/kapso/` | Codex CLI | `.agents/skills/kapso` (repo, walking up to the git root) or `~/.agents/skills/kapso` (user); `agents/openai.yaml` decorates the `/skills` list |
 | `opencode/kapso/` | OpenCode | `.opencode/skills/kapso` (project) or `~/.config/opencode/skills/kapso` (global); OpenCode also reads the Claude and Codex locations |
 
-The copies are deliberately separate files, not symlinks: they are identical
-today, and each can diverge as its agent's conventions do. Their test record
-is `docs/plans/coding-agent-skill-findings.md`.
+The copies are deliberately separate files, not symlinks, so each can diverge
+as its agent's conventions do. Today they differ in one place: Codex's shell
+ends a plain `nohup … &` child when the call returns, so the Codex copy
+launches and resumes campaigns with `setsid -f`; the other two use `nohup`.
+Their test record is `docs/plans/coding-agent-skill-findings.md`.
 
 ## Install
 

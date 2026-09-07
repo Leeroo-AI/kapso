@@ -74,20 +74,22 @@ suite, a benchmark command. Then:
 
 ```bash
 kapso doctor evolve
-nohup kapso evolve \
+setsid -f kapso evolve \
   --goal "Get the test accuracy of the churn model in train.py above 0.85 as measured by eval/evaluate.py. The evaluator must not be modified." \
   --initial-repo . \
   --eval-dir eval \
   --data-dir data \
   --output ../churn-campaign \
   --time-budget-minutes 60 --iterations 10 \
-  > ../churn-campaign.log 2>&1 &
+  > ../churn-campaign.log 2>&1 < /dev/null
 kapso watch ../churn-campaign --follow
 ```
 
-- The `nohup … &` line is a tool call of its own: nothing chained in front of
-  it. `test … && nohup … &` backgrounds the whole chain instead of Kapso, the
-  call then hangs on it until the harness kills it, campaign included.
+- Codex ends a plain `nohup … &` child when the shell call returns; `setsid -f`
+  starts Kapso in its own session, so it outlives the call and the session
+  (where `setsid` is missing: `python3 -c 'import subprocess, sys;
+  subprocess.Popen(sys.argv[1:], start_new_session=True)' kapso evolve …`).
+  The launch line is a tool call of its own, nothing chained in front of it.
 - `--initial-repo <path|github url>` seeds the campaign; a non-git directory is
   copied and committed as the baseline. The original is never modified. Every
   experiment lands on branch `generic_exp_N` inside `--output`, an empty
@@ -114,7 +116,7 @@ solution = Kapso().evolve(
 print(solution.explain())   # .final_score .succeeded .code_path .requests
 ```
 
-`evolve()` blocks for the whole campaign, so run scripts with nohup as well.
+`evolve()` blocks for the whole campaign, so run scripts with `setsid -f` as well.
 
 ## Inbox: the campaign is waiting on you
 
@@ -135,7 +137,7 @@ kapso inbox reply ./campaign 1 "added the key to .env"
 
 ```bash
 kapso watch ../churn-campaign                  # DEAD (pid gone) or STALLED means it died
-nohup kapso evolve --output ../churn-campaign --resume > ../churn-campaign.log 2>&1 &
+setsid -f kapso evolve --output ../churn-campaign --resume > ../churn-campaign.log 2>&1 < /dev/null
 ```
 
 A resume is a launch: run it in the background the same way, check once that

@@ -448,3 +448,30 @@ docs say: `pip install kapso` into an environment that already has
 leeroo-kapso writes the impostor's modules over the real `kapso/` package and
 replaces the console script, so `kapso --version` then prints "Kapso CLI
 Version: 0.4.0" while `pip list` still shows leeroo-kapso.
+
+### Cross-host regression of the edited text (2026-09-07, later the same day)
+
+The three prompts whose wording changed, skill arm only, on this branch's
+build. The Claude Code runs use the second lab login (the first hit its
+five-hour session limit at 15:05 UTC and also broke the Codex runs' campaigns,
+which need Claude inside; those runs were repeated).
+
+| Host | Prompt | Outcome | Tool calls | Time |
+|---|---|---|---|---|
+| Claude Code | P11 | pass; skill, three reads, one question, nothing launched | 6 | 14s |
+| Claude Code | P6 | pass; `watch` (DEAD), launch record and checkpoint read, `doctor evolve`, one-line background resume, alive check, handoff with the inbox rule | 6 | 58s |
+| Claude Code | P1 | pass; `doctor evolve`, baseline, one-line launch with a no-fit-on-test rule it named, alive check, handoff | 9 | 42s |
+| Codex | P11 | pass; asked once, nothing launched, quoted the new sentence | 5 | 34s |
+| Codex | P6 | pass on behaviour, but the `nohup … &` resume died twice after the call and a `Popen(start_new_session=True)` relaunch was needed | 13 | 83s |
+| Codex | P1 | pass on behaviour, same pattern: the first `nohup … &` launch was gone by the next call, the second (with `disown`) survived | 7 | 75s |
+| Codex | P6, `setsid -f` copy | pass on the first attempt | 6 | 41s |
+| Codex | P1, `setsid -f` copy | pass on the first attempt | 7 | 57s |
+
+A probe settled the Codex pattern: inside `codex exec`, a `nohup sleep … &`
+child is gone by the next shell call, while `setsid -f sleep …` and a
+`Popen(…, start_new_session=True)` survive both the call and the session.
+This morning's Codex round had passed P1 and P6 the same way, through
+retries the scorecard did not single out. So the Codex copy is the first to
+diverge: its launch and resume lines use `setsid -f … < /dev/null` (with the
+Python form named for a box without `setsid`), and the note explains why.
+The Claude Code and OpenCode copies keep `nohup … &`, which both hosts honour.
