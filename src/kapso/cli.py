@@ -585,6 +585,7 @@ def cmd_deploy(args) -> None:
         strategy=strategy,
         env_vars=env_vars if env_vars else None,
         coding_agent=args.coding_agent,
+        model=args.model,
     )
     
     # Print summary
@@ -987,7 +988,8 @@ Examples:
     deploy_parser.add_argument("--strategy", type=str, choices=DEPLOY_STRATEGIES, default="auto", help="Deploy strategy (default: auto)")
     deploy_parser.add_argument("--goal", type=str, help="Goal description for the solution")
     deploy_parser.add_argument("--env", type=str, action="append", help="Environment variable (KEY=VALUE, can specify multiple)")
-    deploy_parser.add_argument("--coding-agent", type=str, choices=AVAILABLE_AGENTS, default="claude_code", help="Coding agent for adaptation")
+    deploy_parser.add_argument("--coding-agent", type=str, choices=AVAILABLE_AGENTS, default=None, help="Coding agent for the selector and adapter sessions (default: config deployment.coding_agent)")
+    deploy_parser.add_argument("--model", type=str, default=None, help="Model that agent is asked for (default: config deployment.model)")
     deploy_parser.add_argument("--interactive", action="store_true", help="Keep running after deploy")
     
     # =========================================================================

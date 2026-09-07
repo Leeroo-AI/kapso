@@ -270,7 +270,8 @@ deploy(
     solution: SolutionResult,
     strategy: DeployStrategy = DeployStrategy.AUTO,
     env_vars: dict[str, str] | None = None,
-    coding_agent: str = "claude_code",
+    coding_agent: str | None = None,
+    model: str | None = None,
 ) -> Software
 ```
 
@@ -279,7 +280,8 @@ deploy(
 | `solution` | The result to deploy | required |
 | `strategy` | `AUTO`, `LOCAL`, `DOCKER`, `MODAL`, `BENTOML` or `LANGGRAPH` | `AUTO` |
 | `env_vars` | Environment variables for the deployed software | `None` |
-| `coding_agent` | Agent that adapts the solution for the target | `"claude_code"` |
+| `coding_agent` | Agent behind the selector and adapter sessions | from config (`deployment.coding_agent`) |
+| `model` | The model that agent is asked for | from config (`deployment.model`) |
 
 ```python
 deployed = kapso.deploy(solution, strategy=DeployStrategy.LOCAL)

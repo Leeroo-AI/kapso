@@ -63,6 +63,17 @@ preflight:
   live_model_probe: false
 
 # =============================================================================
+# Deployment — the two sessions deploy() runs: the selector (picks a target
+# for DeployStrategy.AUTO) and the adapter (rewrites a copy of the solution
+# for the target). One coding agent and one model for both. The agent must
+# be able to serve the model: a Claude model name on the codex CLI is refused
+# by a ChatGPT login (seen 2026-09-07 with a hardcoded claude-opus-4-5).
+# =============================================================================
+deployment:
+  coding_agent: claude_code
+  model: "claude-opus-5"
+
+# =============================================================================
 # Platform defaults — the base layer under every mode of every config file
 # =============================================================================
 # load_mode_config() resolves a mode as deep_merge(defaults, modes[<mode>]):

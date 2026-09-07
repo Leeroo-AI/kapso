@@ -34,6 +34,7 @@ kapso learn mine --all --config ./my-config.yaml
 | [`default_mode`](#default-mode) | Which entry in `modes` is active |
 | [`inference`](#inference) | The CLI, model and effort behind non-coding model calls |
 | [`preflight`](#preflight) | Whether requirement checks run before a verb |
+| [`deployment`](#deployment) | The coding agent and model behind `deploy()`'s selector and adapter sessions |
 | [`defaults`](#defaults) | Embedding model, heartbeat and request timeout |
 | [`modes`](#modes) | Named bundles of search, agent, feedback and knowledge settings |
 | [`learning`](#learning) | The trajectory store, lesson bank, graders and update crew |
@@ -104,6 +105,21 @@ preflight:
 | `live_model_probe` | Also fire a one-token live call per CLI and model pair | `false` |
 
 These are the same checks [`kapso doctor`](/docs/reference/cli#kapso-doctor) reports. Leaving `enabled: true` is what makes a missing CLI fail in seconds instead of deep inside a run.
+
+## deployment
+
+```yaml
+deployment:
+  coding_agent: claude_code
+  model: claude-opus-5
+```
+
+| Key | What it does | Shipped value |
+|-----|--------------|---------------|
+| `coding_agent` | The agent that runs the selector (for `AUTO`) and the adapter that rewrites a copy of the solution for its target | `claude_code` |
+| `model` | The model that agent is asked for | `claude-opus-5` |
+
+The agent must be able to serve the model: a Claude model name on the `codex` agent is refused by a ChatGPT login. `deploy(coding_agent=..., model=...)` and `kapso deploy --coding-agent` override per call, and a `deployment:` block in your own config file layers over the packaged one key by key.
 
 ## defaults
 

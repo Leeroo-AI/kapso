@@ -223,7 +223,8 @@ Turns a solution directory into running software.
 | `--strategy` | `auto`, `local`, `docker`, `modal`, `bentoml` or `langgraph` | `auto` |
 | `--goal` | Goal description for the solution | — |
 | `--env` | Environment variable as `KEY=VALUE`. Repeat for more than one | — |
-| `--coding-agent` | Agent used to adapt the solution for the target | `claude_code` |
+| `--coding-agent` | Agent behind the selector and adapter sessions | from config (`deployment.coding_agent`) |
+| `--model` | Model that agent is asked for | from config (`deployment.model`) |
 | `--interactive` | Keep running after deploy instead of returning | off |
 
 ```bash

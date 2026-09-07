@@ -35,8 +35,8 @@ class SelectorAgent:
     
     def __init__(
         self,
-        coding_agent_type: str = "claude_code",
-        model: str = "claude-opus-4-5",
+        coding_agent_type: str,
+        model: str,
     ):
         """
         Initialize selector agent.

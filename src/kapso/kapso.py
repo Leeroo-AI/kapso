@@ -53,7 +53,7 @@ from kapso.knowledge_base.learners import Source, KnowledgePipeline
 from kapso.core.cli_inference import resolve_inference_config
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
-from kapso.core.config import load_config, load_mode_config
+from kapso.core.config import load_config, load_deployment_defaults, load_mode_config
 from kapso.execution.inbox import (
     Request,
     idea_line,
@@ -1655,7 +1655,8 @@ class Kapso:
         solution: SolutionResult,
         strategy: DeployStrategy = DeployStrategy.AUTO,
         env_vars: Optional[Dict[str, str]] = None,
-        coding_agent: str = "claude_code",
+        coding_agent: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> Software:
         """
         Deploy a solution to create running software.
@@ -1674,7 +1675,10 @@ class Kapso:
                 - MODAL: Deploy to Modal.com (serverless, GPU)
                 - BENTOML: Deploy with BentoML (production ML)
             env_vars: Environment variables to pass to the software
-            coding_agent: Which coding agent for adaptation
+            coding_agent: The coding agent behind the selector and adapter
+                sessions; default from config `deployment.coding_agent`
+            model: The model that agent is asked for; default from config
+                `deployment.model`
             
         Returns:
             Software instance with unified interface:
@@ -1689,6 +1693,14 @@ class Kapso:
             result = software.run({"ticker": "AAPL"})
             software.stop()
         """
+        # The packaged deployment block, with the user config's own block
+        # layered over it key by key (the same shape as the inference block).
+        deployment = {
+            **load_deployment_defaults(),
+            **(self._config.get("deployment") or {}),
+        }
+        coding_agent = coding_agent or deployment["coding_agent"]
+        model = model or deployment["model"]
         run_preflight(
             "deploy", self._config,
             strategy=getattr(strategy, "value", str(strategy)),
@@ -1705,6 +1717,7 @@ class Kapso:
             solution=solution,
             env_vars=env_vars,
             coding_agent=coding_agent,
+            model=model,
         )
         
         return DeploymentFactory.create(strategy, config)

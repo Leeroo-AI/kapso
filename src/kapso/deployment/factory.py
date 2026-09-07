@@ -73,7 +73,7 @@ class DeploymentFactory:
             if strategies and strategy.value not in strategies:
                 raise ValueError(f"Strategy '{strategy.value}' not in allowed: {strategies}")
             print(f"[Deployment] Phase 1: Using specified strategy: {strategy.value}")
-            setting = cls._create_setting(strategy)
+            setting = cls._create_setting(strategy, config)
         
         print(f"[Deployment] Selected: {setting.strategy} ({setting.reasoning})")
         
@@ -123,18 +123,23 @@ class DeploymentFactory:
         """
         from kapso.deployment.selector.agent import SelectorAgent
         
-        selector = SelectorAgent()
+        selector = SelectorAgent(
+            coding_agent_type=config.coding_agent, model=config.model,
+        )
         return selector.select(config.solution, allowed_strategies=strategies)
     
     @classmethod
     def _create_setting(
         cls, 
         strategy: DeployStrategy,
+        config: DeployConfig,
     ) -> DeploymentSetting:
         """Create setting from explicit strategy (user-specified)."""
         from kapso.deployment.selector.agent import SelectorAgent
         
-        selector = SelectorAgent()
+        selector = SelectorAgent(
+            coding_agent_type=config.coding_agent, model=config.model,
+        )
         return selector._create_setting_for_strategy(strategy.value)
     
     @classmethod
@@ -158,6 +163,7 @@ class DeploymentFactory:
         
         adapter = AdapterAgent(
             coding_agent_type=config.coding_agent,
+            model=config.model,
             max_retries=2,
         )
         

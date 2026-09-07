@@ -50,6 +50,18 @@ def load_platform_defaults() -> Dict[str, Any]:
     return platform_config['defaults']
 
 
+def load_deployment_defaults() -> Dict[str, Any]:
+    """The platform config's `deployment:` mapping — the coding agent and
+    model behind deploy()'s selector and adapter sessions. A user config's
+    own `deployment:` block layers over it key by key."""
+    platform_config = load_config(str(PLATFORM_CONFIG_PATH))
+    if 'deployment' not in platform_config:
+        raise ValueError(
+            f"Platform config {PLATFORM_CONFIG_PATH} has no 'deployment' section"
+        )
+    return platform_config['deployment']
+
+
 def load_mode_config(
     config_path: Optional[str],
     mode: Optional[str] = None,
