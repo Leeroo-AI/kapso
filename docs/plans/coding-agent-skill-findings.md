@@ -1,6 +1,6 @@
 # Coding-agent skill for Kapso — findings log
 
-Branch `coding-agents-skills`. The skill lives at `skills/kapso/SKILL.md`; this
+Branch `coding-agents-skills`. The skill lives at `skills/<agent>/kapso/SKILL.md`, one folder per coding agent (`claude-code/`, `codex/`); this
 file records how it was tested and what each round found. Method is the
 eval-first loop both Anthropic and OpenAI prescribe for skills: run the host
 agent on realistic tasks *without* the skill, record the gaps, write the
