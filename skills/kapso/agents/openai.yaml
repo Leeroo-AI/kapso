@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kapso"
+  short_description: "Run Kapso campaigns, inbox, learn and deploy"
+  default_prompt: "Use $kapso to run an evolve campaign on this repo toward a measurable goal."
