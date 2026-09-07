@@ -172,8 +172,9 @@ def codex_authenticated() -> bool:
 def probe_model_access(cli_name: str, model: str) -> Tuple[bool, str]:
     """One-token live probe: can this CLI actually serve this model on the
     current subscription? Returns (ok, the CLI's own answer when not) — a
-    capped model fails here in seconds instead of deep inside a crew
-    session (onboarding E2E finding #5)."""
+    revoked login or a model the plan does not include fails here in seconds
+    instead of deep inside a crew session (onboarding E2E finding #5). A
+    usage cap on a model the login can serve is invisible to one token."""
     prompt = "Reply with exactly: ok"
     if cli_name in ("claude_code", "oss_claude_code"):
         cmd = ["claude", "-p", "--model", model, prompt]

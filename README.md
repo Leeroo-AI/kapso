@@ -247,8 +247,9 @@ kapso = Kapso(config_path="kapso-config.yaml")
 ```
 
 Before a long run, probe every model your config names against your
-actual subscriptions — a capped model fails here in seconds instead of
-hours into a run:
+actual subscriptions — a model your login cannot serve fails here in
+seconds instead of hours into a run. A usage cap on a model you can
+serve is not visible to a one-token probe:
 
 ```bash
 kapso doctor --models                            # packaged config

@@ -147,7 +147,7 @@ The five verbs are `research`, `learn_knowledge`, `evolve`, `learn` and `deploy`
 
 ### How do I confirm my models are actually reachable?
 
-Add `--models` to fire a one-token live call per configured CLI and model pair. A subscription cap or a revoked login surfaces here in seconds instead of hours into a campaign:
+Add `--models` to fire a one-token live call per configured CLI and model pair. A revoked login, or a model your plan does not include, surfaces here in seconds instead of hours into a campaign. A usage cap on a model you can serve does not: a one-token probe passes until the cap is hit.
 
 ```bash
 kapso doctor evolve --models

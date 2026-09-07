@@ -1136,8 +1136,9 @@ Examples:
             "missing item names the config key that wants it and one fix. "
             "Exits non-zero when a required item is missing. With "
             "--models, additionally fires a one-token live probe per "
-            "{cli, model} pair — a subscription cap surfaces here in "
-            "seconds instead of hours into a run."
+            "{cli, model} pair — a revoked login or a model the plan does "
+            "not include surfaces here in seconds instead of hours into a "
+            "run (a usage cap on a model it can serve does not)."
         ),
     )
     doctor_parser.add_argument(

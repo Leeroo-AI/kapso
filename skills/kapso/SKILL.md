@@ -24,8 +24,9 @@ the source is large and a session that greps it runs out of turns before answeri
   environment variables.
 - Run `kapso doctor` (or `kapso doctor evolve|learn|research|learn_knowledge|deploy`)
   before any run. Every required row must read `[OK ]`; `[-- ]` rows are optional.
-  Add `--models` to live-probe every configured model with one token each; a capped
-  plan fails here in seconds instead of hours in.
+  Add `--models` to live-probe every configured model with one token each; a model
+  the login cannot serve fails here in seconds instead of hours in. A usage cap on
+  a model it can serve is not visible to the probe.
 - A campaign takes tens of minutes to hours. Launch it in the background with its
   output in a log file, check once that the process is alive, and hand off in
   your reply right away: the goal you passed, the metric and target you assumed

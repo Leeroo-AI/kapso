@@ -58,7 +58,8 @@ preflight:
   # The live tier: one throwaway token per {cli, model} pair, proving the
   # account can actually serve it. Off by default because it spends real
   # quota on every call; worth turning on for long unattended runs, where
-  # seconds up front beat hours lost to a capped model.
+  # seconds up front beat hours lost to a model the login cannot serve.
+  # (A usage cap on a model it can serve is invisible to a one-token probe.)
   live_model_probe: false
 
 # =============================================================================
