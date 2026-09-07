@@ -229,3 +229,41 @@ def test_config_carries_the_observability_keys():
         str(Path(__file__).parent.parent / "src/kapso/config.yaml")
     )
     assert packaged["learning"]["status_dir"]
+
+
+def test_workspace_without_a_status_file_yet_does_not_parse_other_json(tmp_path):
+    """A seeded project carries files like result.json; before the first
+    heartbeat `kapso watch <workspace>` used to fall through to the newest
+    *.json beside .kapso and crash on it with KeyError: 'heartbeat_at'."""
+    workspace = tmp_path / "campaign"
+    (workspace / ".kapso").mkdir(parents=True)
+    (workspace / "result.json").write_text(json.dumps({"accuracy": 0.722}))
+
+    with pytest.raises(FileNotFoundError, match="no status file yet"):
+        OperationStatusView(workspace)
+
+
+def test_dead_writer_is_reported_before_the_heartbeat_goes_stale(tmp_path):
+    """The status file cannot record its own writer's death: a campaign
+    killed mid-run kept rendering RUNNING for three heartbeat intervals.
+    The view asks the kernel about the recorded pid instead."""
+    if not Path("/proc").is_dir():
+        pytest.skip("pid liveness needs /proc")
+    path = tmp_path / "s.json"
+    EvolveStatus(path, heartbeat_seconds=60).update(iteration=1)
+    data = read(path)
+    gone = 2**22 - 1
+    while Path("/proc", str(gone)).exists():
+        gone -= 1
+    data["pid"] = gone
+    path.write_text(json.dumps(data))
+
+    view = OperationStatusView(path)
+    assert view.process_alive is False
+    assert view.dead is True and view.alive is False and view.stalled is True
+    assert f"DEAD (pid {gone} is gone)" in view.explain()
+
+    # A terminal state is neither dead nor stalled, whatever the pid.
+    data["state"] = "done"
+    path.write_text(json.dumps(data))
+    assert OperationStatusView(path).dead is False
