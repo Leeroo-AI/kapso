@@ -95,6 +95,10 @@ echo 'OPENAI_API_KEY=sk-...' >> .env
 pip install leeroo-kapso
 ```
 
+The package is `leeroo-kapso`. The PyPI package named `kapso` is an unrelated
+WhatsApp tool that installs a `kapso` command of its own and shadows this one;
+if it is present, `pip uninstall kapso` first.
+
 **3. Verify the setup:**
 
 ```bash
