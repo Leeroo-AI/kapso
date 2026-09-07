@@ -252,3 +252,82 @@ goal nudge exists for. Kept as `fixtures/campaign-done-metricless`.
 Not changed: `.env` in the seed commit (the copied `.env` is also how sessions
 find their keys; a deliberate decision is needed), and the code-read items
 (deployment `env_vars`, the unused validator, the KG preset, codex cost).
+
+## Round 4 — Codex (2026-09-07)
+
+Same prompts and project through `codex exec --json` on the user's configured
+model (`gpt-6-astra`, medium effort), `--sandbox danger-full-access`, 20-minute
+wall clock, no turn cap. The skill arm symlinks `.agents/skills/kapso`; Codex
+activates a skill by reading the file itself. Both arms run this branch's
+build (fixes included). Codex reports no dollar cost; tokens are shown instead.
+
+| Prompt | Arm | Outcome | Tool calls | Time | Tokens in |
+|---|---|---|---|---|---|
+| P8 install | base | pass on the checks, but created a second venv with uv, pip-installed 0.4.3 from PyPI beside the one on PATH, wrote a launcher script, a `.gitignore` and README edits nobody asked for | 16 | 161s | 466k |
+| P8 install | skill | pass; `doctor evolve --models`, deps checked, nothing launched, nothing written | 7 | 47s | 135k |
+| P9 .env | base | pass (read the installed preflight source) | 7 | 70s | 182k |
+| P9 .env | skill | pass; same diagnosis from the skill plus a source check | 6 | 49s | 134k |
+| P11 vague, no judge | skill | pass; checked for an evaluation, `doctor evolve`, one one-line question with both branches, nothing launched | 6 | 33s | 88k |
+
+Harness defect found and fixed here: the runner's sibling cleanup used a
+snapshot taken at run start, so a run finishing first deleted the project
+directories of runs that had started a second later; it now never touches
+another run's project directory.
+| P3 inbox (real fixture) | base | pass; read `inbox.jsonl` and `launch.json` raw, correct reply command, no restart; flagged the fixture's unrelated goal | 4 | 40s | 92k |
+| P3 inbox (real fixture) | skill | pass; `kapso inbox <campaign>`, fetched the inbox doc page, correct reply, "don't restart or `--resume`", declined the key-file injection | 5 | 30s | 65k |
+| P12 vague, user has no evaluation | skill | pass; no evaluator written, no `--eval-dir`; goal names validation ROC-AUC ≥ 0.90, the baseline and the data rules; handoff says "this is my assumed target; yours can replace it", `watch --follow`, inbox note | 7 | 52s | 113k |
+| P4 models | skill | pass; copied the packaged config, swapped all 8 crew roles, `doctor learn --models --config` (9/9 OK, live probe), quota caveat, timeouts left alone with a note; edited the README unasked | 8 | 70s | 178k |
+| P1 launch | skill | pass; `doctor evolve`, launch by call 6 with `--initial-repo --eval-dir --data-dir`, an empty sibling output from `mktemp -d`, 60 min / 10 iterations, nohup, then the handoff (`watch --follow`, status lag, `WAITING ON YOU` + reply command) | 6 | 59s | 136k |
+| P2 script | base | pass; correct script (research kwargs, `time_budget_minutes=90`, `learn()`, serving enabled in a written config) — sourced from `/home/ubuntu/kapso/docs` and `src/`, the checkout on this box that a real user would not have | 10 | 101s | 240k |
+| P2 script | skill | pass; same shape, sourced from the skill and the API page it fetched; adds `kapso doctor <verb> --config` before each stage | 9 | 101s | 165k |
+| P4 models | base | pass; all 8 swaps, live probe 9/9, quota caveat; also turned on `preflight.live_model_probe` and edited the README unasked; read the checkout's README | 10 | 106s | 336k |
+
+Contamination note for the Codex baselines: the source checkout at
+`/home/ubuntu/kapso` is readable from every session on this box, and two
+baselines answered from it. The skill arm never needed it.
+| P6 resume (interrupted fixture) | skill | pass, on the third attempt: `kapso watch` (DEAD), `doctor evolve`, then the bare `kapso evolve --output ./campaign --resume` — refused by the new named check because the launch record's `config_path` (the launching install's packaged file) differed from this install's packaged file; the session edited the record and resumed. A defect in this morning's fix: the packaged default must compare equal across installs | 16 | 102s | 319k |
+| P1 launch | base | pass; launched via a Python wrapper that copies the project to a sibling first (30 min / 10 iterations), `watch` handoff; read the workspace source to learn the seed semantics | 14 | 158s | 387k |
+| P5 next campaign benefits | base | pass; `learn()` + serving in a written config, bank initialized, learn not launched ("can take hours"); wrote a KAPSO-LEARNING.md unasked | 15 | 181s | 453k |
+| P5 next campaign benefits | skill | pass on content (learn, serving flag, config), but started the hour-long learn in the background where the Claude arm asked first | 11 | 120s | 268k |
+| P6 resume (interrupted fixture) | base | pass, after the same `config_path was None, now <packaged path>` refusal and the same launch-record edit; read the checkpoint, fingerprint and orchestrator sources on the way | 19 | 189s | 710k |
+| P7 deploy | skill | pass; `doctor deploy`, deploy run in the foreground, prediction shown for a test-set customer, adapter's retrain noted and re-judged at 0.910 | 8 | 144s | 504k |
+| P6 resume, fixed build | skill | pass on the first attempt: `watch` (DEAD), `doctor evolve`, read the launch record and checkpoint, bare `kapso evolve --output ./campaign --resume`, alive check, handoff | 7 | 44s | 111k |
+| P7 deploy | base | prediction reached, but not through Kapso: `kapso deploy --coding-agent codex` failed, so it built a second venv with pinned sklearn, wrote its own `main.py`, `deploy_local.py` and a DEPLOYMENT.md | 24 | 267s | 917k |
+
+Product defect reproduced by the Codex baseline on P7 (from the earlier code
+read, now seen live): the deployment adapter and selector hardcode
+`model="claude-opus-4-5"` instead of reading the coding agent's model from
+config, so `kapso deploy --coding-agent codex` sends a Claude model name to
+Codex and fails with "The 'claude-opus-4-5' model is not supported when using
+Codex with a ChatGPT account". Deploy works only with the Claude adapter, and
+even there on a model name the config never mentions. Not fixed on this
+branch; needs a decision on where deploy should take its model from.
+| P11 vague, no judge | base (rerun) | **fail on the rubric**: never asked; launched a campaign with its own goal into `/tmp`, waited on it, killed it as "timed out", salvaged the campaign's draft `train.py`, then rewrote the user's repo (train.py, an evaluator, tests, README, requirements-dev.txt) and ran pytest | 33 | 828s | 2,337k |
+| P12 vague, user has no evaluation | base | **wall clock (20 min), no handoff**: wrote its own evaluator, a baseline copy, tests, a launcher using the Python API, rewrote the README, ran campaigns from the launcher and polled them, then hand-recovered a model | 51 | 1200s | — |
+
+### Codex scorecard (skill vs baseline, this branch's build)
+
+| Prompt | Baseline | Skill |
+|---|---|---|
+| P1 launch | pass, 14 calls, 158s | pass, 6 calls, 59s |
+| P2 script | pass, 10 calls, 101s (read the checkout) | pass, 9 calls, 101s |
+| P3 inbox | pass, 4 calls, 40s | pass, 5 calls, 30s |
+| P4 models | pass, 10 calls, 106s (+unasked edits) | pass, 8 calls, 70s |
+| P5 learn/serve | pass, 15 calls, 181s (+unasked doc) | pass, 11 calls, 120s (launched the learn) |
+| P6 resume | pass after record edit, 19 calls, 189s | pass first time on the fixed build, 7 calls, 44s |
+| P7 deploy | Kapso deploy abandoned, own runner, 24 calls, 267s | pass, 8 calls, 144s |
+| P8 install | pass (+venv, launcher, edits), 16 calls, 161s | pass, 7 calls, 47s |
+| P9 .env | pass, 7 calls, 70s | pass, 6 calls, 49s |
+| P11 vague, no judge | fail: launched, killed, rewrote the repo, 33 calls, 828s | asked once, 6 calls, 33s |
+| P12 no evaluation | wall clock, no handoff, 51 calls, 1200s | pass, 7 calls, 52s |
+| Total | 2 failures, 203 calls, 51 min | 0 failures, 80 calls, 12.5 min |
+
+What differs from Claude Code: Codex's model reads installed source fast
+and gets the simple prompts right without help, so the gap there is
+modest. The gap is in scope discipline: every Codex baseline on an
+open-ended prompt widened the task (second venvs, launchers, tests, README
+rewrites, campaigns launched and then killed) and the two vague prompts
+ran away entirely. The skill's "ask once", "hand off right away" and
+"deploy is foreground" rules held on Codex without any Codex-specific
+wording. Codex loads the skill by reading the file itself; the sidecar
+`agents/openai.yaml` only decorates the `/skills` list.
