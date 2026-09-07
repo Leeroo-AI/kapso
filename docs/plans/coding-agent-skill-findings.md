@@ -249,9 +249,10 @@ goal nudge exists for. Kept as `fixtures/campaign-done-metricless`.
 | `pip install kapso` installs an unrelated package | named at the install step in the README and the installation page | 459a96a4 |
 | docs claimed `doctor --models` catches a capped plan | wording in README, installation page, config comment, preflight docstring, CLI help and the skill: it catches a revoked login or an excluded model, not a usage cap | c881c27d |
 
-Not changed: `.env` in the seed commit (the copied `.env` is also how sessions
-find their keys; a deliberate decision is needed), and the code-read items
-(deployment `env_vars`, the unused validator, the KG preset, codex cost).
+Not changed: `.env` in the seed commit (the user chose to leave it), and the
+remaining code-read items (deployment `env_vars`, the unused validator, the
+KG preset, codex cost). The deployment model literal, also from the code
+read, was fixed once the Codex round reproduced it (20ac1383).
 
 ## Round 4 — Codex (2026-09-07)
 
@@ -299,9 +300,14 @@ read, now seen live): the deployment adapter and selector hardcode
 `model="claude-opus-4-5"` instead of reading the coding agent's model from
 config, so `kapso deploy --coding-agent codex` sends a Claude model name to
 Codex and fails with "The 'claude-opus-4-5' model is not supported when using
-Codex with a ChatGPT account". Deploy works only with the Claude adapter, and
-even there on a model name the config never mentions. Not fixed on this
-branch; needs a decision on where deploy should take its model from.
+Codex with a ChatGPT account". Deploy worked only with the Claude adapter, and
+even there on a model name the config never mentions. **Fixed in 20ac1383**:
+a `deployment:` block in config.yaml (`coding_agent: claude_code`, `model:
+claude-opus-5`) is the one source; `DeployConfig` defaults come from it, a
+user config's block layers over it, and `deploy(coding_agent=, model=)` /
+`kapso deploy --coding-agent --model` override per call. Verified live: the
+adapter session starts with `model=claude-opus-5` and the deployed `predict`
+answers.
 | P11 vague, no judge | base (rerun) | **fail on the rubric**: never asked; launched a campaign with its own goal into `/tmp`, waited on it, killed it as "timed out", salvaged the campaign's draft `train.py`, then rewrote the user's repo (train.py, an evaluator, tests, README, requirements-dev.txt) and ran pytest | 33 | 828s | 2,337k |
 | P12 vague, user has no evaluation | base | **wall clock (20 min), no handoff**: wrote its own evaluator, a baseline copy, tests, a launcher using the Python API, rewrote the README, ran campaigns from the launcher and polled them, then hand-recovered a model | 51 | 1200s | — |
 
