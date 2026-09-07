@@ -244,15 +244,17 @@ Shipped values worth knowing:
 ```yaml
 learning:
   trajectory_store:
-    local: data/trajectories
+    local: ~/.kapso/trajectories
     remote: null
   bank:
-    local_path: data/kapso-bank.git
+    local_path: ~/.kapso/bank.git
   serving:
     enabled: false
   update_crew:
     default_version: crew_v4
 ```
+
+The store and the bank are Kapso's own state and live under `~/.kapso`, outside the project you run from, so a campaign's `--data-dir` and seed copy never pick them up.
 
 <Warning>
   `learning.serving.enabled` ships as `false`. Until you turn it on, campaigns do not read from the lesson bank, so banked lessons have no effect on `evolve()`.

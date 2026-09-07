@@ -155,7 +155,7 @@ print(k.memory.explain())           # bank head, active cards, serving flag
 ```
 
 - The bank is created on first use at `learning.bank.local_path`
-  (`data/kapso-bank.git`). Share it with `kapso bank connect <git-url>` or
+  (`~/.kapso/bank.git`). Share it with `kapso bank connect <git-url>` or
   `kapso bank create org/name`; after that every `learn()` pushes.
 - Serving is off by default. For the next campaign to read the bank, set
   `learning.serving.enabled: true` in your config and pass it. Without that,

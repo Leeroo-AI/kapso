@@ -233,9 +233,12 @@ learning:
   trajectory_store:
     # Identity-addressed campaign bundles (design §3.4). `local` is the
     # cache-through mirror and, until `remote` is configured (P5 per doubt
-    # D2), the whole store. Relative paths resolve against the CWD; the
-    # shipped default assumes repo-root invocation.
-    local: data/trajectories
+    # D2), the whole store. Kapso's own state lives under ~/.kapso, not
+    # under the project it is run from: a store at data/trajectories sat
+    # inside the directory users pass as --data-dir and rode into every
+    # campaign's kapso_datasets/ and seed commit. Relative paths resolve
+    # against the CWD.
+    local: ~/.kapso/trajectories
     remote: null
   # Import reports land under the run-dir home (doubt D6: repo-root
   # `learning/`, gitignored, synced to the artifacts bucket).
@@ -301,8 +304,10 @@ learning:
     # back — single writer per bank. Sharing is git-native: the home's own
     # `origin` remote (attached via `kapso bank connect <url>`) is the push
     # target; no origin means learn() stays local-only. There is no remote
-    # key here — a bank carries its remote itself, like any git repo.
-    local_path: data/kapso-bank.git
+    # key here — a bank carries its remote itself, like any git repo. One
+    # bank per user, under ~/.kapso like the trajectory store: at
+    # data/kapso-bank.git it was copied into campaigns with --data-dir data.
+    local_path: ~/.kapso/bank.git
   serving:
     # Serving v2 (serving-agentic-redesign.md): when enabled, campaign
     # launches pin the bank, the knowledge intro rides after the static
