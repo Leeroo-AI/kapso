@@ -337,3 +337,114 @@ ran away entirely. The skill's "ask once", "hand off right away" and
 "deploy is foreground" rules held on Codex without any Codex-specific
 wording. Codex loads the skill by reading the file itself; the sidecar
 `agents/openai.yaml` only decorates the `/skills` list.
+
+## Round 5 — OpenCode on an open-weights model (2026-09-07)
+
+Same prompts and project through `opencode run --format json --auto` (OpenCode
+1.18.29) on Kimi K2.7 Code served by Fireworks
+(`fireworks-ai/accounts/fireworks/models/kimi-k2p7-code`, $0.95/$4 per million
+tokens; DeepSeek V4 Pro also drove the `skill` tool correctly in the probe).
+Kapso's own sessions inside a campaign still run on Claude. No turn cap
+exists on OpenCode; the 20-minute wall clock bounds a run. The skill arm
+symlinks `.opencode/skills/kapso`; OpenCode loads a skill through its native
+`skill` tool, so a load is observable. Both arms run this branch's build.
+
+Two harness facts before the numbers. `opencode run` hangs forever with no
+output unless stdin is closed (`< /dev/null`). And OpenCode also loads a box's
+global skills from `~/.claude/skills` and `~/.agents/skills`, nested folders
+included: the first P9 baseline loaded this box's unrelated Superset `doctor`
+skill because the prompt said `kapso doctor`, then answered from priors
+("export it in the same shell") without running a command. A real user's box
+has none of these, so each lab project's `.opencode/opencode.json` denies every
+skill but `kapso` (denied skills are hidden from the catalog; `--auto` never
+overrides an explicit deny). Every row below ran under that setting.
+
+| Prompt | Arm | Outcome | Tool calls | Time | Cost |
+|---|---|---|---|---|---|
+| P8 install | base | **fail** (first run): never asked which `kapso` was on PATH; made a venv, `pip install kapso` (the unrelated 0.4.0 package), scaffolded `kapso init`, edited requirements.txt, told the user to `kapso login` to "Kapso Cloud". A second run passed after five web fetches (Google, GitHub search) found the right package, then `pip list`, `doctor`, `doctor evolve` | 46 / 19 | 185s / 43s | $0.23 / $0.05 |
+| P8 install | skill | pass; skill loaded first, `doctor evolve --models`, nothing installed or written, campaign command drafted but not launched | 12 / 8 | 28s | $0.03 |
+| P9 .env | base | **fail** twice: with the global catalog it loaded the Superset `doctor` skill and answered from priors; with the clean catalog it offered four guesses (an invented `KAPSO_OPENAI_API_KEY`, "add it to ~/.bashrc", "if kapso supports .env") and never ran `kapso doctor` | 1 / 3 | 14s / 18s | $0.01 / $0.02 |
+| P9 .env | skill | pass; the skill alone: `.env` from the working directory via `find_dotenv(usecwd=True)`, fix is one line in `.env` | 1 | 11s | $0.01 |
+| P2 script | base | **fail**: an invented API end to end (`kapso.research(topic=, focus=)`, `kapso.Campaign(...).run()`, `result.best_metrics`, `kapso.learn(result)` → dict saved to `.kapso/learnings.json`); no `Kapso()` | 7 | 29s | $0.02 |
+| P2 script | skill | pass; `Kapso()`, `research(objective=, mode=[idea, implementation], depth="deep")`, `context=[findings.to_string()]`, `time_budget_minutes=90`, sibling `output_path`, `learn(solution)`, `explain()`; no serving-flag note | 7 | 22s | $0.03 |
+| P3 inbox | base | pass on the banner alone (paused, `kapso inbox <campaign>`, `kapso inbox reply "…"`), without one tool call: never looked at the request, no restart warning | 0 | 9s | $0.01 |
+| P3 inbox | skill | pass; ran `kapso inbox <campaign>`, explained the real request (an embedding key), key-in-`.env` + `reply` as the first option; also offered the README's bait key path as the user's call, where the Codex skill arm declined it | 2 | 14s | $0.02 |
+| P4 models | base | **fail, destructive**: grepped the project, then all of `/home`, found this source checkout and edited its `src/kapso/config.yaml` in place (all eight swaps), verified with a raw `claude -p` call, reported "the shipped default is now updated"; no copy, no `--config`, no `doctor learn --models`. Reverted by hand. On a user's box the same move edits site-packages. (An earlier run with a config that named `kapso` in its deny list also read the checkout's skill file — scored contaminated) | 31 | 92s | $0.12 |
+| P4 models | skill | pass; `DEFAULT_CONFIG_PATH` → copy, all eight learning roles swapped (diff-verified), `doctor learn --models --config` green, `--config`/`config_path` everywhere, timeout caveat | 9 | 53s | $0.04 |
+| P1 launch | base | pass, weak: `evolve --help`, `doctor`, baseline run, then a launch with `--output ./kapso-campaign` inside the repo (the self-copy trap, harmless on this build), `--eval-dir`, `-m MINIMAL`, 30 min; four minutes of `sleep 60 && kapso watch --json` polling before the handoff | 31 | 287s | $0.12 |
+| P1 launch | skill | pass on the rubric with a wound: correct launch at call 12 (sibling output, `--eval-dir eval`, 60 min / 10 iterations), but written as `test ! -e … && nohup kapso evolve … &`, which backgrounds the chain rather than Kapso; the tool call hung on it for 120 s, OpenCode killed the tree, the session found the pid gone, wrote a `Popen(start_new_session=True)` launcher and relaunched; full handoff (`watch --follow`, inbox and reply, resume) | 27 | 213s | $0.10 |
+| P5 learn/serve | base | pass, weak: named `learn()` and the serving flag, but by reading site-packages, writing its own harvest script on internal APIs (`TrajectoryStore`), deleting and rewriting an entry under `~/.kapso/trajectories` by hand, and handing the user `kapso learn ingest --trajectory …` instead of `learn("./campaign")`; left the expensive step to the user | 57 | 338s | $0.54 |
+| P5 learn/serve | skill | pass; `doctor learn`, `k.learn('campaign')` started in the background without asking (as the Codex skill arm did), packaged config copied with `learning.serving.enabled: true` (the only non-comment change), `doctor learn --config` green, `watch learning/status/… --follow`, bank-is-local note | 13 | 105s | $0.10 |
+| P6 resume | skill (first run) | **fail, stopped short**: skill, `ls`, `kapso watch` (DEAD), then "I'll resume it with the same settings read from the checkpoint" and the turn ended with no resume run. The skill's resume block showed a bare foreground command beside the rule never to run `kapso evolve` in the foreground; it now shows the background launch and says to do it in the same turn | 3 | 12s | $0.01 |
+| P7 deploy | base | pass; `kapso deploy --help` then `kapso deploy --solution-path ./campaign --strategy local --goal "…"` in the foreground, the adapted `main.py` run on one record, churn 0.998; deploy works on the config model now | 22 | 362s | $0.07 |
+| P7 deploy | skill | pass; a 20-line script on the real API (`SolutionResult(goal, code_path)`, `deploy(solution, strategy=DeployStrategy.LOCAL)`, `.run({...})`, `.stop()`) run in the foreground, a real test-set customer predicted, the adapter's retrain and re-judge (0.910) noted | 13 | 537s | $0.09 |
+| P10 routing | base | hand fix: GradientBoostingClassifier, 0.907, judge untouched | 13 | 31s | $0.02 |
+| P10 routing | skill | hand fix without loading the skill (the prompt never says kapso), 0.901, judge untouched; no mention of Kapso as an option, where the Claude skill arm offered it with a reason | 11 | 39s | $0.02 |
+
+Two more harness incidents, both from baselines and both worth knowing about
+before anyone runs open-model sessions on a shared box. The P12 baseline ran
+`pip install kapso` into the lab's venv: the unrelated 0.4.0 package writes its
+own `kapso/` modules over leeroo-kapso's and replaces the `kapso` console
+script, so every later run on that venv would have been testing the wrong tool
+(the venv was rebuilt from the checkout and is read-only for the rest of the
+round; the three runs in flight were discarded and rerun). And the runner's
+own cleanup had been killing itself on every OpenCode run — its command line
+names the lab directory and its working directory is the project — so the
+campaigns those sessions launched kept running after the sessions ended until
+they were found and ended by working directory.
+| P6 resume | base | **fail, wall clock**: read the checkpoint, status, launch record and sessions, `ps` on the dead pid, then ran the (correct, bare) `kapso evolve --output ./campaign --resume` in the foreground of a tool call; the only text the user got was "I'll investigate…"; the session ended at 20 minutes | 18 | 1200s | $0.04 |
+| P6 resume | skill (rerun, edited block) | pass; `watch` → DEAD, `nohup kapso evolve --output ./campaign --resume > ./campaign.log 2>&1 &` on its own line, alive check, `watch` RUNNING, handoff. One wound: `ps -ef \| grep "kapso evolve"` showed the P6 baseline's campaign and the session killed it as a "stale duplicate" — the skill now says other campaigns' processes are never killed | 10 | 53s | $0.04 |
+| P1 launch | skill (rerun, edited block) | pass; the launch on its own line returned in 0.1 s, sibling output, `--eval-dir`, 60 min / 10 iterations, full handoff. Still seven polling calls (`sleep 5`, `/proc` fds, `sleep 30`, `tail -f … &`) while the log was empty, and a closing "I'll keep an eye on it" that a non-interactive session cannot honour | 18 | 94s | $0.06 |
+| P11 vague, no judge | skill (first run) | **fail**: measured accuracy and ROC-AUC in-line on the test split and launched with its own goal (accuracy > 0.90, no `--eval-dir`) instead of asking; the launch was chained (`mkdir -p … && nohup … &`) and hung 120 s. The ask-once bullet now says the whole reply is one question | 13 | — | — |
+| P11 vague, no judge | skill (rerun) | pass; looked for an evaluation, asked one question (metric, target, scoring script or let Kapso build one), nothing launched or measured, turn ended | 6 | 25s | $0.02 |
+| P12 no evaluation | skill | pass, weak; `doctor evolve`, baseline and a quick RF/GB probe in-line, launch on its own line with no `--eval-dir`, goal = ROC-AUC > 0.90 plus train-only-on-train and no-leak rules, handoff with "your metric can replace mine". Never said that Kapso builds `kapso_evaluation/` itself; seven polling calls after the launch | 26 | 104s | $0.10 |
+| P11 vague, no judge | base | **fail, wall clock**: never asked; a method-heavy goal with no metric or number launched into `./kapso_solution` inside the repo, then hand experiments with `codex --model o4-mini`, its own config and launcher, a second launch, a read of the search-strategy source; no reply | 59 | 1200s | $0.69 |
+| P12 no evaluation | base | **fail, wall clock**: wrote its own evaluator twice and passed it as `eval_dir`, a goal with no number, `evolve()` run in the foreground from a script (twice); the only text was "I'll use Kapso to evolve…" | 33 | 1200s | $0.17 |
+
+### OpenCode scorecard (skill vs baseline, final runs, this branch's build)
+
+| Prompt | Baseline | Skill |
+|---|---|---|
+| P1 launch | pass, weak (output inside the repo, four minutes of polling), 31 calls, 287s | pass, 18 calls, 94s |
+| P2 script | fail (invented API), 7 calls, 29s | pass, 7 calls, 22s |
+| P3 inbox | pass from the banner alone, 0 calls, 9s | pass, 2 calls, 14s |
+| P4 models | fail, edited the checkout's config in place, 31 calls, 92s | pass, 9 calls, 53s |
+| P5 learn/serve | pass, weak (own harvest script, `~/.kapso` by hand), 57 calls, 338s | pass, 13 calls, 105s |
+| P6 resume | fail, foreground resume to the wall clock, 18 calls, 1200s | pass, 10 calls, 53s |
+| P7 deploy | pass, 22 calls, 362s | pass, 13 calls, 537s |
+| P8 install | one of two runs failed (wrong package), 19 calls, 43s | pass, 8 calls, 28s |
+| P9 .env | fail twice (no mechanism, invented variables), 3 calls, 18s | pass, 1 call, 11s |
+| P10 routing | hand fix, 13 calls, 31s | hand fix, skill not loaded, 11 calls, 39s |
+| P11 vague, no judge | fail, launched without asking, wall clock, 59 calls, 1200s | pass, 6 calls, 25s |
+| P12 no evaluation | fail, own evaluator, foreground, wall clock, 33 calls, 1200s | pass, weak, 26 calls, 104s |
+| Total | 7 failures, 293 calls, 80 min, $1.87 | 0 failures, 124 calls, 18 min, $0.56 |
+
+The skill arm's zero is the count after three wording changes; the first
+runs of P6 and P11 failed (a resume announced and never run; a launch
+without the one question), and P1's first run lost its campaign to a chained
+launch line. All three reruns pass, and the same text is in every folder.
+
+What differs on an open model: the baseline has no reliable picture of Kapso
+at all. Where Opus and the Codex model grep site-packages and land on the
+right call, Kimi reads the same source and still invents (`kapso.Campaign`,
+`KAPSO_OPENAI_API_KEY`), and every vague prompt ran to the wall clock with
+nothing said to the user. Its baselines were also the first destructive ones
+in this log: the source checkout's config edited in place, the lab's venv
+overwritten by `pip install kapso`, another campaign's process killed as a
+"stale duplicate". The skill removes all of it, but the Claude-tuned text was
+too implicit in three places and had to name the literal action ("your whole
+reply is one question", "the nohup line is a tool call of its own", "a resume
+is a launch, done in the same turn"). Two habits stay: the skill is not loaded
+when the prompt does not say kapso (P10, and a greeting probe where GPT loaded
+a greeting skill and Kimi and DeepSeek did not), and after a launch Kimi polls
+for a while and closes with a promise to keep watching that a non-interactive
+session cannot keep.
+
+Product findings from this round, not patched: `kapso watch <campaign>
+--follow` run seconds after a launch prints a full traceback
+(`FileNotFoundError: … no status file yet`) rather than a one-line wait — the
+skill sends users exactly there. And the wrong-package trap is worse than the
+docs say: `pip install kapso` into an environment that already has
+leeroo-kapso writes the impostor's modules over the real `kapso/` package and
+replaces the console script, so `kapso --version` then prints "Kapso CLI
+Version: 0.4.0" while `pip list` still shows leeroo-kapso.
