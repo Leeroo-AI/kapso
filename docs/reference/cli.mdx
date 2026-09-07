@@ -38,14 +38,14 @@ Runs an experiment campaign against a goal and returns the best solution.
 
 | Flag | What it does | Default |
 |------|--------------|---------|
-| `-g`, `--goal` | Goal or problem description | — |
+| `-g`, `--goal` | Goal or problem description. A resume takes it from the checkpoint | — |
 | `-f`, `--goal-file` | File containing the goal. Mutually exclusive with `--goal` | — |
-| `-i`, `--iterations` | Maximum experiments to run | `10` |
+| `-i`, `--iterations` | Maximum experiments to run. A resume keeps the launch's cap | `10` |
 | `-o`, `--output` | Output directory | — |
 | `--time-budget-minutes` | Wall-clock budget for the campaign, durable across resumes | — |
 | `--cost-budget` | Best-effort spend budget in USD | — |
 | `--finalization-reserve-minutes` | Wall-clock escrowed for final checkout and evaluation | — |
-| `--resume` | Continue the compatible checkpoint in `--output` | off |
+| `--resume` | Continue the compatible checkpoint in `--output`. The goal and every launch flag come from the checkpoint and launch record; pass only what changes, such as a bigger budget | off |
 | `-m`, `--mode` | Config mode: `GENERIC` or `MINIMAL` | from config (`default_mode`) |
 | `-a`, `--coding-agent` | One of `claude_code`, `codex`, `gemini`, `openhands`, `oss_claude_code` | from config |
 | `--eval-dir` | Evaluation files directory | — |
@@ -57,7 +57,7 @@ Runs an experiment campaign against a goal and returns the best solution.
 kapso evolve --goal "Build a web scraper for news articles"
 kapso evolve --goal-file problem.txt --iterations 20
 kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
-kapso evolve --goal "Build a classifier" --output ./campaign --resume
+kapso evolve --output ./campaign --resume
 ```
 
 When a session needs something only you can provide, the campaign pauses: the summary block says `WAITING ON YOU` instead of `COMPLETED`, the exit code stays 0, and [`kapso inbox reply`](#kapso-inbox) resumes it. See [the inbox](/docs/evolve/inbox).

@@ -21,11 +21,11 @@ solution = kapso.evolve(
 )
 ```
 
-Continue it with one additional iteration:
+Continue it with one additional iteration. The goal comes from the checkpoint
+and every other launch argument from the launch record, so nothing is retyped:
 
 ```python
 solution = kapso.evolve(
-    goal="Improve the support agent",
     output_path="./campaign",
     max_iterations=1,
     resume=True,
@@ -44,11 +44,7 @@ solution.metadata["resumed"]
 The same operation is available from the CLI:
 
 ```bash
-kapso evolve \
-  --goal "Improve the support agent" \
-  --output ./campaign \
-  --iterations 1 \
-  --resume
+kapso evolve --output ./campaign --iterations 1 --resume
 ```
 
 ## Resume flow
@@ -76,7 +72,11 @@ With `resume=True`:
 - The path must be a non-bare Git repository.
 - `.kapso/run_state.json` must exist.
 - The checkpoint schema must be supported and structurally valid.
-- The goal must match exactly.
+- The goal, when passed, must match the checkpoint's exactly; left out, it
+  comes from the checkpoint.
+- Every other launch argument comes from `.kapso/launch.json` when left out. A
+  passed mode, coding agent, `eval_dir`, config or knowledge index that differs
+  from the record is refused, and the refusal names the setting.
 - The configured search strategy and configuration fingerprint must match.
 - A campaign marked `completed` cannot be resumed.
 

@@ -58,13 +58,18 @@ from kapso.execution.inbox import (
     Request,
     idea_line,
     inbox_path,
+    launch_mismatches,
     load_requests,
     read_launch_record,
     record_reply,
     register_campaign,
+    resume_arguments,
     write_launch_record,
 )
-from kapso.execution.run_checkpoint import RunCheckpointStore
+from kapso.execution.run_checkpoint import (
+    RunCheckpointIncompatibleError,
+    RunCheckpointStore,
+)
 from kapso.core.preflight import run_preflight
 from kapso.learning.graders.frame import GradingFrame
 from kapso.learning.lesson_result import LessonResult, MemoryStatus
@@ -107,6 +112,9 @@ class KGIndexError(Exception):
 
 # Path to default configuration
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+# Experiments per campaign when the caller names no cap. One source for the
+# facade default and the CLI's help text.
+DEFAULT_MAX_ITERATIONS = 10
 
 
 def _memory_overrides(
@@ -1120,11 +1128,11 @@ class Kapso:
 
     def evolve(
         self,
-        goal: str,
+        goal: Optional[str] = None,
         context: Optional[List[Any]] = None,
         output_path: Optional[str] = None,
         initial_repo: Optional[str] = None,
-        max_iterations: int = 10,
+        max_iterations: Optional[int] = None,
         time_budget_minutes: Optional[float] = None,
         cost_budget: Optional[float] = None,
         finalization_reserve_minutes: Optional[float] = None,
@@ -1186,6 +1194,62 @@ class Kapso:
         """
         if resume:
             self._validate_resume_workspace(output_path)
+            # A resume needs the launch's own arguments. The launch record
+            # holds them, so a bare `kapso evolve --output <dir> --resume`
+            # works; anything passed explicitly must agree with the record
+            # where the checkpoint fingerprints it, and a disagreement is
+            # named here rather than surfacing as a bare fingerprint
+            # mismatch from the checkpoint.
+            record = read_launch_record(output_path)
+            if record is not None:
+                arguments = resume_arguments(record, {
+                    "mode": mode,
+                    "coding_agent": coding_agent,
+                    "eval_dir": eval_dir,
+                    "data_dir": data_dir,
+                    "additional_context": additional_context,
+                    "context": context,
+                    "serving_scope": serving_scope,
+                    "max_iterations": max_iterations,
+                    "time_budget_minutes": time_budget_minutes,
+                    "cost_budget": cost_budget,
+                    "finalization_reserve_minutes": finalization_reserve_minutes,
+                })
+                mismatches = launch_mismatches(record, {
+                    **arguments,
+                    "kg_index": self._kg_index_path,
+                    "config_path": self.config_path,
+                })
+                if mismatches:
+                    changed = "; ".join(
+                        f"{key} was {was!r}, now {now!r}"
+                        for key, (was, now) in mismatches.items()
+                    )
+                    raise RunCheckpointIncompatibleError(
+                        "This resume changes settings the checkpoint "
+                        f"fingerprints: {changed}. Pass the launch's values, or "
+                        "start a new campaign in a new output path."
+                    )
+                mode = arguments["mode"]
+                coding_agent = arguments["coding_agent"]
+                eval_dir = arguments["eval_dir"]
+                data_dir = arguments["data_dir"]
+                additional_context = arguments["additional_context"] or ""
+                context = arguments["context"]
+                serving_scope = arguments["serving_scope"]
+                max_iterations = arguments["max_iterations"]
+                time_budget_minutes = arguments["time_budget_minutes"]
+                cost_budget = arguments["cost_budget"]
+                finalization_reserve_minutes = arguments["finalization_reserve_minutes"]
+            if not goal:
+                goal = RunCheckpointStore(output_path).load().goal
+        if not goal:
+            raise ValueError(
+                "evolve() needs a goal; only a resume may leave it out, "
+                "and then it comes from the checkpoint"
+            )
+        if max_iterations is None:
+            max_iterations = DEFAULT_MAX_ITERATIONS
         if eval_dir:
             # Validate caller-owned evaluation inputs before resolving an
             # initial repository or initializing the experiment workspace.
@@ -1544,22 +1608,12 @@ class Kapso:
             "Ctrl-C stops it; resume later with kapso evolve --output "
             f"{campaign_dir} --resume"
         )
+        # Everything else a resume needs comes from the launch record.
         kapso = cls(config_path=record["config_path"], kg_index=record["kg_index"])
         return kapso.evolve(
-            goal=checkpoint.goal,
-            context=record.get("context"),
             output_path=campaign_dir,
             max_iterations=remaining,
-            time_budget_minutes=record["time_budget_minutes"],
-            cost_budget=record["cost_budget"],
-            finalization_reserve_minutes=record["finalization_reserve_minutes"],
             resume=True,
-            mode=record["mode"],
-            coding_agent=record["coding_agent"],
-            eval_dir=record["eval_dir"],
-            data_dir=record["data_dir"],
-            additional_context=record["additional_context"] or "",
-            serving_scope=record["serving_scope"],
         )
 
     @staticmethod

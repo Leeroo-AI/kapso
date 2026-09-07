@@ -129,20 +129,17 @@ kapso inbox reply ./campaign 1 "added the key to .env"
 ## Resume an interrupted campaign
 
 ```bash
-kapso watch ../churn-campaign     # STALLED, or RUNNING with a pid that no longer exists, means it died
-kapso evolve --goal "<the same goal>" --output ../churn-campaign --resume \
-  --eval-dir eval -m MINIMAL -i 10   # the same eval-dir, data-dir, mode and cap as the launch
+kapso watch ../churn-campaign                  # DEAD (pid gone) or STALLED means it died
+kapso evolve --output ../churn-campaign --resume
 ```
 
-The checkpoint in `.kapso/run_state.json` carries the search state and
-fingerprints the goal, mode, config, and the eval-dir and data-dir. `--resume`
-does not read the launch record `.kapso/launch.json` back; copy the goal and
-those flags from it and pass them again. A mismatch raises
-`RunCheckpointIncompatibleError` without naming the field, so a resume that is
-refused almost always means a flag was dropped. `kapso watch` reports RUNNING
-until three heartbeats are missed, so a fresh corpse still looks alive for a few
-minutes; check the pid. A campaign paused by the inbox resumes through `kapso
-inbox reply`, not `--resume`.
+The checkpoint in `.kapso/run_state.json` carries the goal and the search
+state; the launch record `.kapso/launch.json` carries every flag of the launch,
+and a resume reads both, so pass only what you mean to change (a bigger
+`--time-budget-minutes`, say). A resume that changes the mode, coding agent,
+eval-dir, config or knowledge index is refused by name; start a new campaign in
+a new output path instead. A campaign paused by the inbox resumes through
+`kapso inbox reply`, not `--resume`.
 
 ## Learn: bank what a campaign taught
 

@@ -37,7 +37,7 @@ from dotenv import find_dotenv, load_dotenv
 # README tells users to create next to their project was never read.
 load_dotenv(find_dotenv(usecwd=True))
 
-from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH
+from kapso.kapso import Kapso, DeployStrategy, DEFAULT_CONFIG_PATH, DEFAULT_MAX_ITERATIONS
 from kapso.core.config import load_config, load_mode_config
 from kapso.execution.inbox import list_registered_campaigns, render_requests
 from kapso.execution.run_checkpoint import RunCheckpointStore
@@ -85,6 +85,8 @@ def cmd_evolve(args) -> None:
             goal = f.read()
     elif args.goal:
         goal = args.goal
+    elif args.resume:
+        goal = None   # a resume takes the goal from the checkpoint
     else:
         print("Error: --goal or --goal-file required for evolve command")
         sys.exit(1)
@@ -787,17 +789,20 @@ Examples:
   kapso evolve --goal "Build a web scraper for news articles"
   kapso evolve --goal-file problem.txt --iterations 20
   kapso evolve --goal "Build a classifier" --eval-dir ./eval/ --data-dir ./data/
-  kapso evolve --goal "Build a classifier" --output ./campaign --resume
+  kapso evolve --output ./campaign --resume      # goal and flags from the launch record
 """
     )
-    
+
     # Goal specification
     goal_group = evolve_parser.add_mutually_exclusive_group()
-    goal_group.add_argument("-g", "--goal", type=str, help="Goal/problem description")
+    goal_group.add_argument("-g", "--goal", type=str, help="Goal/problem description (a resume takes it from the checkpoint)")
     goal_group.add_argument("-f", "--goal-file", type=str, help="File containing goal")
     
     # Basic options
-    evolve_parser.add_argument("-i", "--iterations", type=int, default=10, help="Max iterations (default: 10)")
+    evolve_parser.add_argument(
+        "-i", "--iterations", type=int, default=None,
+        help=f"Max iterations (default: {DEFAULT_MAX_ITERATIONS}; a resume keeps the launch's)",
+    )
     evolve_parser.add_argument("-o", "--output", type=str, help="Output directory")
     evolve_parser.add_argument(
         "--time-budget-minutes",

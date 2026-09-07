@@ -212,12 +212,13 @@ def test_reply_resumes_with_the_launch_arguments(tmp_path, monkeypatch):
 
     assert Kapso.reply(str(workspace), 1, "added the key") is sentinel
     assert captured["init"] == (None, None)
+    # The reply names only what differs from the launch — the remaining
+    # iterations — and resumes; evolve(resume=True) takes the goal from the
+    # checkpoint and every other argument from the launch record itself.
     assert captured["resume"] is True
-    assert captured["goal"] == "Improve support"
     assert captured["output_path"] == str(workspace.resolve())
     assert captured["max_iterations"] == 3
-    assert captured["mode"] == "GENERIC" and captured["coding_agent"] == "codex"
-    assert captured["eval_dir"] == "./eval" and captured["time_budget_minutes"] == 90
+    assert set(captured) == {"init", "resume", "output_path", "max_iterations"}
 
 
 def test_reply_needs_the_campaign_directory_here(tmp_path):

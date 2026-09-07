@@ -6,6 +6,7 @@ import git
 import pytest
 
 import kapso.execution.run_checkpoint as checkpoint_module
+from kapso.execution.inbox import write_launch_record
 from kapso.execution.orchestrator import OrchestratorAgent, SolveResult
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
@@ -716,3 +717,92 @@ def test_public_evolve_forwards_resume_and_reports_cumulative_iterations(
     assert result.metadata["iterations"] == 1
     assert result.metadata["cumulative_iterations"] == 4
     assert result.metadata["resumed"] is True
+
+
+def test_public_resume_takes_goal_and_flags_from_the_checkpoint_and_launch_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`kapso evolve --output <dir> --resume` with nothing else: the goal
+    comes from the checkpoint and every launch argument from the launch
+    record, so nothing is retyped; and a changed fingerprinted setting is
+    refused by name, not as a bare fingerprint mismatch."""
+    import kapso.kapso as kapso_module
+
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    RunCheckpointStore(str(workspace)).save(
+        _checkpoint(goal="Raise accuracy above 0.85")
+    )
+    eval_dir = tmp_path / "eval"
+    eval_dir.mkdir()
+    (eval_dir / "evaluate.py").write_text("print('accuracy: 0.9')\n")
+    write_launch_record(workspace, {
+        "config_path": None, "kg_index": None, "mode": "MINIMAL",
+        "coding_agent": None, "output_path": str(workspace),
+        "max_iterations": 3, "time_budget_minutes": 60.0, "cost_budget": None,
+        "finalization_reserve_minutes": None, "eval_dir": str(eval_dir),
+        "data_dir": None, "additional_context": "", "context": None,
+        "serving_scope": None, "resumable_from_inbox": True, "dotenv_path": "",
+    })
+    captured: Dict[str, Any] = {}
+
+    class RecordFakeStrategy:
+        def __init__(self) -> None:
+            self.workspace = SimpleNamespace(workspace_dir=str(workspace))
+
+        def get_experiment_history(self) -> List[SearchNode]:
+            return []
+
+        def get_deliverable_score(self):
+            return None
+
+        def checkout_to_best_experiment_branch(self) -> None:
+            return None
+
+    class RecordFakeOrchestrator:
+        def __init__(self, handler: Any, **kwargs: Any):
+            captured.update(kwargs)
+            self.search_strategy = RecordFakeStrategy()
+            self.operation_status = SimpleNamespace(
+                path="fake/.kapso/status.json"
+            )
+
+        def solve(
+            self,
+            experiment_max_iter: int,
+            time_budget_minutes=None,
+            cost_budget=None,
+            finalization_reserve_minutes=None,
+            on_status=None,
+        ) -> SolveResult:
+            captured["experiment_max_iter"] = experiment_max_iter
+            captured["time_budget_minutes"] = time_budget_minutes
+            return SolveResult(
+                best_experiment=None,
+                final_feedback=None,
+                stopped_reason="max_iterations",
+                iterations_run=1,
+                total_cost=0.0,
+                cumulative_iterations=2,
+            )
+
+    monkeypatch.setattr(kapso_module, "OrchestratorAgent", RecordFakeOrchestrator)
+    kapso = Kapso.__new__(Kapso)
+    kapso.config_path = None
+    kapso.knowledge_search = SimpleNamespace(is_enabled=lambda: False)
+    kapso._config = {}
+    kapso._bank_home = None
+    kapso._kg_index_path = None
+
+    kapso.evolve(output_path=str(workspace), resume=True)
+    assert captured["goal"] == "Raise accuracy above 0.85"
+    assert captured["mode"] == "MINIMAL"
+    assert captured["eval_dir"] == str(eval_dir)
+    assert captured["experiment_max_iter"] == 3
+    assert captured["time_budget_minutes"] == 60.0
+
+    with pytest.raises(
+        RunCheckpointIncompatibleError, match="mode was 'MINIMAL', now 'GENERIC'"
+    ):
+        kapso.evolve(output_path=str(workspace), resume=True, mode="GENERIC")
