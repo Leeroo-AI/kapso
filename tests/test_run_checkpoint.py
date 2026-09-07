@@ -789,7 +789,9 @@ def test_public_resume_takes_goal_and_flags_from_the_checkpoint_and_launch_recor
 
     monkeypatch.setattr(kapso_module, "OrchestratorAgent", RecordFakeOrchestrator)
     kapso = Kapso.__new__(Kapso)
-    kapso.config_path = None
+    # The packaged default: the record says None for it, and this install's
+    # own packaged path must compare equal (a resume from another install).
+    kapso.config_path = kapso_module.DEFAULT_CONFIG_PATH
     kapso.knowledge_search = SimpleNamespace(is_enabled=lambda: False)
     kapso._config = {}
     kapso._bank_home = None

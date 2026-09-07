@@ -1218,7 +1218,7 @@ class Kapso:
                 mismatches = launch_mismatches(record, {
                     **arguments,
                     "kg_index": self._kg_index_path,
-                    "config_path": self.config_path,
+                    "config_path": self._launch_config_path(),
                 })
                 if mismatches:
                     changed = "; ".join(
@@ -1413,7 +1413,7 @@ class Kapso:
         if not resume and inbox_block.get("enabled"):
             workspace_dir = orchestrator.search_strategy.workspace.workspace_dir
             write_launch_record(workspace_dir, {
-                "config_path": self.config_path,
+                "config_path": self._launch_config_path(),
                 "kg_index": self._kg_index_path,
                 "mode": mode,
                 "coding_agent": coding_agent,
@@ -1615,6 +1615,15 @@ class Kapso:
             max_iterations=remaining,
             resume=True,
         )
+
+    def _launch_config_path(self) -> Optional[str]:
+        """The config a launch record names: None for the packaged default.
+        The default's path belongs to one install, so recording it would make
+        a resume from another install (or after an upgrade) look like a
+        changed config."""
+        if self.config_path == DEFAULT_CONFIG_PATH:
+            return None
+        return self.config_path
 
     @staticmethod
     def _validate_resume_workspace(output_path: Optional[str]) -> None:
