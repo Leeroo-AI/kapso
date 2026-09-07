@@ -26,6 +26,10 @@
 /.claude/
 /.agents/
 
+# The coding-agent skill: SKILL.md files the agents load, documented on
+# docs/coding-agent-skills. Markdown, but not pages of the site.
+/skills/
+
 # Tracked, part of the package rather than the docs
 /src/
 /tests/
@@ -43,8 +47,12 @@
 /animation/
 /cache/
 /data/
-/build/            # setuptools bdist staging: a full tree copy with .md files, created by every release build
+# setuptools bdist staging: a full tree copy with .md files, created by every
+# release build. (A comment on the pattern's own line is part of the pattern.)
+/build/
 /dist/
+/node_modules/
+/research/
 /experiments/
 /learning/
 /store/

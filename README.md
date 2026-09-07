@@ -311,6 +311,7 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
   claude mcp add --transport http kapso-docs https://docs.leeroo.com/mcp   # Claude Code
   codex mcp add kapso-docs --url https://docs.leeroo.com/mcp              # Codex CLI
   ```
+- **Let your coding agent run Kapso**: one `SKILL.md` per agent for Claude Code, Codex and OpenCode lives in [`skills/`](https://github.com/Leeroo-AI/kapso/tree/main/skills) — copy the folder for your agent into the project; see [Kapso skill for coding agents](https://docs.leeroo.com/docs/coding-agent-skills).
 - **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
 - **Website**: [leeroo.com](https://leeroo.com)
 
