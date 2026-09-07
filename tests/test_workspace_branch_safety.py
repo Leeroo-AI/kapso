@@ -287,3 +287,30 @@ def test_seeded_bytecode_is_neither_copied_nor_ever_tracked(tmp_path: Path) -> N
     (pycache / "main.cpython-312.pyc").write_bytes(b"\x00fresh")
     workspace.switch_branch("main")
     assert workspace.get_current_branch() == "main"
+
+
+def test_seeding_into_an_output_inside_the_seed_does_not_copy_the_workspace_into_itself(
+    tmp_path: Path,
+) -> None:
+    """`--output ./campaign` inside the seeded repo: the constructor creates
+    the workspace before copytree lists the seed, so the half-filled
+    workspace used to be copied into itself and committed as part of the
+    baseline (campaign/campaign/train.py, campaign/campaign/.env, ...)."""
+    seed = tmp_path / "repo"
+    (seed / "data").mkdir(parents=True)
+    (seed / "train.py").write_text("print('train')\n")
+    (seed / ".env").write_text("OPENAI_API_KEY=sk-test\n")
+    (seed / "data" / "train.csv").write_text("a,b\n1,2\n")
+    workspace_dir = seed / "campaign"
+
+    workspace = ExperimentWorkspace(
+        coding_agent_config=_agent_config(),
+        workspace_dir=str(workspace_dir),
+        initial_repo=str(seed),
+    )
+
+    assert not (workspace_dir / "campaign").exists()
+    tracked = sorted(workspace.repo.git.ls_files().splitlines())
+    assert tracked == [".env", ".gitignore", "data/train.csv", "train.py"]
+    # The seed itself is untouched: no nested copy, nothing added.
+    assert sorted(p.name for p in seed.iterdir()) == [".env", "campaign", "data", "train.py"]

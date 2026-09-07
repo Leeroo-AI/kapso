@@ -269,20 +269,38 @@ class ExperimentWorkspace:
         if is_git_repo:
             repo = git.Repo.clone_from(initial_repo, self.workspace_dir)
         else:
-            # Bytecode must not enter the seed commit: this add-all runs
-            # before the workspace .gitignore exists, and tracked .pyc goes
-            # stale on re-import and blocks every later branch checkout.
             shutil.copytree(
                 initial_repo,
                 self.workspace_dir,
                 dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                ignore=self._seed_copy_ignore,
             )
             repo = git.Repo.init(self.workspace_dir)
             repo.git.add(".")
             repo.git.commit("-m", "chore(kapso): seed workspace from directory")
 
         return repo
+
+    def _seed_copy_ignore(self, directory: str, names: List[str]) -> set:
+        """What the seed copy skips.
+
+        Bytecode must not enter the seed commit: the add-all runs before the
+        workspace .gitignore exists, and tracked .pyc goes stale on re-import
+        and blocks every later branch checkout.
+
+        The workspace itself must not enter either. ``--output ./campaign``
+        inside the seeded repo is the natural thing to type; the constructor
+        creates that directory before copytree lists the seed, so without this
+        the half-filled workspace is copied into itself and committed as part
+        of the baseline.
+        """
+        skipped = set(shutil.ignore_patterns("__pycache__", "*.pyc")(directory, names))
+        parent = os.path.realpath(directory)
+        workspace = os.path.realpath(self.workspace_dir)
+        skipped.update(
+            name for name in names if os.path.join(parent, name) == workspace
+        )
+        return skipped
 
     def _ensure_main_branch(self) -> None:
         """
