@@ -3,7 +3,7 @@
 <h4 align="center">A Self-Improving AI Software Factory (for Measurable Objectives)</h4>
 
 <p align="center">
-  <a href="https://docs.leeroo.com">Learn more</a> ·
+  <a href="https://docs.leeroo.com/docs">Learn more</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Join Discord</a> ·
   <a href="https://leeroo.com">Website</a>
 </p>
