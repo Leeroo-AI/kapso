@@ -87,7 +87,11 @@ expert-relbench = "benchmarks.relbench.runner:main"
 
 [project.urls]
 Homepage = "https://leeroo.com"
-Documentation = "https://docs.leeroo.com"
+Documentation = "https://docs.leeroo.com/docs"
+Quickstart = "https://docs.leeroo.com/docs/quickstart"
+Benchmarks = "https://docs.leeroo.com/docs/benchmarks/mle-bench"
+"Docs in your coding agent" = "https://docs.leeroo.com/docs/agent-access"
+Changelog = "https://github.com/Leeroo-AI/kapso/releases"
 Repository = "https://github.com/leeroo-ai/kapso"
 Issues = "https://github.com/leeroo-ai/kapso/issues"
 
