@@ -102,7 +102,7 @@ changed, run the tests relevant to the change, and run `git diff --check`.
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/your-feature`)
 3. Make your changes
-4. Run tests and linting
+4. Run the tests and lint checks relevant to your change
 5. Commit with a clear message
 6. Push to your fork
 7. Open a Pull Request
@@ -120,7 +120,7 @@ Write clear, concise commit messages:
 - Keep PRs focused on a single change
 - Include a description of what changed and why
 - Update documentation if needed
-- Ensure all tests pass
+- Ensure the tests relevant to your change pass
 
 ## Project Structure
 
