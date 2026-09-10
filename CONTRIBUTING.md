@@ -35,7 +35,8 @@ working on.
 ### Environment Variables
 
 The default unit test suite does not require API keys. Configure credentials
-only for the integrations you intend to exercise:
+only for the integrations you intend to exercise. Put `.env` in the directory
+where you run Kapso; it is loaded from the current working directory.
 
 ```bash
 # Embeddings used by memory and knowledge search
@@ -63,11 +64,11 @@ requires.
 ### Linting
 
 ```bash
-# Check formatting
-python -m black --check src/ tests/
+# Check formatting for the Python files you changed
+python -m black --check path/to/changed.py tests/test_changed.py
 
-# Check style
-python -m flake8 src/ tests/
+# Check style for the Python files you changed
+python -m flake8 path/to/changed.py tests/test_changed.py
 ```
 
 ### Testing
@@ -91,8 +92,8 @@ necessary CLIs and credentials:
 python -m pytest tests/live/test_inbox_live.py --run-live
 ```
 
-Before opening a pull request, run the test suite, formatting check, style
-check, and `git diff --check`.
+Before opening a pull request, run Black and Flake8 on the Python files you
+changed, run the tests relevant to the change, and run `git diff --check`.
 
 ## Submitting Changes
 
@@ -128,7 +129,9 @@ kapso/
 ├── src/kapso/          # Main Python package
 │   ├── core/           # Core configuration and utilities
 │   ├── deployment/     # Deployment strategies
+│   ├── environment/    # Environment and workspace management
 │   ├── execution/      # Experiment execution
+│   ├── gated_mcp/      # MCP capability gates
 │   ├── knowledge_base/ # Knowledge ingestion and storage
 │   ├── learning/       # Learning and experiment-bank workflows
 │   └── researcher/     # Research workflows
