@@ -80,7 +80,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - timeout: 3600 (default) - CLI timeout in seconds (1 hour)
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
     - streaming: True (default) - stream output live to terminal for visibility
-    - auth_mode: Authentication mode: auto (default), oauth, or api_key
+    - auth_mode: Authentication mode: auto (default), oauth, api_key, or bedrock
+    - aws_region: AWS region, required when auth_mode="bedrock"
     - append_system_prompt: Optional string appended to Claude Code's default system prompt
       Useful for injecting workspace restrictions (e.g. filesystem sandboxing)
     - mcp_servers: Dict of MCP server configurations (optional)
@@ -99,9 +100,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
 
     Environment (OAuth mode):
     - A stored Claude CLI login, or CLAUDE_CODE_OAUTH_TOKEN
+
+    Environment (Bedrock mode):
+    - One of AWS_BEARER_TOKEN_BEDROCK, AWS_ACCESS_KEY_ID +
+      AWS_SECRET_ACCESS_KEY, or AWS_PROFILE. The region is NOT read from the
+      environment: it comes from the aws_region config value, so a config
+      file always decides which region a run talks to.
+    - Bedrock names models by inference profile id
+      (e.g. "us.anthropic.claude-haiku-4-5-20251001-v1:0"), not by the
+      subscription aliases ("claude-haiku-4-5") the other modes accept.
     """
 
-    AUTH_MODES = frozenset({"auto", "oauth", "api_key"})
+    AUTH_MODES = frozenset({"auto", "oauth", "api_key", "bedrock"})
     _PROVIDER_FLAGS = (
         "CLAUDE_CODE_USE_BEDROCK",
         "CLAUDE_CODE_USE_VERTEX",
@@ -144,10 +154,18 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Show heartbeat messages during long operations (default False to reduce noise)
         self._show_heartbeat = config.agent_specific.get("show_heartbeat", False)
         
-        # Authentication settings (subscription-first: bedrock was removed
-        # 2026-08-26 by user direction — OAuth or an Anthropic API key).
+        # Authentication settings. Subscription-first stays the default:
+        # auth_mode="auto" only ever resolves to an Anthropic credential, so
+        # bedrock happens when a config asks for it by name and never behind
+        # a caller's back (bedrock was dropped entirely 2026-08-26 and came
+        # back as an explicit mode 2026-09-10).
         self._requested_auth_mode = self._get_requested_auth_mode(config.agent_specific)
         self._auth_mode = self._requested_auth_mode
+
+        # Region for bedrock mode. Config-only by design: reading AWS_REGION
+        # from the environment would let ambient shell state decide which
+        # region a run bills, which is exactly what config files are for.
+        self._aws_region: Optional[str] = config.agent_specific.get("aws_region")
         
         # MCP server configuration
         # mcp_servers: Dict of MCP server configs to enable for this agent
@@ -238,10 +256,40 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 raise ValueError(
                     "ANTHROPIC_API_KEY not set. Required when auth_mode='api_key'."
                 )
+        elif self._auth_mode == "bedrock":
+            self._verify_bedrock_settings(env)
         elif self._requested_auth_mode != "auto" and not self._has_oauth_credentials(env):
             raise ValueError(
                 "Claude Code OAuth credentials not found. Run 'claude auth login' "
                 "or set CLAUDE_CODE_OAUTH_TOKEN."
+            )
+
+    def _verify_bedrock_settings(self, env: Dict[str, str]) -> None:
+        """
+        Check the region and credentials bedrock mode needs.
+
+        Both are checked here rather than left to the CLI so a
+        misconfiguration names its own cause instead of surfacing as an
+        opaque provider error mid-run.
+        """
+        if not self._aws_region:
+            raise ValueError(
+                "aws_region not set. Required when auth_mode='bedrock' — set it "
+                "in the config that selects bedrock (it is deliberately not "
+                "read from AWS_REGION)."
+            )
+
+        has_credential = bool(
+            env.get("AWS_BEARER_TOKEN_BEDROCK")
+            or (env.get("AWS_ACCESS_KEY_ID") and env.get("AWS_SECRET_ACCESS_KEY"))
+            or env.get("AWS_PROFILE")
+        )
+        if not has_credential:
+            raise ValueError(
+                "No AWS credentials found for auth_mode='bedrock'. Set one of:\n"
+                "  - AWS_BEARER_TOKEN_BEDROCK (Bedrock API key)\n"
+                "  - AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY\n"
+                "  - AWS_PROFILE (after 'aws sso login')"
             )
 
     def _get_requested_auth_mode(self, agent_specific: Dict[str, Any]) -> str:
@@ -264,7 +312,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             return self._requested_auth_mode
 
         # API key first (an explicitly exported key is a deliberate choice),
-        # then the CLI subscription login.
+        # then the CLI subscription login. Bedrock is never resolved here:
+        # ambient AWS credentials are common on our machines, and picking a
+        # billed provider off them would change a run's cost and model naming
+        # without anyone asking for it.
         if env.get("ANTHROPIC_API_KEY"):
             return "api_key"
         if self._has_oauth_credentials(env):
@@ -1192,6 +1243,17 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             self._remove_provider_flags(env)
             env.pop("ANTHROPIC_API_KEY", None)
             env.pop("ANTHROPIC_AUTH_TOKEN", None)
+        elif self._auth_mode == "bedrock":
+            # Strip every provider flag first, then set only the selected one,
+            # so an ambient CLAUDE_CODE_USE_VERTEX cannot ride along. The
+            # Anthropic credentials go too: the CLI prefers them over Bedrock,
+            # and this machine usually has an OAuth token exported.
+            self._remove_provider_flags(env)
+            env["CLAUDE_CODE_USE_BEDROCK"] = "1"
+            env["AWS_REGION"] = self._aws_region
+            env.pop("ANTHROPIC_API_KEY", None)
+            env.pop("ANTHROPIC_AUTH_TOKEN", None)
+            env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
         else:  # Defensive: auto is always resolved during initialization.
             raise RuntimeError(f"Unresolved Claude Code auth mode: {self._auth_mode}")
 
@@ -1272,5 +1334,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             "streaming": self._streaming,  # Now supports live output streaming
             "oauth": self._auth_mode == "oauth",
             "api_key": self._auth_mode == "api_key",
+            "bedrock": self._auth_mode == "bedrock",
             "mcp": bool(self._mcp_servers),  # MCP server integration enabled
         }

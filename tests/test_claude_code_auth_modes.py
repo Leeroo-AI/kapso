@@ -228,9 +228,67 @@ def test_print_mode_dead_tools_always_disallowed(monkeypatch):
         assert "ScheduleWakeup" in banned
 
 
-def test_bedrock_mode_is_rejected(monkeypatch):
-    # Subscription-only platform (user direction 2026-08-26): bedrock is
-    # not an auth mode anymore — requesting it must fail at construction,
-    # not silently fall through to another provider.
-    with pytest.raises(ValueError, match="Invalid Claude Code auth_mode"):
+def test_explicit_bedrock_selects_provider_and_drops_anthropic_credentials(
+    monkeypatch,
+):
+    """Bedrock is a first-class mode again (2026-09-10), and choosing it must
+    actually take effect: the CLI prefers an Anthropic credential when it sees
+    one, and this machine exports an OAuth token, so leaving either in place
+    would silently bill the wrong provider."""
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bedrock-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-win")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "must-not-win")
+    monkeypatch.setenv("CLAUDE_CODE_USE_VERTEX", "1")
+
+    agent = ClaudeCodeCodingAgent(
+        make_config(auth_mode="bedrock", aws_region="us-east-1")
+    )
+    env = agent._get_env()
+
+    assert agent._auth_mode == "bedrock"
+    assert env["CLAUDE_CODE_USE_BEDROCK"] == "1"
+    assert env["AWS_REGION"] == "us-east-1"
+    assert env["AWS_BEARER_TOKEN_BEDROCK"] == "bedrock-key"
+    assert "CLAUDE_CODE_USE_VERTEX" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+    assert agent.get_capabilities()["bedrock"] is True
+
+
+def test_bedrock_accepts_access_key_and_profile_credentials(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "id")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    ClaudeCodeCodingAgent(make_config(auth_mode="bedrock", aws_region="us-east-1"))
+
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID")
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY")
+    monkeypatch.setenv("AWS_PROFILE", "sso-profile")
+    ClaudeCodeCodingAgent(make_config(auth_mode="bedrock", aws_region="us-east-1"))
+
+
+def test_bedrock_without_region_fails_at_construction(monkeypatch):
+    """The region comes from config, never from AWS_REGION: ambient shell
+    state must not decide which region a run bills."""
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bedrock-key")
+    monkeypatch.setenv("AWS_REGION", "eu-west-1")
+
+    with pytest.raises(ValueError, match="aws_region not set"):
         ClaudeCodeCodingAgent(make_config(auth_mode="bedrock"))
+
+
+def test_bedrock_without_aws_credentials_fails_at_construction():
+    with pytest.raises(ValueError, match="No AWS credentials found"):
+        ClaudeCodeCodingAgent(make_config(auth_mode="bedrock", aws_region="us-east-1"))
+
+
+def test_auto_never_resolves_to_bedrock(monkeypatch):
+    """The regression guard for every existing campaign: ambient AWS
+    credentials must not change which provider `auto` picks."""
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bedrock-key")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: auth_status())
+
+    agent = ClaudeCodeCodingAgent(make_config(auth_mode="auto"))
+
+    assert agent._auth_mode == "oauth"
+    assert "CLAUDE_CODE_USE_BEDROCK" not in agent._get_env()
