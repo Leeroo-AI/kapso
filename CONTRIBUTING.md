@@ -6,9 +6,12 @@ Thank you for your interest in contributing to Kapso! This guide will help you g
 
 ### Prerequisites
 
-- Python 3.12+
-- Git with LFS support
-- Conda (recommended)
+- Python 3.10 or newer (Python 3.12 is recommended for development)
+- Git
+- A virtual environment tool such as `venv` or Conda
+
+Kapso uses Unix process and file-locking primitives. On Windows, use WSL2 for
+development and testing.
 
 ### Development Setup
 
@@ -17,27 +20,37 @@ Thank you for your interest in contributing to Kapso! This guide will help you g
 git clone https://github.com/leeroo-ai/kapso.git
 cd kapso
 
-# Pull Git LFS files
-git lfs install
-git lfs pull
-
 # Create conda environment
 conda create -n kapso-dev python=3.12
 conda activate kapso-dev
 
 # Install with dev dependencies
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
+
+Git LFS is not required for the core Kapso checkout. Some optional benchmark
+datasets may require it; follow the setup guide for the benchmark you are
+working on.
 
 ### Environment Variables
 
-Create a `.env` file in the project root:
+The default unit test suite does not require API keys. Configure credentials
+only for the integrations you intend to exercise. Put `.env` in the directory
+where you run Kapso; it is loaded from the current working directory.
 
 ```bash
+# Embeddings used by memory and knowledge search
 OPENAI_API_KEY=your-openai-api-key
+
+# Direct API-backed agents, when selected
 GOOGLE_API_KEY=your-google-api-key
 ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
+
+The Codex adapter uses its CLI login. Claude Code can use its stored CLI login
+or an API key when that authentication mode is selected. Run `kapso doctor`
+(or, for example, `kapso doctor evolve`) to see what the current configuration
+requires.
 
 ## Making Changes
 
@@ -51,12 +64,36 @@ ANTHROPIC_API_KEY=your-anthropic-api-key
 ### Linting
 
 ```bash
-# Format code
-black src/ tests/
+# Check formatting for the Python files you changed
+python -m black --check path/to/changed.py tests/test_changed.py
 
-# Check style
-flake8 src/ tests/
+# Check style for the Python files you changed
+python -m flake8 path/to/changed.py tests/test_changed.py
 ```
+
+### Testing
+
+```bash
+# Example: run the non-live test module relevant to your change
+python -m pytest tests/test_cli_agent_choices.py
+
+# Optional coverage for the same tests
+python -m pytest --cov=kapso tests/test_cli_agent_choices.py
+```
+
+Non-live tests do not require API keys. Some benchmark and integration tests
+need their corresponding optional dependencies or services.
+
+Tests marked `live` launch real coding-agent sessions and consume subscription
+quota. Run them only when the change requires it and you have configured the
+necessary CLIs and credentials:
+
+```bash
+python -m pytest tests/live/test_inbox_live.py --run-live
+```
+
+Before opening a pull request, run Black and Flake8 on the Python files you
+changed, run the tests relevant to the change, and run `git diff --check`.
 
 ## Submitting Changes
 
@@ -65,7 +102,7 @@ flake8 src/ tests/
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/your-feature`)
 3. Make your changes
-4. Run tests and linting
+4. Run the tests and lint checks relevant to your change
 5. Commit with a clear message
 6. Push to your fork
 7. Open a Pull Request
@@ -83,23 +120,25 @@ Write clear, concise commit messages:
 - Keep PRs focused on a single change
 - Include a description of what changed and why
 - Update documentation if needed
-- Ensure all tests pass
+- Ensure the tests relevant to your change pass
 
 ## Project Structure
 
 ```
 kapso/
-├── src/              # Main source code
-│   ├── core/         # Core utilities
-│   ├── deployment/   # Deployment strategies
-│   ├── execution/    # Experiment execution
-│   ├── knowledge/    # Knowledge pipeline
-│   ├── memory/       # Cognitive memory
-│   └── repo_memory/  # Repository memory
-├── benchmarks/       # MLE-Bench and ALE-Bench
-├── tests/            # Test suite
-├── docs/             # Documentation
-└── services/         # Infrastructure services
+├── src/kapso/          # Main Python package
+│   ├── core/           # Core configuration and utilities
+│   ├── deployment/     # Deployment strategies
+│   ├── environment/    # Environment and workspace management
+│   ├── execution/      # Experiment execution
+│   ├── gated_mcp/      # MCP capability gates
+│   ├── knowledge_base/ # Knowledge ingestion and storage
+│   ├── learning/       # Learning and experiment-bank workflows
+│   └── researcher/     # Research workflows
+├── benchmarks/         # MLE-Bench and ALE-Bench
+├── tests/              # Test suite
+├── docs/               # Documentation
+└── services/           # Infrastructure services
 ```
 
 ## Getting Help
