@@ -126,6 +126,30 @@
     ]
   },
 
+  "redirects": [
+    { "source": "/docs/evolve/reliability-roadmap", "destination": "/docs/evolve/overview" },
+    { "source": "/docs/evolve/cognitive-memory", "destination": "/docs/learning/overview" },
+    { "source": "/docs/evolve/budget-aware-experimentation", "destination": "/docs/evolve/overview" },
+    { "source": "/docs/evolve/evaluators", "destination": "/docs/evolve/external-evaluation" },
+    { "source": "/docs/evolve/stop-conditions", "destination": "/docs/evolve/overview" },
+    { "source": "/docs/concepts/execution-flow", "destination": "/docs/evolve/execution-flow" },
+    { "source": "/docs/concepts/tree-search", "destination": "/docs/evolve/search-strategies" },
+    { "source": "/docs/concepts/architecture", "destination": "/docs/evolve/architecture" },
+    { "source": "/docs/concepts/experiment-lifecycle", "destination": "/docs/evolve/experiment-lifecycle" },
+    { "source": "/docs/concepts/kapso-api", "destination": "/docs/reference/kapso-api" },
+    { "source": "/docs/concepts/tinkerer-api", "destination": "/docs/reference/kapso-api" },
+    { "source": "/docs/concepts/knowledge-system", "destination": "/docs/knowledge/overview" },
+    { "source": "/docs/components/orchestrator", "destination": "/docs/evolve/orchestrator" },
+    { "source": "/docs/components/coding-agents/overview", "destination": "/docs/evolve/coding-agents" },
+    { "source": "/docs/components/search-strategies/overview", "destination": "/docs/evolve/search-strategies" },
+    { "source": "/docs/components/knowledge-search/overview", "destination": "/docs/knowledge/search-backends" },
+    { "source": "/docs/components/wiki-mcp/overview", "destination": "/docs/knowledge/overview" },
+    { "source": "/docs/guides/configuration", "destination": "/docs/reference/configuration" },
+    { "source": "/docs/guides/setup-neo4j", "destination": "/docs/installation" },
+    { "source": "/docs/knowledge/wiki-structure", "destination": "/docs/knowledge/overview" },
+    { "source": "/docs/benchmarks/generic-problems", "destination": "/docs/benchmarks/mle-bench" }
+  ],
+
   "footer": {
     "socials": {
     "github": "https://github.com/leeroo-ai/kapso"
