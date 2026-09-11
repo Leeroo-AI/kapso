@@ -165,7 +165,8 @@ Each agent block in the config carries an `auth_mode`. The shipped default is `o
 |-------------|-----------------|
 | `oauth` | The CLI's stored login from `claude auth login` |
 | `api_key` | `ANTHROPIC_API_KEY` from your environment |
-| `auto` | Either, whichever is present |
+| `auto` | Either, whichever is present; never Bedrock |
+| `bedrock` | AWS credentials (`AWS_BEARER_TOKEN_BEDROCK`, an access key pair, or `AWS_PROFILE`) with `aws_region` set in the config; models are named by Bedrock inference profile id. See [coding agents](/docs/evolve/coding-agents#how-do-i-authenticate-claude-code) |
 
 For non-interactive environments such as CI, put a token in `.env` instead of logging in:
 

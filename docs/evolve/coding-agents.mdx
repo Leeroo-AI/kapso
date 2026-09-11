@@ -94,21 +94,29 @@ coding_agent:
 
 ### How do I authenticate Claude Code?
 
-`auth_mode` accepts three values:
+`auth_mode` accepts four values:
 
 | Mode | Credential source | Behavior |
 |------|-------------------|----------|
 | `oauth` | `claude auth login`, or `CLAUDE_CODE_OAUTH_TOKEN` | Uses the current user's Claude CLI subscription login |
 | `api_key` | `ANTHROPIC_API_KEY` | Requires direct Anthropic API credentials |
-| `auto` | Either of the above | Takes whichever is present |
+| `auto` | Either of the above | Takes whichever is present; never Bedrock |
+| `bedrock` | `AWS_BEARER_TOKEN_BEDROCK`, or `AWS_ACCESS_KEY_ID` with `AWS_SECRET_ACCESS_KEY`, or `AWS_PROFILE` | Runs Claude Code against Amazon Bedrock in the region named by `agent_specific.aws_region` |
 
 The shipped config sets `oauth` on every Claude Code block, and the low-level adapter defaults to `auto`. For a non-interactive environment set `CLAUDE_CODE_OAUTH_TOKEN` in `.env`.
 
-An explicit mode removes higher-precedence credentials from the Claude subprocess environment, so `oauth` ignores an inherited `ANTHROPIC_API_KEY`. The parent process environment is never modified.
+An explicit mode removes higher-precedence credentials from the Claude subprocess environment, so `oauth` ignores an inherited `ANTHROPIC_API_KEY`, and `bedrock` drops every Anthropic credential so the CLI cannot bill the wrong provider. The parent process environment is never modified.
 
-<Note>
-  AWS Bedrock support was removed on 26 August 2026 in favour of a subscription-first setup. `auth_mode: bedrock` and the `use_bedrock` key are no longer accepted.
-</Note>
+Bedrock happens only when a config names it. `auto` never resolves to Bedrock, even with AWS credentials in the environment, so an existing campaign never changes provider, cost or model naming behind your back. Two things change together with the mode: `aws_region` is required and read from the config, never from `AWS_REGION`, and models are named by Bedrock inference profile id (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) rather than by the aliases the other modes take. A missing region or missing credentials fails when the agent is constructed, with the fix in the message.
+
+```yaml
+coding_agent:
+  type: "claude_code"
+  model: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  agent_specific:
+    auth_mode: "bedrock"
+    aws_region: "us-east-1"
+```
 
 ## Codex
 
