@@ -2,7 +2,8 @@
 #
 # Design: docs/research/cli-only-inference-design.md (user decisions
 # 2026-08-25: convert all non-embedding completions; default codex /
-# gpt-5.6-sol / xhigh; no API fallback — a missing CLI fails loud).
+# gpt-5.6-sol / xhigh; no implicit API fallback — the OpenAI-compatible
+# agent is opt-in and explicit in the inference config).
 #
 # CliInference is a drop-in replacement for LLMBackend at every seam that
 # previously made direct completions: the completion methods keep their
@@ -29,7 +30,9 @@ from kapso.execution.coding_agents.factory import CodingAgentFactory
 _PACKAGED_CONFIG_PATH = str(Path(__file__).parent.parent / "config.yaml")
 
 
-def resolve_inference_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+def resolve_inference_config(
+    config_path: Optional[str] = None,
+) -> Dict[str, Any]:
     """The `inference:` block a run should use.
 
     The packaged platform config is the base layer; when `config_path` names
@@ -92,7 +95,7 @@ class CliInference:
                     f"unknown inference role {role!r}: expected one of "
                     f"{sorted((self._inference.get('roles') or {}))}"
                 )
-            spec.update(overrides)
+            spec = deep_merge(spec, overrides)
         return spec
 
     # --------------------------------------------------------- sessions
@@ -101,31 +104,43 @@ class CliInference:
         self, prompt: str, role: Optional[str], web_search: bool = False
     ) -> str:
         spec = self._role_spec(role)
-        agent_specific: Dict[str, Any] = {
-            "effort": spec["effort"],
-            "timeout": spec["timeout_seconds"],
-            "streaming": False,
-        }
+        agent_specific: Dict[str, Any] = dict(spec.get("agent_specific") or {})
+        agent_specific.setdefault("effort", spec.get("effort"))
+        agent_specific.setdefault("timeout", spec["timeout_seconds"])
+        agent_specific.setdefault("streaming", False)
         if spec["cli"] == "codex":
-            agent_specific["sandbox"] = spec["sandbox"]
-            agent_specific["web_search"] = bool(
-                web_search or spec.get("web_search")
+            agent_specific.setdefault("sandbox", spec["sandbox"])
+            agent_specific.setdefault(
+                "web_search", bool(web_search or spec.get("web_search"))
             )
-        else:
-            agent_specific["auth_mode"] = spec.get("auth_mode", "oauth")
-        agent = self._agent_factory.create(CodingAgentConfig(
-            agent_type=spec["cli"],
-            model=spec["model"],
-            debug_model=spec["model"],
-            agent_specific=agent_specific,
-        ))
-        scratch = tempfile.mkdtemp(prefix="kapso-inference-")
-        agent.initialize(scratch)
-        result = agent.generate_code(
-            prompt, timeout_seconds=spec["timeout_seconds"]
+        elif spec["cli"] == "openai_compatible":
+            if web_search or spec.get("web_search"):
+                raise ValueError(
+                    "openai_compatible does not provide web search; configure "
+                    "inference.roles.research with a web-capable CLI agent"
+                )
+            agent_specific["read_only"] = True
+        elif spec["cli"] == "claude_code":
+            agent_specific.setdefault(
+                "auth_mode", spec.get("auth_mode", "oauth")
+            )
+        agent = self._agent_factory.create(
+            CodingAgentConfig(
+                agent_type=spec["cli"],
+                model=spec["model"],
+                debug_model=spec["model"],
+                agent_specific=agent_specific,
+            )
         )
-        self._cli_cost += float(agent.get_cumulative_cost() or 0.0)
-        agent.cleanup()
+        with tempfile.TemporaryDirectory(prefix="kapso-inference-") as scratch:
+            try:
+                agent.initialize(scratch)
+                result = agent.generate_code(
+                    prompt, timeout_seconds=spec["timeout_seconds"]
+                )
+                self._cli_cost += float(agent.get_cumulative_cost() or 0.0)
+            finally:
+                agent.cleanup()
         output = (result.output or "").strip()
         if not result.success or not output:
             raise RuntimeError(
@@ -140,10 +155,9 @@ class CliInference:
     def _flatten(messages: List[Dict[str, str]]) -> str:
         """Messages -> one prompt, system content first (a CLI session has
         no separate system channel). Content rides WHOLE (Rule 6)."""
-        ordered = (
-            [m for m in messages if m.get("role") == "system"]
-            + [m for m in messages if m.get("role") != "system"]
-        )
+        ordered = [m for m in messages if m.get("role") == "system"] + [
+            m for m in messages if m.get("role") != "system"
+        ]
         return "\n\n".join(str(m.get("content", "")) for m in ordered)
 
     # ---------------------------------------------- completion surface
@@ -168,10 +182,12 @@ class CliInference:
         **_ignored: Any,
     ) -> str:
         return self._run_session(
-            self._flatten([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ]),
+            self._flatten(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ]
+            ),
             role,
         )
 
@@ -187,7 +203,8 @@ class CliInference:
         # context-size parameter.
         depth_note = (
             "Research depth: verify each load-bearing claim against "
-            "primary sources." if search_context_size == "high"
+            "primary sources."
+            if search_context_size == "high"
             else "Research depth: survey broadly; cite sources."
         )
         prompt = self._flatten(messages or []) + "\n\n" + depth_note
@@ -198,7 +215,9 @@ class CliInference:
     def create_embedding(self, text: str, model: Optional[str] = None):
         return self._backend.create_embedding(text, model)
 
-    def resolve_model(self, model: Optional[str], default_role: str = "embedding"):
+    def resolve_model(
+        self, model: Optional[str], default_role: str = "embedding"
+    ):
         return self._backend.resolve_model(model, default_role=default_role)
 
     def get_cumulative_cost(self) -> float:

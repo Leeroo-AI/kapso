@@ -144,6 +144,24 @@ agents:
       timeout: 600
 
   # ============================================================================
+  # OpenAI-compatible API - direct Chat Completions coding agent
+  # ============================================================================
+  openai_compatible:
+    description: "Coding agent for OpenAI-compatible Chat Completions endpoints"
+    adapter_class: "OpenAICompatibleCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.openai_compatible_agent"
+    supports_native_git: false
+    default_model: "gpt-4o-mini"
+    default_debug_model: "gpt-4o-mini"
+    env_vars:
+      - "OPENAI_API_KEY"
+    install_command: "Included in the standard leeroo-kapso install"
+    documentation_url: "https://github.com/Leeroo-AI/kapso"
+    agent_specific:
+      max_output_tokens: 8192
+      temperature: 0.1
+
+  # ============================================================================
   # Codex - OpenAI Codex CLI (non-interactive exec sessions)
   # ============================================================================
   codex:

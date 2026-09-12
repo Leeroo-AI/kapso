@@ -496,3 +496,81 @@ def test_dedupe_keeps_every_origin_and_the_worst_verdict():
 def test_unknown_verb_fails_loud(packaged):
     with pytest.raises(ValueError, match="unknown verb"):
         requirements_for("evolve_but_typoed", packaged)
+
+
+def test_api_agent_checks_configured_keys_per_session(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("PROVIDER_KEY", "test-key")
+    specs = preflight.session_specs(
+        {
+            "writer": {
+                "type": "openai_compatible",
+                "model": "provider/model",
+                "agent_specific": {"api_key_env": "PROVIDER_KEY"},
+            },
+            "local": {
+                "type": "openai_compatible",
+                "model": "local/model",
+                "agent_specific": {"allow_missing_api_key": True},
+            },
+        }
+    )
+    found = {r.label: r for r in preflight.cli_requirements(specs)}
+    assert "OPENAI_API_KEY" not in found
+    assert "node" not in found
+    assert found["PROVIDER_KEY"].ok
+    monkeypatch.delenv("PROVIDER_KEY")
+    found = {r.label: r for r in preflight.cli_requirements(specs)}
+    assert not found["PROVIDER_KEY"].ok
+
+
+def test_research_preflight_inherits_nested_api_options(monkeypatch):
+    monkeypatch.setenv("PROVIDER_KEY", "test-key")
+    config = {
+        "inference": {
+            "default": {
+                "cli": "openai_compatible",
+                "model": "provider/model",
+                "agent_specific": {"api_key_env": "PROVIDER_KEY"},
+            },
+            "roles": {"research": {"agent_specific": {"temperature": 0.2}}},
+        }
+    }
+    found = {r.label: r for r in preflight.research_requirements(config)}
+    assert found["PROVIDER_KEY"].ok
+    assert "OPENAI_API_KEY" not in found
+
+
+def test_research_rejects_api_agent_without_web_tools():
+    config = {
+        "inference": {
+            "default": {
+                "cli": "openai_compatible",
+                "model": "local/model",
+                "agent_specific": {"allow_missing_api_key": True},
+            }
+        }
+    }
+    found = {r.label: r for r in preflight.research_requirements(config)}
+    assert not found["research agent supports web search"].ok
+
+
+def test_evolve_checks_api_inference_role_key(
+    packaged, full_machine, monkeypatch
+):
+    monkeypatch.delenv("RERANK_KEY", raising=False)
+    packaged["inference"]["roles"]["kg_rerank"] = {
+        "cli": "openai_compatible",
+        "model": "provider/model",
+        "agent_specific": {"api_key_env": "RERANK_KEY"},
+    }
+    found = {
+        r.label: r
+        for r in requirements_for(
+            "evolve",
+            packaged,
+            kg_index="my-index",
+        )
+    }
+    assert not found["RERANK_KEY"].ok
+    assert "inference.roles.kg_rerank" in found["RERANK_KEY"].origin
