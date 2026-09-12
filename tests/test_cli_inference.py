@@ -17,7 +17,6 @@ import kapso.core.llm as llm_module
 from kapso.core.cli_inference import CliInference, resolve_inference_config
 from kapso.execution.coding_agents.base import CodingResult
 
-
 INFERENCE = {
     "default": {
         "cli": "codex",
@@ -145,9 +144,7 @@ def test_failed_or_empty_session_raises_loud():
     with pytest.raises(RuntimeError, match="cli exploded"):
         cli(failed).llm_completion(messages=[{"role": "user", "content": "q"}])
 
-    empty = FakeFactory(
-        outputs=[CodingResult(success=True, output="   \n")]
-    )
+    empty = FakeFactory(outputs=[CodingResult(success=True, output="   \n")])
     with pytest.raises(RuntimeError, match="empty output"):
         cli(empty).llm_completion(messages=[{"role": "user", "content": "q"}])
 
@@ -190,11 +187,11 @@ def test_packaged_config_defines_every_role_the_code_selects():
     for key in ("cli", "model", "effort", "sandbox", "timeout_seconds"):
         assert key in config["default"], key
     for role in (
-        "research",           # researcher / research gate / HF fetch
-        "kg_rerank",          # kg_graph_search reranker
-        "kg_navigate",        # kg_llm_navigation_search
-        "repo_memory",        # repo-memory builders
-        "commit_message",     # commit message generator
+        "research",  # researcher / research gate / HF fetch
+        "kg_rerank",  # kg_graph_search reranker
+        "kg_navigate",  # kg_llm_navigation_search
+        "repo_memory",  # repo-memory builders
+        "commit_message",  # commit message generator
         "benchmark_utility",  # mle/ale handler cleanup calls
     ):
         assert role in config["roles"], role
@@ -230,7 +227,10 @@ def test_user_config_inference_block_deep_merges_over_packaged(tmp_path):
 def test_user_config_without_inference_block_gets_packaged_defaults(tmp_path):
     user_config = tmp_path / "config.yaml"
     user_config.write_text("modes:\n  GENERIC: {}\n")
-    assert resolve_inference_config(str(user_config)) == resolve_inference_config()
+    assert (
+        resolve_inference_config(str(user_config))
+        == resolve_inference_config()
+    )
 
 
 def test_non_mapping_inference_block_raises(tmp_path):
@@ -238,3 +238,67 @@ def test_non_mapping_inference_block_raises(tmp_path):
     user_config.write_text("inference: nonsense\n")
     with pytest.raises(ValueError, match="must be a mapping"):
         resolve_inference_config(str(user_config))
+
+
+def test_api_role_preserves_endpoint_options_and_forces_read_only():
+    factory = FakeFactory()
+    backend = cli(
+        factory,
+        inference={
+            "default": {
+                "cli": "openai_compatible",
+                "model": "provider/model",
+                "timeout_seconds": 60,
+                "agent_specific": {
+                    "base_url": "https://provider.test/v1",
+                    "api_key_env": "PROVIDER_KEY",
+                    "read_only": False,
+                    "temperature": 0.1,
+                },
+            },
+            "roles": {"judge": {"agent_specific": {"temperature": 0.3}}},
+        },
+    )
+    backend.llm_completion(role="judge")
+    options = factory.agents[0].config.agent_specific
+    assert options["base_url"] == "https://provider.test/v1"
+    assert options["api_key_env"] == "PROVIDER_KEY"
+    assert options["temperature"] == 0.3
+    assert options["read_only"] is True
+    assert (
+        backend._inference["default"]["agent_specific"]["temperature"] == 0.1
+    )
+
+
+def test_api_web_search_fails_before_creating_agent():
+    factory = FakeFactory()
+    backend = cli(
+        factory,
+        inference={
+            "default": {
+                "cli": "openai_compatible",
+                "model": "provider/model",
+                "timeout_seconds": 60,
+            },
+            "roles": {"research": {}},
+        },
+    )
+    with pytest.raises(ValueError, match="does not provide web search"):
+        backend.llm_completion_with_web_search()
+    assert not factory.agents
+
+
+def test_failed_session_cleans_client_and_scratch(monkeypatch):
+    from pathlib import Path
+
+    factory = FakeFactory()
+
+    def fail(self, prompt, timeout_seconds=None):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(FakeAgent, "generate_code", fail)
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        cli(factory).llm_completion()
+    agent = factory.agents[0]
+    assert agent.cleaned
+    assert not Path(agent.workspace_dir).exists()

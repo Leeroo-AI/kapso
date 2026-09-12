@@ -92,7 +92,7 @@ def cmd_evolve(args) -> None:
         sys.exit(1)
     
     # Create Kapso instance with optional KG index
-    kapso = Kapso(kg_index=args.kg_index)
+    kapso = Kapso(config_path=args.config, kg_index=args.kg_index)
     
     # Build solution
     solution = kapso.evolve(
@@ -302,7 +302,7 @@ def cmd_research(args) -> None:
     mode_arg = modes[0] if len(modes) == 1 else modes
     
     # Create Kapso instance
-    kapso = Kapso()
+    kapso = Kapso(config_path=args.config)
     
     # Run research
     findings = kapso.research(
@@ -832,6 +832,11 @@ Examples:
     evolve_parser.add_argument("-m", "--mode", type=str, help="Config mode (GENERIC, MINIMAL)")
     evolve_parser.add_argument("-a", "--coding-agent", type=str, choices=AVAILABLE_AGENTS, help="Coding agent")
     
+    evolve_parser.add_argument(
+        "--config", type=str, default=None,
+        help="Config path (default: packaged config.yaml)",
+    )
+
     # Directory options
     evolve_parser.add_argument("--eval-dir", type=str, help="Evaluation files directory")
     evolve_parser.add_argument("--data-dir", type=str, help="Data files directory")
@@ -866,6 +871,11 @@ Examples:
     research_parser.add_argument("--depth", type=str, choices=RESEARCH_DEPTHS, default="deep", help="Research depth (default: deep)")
     research_parser.add_argument("-o", "--output", type=str, help="Output file for results (JSON)")
     
+    research_parser.add_argument(
+        "--config", type=str, default=None,
+        help="Config path (default: packaged config.yaml)",
+    )
+
     # =========================================================================
     # LEARN command group — the learn-from-trajectories system
     # (docs/research/learn-from-trajectories-design.md; supersedes the old

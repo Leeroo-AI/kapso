@@ -13,7 +13,8 @@
 # 4. Return KGOutput with results and connections
 #
 # Environment Variables:
-# - OPENAI_API_KEY: For text-embedding-3-large
+# - OPENAI_API_KEY: For text-embedding-3-large (or the configured model)
+# - OPENAI_BASE_URL: Optional OpenAI-compatible API endpoint
 # - NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD: Graph database
 # - WEAVIATE_URL: Vector database (default: http://localhost:8080)
 
@@ -657,7 +658,13 @@ class KGGraphSearch(KnowledgeSearch):
                 logger.warning("OPENAI_API_KEY not set. Embeddings disabled.")
                 return
             
-            self._openai_client = OpenAI(api_key=api_key)
+            client_options = {"api_key": api_key}
+            base_url = os.getenv("OPENAI_BASE_URL") or os.getenv(
+                "OPENAI_API_BASE"
+            )
+            if base_url:
+                client_options["base_url"] = base_url
+            self._openai_client = OpenAI(**client_options)
             logger.info("OpenAI client initialized")
             
         except Exception as e:

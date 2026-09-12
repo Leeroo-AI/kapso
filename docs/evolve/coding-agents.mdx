@@ -180,6 +180,125 @@ coding_agent:
   model: "accounts/fireworks/models/glm-5p2"
 ```
 
+## OpenAI-compatible API
+
+`openai_compatible` is an explicit, opt-in adapter for
+[Chat Completions](https://platform.openai.com/docs/api-reference/chat/create)
+endpoints, including compatible hosted providers and local servers. It uses
+the existing `openai` dependency and does not require a CLI login itself.
+Provider and model support for individual request fields varies.
+
+A live smoke test on 2026-09-12 verified text inference and single-file
+generation against `https://api.deepseek.com` using `deepseek-flash`
+(DeepSeek V4.1 Flash). Both requests returned HTTP 200; the generated
+`hello.py` executed successfully. This does not validate a full campaign.
+
+### Text-only inference
+
+Configure a role whose entire context is supplied in its prompt, such as
+knowledge-search reranking. Copy the packaged `src/kapso/config.yaml` to
+`kapso-config.yaml` and add this role override under `inference`. Keep the
+other sections, especially `modes`; an inference-only file is not a complete
+configuration for `evolve`:
+
+```yaml
+inference:
+  roles:
+    kg_rerank:
+      cli: openai_compatible
+      model: deepseek-flash
+      timeout_seconds: 900
+      agent_specific:
+        base_url: https://api.deepseek.com
+        api_key_env: DEEPSEEK_API_KEY
+        max_output_tokens: 8192
+        temperature: 0.1
+```
+
+Load it with `Kapso(config_path="kapso-config.yaml")` or
+`kapso evolve --config kapso-config.yaml --goal "..."`.
+`kapso research --config ...` also accepts a config path, but its research
+role must use a web-capable agent. Plain Chat Completions supplies no web
+search here; attempting that route fails explicitly before an API request.
+
+Inference returns text without interpreting it as file edits. Nested
+`agent_specific` settings inherit from `inference.default` and can be
+partially overridden per role. Setting the default to `openai_compatible`
+does not replace `GENERIC` ideation or implementation: those sessions still
+use their separately configured Claude Code/Codex backends. Keep roles that
+need filesystem or web tools on a capable agent.
+
+### Endpoint and request settings
+
+`base_url` defaults to `OPENAI_BASE_URL`, then the legacy `OPENAI_API_BASE`,
+then the official OpenAI endpoint. `base_url_env` optionally selects another
+environment variable. Prefer a per-agent `base_url` when chat and embeddings
+use different providers; the global `OPENAI_BASE_URL` also affects OpenAI SDK
+embedding clients. An embedding endpoint must support the configured embedding model.
+
+`api_key_env` defaults to `OPENAI_API_KEY`. For an unauthenticated local
+server, set `base_url: http://localhost:8000/v1` and
+`allow_missing_api_key: true`. Preflight checks the configured key rather
+than requiring `OPENAI_API_KEY` for every adapter. `doctor --models` currently
+live-probes CLI models only; it does not verify this endpoint's model access.
+
+`max_output_tokens` is sent as `max_tokens` by default. For models requiring
+`max_completion_tokens`, set it in `request_options`; it replaces
+`max_tokens`. Set `temperature: null` to omit sampling temperature:
+
+```yaml
+agent_specific:
+  temperature: null
+  request_options:
+    max_completion_tokens: 8192
+    reasoning_effort: low
+```
+
+Additional supported request fields can be passed through `request_options`.
+Session-controlled fields (`model`, `messages`, `timeout`), streaming,
+multiple choices, tools, and `extra_body` cannot be overridden there.
+The adapter uses a 600-second request timeout by default, configurable via
+`agent_specific.timeout`; a per-call `timeout_seconds` takes precedence.
+SDK retries are disabled so a failed request does not silently multiply this
+request timeout. Token usage is returned in metadata; monetary cost tracking
+is unavailable, so do not rely on Kapso's cost budget to cap provider charges.
+
+### File generation through the factory
+
+For callers using `CodingAgentFactory`, the adapter can generate complete
+files from context provided in the prompt:
+
+```python
+from kapso.execution.coding_agents.factory import CodingAgentFactory
+
+config = CodingAgentFactory.build_config(
+    agent_type="openai_compatible",
+    model="deepseek-flash",
+    debug_model="deepseek-flash",
+    agent_specific={
+        "base_url": "https://api.deepseek.com",
+        "api_key_env": "DEEPSEEK_API_KEY",
+    },
+)
+agent = CodingAgentFactory.create(config)
+try:
+    agent.initialize("./workspace")
+    result = agent.generate_code("Create hello.py that prints hello.")
+    if not result.success:
+        raise RuntimeError(result.error)
+finally:
+    agent.cleanup()
+```
+
+The model must return complete `<<<FILE: relative/path>>>` / `<<<END FILE>>>`
+blocks. Paths and block completeness are validated before writing; paths
+outside the workspace, `.git` writes (including symlink aliases), duplicate
+paths, and truncated completions are rejected. Ordinary Markdown fences are
+never treated as edits. This is one request per call: the adapter cannot read
+existing files, execute shell commands, use MCP tools, resume sessions, or
+verify evaluation results. Supply existing code in the prompt when editing,
+and run evaluation separately. Git commits remain the caller's responsibility.
+
 ## CodingResult
 
 All agents return a standardized result:

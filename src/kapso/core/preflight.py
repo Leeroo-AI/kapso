@@ -29,11 +29,11 @@ import shutil
 import socket
 import subprocess
 import yaml
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from kapso.core.config import load_config
+from kapso.core.config import deep_merge, load_config
 from kapso.gated_mcp.presets import GATES, resolve_gates
 from kapso.learning.bank_remote import bank_origin, bank_remote_error
 
@@ -104,6 +104,7 @@ class SessionSpec:
     model: str
     origin: str
     auth_mode: str = "auto"
+    agent_specific: Dict[str, Any] = field(default_factory=dict)
 
 
 class PreflightError(RuntimeError):
@@ -242,12 +243,17 @@ def session_specs(node: Any, prefix: str = "") -> List[SessionSpec]:
                 child = f"{path}.{key}" if path else key
                 if key == "model" or key.endswith("_model"):
                     if isinstance(value, str) and value:
-                        specs.append(SessionSpec(
-                            cli=resolve_cli(current, key, value),
-                            model=value,
-                            origin=f"{child} = {value}",
-                            auth_mode=resolve_auth_mode(current),
-                        ))
+                        specs.append(
+                            SessionSpec(
+                                cli=resolve_cli(current, key, value),
+                                model=value,
+                                origin=f"{child} = {value}",
+                                auth_mode=resolve_auth_mode(current),
+                                agent_specific=dict(
+                                    current.get("agent_specific") or {}
+                                ),
+                            )
+                        )
                     continue
                 walk(value, child)
         elif isinstance(current, list):
@@ -311,13 +317,32 @@ def cli_requirements(specs: Sequence[SessionSpec]) -> List[Requirement]:
                 fix=install,
                 origin=origin,
             ))
-            for name in info.get("env_vars") or []:
-                requirements.append(Requirement(
-                    label=name,
-                    ok=bool(os.environ.get(name)),
-                    fix=f"add {name}=... to .env in this directory",
-                    origin=origin,
-                ))
+            credentials = {}
+            for session in cli_specs:
+                names = info.get("env_vars") or []
+                if cli == "openai_compatible":
+                    options = session.agent_specific
+                    key_env = options.get("api_key_env", "OPENAI_API_KEY")
+                    if not isinstance(key_env, str) or not key_env.strip():
+                        raise ValueError(
+                            "api_key_env must name an environment variable"
+                        )
+                    names = (
+                        []
+                        if options.get("allow_missing_api_key")
+                        else [key_env.strip()]
+                    )
+                for name in names:
+                    credentials.setdefault(name, []).append(session)
+            for name, sessions in credentials.items():
+                requirements.append(
+                    Requirement(
+                        label=name,
+                        ok=bool(os.environ.get(name)),
+                        fix=f"add {name}=... to .env in this directory",
+                        origin=summarize_origins(sessions),
+                    )
+                )
             continue
 
         present = shutil.which(binary) is not None
@@ -424,16 +449,34 @@ def research_requirements(config: Dict[str, Any]) -> List[Requirement]:
     """`research()` runs one web-search session — the `inference` block's
     default spec with the `research` role's overrides on top."""
     inference = config.get("inference") or {}
-    spec = {**(inference.get("default") or {}),
-            **((inference.get("roles") or {}).get("research") or {})}
+    spec = deep_merge(
+        inference.get("default") or {},
+        (inference.get("roles") or {}).get("research") or {},
+    )
     if not spec.get("model"):
         return []
-    return cli_requirements([SessionSpec(
-        cli=str(spec.get("cli") or "codex"),
-        model=str(spec["model"]),
-        origin=f"inference.roles.research = {spec['model']}",
-        auth_mode=str(spec.get("auth_mode") or "auto"),
-    )])
+    requirements = cli_requirements(
+        [
+            SessionSpec(
+                cli=str(spec.get("cli") or "codex"),
+                model=str(spec["model"]),
+                origin=f"inference.roles.research = {spec['model']}",
+                auth_mode=str(spec.get("auth_mode") or "auto"),
+                agent_specific=dict(spec.get("agent_specific") or {}),
+            )
+        ]
+    )
+    if spec.get("cli") == "openai_compatible":
+        requirements.append(
+            Requirement(
+                label="research agent supports web search",
+                ok=False,
+                fix="set inference.roles.research.cli to a "
+                    "web-capable CLI agent",
+                origin="research() requires live web search",
+            )
+        )
+    return requirements
 
 
 def learn_knowledge_requirements(
@@ -502,6 +545,17 @@ def evolve_requirements(
     specs += session_specs(
         block.get("feedback_generator") or {}, f"{prefix}.feedback_generator"
     )
+
+    inference = config.get("inference") or {}
+    roles = ["commit_message", "repo_memory"]
+    if kg_index:
+        roles.extend(["kg_rerank", "kg_navigate"])
+    for role in roles:
+        role_spec = deep_merge(
+            inference.get("default") or {},
+            (inference.get("roles") or {}).get(role) or {},
+        )
+        specs.extend(session_specs(role_spec, f"inference.roles.{role}"))
 
     requirements = cli_requirements(specs)
     requirements.append(_git_requirement(
