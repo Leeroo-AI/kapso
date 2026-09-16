@@ -1,0 +1,30 @@
+name: Citation
+
+# CITATION.cff feeds GitHub's "Cite this repository" button, Zenodo and Zotero.
+# Its `version` has to match the package version, or the next paper that cites
+# Kapso cites the wrong release. Stdlib only; runs only when either side changes.
+on:
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'CITATION.cff'
+      - 'scripts/check_citation.py'
+      - '.github/workflows/citation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'CITATION.cff'
+      - 'scripts/check_citation.py'
+      - '.github/workflows/citation.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # `--fix` in the same script rewrites version and date-released at release time.
+      - name: CITATION.cff version matches pyproject.toml
+        run: python3 scripts/check_citation.py
