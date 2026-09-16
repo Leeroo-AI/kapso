@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use Kapso in your work, please cite it as below."
+type: software
+title: "Kapso: a self-improving software factory for AI/ML objectives"
+abstract: >-
+  Kapso is a self-improving software factory for AI/ML objectives. Give it an
+  objective and it autonomously builds the best solution, deploys it, and learns
+  from every run: it keeps what moved the metric, with the evidence that earned
+  it, and learns from public repositories and papers.
+authors:
+  - name: "Leeroo"
+    email: team@leeroo.com
+    website: https://leeroo.com
+version: 0.4.5
+date-released: 2026-09-11
+license: MIT
+repository-code: https://github.com/Leeroo-AI/kapso
+url: https://docs.leeroo.com/docs
+keywords:
+  - self-improving software factory
+  - machine learning
+  - AI agents
+  - AutoML
+  - program synthesis
+  - coding agents
+references:
+  - type: article
+    title: "KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization"
+    authors:
+      - family-names: Nadafian
+        given-names: Alireza
+      - family-names: Mohammadshahi
+        given-names: Alireza
+      - family-names: Yazdani
+        given-names: Majid
+    year: 2026
+    url: https://arxiv.org/abs/2601.21526
