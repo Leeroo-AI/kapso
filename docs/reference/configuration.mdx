@@ -194,12 +194,14 @@ coding_agent:
 
 | Key | What it does |
 |-----|--------------|
-| `type` | `claude_code`, `codex`, `gemini`, `openhands` or `oss_claude_code` |
+| `type` | `claude_code`, `codex`, `gemini`, `openhands`, `openai_compatible` or `oss_claude_code` |
 | `model` | Model for normal work |
 | `debug_model` | Model used when an experiment is being debugged |
 | `agent_specific.auth_mode` | `oauth` uses the CLI's stored login, `api_key` uses `ANTHROPIC_API_KEY`, `auto` takes either (never Bedrock), `bedrock` runs against Amazon Bedrock with AWS credentials and models named by inference profile id |
 | `agent_specific.aws_region` | The Bedrock region; required with `auth_mode: bedrock`, and read from the config only, never from `AWS_REGION` |
 | `agent_specific.streaming` | Stream the agent's output |
+| `agent_specific.base_url` | OpenAI-compatible endpoint URL for `openai_compatible` |
+| `agent_specific.api_key_env` | Environment variable containing the endpoint key (default `OPENAI_API_KEY`) |
 
 ### knowledge_search
 
@@ -215,6 +217,7 @@ knowledge_search:
 | `type` | `kg_graph_search` for hybrid vector and graph search, or `kg_llm_navigation` |
 | `enabled` | Whether campaigns query the knowledge graph. `MINIMAL` ships this `false` |
 | `preset` | Named retrieval preset |
+| `params.embedding_base_url` | Config-only endpoint for `kg_graph_search` embeddings. Defaults to the OpenAI URL in `agents.yaml`; environment URL overrides are ignored. Requires HTTPS, except for loopback hosts. |
 
 See [Search backends](/docs/knowledge/search-backends).
 

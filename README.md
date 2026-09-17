@@ -244,6 +244,12 @@ Path("kapso-config.yaml").write_text(crews)
 kapso = Kapso(config_path="kapso-config.yaml")
 ```
 
+Text-only inference roles can opt in to `openai_compatible` Chat Completions.
+Set the model and endpoint in your config; credentials stay in the environment.
+Load the config with `Kapso(config_path=...)` or `kapso evolve --config ...`.
+Coding and web research still require agents with the corresponding tools.
+See the [configuration example and limits](https://docs.leeroo.com/docs/evolve/coding-agents#openai-compatible-api).
+
 Before a long run, probe every model your config names against your
 actual subscriptions — a model your login cannot serve fails here in
 seconds instead of hours into a run. A usage cap on a model you can

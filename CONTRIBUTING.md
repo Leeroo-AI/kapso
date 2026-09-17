@@ -45,6 +45,7 @@ OPENAI_API_KEY=your-openai-api-key
 # Direct API-backed agents, when selected
 GOOGLE_API_KEY=your-google-api-key
 ANTHROPIC_API_KEY=your-anthropic-api-key
+# For the openai_compatible agent, point api_key_env at any key variable.
 ```
 
 The Codex adapter uses its CLI login. Claude Code can use its stored CLI login

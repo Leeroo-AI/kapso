@@ -14,7 +14,7 @@ Kapso sends every model call through a coding-agent CLI. Install those CLIs and 
 | Codex CLI, logged in | Research, judging and utility calls | `codex authenticated` |
 | Claude Code CLI, logged in | Ideation and implementation in the default `GENERIC` mode | `claude authenticated` |
 | Python 3.10 or newer | The `leeroo-kapso` package | — |
-| An OpenAI API key | Embeddings for knowledge search and memory. Not used for generation | `OPENAI_API_KEY (embeddings)` |
+| An OpenAI API key | Embeddings for knowledge search and memory. Not used for generation | `OPENAI_API_KEY (embeddings: https://api.openai.com/v1)` |
 | Git | Kapso commits every experiment to a branch | `git` |
 
 ## Install Kapso
@@ -87,7 +87,7 @@ kapso doctor
   [OK ] claude CLI
   [OK ] claude authenticated
   [OK ] git
-  [OK ] OPENAI_API_KEY (embeddings)
+  [OK ] OPENAI_API_KEY (embeddings: https://api.openai.com/v1)
   [OK ] deploy target docker
   [-- ] deploy target modal
          needed by  only needed for deploy(strategy=DeployStrategy.MODAL)
@@ -138,9 +138,11 @@ kapso doctor evolve
   [OK ] node
   [OK ] claude CLI
   [OK ] claude authenticated
+  [OK ] codex CLI
+  [OK ] codex authenticated
   [OK ] git
 ====================================================================
-Required checks passed (4 checked).
+Required checks passed (6 checked).
 ```
 
 The five verbs are `research`, `learn_knowledge`, `evolve`, `learn` and `deploy`. With no verb, `doctor` reports the union of all five.

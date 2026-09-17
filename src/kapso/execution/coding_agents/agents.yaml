@@ -144,6 +144,29 @@ agents:
       timeout: 600
 
   # ============================================================================
+  # OpenAI-compatible API - text-only Chat Completions inference
+  # ============================================================================
+  openai_compatible:
+    description: "Text-only inference for OpenAI-compatible Chat Completions endpoints"
+    adapter_class: "OpenAICompatibleInferenceAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.openai_compatible_agent"
+    supports_native_git: false
+    inference_only: true
+    default_model: "gpt-4o-mini"
+    default_debug_model: "gpt-4o-mini"
+    env_vars:
+      - "OPENAI_API_KEY"
+    install_command: "Included in the standard leeroo-kapso install"
+    documentation_url: "https://github.com/Leeroo-AI/kapso"
+    agent_specific:
+      base_url: "https://api.openai.com/v1"
+      api_key_env: "OPENAI_API_KEY"
+      allow_missing_api_key: false
+      max_output_tokens: 8192
+      temperature: 0.1
+      timeout: 600
+
+  # ============================================================================
   # Codex - OpenAI Codex CLI (non-interactive exec sessions)
   # ============================================================================
   codex:

@@ -5,7 +5,7 @@ description: "Where every model call goes: coding-agent CLI sessions per inferen
 keywords: ["model routing", "inference roles", "retry policy", "exponential backoff", "LLM configuration"]
 ---
 
-Kapso routes every model call one of two ways. Completions — research, reranking, graph navigation, repo memory, commit messages, benchmark utilities — run as read-only coding-agent CLI sessions, configured by the platform's `inference` block. Embeddings are the one call that still goes to a provider SDK directly, through `LLMBackend`'s single `embedding` route.
+Kapso routes every model call one of two ways. Completions — research, reranking, graph navigation, repo memory, commit messages, benchmark utilities — run through the coding agent configured by the platform's `inference` block. The default agent is a read-only CLI session, while `openai_compatible` provides an explicit direct-API option for text-only roles. It has no filesystem or web-search tools; research must remain on a web-capable agent. Embeddings go to a provider SDK directly, through `LLMBackend`'s single `embedding` route.
 
 ## Inference roles
 

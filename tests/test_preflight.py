@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 import kapso.core.preflight as preflight
+from kapso.kapso import Kapso
 from kapso.core.config import load_config
 from kapso.core.preflight import (
     PreflightError,
@@ -103,14 +104,17 @@ def test_skip_merge_drops_the_merger_and_both_kg_stores(packaged, full_machine):
     merging = labels(requirements_for("learn_knowledge", packaged, skip_merge=False))
     assert "Weaviate (localhost:8080)" in merging
     assert "Neo4j (localhost:7687)" in merging
-    assert "OPENAI_API_KEY (embeddings)" in merging
+    assert "OPENAI_API_KEY (embeddings: https://api.openai.com/v1)" in merging
 
     extract_only = labels(
         requirements_for("learn_knowledge", packaged, skip_merge=True)
     )
     assert "Weaviate (localhost:8080)" not in extract_only
     assert "Neo4j (localhost:7687)" not in extract_only
-    assert "OPENAI_API_KEY (embeddings)" not in extract_only
+    assert (
+        "OPENAI_API_KEY (embeddings: https://api.openai.com/v1)"
+        not in extract_only
+    )
 
 
 def test_codify_target_decides_whether_gcloud_is_required(packaged, full_machine):
@@ -134,7 +138,9 @@ def test_kg_rows_appear_only_when_an_index_is_connected(packaged, full_machine):
         requirements_for("evolve", packaged, kg_index="data/indexes/ml.index")
     )
     assert "Neo4j (localhost:7687)" in with_index
-    assert "OPENAI_API_KEY (embeddings)" in with_index
+    assert (
+        "OPENAI_API_KEY (embeddings: https://api.openai.com/v1)" in with_index
+    )
 
 
 def test_caller_passed_coding_agent_overrides_the_mode(packaged, full_machine):
@@ -496,3 +502,207 @@ def test_dedupe_keeps_every_origin_and_the_worst_verdict():
 def test_unknown_verb_fails_loud(packaged):
     with pytest.raises(ValueError, match="unknown verb"):
         requirements_for("evolve_but_typoed", packaged)
+
+
+def test_api_agent_checks_configured_keys_per_session(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("PROVIDER_KEY", "test-key")
+    specs = preflight.session_specs(
+        {
+            "writer": {
+                "type": "openai_compatible",
+                "model": "provider/model",
+                "agent_specific": {"api_key_env": "PROVIDER_KEY"},
+            },
+            "local": {
+                "type": "openai_compatible",
+                "model": "local/model",
+                "agent_specific": {"allow_missing_api_key": True},
+            },
+        },
+        inference=True,
+    )
+    found = {r.label: r for r in preflight.cli_requirements(specs)}
+    assert "OPENAI_API_KEY" not in found
+    assert "node" not in found
+    assert found["PROVIDER_KEY (https://api.openai.com/v1)"].ok
+    monkeypatch.delenv("PROVIDER_KEY")
+    found = {r.label: r for r in preflight.cli_requirements(specs)}
+    assert not found["PROVIDER_KEY (https://api.openai.com/v1)"].ok
+
+
+def test_research_preflight_inherits_nested_api_options(monkeypatch):
+    monkeypatch.setenv("PROVIDER_KEY", "test-key")
+    config = {
+        "inference": {
+            "default": {
+                "cli": "openai_compatible",
+                "model": "provider/model",
+                "agent_specific": {"api_key_env": "PROVIDER_KEY"},
+            },
+            "roles": {"research": {"agent_specific": {"temperature": 0.2}}},
+        }
+    }
+    found = {r.label: r for r in preflight.research_requirements(config)}
+    assert found["PROVIDER_KEY (https://api.openai.com/v1)"].ok
+    assert "OPENAI_API_KEY" not in found
+
+
+def test_research_rejects_api_agent_without_web_tools():
+    config = {
+        "inference": {
+            "default": {
+                "cli": "openai_compatible",
+                "model": "local/model",
+                "agent_specific": {"allow_missing_api_key": True},
+            }
+        }
+    }
+    found = {r.label: r for r in preflight.research_requirements(config)}
+    assert not found["research agent supports web search"].ok
+
+
+def test_evolve_checks_api_inference_role_key(
+    packaged, full_machine, monkeypatch
+):
+    monkeypatch.delenv("RERANK_KEY", raising=False)
+    packaged["inference"]["roles"]["kg_rerank"] = {
+        "cli": "openai_compatible",
+        "model": "provider/model",
+        "agent_specific": {"api_key_env": "RERANK_KEY"},
+    }
+    found = {
+        r.label: r
+        for r in requirements_for(
+            "evolve",
+            packaged,
+            kg_index="my-index",
+        )
+    }
+    assert not found["RERANK_KEY (https://api.openai.com/v1)"].ok
+    assert "inference.roles.kg_rerank" in found[
+        "RERANK_KEY (https://api.openai.com/v1)"
+    ].origin
+
+
+def test_doctor_keeps_endpoints_separate_for_the_same_key(monkeypatch):
+    monkeypatch.setenv("PROVIDER_KEY", "secret-not-for-display")
+    specs = [preflight.SessionSpec(
+        cli="openai_compatible", model="m", origin="inference.roles." + role,
+        inference=True,
+        agent_specific={"base_url": endpoint, "api_key_env": "PROVIDER_KEY"},
+    ) for role, endpoint in [
+        ("kg_rerank", "https://first.test/v1"),
+        ("repo_memory", "https://second.test/v1"),
+    ]]
+    rows = preflight.dedupe(preflight.cli_requirements(specs))
+    labels = [row.label for row in rows]
+    assert "PROVIDER_KEY (https://first.test/v1)" in labels
+    assert "PROVIDER_KEY (https://second.test/v1)" in labels
+    assert "secret-not-for-display" not in repr(rows)
+
+
+def test_preflight_rejects_plaintext_inference_endpoint():
+    spec = preflight.SessionSpec(
+        cli="openai_compatible", model="m", origin="inference.default",
+        inference=True,
+        agent_specific={"base_url": "http://remote.test/v1"},
+    )
+    with pytest.raises(ValueError, match="HTTPS"):
+        preflight.cli_requirements([spec])
+
+
+def test_preflight_uses_embedding_endpoint_from_config(packaged, full_machine):
+    mode = packaged["default_mode"]
+    packaged["modes"][mode]["knowledge_search"]["params"] = {
+        "embedding_base_url": "https://embeddings.test/v1",
+    }
+    rows = requirements_for("evolve", packaged, kg_index="my-index")
+    assert any(row.label ==
+               "OPENAI_API_KEY (embeddings: https://embeddings.test/v1)"
+               for row in rows)
+
+
+@pytest.mark.parametrize("field", ["coding_agent", "feedback_generator"])
+@pytest.mark.parametrize("with_model", [False, True])
+def test_evolve_refuses_inference_agent_in_config(
+    packaged, full_machine, field, with_model,
+):
+    mode = packaged["default_mode"]
+    settings = {"type": "openai_compatible"}
+    if with_model:
+        settings["model"] = "provider/model"
+    packaged["modes"][mode][field] = settings
+    with pytest.raises(PreflightError) as error:
+        preflight.run_preflight("evolve", packaged)
+    failure = next(
+        row for row in error.value.requirements
+        if "inference-only" in row.label
+    )
+    assert failure.required and not failure.ok
+    assert f"modes.{mode}.{field}.type" in failure.origin
+    assert "coding-capable" in failure.fix
+    assert "inference.roles" in failure.fix
+
+
+def test_python_evolve_override_fails_before_workspace(
+    packaged, full_machine, tmp_path,
+):
+    kapso = object.__new__(Kapso)
+    kapso._config = packaged
+    kapso._kg_index_path = None
+    kapso._bank_home = None
+    output = tmp_path / "campaign"
+    with pytest.raises(PreflightError, match="inference-only"):
+        kapso.evolve(
+            goal="test", coding_agent="openai_compatible",
+            output_path=str(output),
+        )
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("verb,branch", [
+    ("evolve", "search_strategy.params"),
+    ("learn_knowledge", "learner.ingestor"),
+    ("learn", "mining"),
+])
+def test_other_non_inference_sessions_are_rejected(
+    packaged, full_machine, verb, branch,
+):
+    mode = packaged["default_mode"]
+    node = packaged["learning"] if verb == "learn" else packaged["modes"][mode]
+    for key in branch.split("."):
+        node = node.setdefault(key, {})
+    node["cli"] = "openai_compatible"
+    node["model"] = "provider/model"
+    with pytest.raises(PreflightError, match="inference-only"):
+        preflight.run_preflight(verb, packaged)
+
+
+@pytest.mark.parametrize("override", [False, True])
+def test_deploy_rejects_config_and_argument(packaged, full_machine, override):
+    context = {}
+    if override:
+        context["coding_agent"] = "openai_compatible"
+    else:
+        packaged["deployment"]["coding_agent"] = "openai_compatible"
+    with pytest.raises(PreflightError, match="inference-only"):
+        preflight.run_preflight("deploy", packaged, **context)
+
+
+def test_text_inference_roles_remain_allowed(packaged, full_machine):
+    packaged["inference"]["default"].update({
+        "cli": "openai_compatible", "model": "provider/model",
+    })
+    rows = preflight.run_preflight("evolve", packaged)
+    assert not any("inference-only" in row.label for row in rows)
+    assert any("OPENAI_API_KEY (https://api.openai.com/v1)" == row.label
+               for row in rows)
+
+
+def test_inference_like_path_does_not_grant_capability():
+    specs = session_specs(
+        {"type": "openai_compatible"}, "inference.roles.fake",
+    )
+    assert any(not row.ok and "inference-only" in row.label
+               for row in preflight.cli_requirements(specs))

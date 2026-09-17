@@ -5,32 +5,22 @@
 # - Provides default configurations for each agent
 # - Allows runtime registration of custom agents
 
-# Suppress deprecation warnings from third-party dependencies before any imports
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
-
 import atexit
 import importlib
 import logging
-import yaml
-from pathlib import Path
+import warnings
 from typing import Dict, Type, List, Any, Optional
 
+from kapso.core.agent_manifest import load_agent_manifest
+from kapso.execution.coding_agents.base import (
+    CodingAgentInterface,
+    CodingAgentConfig,
+)
+
+# Suppress third-party warnings before adapter discovery imports optional deps.
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydub")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="aider")
 logger = logging.getLogger(__name__)
-
-from kapso.execution.coding_agents.base import CodingAgentInterface, CodingAgentConfig
-
-
-# Path to agents registry YAML
-AGENTS_YAML_PATH = Path(__file__).parent / "agents.yaml"
-
-# The agent used when a caller names none. agents.yaml is the source of truth;
-# this is only the value used when that file is missing, and it is defined once
-# so the two can never drift. It previously appeared as a bare "aider" literal
-# in five places while agents.yaml said the same thing — which is how the
-# reported default came to be an agent a standard install cannot select.
-FALLBACK_DEFAULT_AGENT = "claude_code"
 
 
 class CodingAgentFactory:
@@ -48,7 +38,7 @@ class CodingAgentFactory:
     _agent_configs: Dict[str, Dict[str, Any]] = {}
     
     # Default agent type (from agents.yaml)
-    _default_agent: str = FALLBACK_DEFAULT_AGENT
+    _default_agent: str = ""  # populated from the manifest at module import
     
     # =========================================================================
     # Core Factory Methods
@@ -290,26 +280,6 @@ class CodingAgentFactory:
 # Auto-Discovery and Registration
 # =============================================================================
 
-def _load_agents_yaml() -> Dict[str, Any]:
-    """
-    Load agents.yaml configuration file.
-    
-    Returns:
-        Parsed YAML content, or empty dict if file not found
-    """
-    if not AGENTS_YAML_PATH.exists():
-        print(f"[CodingAgentFactory] Warning: {AGENTS_YAML_PATH} not found")
-        return {"agents": {}, "default_agent": FALLBACK_DEFAULT_AGENT}
-    
-    try:
-        with open(AGENTS_YAML_PATH, 'r') as f:
-            content = yaml.safe_load(f)
-            return content if content else {"agents": {}, "default_agent": FALLBACK_DEFAULT_AGENT}
-    except yaml.YAMLError as e:
-        print(f"[CodingAgentFactory] Error parsing agents.yaml: {e}")
-        return {"agents": {}, "default_agent": FALLBACK_DEFAULT_AGENT}
-
-
 def _register_from_yaml() -> None:
     """
     Auto-register agents defined in agents.yaml.
@@ -319,10 +289,10 @@ def _register_from_yaml() -> None:
     2. Try to import the adapter module
     3. Register the adapter class
     """
-    config = _load_agents_yaml()
+    config = load_agent_manifest()
     
     # Set default agent
-    CodingAgentFactory._default_agent = config.get("default_agent", FALLBACK_DEFAULT_AGENT)
+    CodingAgentFactory._default_agent = config["default_agent"]
     
     # Process each agent entry
     for agent_name, agent_info in config.get("agents", {}).items():
