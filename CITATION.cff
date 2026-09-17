@@ -11,8 +11,8 @@ authors:
   - name: "Leeroo"
     email: team@leeroo.com
     website: https://leeroo.com
-version: 0.4.5
-date-released: 2026-09-11
+version: 0.4.6
+date-released: 2026-09-17
 license: MIT
 repository-code: https://github.com/Leeroo-AI/kapso
 url: https://docs.leeroo.com/docs
