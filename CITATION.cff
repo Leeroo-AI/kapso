@@ -14,6 +14,15 @@ authors:
 version: 0.4.6
 date-released: 2026-09-17
 license: MIT
+# Concept DOI: always resolves to the latest release archived on Zenodo.
+doi: 10.5281/zenodo.22811188
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22811188
+    description: "Concept DOI for all versions"
+  - type: doi
+    value: 10.5281/zenodo.22811189
+    description: "Zenodo DOI for version 0.4.6"
 repository-code: https://github.com/Leeroo-AI/kapso
 url: https://docs.leeroo.com/docs
 keywords:
