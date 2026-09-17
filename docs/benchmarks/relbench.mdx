@@ -17,7 +17,7 @@ links — with every feature and neighborhood censored at each row's seed time.
 <Frame caption="Kapso against KumoRFM-v2 on RelBench outcome prediction, forecasting and recommendations">
   <img
     src="/docs/images/relbench.png"
-    alt="Bar chart of three RelBench panels: outcome prediction, Kapso 81.2 AUROC against KumoRFM-v2's 79.6; forecasting, Kapso 0.2476 NMAE against 0.2912, lower being better; recommendations, Kapso 18.4 MAP against the best reported 15.7. Each panel is drawn from its own truncated axis"
+    alt="Bar chart of three RelBench panels: outcome prediction, Kapso 81.2 AUROC against KumoRFM-v2's 79.6; forecasting, Kapso 0.2476 NMAE against 0.2912, lower being better; recommendations, Kapso 18.4 MAP against the official leaderboard's best other entry, ID-GNN, at 9.3. The first two panels are drawn from a truncated axis, the third from zero"
   />
 </Frame>
 
@@ -25,11 +25,12 @@ links — with every feature and neighborhood censored at each row's seed time.
 |---|---|---|---|
 | Outcome prediction · 12 tasks | AUROC, higher is better | 79.6 (KumoRFM-v2) | **81.2** |
 | Forecasting · 9 tasks | NMAE, lower is better | 0.2912 (KumoRFM-v2) | **0.2476** |
-| Recommendations · 10 tasks | MAP, higher is better | 15.7 (best reported) | **18.4** |
+| Recommendations · 10 tasks | MAP, higher is better | 9.3 (ID-GNN, best other entry on the official leaderboard, 2026-09-17) | **18.4** |
 
 All scores come from the official RelBench evaluator, under the same data, hardware and
-time budget. Published entries live on the
-[official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
+time budget. KumoRFM-v2 does not run recommendation tasks, so there the bar is the strongest
+other entry on the [official RelBench leaderboard](https://star-project.stanford.edu/relbench/leaderboard/),
+ID-GNN, a RelBench baseline, at 9.3 mean MAP over the same ten tasks as of 2026-09-17.
 
 ## How Kapso runs it
 

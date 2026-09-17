@@ -21,25 +21,29 @@ and **Leeroopedia**, Leeroo's curated ML knowledge base.
 ([paper](https://arxiv.org/abs/2604.12596)) is the strongest foundational model for
 relational data: one pretrained model, queried in context on any database. It is the bar to
 beat in outcome prediction and forecasting. Recommendation tasks are the gap in its coverage
-(the model does not support them), so there Kapso is measured against the best reported
-result per task. Kapso beats both bars:
+(the model does not support them), so there the bar is the strongest other entry on the
+[official RelBench leaderboard](https://star-project.stanford.edu/relbench/leaderboard/):
+ID-GNN, a RelBench baseline, at 9.3 mean MAP over the same ten tasks (board read
+2026-09-17). Kapso beats both bars:
 
-![RelBench, three panels: outcome prediction, Kapso 81.2 AUROC against KumoRFM-v2's 79.6; forecasting, Kapso 0.2476 NMAE against 0.2912, lower being better; recommendations, Kapso 18.4 MAP against the best reported 15.7](../../docs/images/relbench.png)
+![RelBench, three panels: outcome prediction, Kapso 81.2 AUROC against KumoRFM-v2's 79.6; forecasting, Kapso 0.2476 NMAE against 0.2912, lower being better; recommendations, Kapso 18.4 MAP against the official leaderboard's best other entry, ID-GNN, at 9.3](../../docs/images/relbench.png)
 
 | Family | Metric | Bar to beat | Kapso | Margin |
 |---|---|---|---|---|
 | Outcome prediction · 12 tasks | AUROC, higher is better | 79.6 (KumoRFM-v2) | **81.2** | +2.0% |
 | Forecasting · 9 tasks | NMAE, lower is better | 0.2912 (KumoRFM-v2) | **0.2476** | 15% less error |
-| Recommendations · 10 tasks | MAP, higher is better | 15.7 (best reported) | **18.4** | +18% |
+| Recommendations · 10 tasks | MAP, higher is better | 9.3 (ID-GNN, best other leaderboard entry) | **18.4** | +97% |
 
-Each panel of the chart is drawn from a truncated axis (78 AUROC, 0.35 NMAE, 12 MAP), because
-all three metrics live in a narrow band far from zero, and a zero-based bar renders a
-two-point AUROC margin as no margin at all. The table is the same result without the axis.
+The first two panels of the chart are drawn from a truncated axis (78 AUROC, 0.35 NMAE), because
+both metrics live in a narrow band far from zero, and a zero-based bar renders a two-point
+AUROC margin as no margin at all. The recommendations panel starts at zero: a near-doubling
+needs no help, and a floor just under 9.3 would draw it as an eightfold gap. The table is the
+same result without the axis.
 
 All scores come from the official RelBench evaluator. The same solutions also beat a frontier
 coding agent (Claude Code, Fable-5) under an identical budget: see
 [`claude_code_baseline/`](claude_code_baseline/). Published entries and the standing bars per
-task are on the [official RelBench leaderboard](https://huggingface.co/spaces/relbench/leaderboard).
+task are on the [official RelBench leaderboard](https://star-project.stanford.edu/relbench/leaderboard/).
 
 ## How it stays honest
 
