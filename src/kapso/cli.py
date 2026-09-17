@@ -741,7 +741,7 @@ def main():
     CodingAgentFactory.register_quiet_exit()
     # Main parser
     parser = argparse.ArgumentParser(
-        description="Kapso Agent - Build robust software from goals",
+        description="Kapso: self-improving software factory for AI and Data objectives",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:

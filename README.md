@@ -1,6 +1,7 @@
 <h1 align="center">Kapso</h1>
 
-<h4 align="center">A Self-Improving AI Software Factory (for Measurable Objectives)</h4>
+<h4 align="center">Self-improving Software Factory</h4>
+<p align="center"><sub>For AI and Data objectives</sub></p>
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">Learn more</a> ·

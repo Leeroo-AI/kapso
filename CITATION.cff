@@ -1,9 +1,9 @@
 cff-version: 1.2.0
 message: "If you use Kapso in your work, please cite it as below."
 type: software
-title: "Kapso: a self-improving software factory for AI/ML objectives"
+title: "Kapso: a self-improving software factory for AI and Data objectives"
 abstract: >-
-  Kapso is a self-improving software factory for AI/ML objectives. Give it an
+  Kapso is a self-improving software factory for AI and Data objectives. Give it an
   objective and it autonomously builds the best solution, deploys it, and learns
   from every run: it keeps what moved the metric, with the evidence that earned
   it, and learns from public repositories and papers.

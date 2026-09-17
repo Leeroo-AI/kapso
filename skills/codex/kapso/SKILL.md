@@ -1,6 +1,6 @@
 ---
 name: kapso
-description: Operate Kapso (PyPI leeroo-kapso), the self-improving AI software factory, from a coding session — verify the install with kapso doctor, launch and follow an evolve campaign toward a scored goal, answer a campaign that is WAITING ON YOU, resume an interrupted run, learn from a finished campaign into the lesson bank, ingest repos and research into the knowledge graph, and deploy the winner. Use when the user mentions Kapso or kapso evolve, learn, research, deploy, doctor, watch, inbox, bank, or asks to push a measurable metric (accuracy, latency, score) in a project where kapso is installed. Do not use for ordinary code edits, or for hand-tuning a metric when Kapso is neither installed nor asked for.
+description: Operate Kapso (PyPI leeroo-kapso), the self-improving software factory for AI and Data objectives, from a coding session — verify the install with kapso doctor, launch and follow an evolve campaign toward a scored goal, answer a campaign that is WAITING ON YOU, resume an interrupted run, learn from a finished campaign into the lesson bank, ingest repos and research into the knowledge graph, and deploy the winner. Use when the user mentions Kapso or kapso evolve, learn, research, deploy, doctor, watch, inbox, bank, or asks to push a measurable metric (accuracy, latency, score) in a project where kapso is installed. Do not use for ordinary code edits, or for hand-tuning a metric when Kapso is neither installed nor asked for.
 ---
 
 # Kapso
