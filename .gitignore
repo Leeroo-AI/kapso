@@ -223,6 +223,8 @@ moltbook_bot/start_server.sh
 .mcp.json
 
 services/wiki_service/state/sync.json
+# Persisted MediaWiki LocalSettings.php (contains DB password and secret keys)
+services/wiki_service/config/
 scripts/evaluate_repos.py
 repos.json
 scripts/tmux_log.sh

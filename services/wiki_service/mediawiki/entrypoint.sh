@@ -12,8 +12,29 @@ until mysql -h "$MW_DB_HOST" -u "$MW_DB_USER" -p"$MW_DB_PASSWORD" -e "SELECT 1" 
 done
 echo "✓ Database is ready"
 
+# LocalSettings.php must survive container recreation. The real file lives in
+# /var/www/html/config (a bind mount, see docker-compose.yml) and
+# /var/www/html/LocalSettings.php is a symlink to it. On a recreated container
+# the persisted file already exists, so we link it in and skip installation.
+#
+# The symlink MUST be owned by www-data: /var/www/html is a world-writable
+# sticky directory owned by www-data, and the kernel's fs.protected_symlinks
+# refuses to follow a symlink there unless its owner matches the follower or
+# the directory owner. A root-owned symlink makes PHP see "LocalSettings.php
+# not found" even though root can read it fine.
+PERSISTED_SETTINGS=/var/www/html/config/LocalSettings.php
+LIVE_SETTINGS=/var/www/html/LocalSettings.php
+link_persisted_settings() {
+    ln -s "$PERSISTED_SETTINGS" "$LIVE_SETTINGS"
+    chown -h www-data:www-data "$LIVE_SETTINGS"
+}
+if [ -f "$PERSISTED_SETTINGS" ] && [ ! -e "$LIVE_SETTINGS" ]; then
+    link_persisted_settings
+    echo "✓ Linked persisted LocalSettings.php"
+fi
+
 # Check if LocalSettings.php exists (wiki already initialized)
-if [ ! -f /var/www/html/LocalSettings.php ]; then
+if [ ! -f "$LIVE_SETTINGS" ]; then
     echo "🚀 Initializing MediaWiki..."
     
     # Run MediaWiki installation script
@@ -29,6 +50,11 @@ if [ ! -f /var/www/html/LocalSettings.php ]; then
         --server="$MW_SITE_SERVER" \
         "$MW_SITENAME" \
         "$MW_ADMIN_USER"
+
+    # Move the generated file to the persisted location and symlink it back,
+    # so every later append in this script lands in the persisted copy.
+    mv "$LIVE_SETTINGS" "$PERSISTED_SETTINGS"
+    link_persisted_settings
     
     # Append extension configuration to LocalSettings.php
     cat >> /var/www/html/LocalSettings.php <<'EOF'
@@ -111,6 +137,12 @@ enableSemantics();
 
 # Disable SMW purge button (the ||| icon in page header)
 $smwgPurgeEnabled = false;
+
+# Persist SMW setup state (.smw.json) alongside LocalSettings.php so it
+# survives container recreation. Default location is the extension dir,
+# which is container-layer only; losing it makes SMW block every page
+# with its "upgrade required" screen. Must come after enableSemantics().
+$smwgConfigFileDir = "/var/www/html/config";
 
 # ============================================
 # Appearance (logo)
@@ -298,15 +330,6 @@ $wgHooks['ArticleViewFooter'][] = function ( $article ) {
 EOF
 
     echo "✓ MediaWiki initialized"
-    
-    # Patch Network extension to show only outgoing links (not backlinks)
-    # This removes 'linkshere' from the API query so only outgoing links are displayed
-    echo "🔧 Patching Network extension for outgoing-only links..."
-    sed -i "s/prop: \['links', 'linkshere', 'extlinks'\]/prop: ['links', 'extlinks']/" \
-        /var/www/html/extensions/Network/resources/js/ApiPageConnectionRepo.js
-    sed -i "/lhlimit: 'max',/d" \
-        /var/www/html/extensions/Network/resources/js/ApiPageConnectionRepo.js
-    echo "✓ Network extension patched"
     
     # Setup Semantic MediaWiki data store
     echo "🔄 Setting up Semantic MediaWiki..."

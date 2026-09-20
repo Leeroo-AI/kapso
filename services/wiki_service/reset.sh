@@ -11,6 +11,7 @@ echo "   - Database contents"
 echo "   - Uploaded images"
 echo "   - Indexer state"
 echo "   - Sync state"
+echo "   - MediaWiki LocalSettings.php and SMW setup state (config/)"
 echo ""
 read -r -p "Are you sure? [y/N] " ans
 case "${ans:-}" in
@@ -23,7 +24,7 @@ echo "Removing containers and volumes..."
 docker compose down -v --remove-orphans
 
 echo "Clearing local directories..."
-rm -rf images/* state/* outbox/* 2>/dev/null || true
+rm -rf images/* state/* outbox/* config 2>/dev/null || true
 
 echo "🗑️  Clearing sync data (state + conflicts)..."
 rm -f state/sync.json 2>/dev/null || true

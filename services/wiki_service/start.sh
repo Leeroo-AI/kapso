@@ -131,8 +131,8 @@ if [ "$FRESH_IMPORT" = true ]; then
     fi
 fi
 
-# Create directories for volumes
-mkdir -p images state outbox
+# Create directories for volumes (config holds the persisted LocalSettings.php)
+mkdir -p images state outbox config
 
 # Build the wiki and sync images
 echo ""

@@ -186,6 +186,7 @@ local_wiki/
 │   ├── mw_client.py      # API client
 │   └── recentchanges_pull.py  # Indexer
 ├── images/               # Uploaded files
+├── config/               # Persisted LocalSettings.php (gitignored, survives container recreation)
 ├── state/                # Indexer state
 └── outbox/               # Indexer output
 ```

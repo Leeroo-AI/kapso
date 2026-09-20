@@ -71,8 +71,15 @@ RUN set -eux; \
 
 # Clone Network extension for interactive page graph visualization
 # This extension uses main branch (not REL1_43)
+# Patched at build time to show only outgoing links: drop the 'linkshere'
+# backlink prop from its API query. The final grep fails the build loudly if
+# upstream changes the file and the patch no longer applies.
 RUN git clone --depth 1 https://github.com/ProfessionalWiki/Network.git extensions/Network \
-    && cd extensions/Network && composer install --no-dev --no-interaction && cd ../..
+    && cd extensions/Network && composer install --no-dev --no-interaction && cd ../.. \
+    && sed -i "s/prop: \['links', 'linkshere', 'extlinks'\]/prop: ['links', 'extlinks']/" \
+        extensions/Network/resources/js/ApiPageConnectionRepo.js \
+    && sed -i "/lhlimit: 'max',/d" extensions/Network/resources/js/ApiPageConnectionRepo.js \
+    && ! grep -q "linkshere" extensions/Network/resources/js/ApiPageConnectionRepo.js
 
 # Copy entrypoint script and helper files
 COPY entrypoint.sh /entrypoint.sh

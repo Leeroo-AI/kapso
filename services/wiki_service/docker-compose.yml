@@ -68,6 +68,8 @@ services:
       - "${WIKI_PORT:-8080}:80"
     volumes:
       - ./images:/var/www/html/images
+      # Persists LocalSettings.php across container recreation (see entrypoint.sh)
+      - ./config:/var/www/html/config
       - ../../${WIKI_DIR:-data/wikis}:/wikis:rw
     depends_on:
       db:
