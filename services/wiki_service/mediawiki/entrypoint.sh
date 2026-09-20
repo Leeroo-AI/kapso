@@ -953,6 +953,34 @@ else
     echo "ℹ️  Email not configured (set SMTP_PASS with Resend API key)"
 fi
 
+# Configure Google Analytics (gtag.js) if a measurement ID is set.
+# The snippet is injected into <head> of every page via the BeforePageDisplay hook.
+# Idempotent: the marker comment prevents appending twice on container restart.
+if [ -n "${GA_MEASUREMENT_ID:-}" ]; then
+    echo "📊 Configuring Google Analytics..."
+    if ! grep -q "GOOGLE ANALYTICS" /var/www/html/LocalSettings.php; then
+        cat >> /var/www/html/LocalSettings.php <<GACONFIG
+
+# ============================================
+# GOOGLE ANALYTICS
+# ============================================
+\$wgHooks['BeforePageDisplay'][] = function (\$out, \$skin) {
+    \$gaId = '${GA_MEASUREMENT_ID}';
+    \$out->addHeadItem('google-analytics',
+        '<script async src="https://www.googletagmanager.com/gtag/js?id=' . \$gaId . '"></script>' .
+        '<script>window.dataLayer = window.dataLayer || [];function gtag(){dataLayer.push(arguments);}gtag("js", new Date());gtag("config", "' . \$gaId . '");</script>'
+    );
+    return true;
+};
+GACONFIG
+        echo "✓ Google Analytics configured (${GA_MEASUREMENT_ID})"
+    else
+        echo "✓ Google Analytics already configured"
+    fi
+else
+    echo "ℹ️  Google Analytics not configured (set GA_MEASUREMENT_ID)"
+fi
+
 # Create API agent user if requested
 # This user has sysop (admin) and bot privileges for automation
 if [ "${MW_CREATE_AGENT:-false}" = "true" ] && [ -n "${MW_AGENT_USER:-}" ] && [ -n "${MW_AGENT_PASS:-}" ]; then

@@ -62,6 +62,8 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
       SMTP_AUTH: ${SMTP_AUTH:-true}
+      # Google Analytics measurement ID (optional, e.g. G-XXXXXXXXXX)
+      GA_MEASUREMENT_ID: ${GA_MEASUREMENT_ID:-}
     ports:
       - "${WIKI_PORT:-8080}:80"
     volumes:
