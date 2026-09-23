@@ -11,8 +11,8 @@ authors:
   - name: "Leeroo"
     email: team@leeroo.com
     website: https://leeroo.com
-version: 0.4.7
-date-released: 2026-09-17
+version: 0.4.8
+date-released: 2026-09-23
 license: MIT
 # Concept DOI: always resolves to the latest release archived on Zenodo.
 doi: 10.5281/zenodo.22811188
