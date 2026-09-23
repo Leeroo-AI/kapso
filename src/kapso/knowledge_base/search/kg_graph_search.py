@@ -12,8 +12,10 @@
 # 3. Enrich results with connected pages from Neo4j
 # 4. Return KGOutput with results and connections
 #
+# Embeddings come from the configured provider (embeddings.py): OpenAI by
+# default, or Google Vertex AI. Each SDK reads its own credentials.
+#
 # Environment Variables:
-# - OPENAI_API_KEY: For text-embedding-3-large (or the configured model)
 # - NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD: Graph database
 # - WEAVIATE_URL: Vector database (default: http://localhost:8080)
 
@@ -42,13 +44,6 @@ except ImportError:
     wvc = None
     HAS_WEAVIATE = False
 
-try:
-    from openai import OpenAI
-    HAS_OPENAI = True
-except ImportError:
-    OpenAI = None
-    HAS_OPENAI = False
-
 from kapso.knowledge_base.search.base import (
     KGEditInput,
     KGIndexInput,
@@ -59,12 +54,9 @@ from kapso.knowledge_base.search.base import (
     PageType,
     WikiPage,
 )
+from kapso.knowledge_base.search.embeddings import make_embedder
 from kapso.knowledge_base.search.factory import register_knowledge_search
 from kapso.core.cli_inference import CliInference
-from kapso.core.api_endpoint import (
-    openai_compatible_options,
-    validate_api_base_url,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -522,7 +514,6 @@ class KGGraphSearch(KnowledgeSearch):
     Neo4j stores graph structure for connection enrichment.
     
     Environment Variables:
-        OPENAI_API_KEY: For text-embedding-3-large embeddings
         NEO4J_URI: Neo4j connection URI (e.g., bolt://localhost:7687)
         NEO4J_USER: Neo4j username
         NEO4J_PASSWORD: Neo4j password
@@ -546,7 +537,8 @@ class KGGraphSearch(KnowledgeSearch):
         
         Args:
             params: Configuration parameters (defaults from knowledge_search.yaml):
-                - embedding_model: OpenAI embedding model
+                - embedding_provider: "openai" or "vertex" (see embeddings.py)
+                - embedding_model: Embedding model of that provider
                 - weaviate_collection: Weaviate collection name
                 - include_connected_pages: Whether to include graph connections
                 - use_llm_reranker: Whether to use LLM reranker
@@ -568,7 +560,7 @@ class KGGraphSearch(KnowledgeSearch):
         # Clients (initialized lazily)
         self._neo4j_driver = None
         self._weaviate_client = None
-        self._openai_client = None
+        self._embedder = None
         self._llm_backend = None
         
         # Cached pages (for save/load)
@@ -606,10 +598,10 @@ class KGGraphSearch(KnowledgeSearch):
     # =========================================================================
     
     def _initialize_clients(self) -> None:
-        """Initialize Neo4j, Weaviate, OpenAI, and LLM clients."""
+        """Initialize Neo4j, Weaviate, embedding, and LLM clients."""
         self._initialize_neo4j()
         self._initialize_weaviate()
-        self._initialize_openai()
+        self._embedder = make_embedder(self.params)
         self._initialize_llm()
     
     def _initialize_neo4j(self) -> None:
@@ -648,24 +640,6 @@ class KGGraphSearch(KnowledgeSearch):
             
         except Exception as e:
             logger.error(f"Failed to connect to Weaviate: {e}")
-    
-    def _initialize_openai(self) -> None:
-        """Initialize OpenAI client."""
-        if not HAS_OPENAI:
-            logger.warning("openai package not installed.")
-            return
-            
-        base_url = validate_api_base_url(
-            self.params.get(
-                "embedding_base_url", openai_compatible_options()["base_url"]
-            )
-        )
-        if not os.getenv("OPENAI_API_KEY"):
-            logger.warning("OPENAI_API_KEY not set. Embeddings disabled.")
-            return
-        # Pass a config URL explicitly so the SDK cannot select an env URL.
-        self._openai_client = OpenAI(base_url=base_url)
-        logger.info("OpenAI embeddings client initialized at %s", base_url)
     
     def _initialize_llm(self) -> None:
         """Initialize LLM backend for reranking."""
@@ -843,16 +817,13 @@ class KGGraphSearch(KnowledgeSearch):
     
     def _index_to_weaviate(self, pages: List[WikiPage]) -> None:
         """
-        Index pages to Weaviate with embeddings.
-        
-        Generates embeddings from page overview using OpenAI.
+        Index pages to Weaviate with embeddings of their description
+        (overview when there is none). Embedding and insert failures raise:
+        a page that cannot be indexed stops the build instead of silently
+        going missing from it.
         """
         if not self._weaviate_client:
             logger.warning("Weaviate not available. Skipping vector indexing.")
-            return
-        
-        if not self._openai_client:
-            logger.warning("OpenAI not available. Cannot generate embeddings.")
             return
         
         # Ensure collection exists
@@ -863,34 +834,37 @@ class KGGraphSearch(KnowledgeSearch):
         
         # Index each page
         indexed_count = 0
+        no_text = []
         for page in pages:
-            try:
-                # Generate embedding from description (fallback to overview)
-                embedding = self._generate_embedding(page.description or page.overview)
-                if not embedding:
-                    continue
-                
-                # Prepare properties
-                properties = {
-                    "page_id": page.id,
-                    "page_type": page.page_type,
-                    "overview": page.overview,
-                    "description": page.description,
-                    "content": page.content,
-                    "domains": page.domains,
-                }
-                
-                # Insert with named vector (Weaviate 1.27+ with vectorizer_config=None
-                # creates a named vector "default", so we must use this format)
-                collection.data.insert(
-                    properties=properties,
-                    vector={"default": embedding},
-                )
-                indexed_count += 1
-                
-            except Exception as e:
-                logger.warning(f"Failed to index page {page.id} to Weaviate: {e}")
+            text = page.description or page.overview
+            if not text:
+                no_text.append(page.id)
+                continue
+            embedding = self._embed_page(page.id, text)
+            
+            # Prepare properties
+            properties = {
+                "page_id": page.id,
+                "page_type": page.page_type,
+                "overview": page.overview,
+                "description": page.description,
+                "content": page.content,
+                "domains": page.domains,
+            }
+            
+            # Insert with named vector (Weaviate 1.27+ with vectorizer_config=None
+            # creates a named vector "default", so we must use this format)
+            collection.data.insert(
+                properties=properties,
+                vector={"default": embedding},
+            )
+            indexed_count += 1
         
+        if no_text:
+            logger.warning(
+                "Not indexed: %d page(s) with no description or overview to embed: %s",
+                len(no_text), no_text,
+            )
         logger.info(f"Indexed {indexed_count} pages to Weaviate")
     
     def _ensure_weaviate_collection(self) -> None:
@@ -924,21 +898,15 @@ class KGGraphSearch(KnowledgeSearch):
         except Exception as e:
             logger.error(f"Failed to ensure Weaviate collection: {e}")
     
-    def _generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding using OpenAI. No truncation -- full text is sent."""
-        if not self._openai_client or not text:
-            return None
-        
-        try:
-            response = self._openai_client.embeddings.create(
-                model=self.embedding_model,
-                input=text,
-            )
-            return response.data[0].embedding
-            
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
-            return None
+    @staticmethod
+    def _page_title(page_id: str) -> str:
+        """The page name as a reader writes it: 'Type/Some_Page' -> 'Some Page'."""
+        return re.sub(r"_+", " ", page_id.split("/", 1)[-1])
+    
+    def _embed_page(self, page_id: str, text: str) -> List[float]:
+        """Embed one page's text. Every index path goes through here, so pages
+        are always embedded in the one format their queries are matched in."""
+        return self._embedder.embed_document(self._page_title(page_id), text)
     
     # =========================================================================
     # Parsed Data Persistence (Internal)
@@ -1153,14 +1121,12 @@ Only include pages that would actually help answer the query.
         Returns:
             List of KGResultItem ranked by fused score
         """
-        if not self._weaviate_client or not self._openai_client:
-            logger.warning("Weaviate or OpenAI not available for semantic search")
+        if not self._weaviate_client:
+            logger.warning("Weaviate not available for semantic search")
             return []
         
-        # Generate query embedding
-        query_embedding = self._generate_embedding(query)
-        if not query_embedding:
-            return []
+        # Generate query embedding (raises on failure)
+        query_embedding = self._embedder.embed_query(query)
         
         try:
             # Get collection
@@ -1588,17 +1554,18 @@ Only include pages that would actually help answer the query.
         Returns:
             True if successful
         """
-        if not self._weaviate_client or not self._openai_client:
+        if not self._weaviate_client:
+            return False
+        
+        text = page.description or page.overview
+        if not text:
+            logger.warning(f"Not indexed: {page.id} has no description or overview to embed")
             return False
         
         # Ensure collection exists
         self._ensure_weaviate_collection()
         
-        # Generate embedding from description (fallback to overview)
-        embedding = self._generate_embedding(page.description or page.overview)
-        if not embedding:
-            logger.warning(f"Failed to generate embedding for {page.id}")
-            return False
+        embedding = self._embed_page(page.id, text)
         
         # Prepare properties
         properties = {
@@ -1922,7 +1889,8 @@ Only include pages that would actually help answer the query.
         if reembed and ("description" in updates or "overview" in updates):
             # Prefer description for embedding; fallback to overview
             embed_text = updates.get("description") or updates.get("overview", "")
-            new_vector = self._generate_embedding(embed_text)
+            if embed_text:
+                new_vector = self._embed_page(page_id, embed_text)
         
         # Update the object
         if new_vector:
@@ -2031,13 +1999,22 @@ Only include pages that would actually help answer the query.
     def get_backend_refs(self) -> Dict[str, Any]:
         """
         Return backend-specific references for index file.
-        
-        Returns Weaviate collection name and embedding model used.
+
+        Records where the pages live and exactly how they were embedded, so a
+        search built from these refs embeds queries with the same provider,
+        model and size as the pages.
         """
-        return {
+        refs = {
             "weaviate_collection": self.weaviate_collection,
+            "embedding_provider": self.params["embedding_provider"],
             "embedding_model": self.embedding_model,
         }
+        if self.params.get("embedding_dimensions"):
+            refs["embedding_dimensions"] = self.params["embedding_dimensions"]
+        if refs["embedding_provider"] == "vertex":
+            refs["vertex_project"] = self.params["vertex_project"]
+            refs["vertex_location"] = self.params["vertex_location"]
+        return refs
     
     def validate_backend_data(self) -> bool:
         """
@@ -2113,22 +2090,11 @@ Only include pages that would actually help answer the query.
             self._weaviate_client.close()
             self._weaviate_client = None
         
-        # Close the OpenAI client if it exposes a close() method.
-        #
-        # Why:
-        # - The OpenAI SDK uses an underlying HTTP client (often httpx) which
-        #   can keep sockets open if not explicitly closed.
-        # - Our tests intentionally create/close KnowledgeSearch instances, and
-        #   unclosed sockets show up as ResourceWarning noise in CI/log audits.
-        # - We treat this as part of the KnowledgeSearch resource lifecycle.
-        if self._openai_client:
-            try:
-                if hasattr(self._openai_client, "close"):
-                    self._openai_client.close()
-            except Exception:
-                # Best-effort cleanup. Never fail callers during shutdown.
-                pass
-            self._openai_client = None
+        # The embedder owns an HTTP client; close it so sockets are not left
+        # open (unclosed sockets show up as ResourceWarning noise in tests).
+        if self._embedder:
+            self._embedder.close()
+            self._embedder = None
     
     def __enter__(self):
         """Context manager entry."""

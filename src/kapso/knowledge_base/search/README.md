@@ -40,8 +40,10 @@ docker run -d --name neo4j \
 ### 3. Set Environment Variables
 
 ```bash
-# Required: OpenAI API key for embeddings and reranking
+# Embeddings: OpenAI by default (the SDK reads OPENAI_API_KEY) ...
 export OPENAI_API_KEY="sk-..."
+# ... or Google Vertex AI (embedding_provider: vertex), which uses
+# Application Default Credentials:  gcloud auth application-default login
 
 # Neo4j connection
 export NEO4J_URI="bolt://localhost:7687"
@@ -108,7 +110,7 @@ for item in result:
 Query → Embedding → Weaviate Search → LLM Reranker → Graph Enrichment → Results
 ```
 
-1. **Embedding**: Generate query embedding with OpenAI
+1. **Embedding**: Generate query embedding with the index's provider (OpenAI or Vertex AI)
 2. **Weaviate Search**: Find top-2K similar pages by vector similarity
 3. **LLM Reranker**: Use gpt-4.1-mini to rerank by relevance (optional)
 4. **Graph Enrichment**: Add connected pages from Neo4j (optional)
@@ -120,7 +122,11 @@ Query → Embedding → Weaviate Search → LLM Reranker → Graph Enrichment �
 | `use_llm_reranker` | `True` | Enable LLM-based result reranking |
 | `reranker_model` | `gpt-4.1-mini` | Model for reranking |
 | `include_connected_pages` | `True` | Include graph connections |
-| `embedding_model` | `text-embedding-3-large` | OpenAI embedding model |
+| `embedding_provider` | `openai` | `openai` or `vertex` (Google Vertex AI) |
+| `embedding_model` | `text-embedding-3-large` | Embedding model of that provider, e.g. `gemini-embedding-2` for `vertex` |
+| `vertex_project` | none | GCP project for `vertex` (required) |
+| `vertex_location` | `global` | Vertex location serving the model |
+| `embedding_dimensions` | model default | Output size (Matryoshka) |
 | `weaviate_collection` | `KGWikiPages` | Weaviate collection name |
 
 ### Examples
@@ -145,6 +151,7 @@ search = KnowledgeSearchFactory.create("kg_graph_search", preset="FAST")
 src/knowledge/search/
 ├── base.py              # Abstract classes and data structures
 ├── factory.py           # Factory for creating search backends
+├── embeddings.py        # Embedding providers: OpenAI (default) and Google Vertex AI
 ├── kg_graph_search.py   # Weaviate + Neo4j + LLM reranker (includes wiki parser)
 ├── kg_llm_navigation_search.py  # LLM navigation implementation
 └── knowledge_search.yaml        # Configuration presets

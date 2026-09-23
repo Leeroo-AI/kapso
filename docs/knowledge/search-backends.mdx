@@ -58,11 +58,32 @@ Its three presets differ only in how much work they do after the vector search:
 | `FAST` | no | no |
 | `RERANK_ONLY` | yes | no |
 
-Shipped defaults are `embedding_model: text-embedding-3-large`, `weaviate_collection: KapsoKG`, `include_connected_pages: true`, `use_llm_reranker: false` and `reranker_overview_max_chars: 300`. A preset overrides them; anything a preset omits falls back to these.
+Shipped defaults are `embedding_provider: openai`, `embedding_model: text-embedding-3-large`, `weaviate_collection: KapsoKG`, `include_connected_pages: true`, `use_llm_reranker: false` and `reranker_overview_max_chars: 300`. A preset overrides them; anything a preset omits falls back to these.
 
 <Note>
   This is a different setting from `defaults.models.embedding` in the main config, which is `text-embedding-3-small` and is used for memory rather than for this backend.
 </Note>
+
+### Embedding with Google Vertex AI
+
+Set `embedding_provider: vertex` to embed pages and queries with a serverless Vertex AI model instead of OpenAI:
+
+```python
+search = KnowledgeSearchFactory.create("kg_graph_search", params={
+    "weaviate_collection": "MyKG",
+    "embedding_provider": "vertex",
+    "embedding_model": "gemini-embedding-2",
+    "vertex_project": "my-gcp-project",   # required; there is no default
+    "vertex_location": "global",          # the default; "us" and "eu" also serve it
+})
+```
+
+- **Credentials.** Google Application Default Credentials, read by `google-auth` itself: `gcloud auth application-default login` on a workstation, or a service account / workload identity for a service. The identity needs `aiplatform.endpoints.predict` on the project.
+- **What is embedded.** `gemini-embedding-2` has no task-type parameter, so the task goes in the text, in Google's documented retrieval format: a page is sent as `title: <page name> | text: <description>`, a query as `task: search result | query: <query>`.
+- **Size.** `embedding_dimensions` sets the output size (128–3072); unset keeps the model's default of 3072.
+- **Failures raise.** Inputs over the model's limit are rejected rather than truncated, rate limits and server errors are retried with backoff (`embedding_max_attempts`, `embedding_backoff_seconds`), and any other error stops the call. This holds for both providers: a page that cannot be embedded stops an index build instead of silently going missing from it.
+
+An index records its provider, model, size and Vertex project in `backend_refs`, and a search built from that index embeds queries the same way. You never have to repeat these settings at search time, and vectors from two different models are never compared.
 
 ## kg_llm_navigation
 
@@ -174,6 +195,7 @@ The `.index` file is a small JSON reference, not the data itself:
   "search_backend": "kg_graph_search",
   "backend_refs": {
     "weaviate_collection": "KapsoKG",
+    "embedding_provider": "openai",
     "embedding_model": "text-embedding-3-large"
   },
   "page_count": 99

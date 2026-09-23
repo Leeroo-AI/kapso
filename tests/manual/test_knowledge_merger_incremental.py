@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 load_dotenv(project_root / ".env")
 
 from kapso.knowledge_base.learners.merger import KnowledgeMerger, MergeResult
+from kapso.knowledge_base.search.factory import KnowledgeSearchFactory
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
 
 
@@ -111,7 +112,6 @@ def run_merge_test(staging_subdir: str, merger: KnowledgeMerger) -> MergeResult:
 def clear_databases():
     """Clear Neo4j and Weaviate databases for a clean test start."""
     import json
-    from kapso.knowledge_base.search.kg_graph_search import KGGraphSearch
     
     # Try to read collection name from existing index file
     weaviate_collection = "KGWikiPages"  # default
@@ -124,7 +124,7 @@ def clear_databases():
             pass
     
     try:
-        search = KGGraphSearch(params={"weaviate_collection": weaviate_collection})
+        search = KnowledgeSearchFactory.create("kg_graph_search", params={"weaviate_collection": weaviate_collection})
         search.clear()
         print(f"Cleared Neo4j and Weaviate databases (collection: {weaviate_collection})")
     except Exception as e:

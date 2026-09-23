@@ -53,6 +53,9 @@ dependencies = [
     "tiktoken",
     # OpenAI embeddings API
     "openai>=1.0.0",
+    # Google Vertex AI embeddings (kg_graph_search embedding_provider "vertex"):
+    # Application Default Credentials + an authorized HTTP session.
+    "google-auth[requests]>=2.0",
 ]
 
 [project.optional-dependencies]

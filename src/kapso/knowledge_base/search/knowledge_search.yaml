@@ -57,7 +57,23 @@ searches:
     
     # Default values used when params are not specified
     defaults:
+      # Who embeds pages and queries: "openai" or "vertex" (Google Vertex AI,
+      # e.g. embedding_model "gemini-embedding-2"). An index records its
+      # provider, model and size in backend_refs, and search rebuilds the same
+      # embedder from them, so queries always match how the pages were embedded.
+      embedding_provider: "openai"
       embedding_model: "text-embedding-3-large"
+      # Vertex only. vertex_project has no default: this file ships in the
+      # package, so the project comes from the index refs or the caller's
+      # params. gemini-embedding-2 is served from "global" (or "us"/"eu").
+      vertex_location: "global"
+      # Output size (Matryoshka); unset keeps the model's default.
+      embedding_dimensions: null
+      # Vertex rate limits and transient server errors are retried with
+      # exponential backoff; any other failure raises immediately.
+      embedding_max_attempts: 6
+      embedding_backoff_seconds: 1
+      embedding_timeout_seconds: 30
       weaviate_collection: "KapsoKG"
       include_connected_pages: true
       use_llm_reranker: false
