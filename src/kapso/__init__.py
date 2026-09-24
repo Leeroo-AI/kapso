@@ -1,6 +1,6 @@
 # Kapso Agent
 #
-# Self-improving software factory for AI and Data objectives.
+# Long-running agents that optimize AI and Data systems, and learn from every experience.
 #
 # Usage:
 #     from src import Kapso, Source, DeployStrategy

@@ -1,12 +1,12 @@
 cff-version: 1.2.0
 message: "If you use Kapso in your work, please cite it as below."
 type: software
-title: "Kapso: a self-improving software factory for AI and Data objectives"
+title: "Kapso: long-running agents that optimize AI and Data systems"
 abstract: >-
-  Kapso is a self-improving software factory for AI and Data objectives. Give it an
-  objective and it autonomously builds the best solution, deploys it, and learns
-  from every run: it keeps what moved the metric, with the evidence that earned
-  it, and learns from public repositories and papers.
+  Kapso is a team of long-running agents that optimize AI and Data systems, and
+  learn from every experience. Give it an objective and it autonomously builds the
+  best solution, deploys it, and keeps what moved the metric, with the evidence
+  that earned it; it also learns from public repositories and papers.
 authors:
   - name: "Leeroo"
     email: team@leeroo.com
@@ -26,7 +26,8 @@ identifiers:
 repository-code: https://github.com/Leeroo-AI/kapso
 url: https://docs.leeroo.com/docs
 keywords:
-  - self-improving software factory
+  - long-running agents
+  - optimization
   - machine learning
   - AI agents
   - AutoML

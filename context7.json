@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "Kapso by Leeroo",
-  "description": "Open-source framework that builds software toward measurable goals by running experiment campaigns with coding agents; learns from finished campaigns and from repositories and papers. pip install leeroo-kapso.",
+  "description": "Long-running agents that optimize AI and Data systems, and learn from every experience. State an objective and Kapso runs experiment campaigns with coding agents; it learns from finished campaigns and from repositories and papers. pip install leeroo-kapso.",
   "folders": [
     "docs"
   ],
