@@ -19,10 +19,10 @@ doi: 10.5281/zenodo.22811188
 identifiers:
   - type: doi
     value: 10.5281/zenodo.22811188
-    description: "Concept DOI for all versions"
-  - type: doi
-    value: 10.5281/zenodo.22811189
-    description: "Zenodo DOI for version 0.4.6"
+    description: "Zenodo concept DOI (resolves to the latest archived release)"
+  - type: url
+    value: https://www.wikidata.org/wiki/Q141550738
+    description: "Wikidata item (Kapso; developer Leeroo, Q141550709)"
 repository-code: https://github.com/Leeroo-AI/kapso
 url: https://docs.leeroo.com/docs
 keywords:
