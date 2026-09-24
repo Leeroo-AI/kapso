@@ -1,7 +1,7 @@
 <h1 align="center">Kapso</h1>
 
-<h4 align="center">Self-improving Software Factory</h4>
-<p align="center"><sub>For AI and Data objectives</sub></p>
+<h4 align="center">Long-running agents that optimize AI and Data systems</h4>
+<p align="center"><sub>and learn from every experience</sub></p>
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">Learn more</a> ·
@@ -50,9 +50,9 @@
 
 ## What is KAPSO?
 
-Kapso is a self-improving software factory. State an objective and it runs a campaign: it designs candidate solutions, has coding agents implement them, measures how far each one is from the objective, and keeps refining the closest until the objective is met. The result ships to your infrastructure.
+Kapso is a team of long-running agents that optimize AI and Data systems. State an objective and it runs a campaign: it designs candidate solutions, has coding agents implement them, measures how far each one is from the objective, and keeps refining the closest until the objective is met. The result ships to your infrastructure.
 
-The factory improves with use. When a campaign ends, Kapso studies its own work: which ideas closed the distance to the objective, which did not, and under what conditions. Each finding is kept as a lesson with the evidence that earned it, and a lesson stays trusted only as long as it keeps holding up. Kapso also reads outside your walls, repositories and papers, and folds what it finds into the same knowledge hub. Every new campaign begins from that hub, so it starts with what earlier work already established, about the problem and about your systems.
+Kapso learns from every experience. When a campaign ends, it studies its own work: which ideas closed the distance to the objective, which did not, and under what conditions. Each finding is kept as a lesson with the evidence that earned it, and a lesson stays trusted only as long as it keeps holding up. Kapso also reads outside your walls, repositories and papers, and folds what it finds into the same knowledge hub. Every new campaign begins from that hub, so it starts with what earlier work already established, about the problem and about your systems.
 
 Kapso is an open-source Python framework by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
 
