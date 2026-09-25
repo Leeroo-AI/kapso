@@ -11,8 +11,16 @@ default_resources:
   cpu: 2
   memory: 4Gi
 
-# Run interface configuration (passed to runner constructor)
+requires:
+  binary: bentoml
+  install: "pip install bentoml"
+
+required_files: [service.py, bentofile.yaml, deploy.py]
+
+# Run interface configuration (passed to runner constructor); the adapter
+# fills {deployment_name} from the solution path.
 run_interface:
   type: bentocloud
+  deployment_name: "kapso-{deployment_name}"
   predict_path: /predict
 

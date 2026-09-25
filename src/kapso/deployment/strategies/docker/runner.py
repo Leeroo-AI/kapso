@@ -4,15 +4,17 @@
 # Manages container lifecycle using docker-py SDK.
 #
 # Usage:
-#     runner = DockerRunner(endpoint="http://localhost:8000", container_name="my-app")
+#     runner = DockerRunner(endpoint="http://localhost:8123", container_name="kapso-my-app-1a2b3c")
 #     result = runner.run({"input": "data"})
 #     runner.stop()  # Stops and removes container
-#     runner.start()  # Restarts container
+#     runner.start()  # Recreates it from the image
 
 import time
 from typing import Any, Dict, List, Optional, Union
 
-from kapso.deployment.strategies.base import Runner
+from kapso.deployment.strategies.base import Runner, deployment_context
+
+INSTALL_HINT = 'pip install "leeroo-kapso[deploy]"'
 
 
 class DockerRunner(Runner):
@@ -27,6 +29,10 @@ class DockerRunner(Runner):
     Expects the container to expose:
     - POST /predict - for running predictions
     - GET /health - for health checks (optional)
+    
+    The adapter's deploy command creates the first container; this class
+    recreates it on start() with the same name, port mapping, environment
+    variables and GPU request, so a restart is the same deployment.
     """
     
     def __init__(
@@ -39,7 +45,10 @@ class DockerRunner(Runner):
         code_path: str = None,
         container_name: str = None,
         image_name: str = None,
-        port: int = 8000,
+        port: Union[int, str] = 8000,
+        container_port: int = 8000,
+        env_vars: Optional[Dict[str, str]] = None,
+        resources: Optional[Dict[str, Any]] = None,
         **kwargs,  # Accept extra params from run_interface
     ):
         """
@@ -47,32 +56,45 @@ class DockerRunner(Runner):
         
         Args:
             endpoint: Base URL of the deployed service
-            predict_path: Path for prediction endpoint
+            predict_path: Path for prediction endpoint (`path` is accepted too)
             health_path: Path for health check endpoint
             timeout: Request timeout in seconds
             headers: Additional headers to send with requests
             code_path: Path to the code directory (for building image)
             container_name: Name of the Docker container to manage
             image_name: Name of the Docker image to use
-            port: Port to expose (default: 8000)
+            port: Host port the container is published on
+            container_port: Port the application listens on inside the container
+            env_vars: Environment for the container when this runner recreates it
+            resources: Selector's resources; a `gpu` entry requests all GPUs
             **kwargs: Additional parameters (ignored)
         """
+        if "path" in kwargs and predict_path == "/predict":
+            predict_path = kwargs["path"]
+        # Names fall back to the same per-solution scheme the adapter uses,
+        # so a runner built from code_path alone still avoids collisions
+        names = deployment_context(code_path) if code_path else {"deployment_name": "app", "port": 8000}
+        
         self.endpoint = endpoint.rstrip("/")
         self.predict_path = predict_path
         self.health_path = health_path
         self.timeout = timeout
         self.headers = headers or {}
         self.code_path = code_path
-        self.container_name = container_name or "kapso-app"
-        self.image_name = image_name or "kapso-solution"
-        self.port = port
+        self.container_name = container_name or f"kapso-{names['deployment_name']}"
+        self.image_name = image_name or f"kapso-{names['deployment_name']}"
+        self.port = int(port)
+        self.container_port = int(container_port)
+        self.env_vars = dict(env_vars or {})
+        self.resources = dict(resources or {})
         self._container = None
         self._docker_client = None
+        self._last_container_logs: str = ""
         self._logs: List[str] = []
         
         # Initialize Docker client
         self._init_docker_client()
-        self._logs.append(f"Initialized Docker runner for {endpoint}")
+        self._logs.append(f"Initialized Docker runner for {self.endpoint} ({self.container_name})")
     
     def _init_docker_client(self) -> None:
         """Initialize the Docker client."""
@@ -81,7 +103,7 @@ class DockerRunner(Runner):
             self._docker_client = docker.from_env()
             self._logs.append("Docker client initialized")
         except ImportError:
-            self._logs.append("docker package not installed. Run: pip install docker")
+            self._logs.append(f"docker package not installed. Run: {INSTALL_HINT}")
             self._docker_client = None
         except Exception as e:
             self._logs.append(f"Failed to connect to Docker daemon: {e}")
@@ -97,12 +119,27 @@ class DockerRunner(Runner):
         except Exception:
             return None
     
+    def _run_kwargs(self) -> Dict[str, Any]:
+        """Everything `containers.run` needs to recreate this deployment."""
+        kwargs: Dict[str, Any] = {
+            "name": self.container_name,
+            "ports": {f"{self.container_port}/tcp": self.port},
+            "detach": True,
+            "environment": dict(self.env_vars),
+            "restart_policy": {"Name": "unless-stopped"},
+        }
+        if self.resources.get("gpu"):
+            from docker.types import DeviceRequest
+            kwargs["device_requests"] = [DeviceRequest(count=-1, capabilities=[["gpu"]])]
+        return kwargs
+    
     def start(self) -> None:
         """
         Start or restart the Docker container.
         
         If container exists and is stopped, starts it.
-        If container doesn't exist, creates and starts it.
+        If container doesn't exist, creates and starts it, then waits until
+        the health endpoint answers.
         """
         if not self._docker_client:
             self._init_docker_client()
@@ -125,28 +162,25 @@ class DockerRunner(Runner):
                 container.start()
                 self._container = container
                 self._logs.append(f"Container {self.container_name} started")
+                self.wait_for_ready()
                 return
         
         # Create and start new container
         self._logs.append(f"Creating new container {self.container_name} from image {self.image_name}...")
         try:
-            self._container = self._docker_client.containers.run(
-                self.image_name,
-                name=self.container_name,
-                ports={f"{self.port}/tcp": self.port},
-                detach=True,
-            )
+            self._container = self._docker_client.containers.run(self.image_name, **self._run_kwargs())
             self._logs.append(f"Container {self.container_name} created and started")
         except Exception as e:
             self._logs.append(f"Failed to create container: {e}")
             raise
+        self.wait_for_ready()
     
     def stop(self) -> None:
         """
         Stop and remove the Docker container.
         
-        Gracefully stops the container then removes it.
-        Can be restarted with start().
+        Gracefully stops the container then removes it, keeping the last
+        of its logs for logs(). Can be restarted with start().
         """
         if not self._docker_client:
             self._logs.append("Docker client not available")
@@ -161,6 +195,12 @@ class DockerRunner(Runner):
             return
         
         try:
+            # Keep the container's own logs — they vanish with the container
+            try:
+                self._last_container_logs = container.logs(tail=200).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            
             # Stop the container if running
             if container.status == "running":
                 self._logs.append(f"Stopping container {self.container_name}...")
@@ -190,7 +230,7 @@ class DockerRunner(Runner):
         try:
             import requests
         except ImportError:
-            raise ImportError("requests package required. Install with: pip install requests")
+            raise ImportError(f"requests package required. Install with: {INSTALL_HINT}")
         
         url = f"{self.endpoint}{self.predict_path}"
         
@@ -251,6 +291,9 @@ class DockerRunner(Runner):
                 all_logs.append(container_logs)
             except Exception:
                 pass
+        elif self._last_container_logs:
+            all_logs.append("--- Container Logs (before removal) ---")
+            all_logs.append(self._last_container_logs)
         
         return "\n".join(all_logs)
     
@@ -278,13 +321,11 @@ class DockerRunner(Runner):
     
     def get_deploy_command(self) -> str:
         """Get the command to build and run the Docker container."""
-        if self.code_path:
-            return (
-                f"cd {self.code_path} && "
-                f"docker build -t {self.image_name} . && "
-                f"docker run -d --name {self.container_name} -p {self.port}:{self.port} {self.image_name}"
-            )
-        return (
+        run = (
             f"docker build -t {self.image_name} . && "
-            f"docker run -d --name {self.container_name} -p {self.port}:{self.port} {self.image_name}"
+            f"docker run -d --name {self.container_name} -p {self.port}:{self.container_port} "
+            f"--restart unless-stopped {self.image_name}"
         )
+        if self.code_path:
+            return f"cd {self.code_path} && {run}"
+        return run

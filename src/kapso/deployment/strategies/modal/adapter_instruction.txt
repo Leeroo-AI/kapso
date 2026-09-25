@@ -12,16 +12,33 @@ modal deploy modal_app.py
 Run this command to deploy to Modal. Capture the endpoint URL from the output (e.g., `https://username--app-name-web-predict.modal.run`).
 If deployment fails, debug and fix the error.
 
+## APP NAME (assigned by Kapso — use it exactly)
+
+`kapso-{deployment_name}` — pass it to `modal.App(...)`. Kapso looks the
+function up under this name after you deploy.
+
 ## RUN INTERFACE
 - type: modal
-- app_name: derived from path
-- callable: predict
+- app_name: kapso-{deployment_name}
+- function_name: predict
 
-After successful deployment, output this JSON (update app_name and endpoint):
+After successful deployment, output this JSON (update the endpoint):
 ```
-<run_interface>{"type": "modal", "app_name": "your-app-name", "callable": "predict"}</run_interface>
-<endpoint_url>https://your-username--app-name-web-predict.modal.run</endpoint_url>
+<run_interface>{"type": "modal", "app_name": "kapso-{deployment_name}", "function_name": "predict"}</run_interface>
+<endpoint_url>https://your-username--kapso-{deployment_name}-web-predict.modal.run</endpoint_url>
 ```
+
+## Resources
+
+Requested for this deployment: {resources}. Set `gpu=` (and `memory=`) on
+`@app.function` from that; leave `gpu` out when none is requested.
+
+## Environment variables
+
+Variables provided by the caller: {env_var_names}. When any are listed, a
+`.env` file with them sits next to `modal_app.py`; attach it to every
+function with `secrets=[modal.Secret.from_dotenv()]` so they are present at
+runtime. Never paste the values into the code.
 
 ## CRITICAL: YOU MUST ACTUALLY DEPLOY
 
@@ -58,7 +75,7 @@ Modal application for serverless deployment.
 import modal
 
 # Define the Modal app with a unique name
-app = modal.App("solution-name")
+app = modal.App("kapso-{deployment_name}")
 
 # Define the container image with dependencies
 image = (

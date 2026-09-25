@@ -18,8 +18,32 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import hashlib
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
+
+# =============================================================================
+# Per-solution naming
+# =============================================================================
+
+def deployment_context(code_path: str) -> Dict[str, Any]:
+    """Names and a host port derived from the solution's path.
+
+    Two solutions deployed side by side used to share `solution` /
+    `solution-container` and port 8000, so the second deploy replaced the
+    first. The slug keeps the directory name readable; the hash keeps two
+    directories with the same name apart; the port is fixed per solution so a
+    re-deploy lands where the previous one did.
+    """
+    absolute = str(Path(code_path).resolve())
+    digest = hashlib.sha1(absolute.encode()).hexdigest()
+    slug = re.sub(r"[^a-z0-9]+", "-", Path(absolute).name.lower()).strip("-")[:24] or "solution"
+    return {
+        "deployment_name": f"{slug}-{digest[:6]}",
+        "port": 8000 + int(digest[:4], 16) % 1000,
+    }
 
 
 # =============================================================================
@@ -207,6 +231,19 @@ class DeployStrategyConfig:
         """Get cloud provider name (or None for local)."""
         config = self.get_config()
         return config.get("provider")
+    
+    def get_required_files(self) -> List[str]:
+        """Files the adapter must leave behind, from config.yaml (`required_files`).
+        The validator fails an adaptation without them; a strategy that names
+        none is held to `main.py`, the entry point every target shares."""
+        files = self.get_config().get("required_files")
+        return list(files) if files else ["main.py"]
+    
+    def get_requires(self) -> Optional[Dict[str, str]]:
+        """The tool this target needs on the deploying machine, from config.yaml
+        (`requires: {binary, install}`), or None for in-process targets."""
+        requires = self.get_config().get("requires")
+        return dict(requires) if requires else None
     
     def get_runner_class(self) -> type:
         """

@@ -56,6 +56,9 @@ dependencies = [
     # Google Vertex AI embeddings (kg_graph_search embedding_provider "vertex"):
     # Application Default Credentials + an authorized HTTP session.
     "google-auth[requests]>=2.0",
+    # deploy(): the Docker and BentoCloud runners call their endpoints with it
+    # (it arrived only transitively before, through google-auth).
+    "requests>=2.28",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +77,22 @@ mle = [
 ]
 ale = [
     # ale-bench installed separately (requires docker setup)
+]
+# deploy() targets. The adapter session installs what the *solution* needs;
+# these are what Kapso's own runners need to drive each target.
+deploy = [
+    # DockerRunner recreates and removes containers through the SDK
+    "docker>=7.0",
+]
+modal = [
+    "modal>=1.0",
+]
+bentoml = [
+    "bentoml>=1.3",
+]
+langgraph = [
+    "langgraph-cli>=0.1",
+    "langgraph-sdk>=0.1",
 ]
 dev = [
     "pytest>=7.0.0",

@@ -122,6 +122,11 @@ class DeployedSoftware(Software):
                     output = {k: v for k, v in result.items() if k != "status"}
                     return {"status": "success", "output": output}
                 return result
+            elif "error" in result and len(result) <= 4 and "output" not in result:
+                # A runner reporting a failure ({"error": ..., "instructions": ...})
+                # used to come back as a success wrapping the failure
+                return {"status": "error", "error": result["error"],
+                        **{k: v for k, v in result.items() if k != "error"}}
             else:
                 # Wrap dict in output
                 return {"status": "success", "output": result}

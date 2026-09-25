@@ -14,6 +14,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from kapso.deployment.base import DeploymentSetting
+from kapso.deployment.strategies import StrategyRegistry
+
+# Directories the syntax sweep skips: never the adapter's output, and .venv
+# alone can hold thousands of files.
+SKIPPED_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules",
+                ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 
 
 @dataclass
@@ -35,6 +41,12 @@ class AdaptationValidator:
     2. Import: Main module can be imported without error
     3. Structure: Required files exist for the deployment strategy
     4. Execution: Basic execution test (optional)
+    
+    Tiers 2 and 4 run this interpreter against the adapted code, so they
+    apply only to a target that runs in this interpreter — local. A Docker,
+    Modal, BentoCloud or LangGraph deployment runs inside its own image,
+    where the dependencies live; importing it here would fail for the wrong
+    reason. Tiers 1 and 3 apply to every target.
     """
     
     def validate(
@@ -56,6 +68,7 @@ class AdaptationValidator:
         """
         result = ValidationResult(success=True)
         path = Path(code_path)
+        runs_here = self.runs_in_this_interpreter(setting)
         
         # Tier 1: Syntax check
         syntax_ok = self._check_syntax(path, result)
@@ -63,11 +76,14 @@ class AdaptationValidator:
             result.success = False
             return result
         
-        # Tier 2: Import check
-        import_ok = self._check_import(path, result)
-        if not import_ok:
-            result.success = False
-            return result
+        # Tier 2: Import check (local only)
+        if runs_here:
+            import_ok = self._check_import(path, result)
+            if not import_ok:
+                result.success = False
+                return result
+        else:
+            result.logs.append(f"Import check skipped ({setting.strategy} runs in its own runtime)")
         
         # Tier 3: Structure check (strategy-specific)
         structure_ok = self._check_structure(path, setting, result)
@@ -75,8 +91,8 @@ class AdaptationValidator:
             result.success = False
             return result
         
-        # Tier 4: Execution test (optional)
-        if run_execution_test:
+        # Tier 4: Execution test (optional, local only)
+        if run_execution_test and runs_here:
             exec_ok = self._check_execution(path, setting, result)
             if not exec_ok:
                 result.success = False
@@ -85,11 +101,18 @@ class AdaptationValidator:
         result.logs.append("All validation checks passed")
         return result
     
+    @staticmethod
+    def runs_in_this_interpreter(setting: DeploymentSetting) -> bool:
+        """True for a target whose runner imports the code into this process."""
+        return setting.provider is None and setting.interface == "function"
+    
     def _check_syntax(self, path: Path, result: ValidationResult) -> bool:
         """Check that all Python files are syntactically correct."""
         result.logs.append("Checking syntax...")
         
         for py_file in path.rglob("*.py"):
+            if SKIPPED_DIRS.intersection(py_file.relative_to(path).parts[:-1]):
+                continue
             try:
                 with open(py_file, 'r') as f:
                     compile(f.read(), py_file, 'exec')
@@ -114,7 +137,7 @@ class AdaptationValidator:
                 # Try to import using subprocess to avoid polluting current namespace
                 cmd = [
                     sys.executable, "-c",
-                    f"import sys; sys.path.insert(0, '{path}'); "
+                    f"import sys; sys.path.insert(0, {str(path)!r}); "
                     f"import {name[:-3]}; print('OK')"
                 ]
                 try:
@@ -130,7 +153,7 @@ class AdaptationValidator:
                         return True
                     else:
                         result.checks_failed.append(f"import:{name}")
-                        result.error = f"Import failed for {name}: {proc.stderr}"
+                        result.error = f"Import failed for {name}: {proc.stderr.strip()[-800:]}"
                         return False
                 except subprocess.TimeoutExpired:
                     result.checks_failed.append(f"import:{name}")
@@ -147,45 +170,32 @@ class AdaptationValidator:
         setting: DeploymentSetting,
         result: ValidationResult,
     ) -> bool:
-        """Check that required files exist for the deployment strategy."""
+        """Check that the files the strategy's config.yaml names exist."""
         result.logs.append(f"Checking structure for {setting.strategy}...")
         
-        # Strategy-specific required files
-        required_files = {
-            "local": ["main.py"],  # Or src/main.py
-            "docker": ["Dockerfile", "requirements.txt"],
-            "modal": ["modal_app.py", "requirements.txt"],
-            "bentoml": ["service.py", "bentofile.yaml"],
-        }
+        registry = StrategyRegistry.get()
+        if registry.strategy_exists(setting.strategy):
+            required = registry.get_strategy(setting.strategy).get_required_files()
+        else:
+            required = ["main.py"]
         
-        # Get required files for this strategy
-        required = required_files.get(setting.strategy, ["main.py"])
-        
-        all_found = True
+        missing = []
         for filename in required:
-            file_path = path / filename
-            alt_path = path / "src" / filename  # Also check src/
-            
-            if file_path.exists() or alt_path.exists():
+            if (path / filename).exists() or (path / "src" / filename).exists():
                 result.checks_passed.append(f"structure:{filename}")
             else:
-                # Some files are optional depending on interface
-                if filename == "Dockerfile" and setting.interface == "function":
-                    result.logs.append(f"Skipping {filename} (function interface)")
-                    continue
-                if filename in ["modal_app.py", "service.py", "bentofile.yaml"]:
-                    # These are generated by adapter, warn but don't fail
-                    result.logs.append(f"Warning: {filename} not found")
-                    continue
-                
                 result.checks_failed.append(f"structure:{filename}")
-                result.error = f"Required file not found: {filename}"
-                all_found = False
+                missing.append(filename)
         
-        if all_found:
-            result.logs.append("Structure check passed")
+        if missing:
+            result.error = (
+                f"Required file(s) for {setting.strategy} not found: "
+                f"{', '.join(missing)} (looked in {path} and {path / 'src'})"
+            )
+            return False
         
-        return all_found
+        result.logs.append("Structure check passed")
+        return True
     
     def _check_execution(
         self,
@@ -237,4 +247,3 @@ class AdaptationValidator:
             result.checks_failed.append("execution:error")
             result.error = f"Execution error: {e}"
             return False
-

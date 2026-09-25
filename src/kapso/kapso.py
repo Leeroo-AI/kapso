@@ -1668,13 +1668,17 @@ class Kapso:
         
         Args:
             solution: The SolutionResult from evolve()
-            strategy: Where to deploy (AUTO, LOCAL, DOCKER, MODAL, BENTOML)
+            strategy: Where to deploy (AUTO, LOCAL, DOCKER, MODAL, BENTOML, LANGGRAPH)
                 - AUTO: System analyzes code and chooses best strategy
                 - LOCAL: Run as local Python process (fastest)
                 - DOCKER: Run in Docker container (isolated)
                 - MODAL: Deploy to Modal.com (serverless, GPU)
-                - BENTOML: Deploy with BentoML (production ML)
-            env_vars: Environment variables to pass to the software
+                - BENTOML: Deploy with BentoML (BentoCloud)
+                - LANGGRAPH: Deploy as an agent on LangGraph Platform
+            env_vars: Environment variables the software needs at runtime:
+                written to `.env` in the adapted workspace, named (never
+                valued) in the adapter prompt, and set on the runtimes Kapso
+                manages (local process, Docker container)
             coding_agent: The coding agent behind the selector and adapter
                 sessions; default from config `deployment.coding_agent`
             model: The model that agent is asked for; default from config

@@ -40,6 +40,10 @@ After creating the LangGraph files:
 - `LANGSMITH_API_KEY` - Your LangSmith API key (required)
 - `ANTHROPIC_API_KEY` - If using Claude (required for the agent)
 
+Variables provided by the caller: {env_var_names}. When any are listed, a
+`.env` file with them is at the workspace root, and `langgraph.json` below
+points the deployment at it (`"env": ".env"`).
+
 ## Required Structure
 
 ```

@@ -110,6 +110,21 @@ run_interface:
   callable: "predict"
 ```
 
+Two more keys make the strategy a full citizen:
+
+```yaml
+# The tool preflight and `kapso doctor deploy` check for (omit for in-process targets)
+requires:
+  binary: mycloud
+  install: "pip install mycloud && mycloud login"
+
+# Files your adapter instruction asks the agent to create; the validator fails
+# the adaptation without them, and the agent is asked to fix it
+required_files: [main.py, mycloud.yaml]
+```
+
+`run_interface` values may use `{deployment_name}` and `{port}`, which Kapso fills per solution (a slug of the solution directory plus a hash, and a host port in 8000–8999).
+
 ## Step 4: Selector instruction
 
 Create `selector_instruction.txt` for auto-selection:

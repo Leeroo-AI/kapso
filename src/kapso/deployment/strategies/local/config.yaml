@@ -9,6 +9,10 @@ runner_class: LocalRunner
 # No default resources needed for local
 default_resources: {}
 
+# Files the adapter must leave behind — the validator fails the adaptation
+# without them (checked at the workspace root and under src/).
+required_files: [main.py]
+
 # Run interface configuration (passed to runner constructor)
 run_interface:
   type: function

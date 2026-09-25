@@ -56,14 +56,21 @@ CLI_BINARIES = {
     "aider": "aider",
 }
 
-# Deployment targets and the tool each one needs on the box. LOCAL runs in
-# process; AUTO is resolved by a coding-agent session, so its requirement
-# is that session's agent (added separately).
-DEPLOY_TOOLS = {
-    "docker": ("docker", "install Docker: https://docs.docker.com/get-docker/"),
-    "modal": ("modal", "pip install modal && modal token new"),
-    "bentoml": ("bentoml", "pip install bentoml"),
-}
+def deploy_tools() -> Dict[str, Tuple[str, str]]:
+    """Deployment targets and the tool each one needs on the box, read from
+    every strategy's config.yaml (`requires: {binary, install}`), so a new
+    strategy directory is a new doctor row with nothing to edit here. LOCAL
+    declares nothing and runs in process; AUTO is resolved by a coding-agent
+    session, so its requirement is that session's agent (added separately).
+    """
+    from kapso.deployment.strategies import StrategyRegistry
+    registry = StrategyRegistry.get()
+    tools = {}
+    for name in registry.list_strategies():
+        requires = registry.get_strategy(name).get_requires()
+        if requires and requires.get("binary"):
+            tools[name] = (requires["binary"], requires.get("install", f"install {requires['binary']}"))
+    return tools
 
 VERBS = ("research", "learn_knowledge", "evolve", "learn", "deploy")
 
@@ -804,8 +811,9 @@ def deploy_requirements(
         origin=f"deploy(coding_agent={coding_agent!r}) adapts the solution",
     )])
 
+    tools = deploy_tools()
     if strategy is None:
-        for name, (binary, fix) in sorted(DEPLOY_TOOLS.items()):
+        for name, (binary, fix) in sorted(tools.items()):
             requirements.append(Requirement(
                 label=f"deploy target {name}",
                 ok=shutil.which(binary) is not None,
@@ -817,10 +825,10 @@ def deploy_requirements(
         return requirements
 
     target = str(strategy).lower()
-    if target not in DEPLOY_TOOLS:
+    if target not in tools:
         return requirements
 
-    binary, fix = DEPLOY_TOOLS[target]
+    binary, fix = tools[target]
     present = shutil.which(binary) is not None
     requirements.append(Requirement(
         label=f"{binary} (deploy target)",

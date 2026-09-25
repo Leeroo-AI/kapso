@@ -12,16 +12,29 @@ python deploy.py
 Run this command to deploy to BentoCloud. Capture the endpoint URL from the output.
 If deployment fails, debug and fix the error.
 
+## DEPLOYMENT NAME (assigned by Kapso — use it exactly)
+
+`kapso-{deployment_name}` — pass it as the service name and as
+`bentoml deploy --name`. Kapso terminates and re-deploys under this name.
+
 ## RUN INTERFACE
 - type: bentocloud
-- deployment_name: derived from path
-- path: /predict
+- deployment_name: kapso-{deployment_name}
+- predict_path: /predict
 
-After successful deployment, output this JSON (update deployment_name and endpoint):
+After successful deployment, output this JSON (update the endpoint):
 ```
-<run_interface>{"type": "bentocloud", "deployment_name": "your-deployment-name", "path": "/predict"}</run_interface>
+<run_interface>{"type": "bentocloud", "deployment_name": "kapso-{deployment_name}", "predict_path": "/predict"}</run_interface>
 <endpoint_url>https://your-deployment.bentoml.cloud</endpoint_url>
 ```
+
+## Environment variables
+
+Variables provided by the caller: {env_var_names}. When any are listed, a
+`.env` file with them is at the workspace root; declare them for the
+deployment (`envs:` in `bentofile.yaml`, or `bentoml deploy --env KEY=VALUE`
+in `deploy.py`) so they are present at runtime. Never paste the values into
+the code.
 
 ## CRITICAL: YOU MUST ACTUALLY DEPLOY
 
@@ -63,7 +76,7 @@ from typing import Any, Dict, List, Union
 
 
 @bentoml.service(
-    name="solution-service",
+    name="kapso-{deployment_name}",
     resources={"cpu": "2", "memory": "4Gi"},
     traffic={"timeout": 300},
 )
@@ -131,7 +144,7 @@ def deploy_to_bentocloud():
     subprocess.run(["bentoml", "cloud", "login", "--api-token", api_key, "--endpoint", api_endpoint], check=True)
     
     # Deploy
-    result = subprocess.run(["bentoml", "deploy", "."], capture_output=True, text=True)
+    result = subprocess.run(["bentoml", "deploy", ".", "--name", "kapso-{deployment_name}"], capture_output=True, text=True)
     
     if result.returncode == 0:
         print("✓ Deployment successful!")

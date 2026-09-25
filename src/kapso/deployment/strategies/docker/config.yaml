@@ -9,11 +9,23 @@ runner_class: DockerRunner
 # No default resources needed (managed by Docker)
 default_resources: {}
 
-# Run interface configuration (passed to runner constructor)
+# What the machine running deploy() needs for this target; preflight and
+# `kapso doctor deploy` read it.
+requires:
+  binary: docker
+  install: "install Docker: https://docs.docker.com/get-docker/"
+
+# Files the adapter must leave behind — the validator fails without them.
+required_files: [Dockerfile, requirements.txt, app.py]
+
+# Run interface configuration (passed to runner constructor). The adapter
+# fills {deployment_name} and {port} from the solution path, so two solutions
+# deployed side by side get their own image, container and host port.
 run_interface:
   type: http
-  endpoint: http://localhost:8000
+  endpoint: "http://localhost:{port}"
   predict_path: /predict
-  container_name: solution-container
-  image_name: solution
+  container_name: "kapso-{deployment_name}"
+  image_name: "kapso-{deployment_name}"
+  port: "{port}"
 
