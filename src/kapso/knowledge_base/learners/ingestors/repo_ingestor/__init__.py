@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.knowledge_base.learners.defaults import learner_defaults
 from kapso.knowledge_base.learners.ingestors.base import Ingestor
 from kapso.knowledge_base.learners.ingestors.factory import register_ingestor
 from kapso.knowledge_base.search.base import WikiPage, DEFAULT_WIKI_DIR
@@ -125,7 +126,10 @@ class RepoIngestor(Ingestor):
         Args:
             params: Optional parameters:
                 - model: Model ID (e.g. "claude-opus-5")
-                - timeout: Claude Code timeout in seconds (default: 1800)
+                - effort: Reasoning effort of the phase sessions (pinned, never
+                  inherited from the machine's own Claude settings)
+                - timeout: Deadline per phase in seconds; None (the default)
+                  means a phase runs until it finishes
                 - auth_mode: Claude authentication mode (auto, oauth, or api_key)
                 - cleanup: Whether to cleanup cloned repos (default: True)
                 - wiki_dir: Output directory for wiki pages (default: data/wikis)
@@ -136,14 +140,17 @@ class RepoIngestor(Ingestor):
                 - github_org: Optional GitHub organization to push workflow repos to
                 - github_pat: GitHub Personal Access Token for repo creation (falls back to GITHUB_PAT env var)
         """
-        super().__init__(params)
-        self._timeout = self.params.get("timeout", 1800)  # 30 minutes default
-        self._cleanup = self.params.get("cleanup", True)
+        # Keys not given come from the packaged config, the single source of
+        # these defaults (learn_knowledge() passes the live config's block).
+        super().__init__({**learner_defaults("ingestor"), **(params or {})})
+        self._timeout = self.params["timeout"]
+        self._effort = self.params["effort"]
+        self._cleanup = self.params["cleanup"]
         self._wiki_dir = Path(self.params.get("wiki_dir", DEFAULT_WIKI_DIR))
         self._staging_subdir = self.params.get("staging_subdir", "_staging")
-        self._cleanup_staging = self.params.get("cleanup_staging", False)
-        self._fail_on_validation_errors = self.params.get("fail_on_validation_errors", True)
-        self._github_repo_visibility = self.params.get("github_repo_visibility", "private")
+        self._cleanup_staging = self.params["cleanup_staging"]
+        self._fail_on_validation_errors = self.params["fail_on_validation_errors"]
+        self._github_repo_visibility = self.params["github_repo_visibility"]
         self._github_org = self.params.get("github_org")  # Optional: push to this org
         # GitHub PAT for repo creation - from params or environment
         # CRITICAL: This must be used instead of any existing gh CLI auth
@@ -176,17 +183,12 @@ class RepoIngestor(Ingestor):
             # Edit included but Write is preferred for index files (Edit can fail on tables)
             "allowed_tools": ["Read", "Write", "Edit", "Bash"],
             "timeout": self._timeout,
+            "effort": self._effort,
             "planning_mode": True,
         }
         
-        # Model from params (should be provided via config.yaml)
-        model = self.params.get("model")
-        
-        if self.params.get("auth_mode") is not None:
-            agent_specific["auth_mode"] = self.params["auth_mode"]
-        else:
-            # Preserve the pre-auth_mode default for this component.
-            agent_specific["auth_mode"] = "api_key"
+        model = self.params["model"]
+        agent_specific["auth_mode"] = self.params["auth_mode"]
         
         # Build config for Claude Code with read + write tools
         config = CodingAgentFactory.build_config(
@@ -302,14 +304,11 @@ class RepoIngestor(Ingestor):
             **structure_content,
         }
         
-        try:
-            return base_prompt.format(**format_vars)
-        except KeyError as e:
-            # If template has variables we don't have, just return with partial formatting
-            logger.warning(f"Missing format variable in {phase} prompt: {e}")
-            return base_prompt
+        # A placeholder the template names and this method does not supply is
+        # a bug in one of the two; the prompt must never go out unformatted.
+        return base_prompt.format(**format_vars)
     
-    def _run_phase(self, phase: str, repo_name: str, repo_path: str, repo_url: str = "", branch: str = "main") -> bool:
+    def _run_phase(self, phase: str, repo_name: str, repo_path: str, repo_url: str = "", branch: str = "main") -> None:
         """
         Run a single phase of the extraction pipeline.
         
@@ -320,8 +319,10 @@ class RepoIngestor(Ingestor):
             repo_url: Repository URL (optional, for Phase 0)
             branch: Git branch (optional, for Phase 0)
             
-        Returns:
-            True if phase succeeded, False otherwise
+        Raises:
+            RuntimeError: If the phase session fails. Every later phase builds
+                on this one's output, so a failed phase stops the run rather
+                than leaving a half-written wiki for the next phase to read.
         """
         start = time.time()
         logger.info(f"Running {phase} phase...")
@@ -332,16 +333,16 @@ class RepoIngestor(Ingestor):
         elapsed = time.time() - start
         
         if not result.success:
-            logger.error(f"{phase} phase failed after {elapsed:.1f}s: {result.error}")
-            return False
+            raise RuntimeError(
+                f"{phase} phase failed after {elapsed:.1f}s for {repo_name}: {result.error}"
+            )
         
         # Log timing from agent metadata if available, otherwise use our own timer
         agent_elapsed = result.metadata.get("elapsed_seconds") if result.metadata else None
         elapsed_str = f"{agent_elapsed:.1f}s" if agent_elapsed else f"{elapsed:.1f}s"
         logger.info(f"{phase} phase complete ({elapsed_str})")
-        return True
     
-    def _run_phase_zero(self, repo_name: str, repo_path: Path, repo_url: str, branch: str) -> bool:
+    def _run_phase_zero(self, repo_name: str, repo_path: Path, repo_url: str, branch: str) -> None:
         """
         Run Phase 0: Repository Understanding with verification loop.
         
@@ -357,8 +358,9 @@ class RepoIngestor(Ingestor):
             repo_url: Repository URL
             branch: Git branch
             
-        Returns:
-            True if phase succeeded (ALL files explored), False otherwise
+        Raises:
+            RuntimeError: If a session fails, the repository has no files the
+                scaffold can map, or files stay unexplored after every attempt.
         """
         start = time.time()
         logger.info("Running Phase 0: Repository Understanding...")
@@ -404,20 +406,23 @@ class RepoIngestor(Ingestor):
             result = self._agent.generate_code(prompt)
             
             if not result.success:
-                logger.error(f"Phase 0 attempt {attempt} failed: {result.error}")
-                continue  # Try again
+                raise RuntimeError(
+                    f"Phase 0 attempt {attempt} failed for {repo_name}: {result.error}"
+                )
             
             # Step 4: Verify all files are explored
             explored, total, unexplored = check_exploration_progress(repo_map_path)
             
             if total == 0:
-                logger.warning("No files found in index, cannot verify exploration")
-                break
+                raise RuntimeError(
+                    f"Phase 0 found no files to explore in {repo_name}: "
+                    "nothing the scaffold can map, so nothing to learn from"
+                )
             
             if explored >= total:
                 elapsed = time.time() - start
                 logger.info(f"Phase 0 complete: {explored}/{total} files explored ({elapsed:.1f}s)")
-                return True
+                return
             
             # Not all files explored
             pct = (explored / total * 100) if total > 0 else 0
@@ -431,12 +436,11 @@ class RepoIngestor(Ingestor):
         
         # Exhausted all attempts
         elapsed = time.time() - start
-        explored, total, _ = check_exploration_progress(repo_map_path)
-        logger.warning(
-            f"Phase 0 finished with {explored}/{total} files explored after {max_attempts} attempts ({elapsed:.1f}s). "
-            "Continuing with partial coverage."
+        explored, total, unexplored = check_exploration_progress(repo_map_path)
+        raise RuntimeError(
+            f"Phase 0 left {total - explored}/{total} files unexplored in {repo_name} "
+            f"after {max_attempts} attempts ({elapsed:.1f}s): {unexplored}"
         )
-        return explored > 0  # Return True if we made some progress
 
     def _build_phase_zero_feedback(self, explored: int, total: int, unexplored: List[str]) -> str:
         """
@@ -810,9 +814,7 @@ class RepoIngestor(Ingestor):
             logger.info("PHASE 0: Repository Understanding")
             logger.info("=" * 60)
             
-            success = self._run_phase_zero(repo_name, repo_path, url, branch)
-            if not success:
-                logger.warning("Phase 0 failed, continuing with limited context...")
+            self._run_phase_zero(repo_name, repo_path, url, branch)
             
             # Step 5: Run Branch 1 - Workflow-based extraction
             logger.info("=" * 60)
@@ -827,10 +829,7 @@ class RepoIngestor(Ingestor):
             branch1_phases = ["anchoring", "anchoring_context", "excavation_synthesis", "enrichment", "audit"]
             
             for phase in branch1_phases:
-                success = self._run_phase(phase, repo_name, str(repo_path), url, branch)
-                if not success:
-                    logger.warning(f"Phase {phase} failed, continuing to next phase...")
-                    # Continue even if a phase fails - try to extract what we can
+                self._run_phase(phase, repo_name, str(repo_path), url, branch)
             
             # Step 5b: Run Repository Builder Phase (creates GitHub repos for workflows)
             logger.info("=" * 60)
@@ -855,15 +854,11 @@ class RepoIngestor(Ingestor):
             
             # Step 6b: Review (agent evaluates MANUAL_REVIEW files)
             logger.info("Step 6b: Orphan Review (agent evaluation)...")
-            success = self._run_phase("orphan_review", repo_name, str(repo_path), url, branch)
-            if not success:
-                logger.warning("Orphan review phase failed, continuing...")
+            self._run_phase("orphan_review", repo_name, str(repo_path), url, branch)
             
             # Step 6c: Create (agent creates wiki pages for approved files)
             logger.info("Step 6c: Orphan Create (page generation)...")
-            success = self._run_phase("orphan_create", repo_name, str(repo_path), url, branch)
-            if not success:
-                logger.warning("Orphan create phase failed, continuing...")
+            self._run_phase("orphan_create", repo_name, str(repo_path), url, branch)
             
             # Step 6d: Verify (code-based verification)
             logger.info("Step 6d: Orphan Verification (deterministic)...")
@@ -879,9 +874,7 @@ class RepoIngestor(Ingestor):
             
             # Phase 7: Orphan Audit (final validation)
             logger.info("Phase 7: Orphan Audit...")
-            success = self._run_phase("orphan_audit", repo_name, str(repo_path), url, branch)
-            if not success:
-                logger.warning("Orphan audit phase failed, continuing...")
+            self._run_phase("orphan_audit", repo_name, str(repo_path), url, branch)
             
             # Step 7: Collect pages written by agent (union of both branches)
             report = validate_wiki_directory(self._wiki_dir)

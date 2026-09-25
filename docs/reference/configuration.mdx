@@ -148,7 +148,7 @@ defaults:
 
 ## modes
 
-A mode is a named bundle of settings. Two ship: `GENERIC` and `MINIMAL`. `MINIMAL` differs mainly by turning knowledge search off and using shorter learner timeouts.
+A mode is a named bundle of settings. Two ship: `GENERIC` and `MINIMAL`. `MINIMAL` differs mainly by turning knowledge search off.
 
 Each mode carries six blocks.
 
@@ -236,7 +236,7 @@ Bounded exponential backoff for transient model failures. See [Model routing and
 
 ### learner
 
-Two sub-blocks, `ingestor` and `merger`, controlling `learn_knowledge()`. Both take a `model`, an `auth_mode` and a `timeout`. `ingestor` additionally takes `cleanup`, `cleanup_staging`, `fail_on_validation_errors` and `github_repo_visibility`.
+Two sub-blocks, `ingestor` and `merger`, controlling `learn_knowledge()`. Both take a `model`, an `auth_mode`, an `effort` and a `timeout`. `effort` is the reasoning effort of every learning session, pinned here so a session never inherits the effort from the machine's own Claude settings. `timeout` is a deadline in seconds; `null`, the default, means a phase runs until it finishes. `ingestor` additionally takes `cleanup`, `cleanup_staging`, `fail_on_validation_errors` and `github_repo_visibility`. A failed phase stops the run: `learn_knowledge()` raises rather than returning a partial result as a success.
 
 ## learning
 

@@ -164,10 +164,15 @@ modes:
     
     # Learner configuration for kapso.learn()
     learner:
+      # Each learning phase is one Claude Code session. `effort` is pinned here
+      # so a session never inherits the reasoning effort from the machine's own
+      # Claude settings. `timeout: null` means no deadline: a phase runs until
+      # it finishes (a number of seconds imposes one).
       ingestor:
         model: "claude-opus-5"
         auth_mode: "oauth"
-        timeout: 1800
+        effort: "xhigh"
+        timeout: null
         cleanup: true
         cleanup_staging: false
         fail_on_validation_errors: true
@@ -175,7 +180,8 @@ modes:
       merger:
         model: "claude-opus-5"
         auth_mode: "oauth"
-        timeout: 3600
+        effort: "xhigh"
+        timeout: null
 
   # ===========================================
   # Testing Modes
@@ -225,7 +231,8 @@ modes:
       ingestor:
         model: "claude-opus-5"
         auth_mode: "oauth"
-        timeout: 600
+        effort: "xhigh"
+        timeout: null
         cleanup: true
         cleanup_staging: false
         fail_on_validation_errors: true
@@ -233,7 +240,8 @@ modes:
       merger:
         model: "claude-opus-5"
         auth_mode: "oauth"
-        timeout: 1800
+        effort: "xhigh"
+        timeout: null
 
 # =============================================================================
 # Learning — the learn-from-trajectories system

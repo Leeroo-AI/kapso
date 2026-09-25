@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.knowledge_base.learners.defaults import learner_defaults
 from kapso.knowledge_base.learners.ingestors.base import Ingestor
 from kapso.knowledge_base.search.base import WikiPage, DEFAULT_WIKI_DIR
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
@@ -72,21 +73,24 @@ class ResearchIngestorBase(Ingestor):
         Args:
             params: Optional parameters:
                 - model: Model ID (e.g. "claude-opus-5")
-                - timeout: Agent timeout in seconds (default: 600)
+                - effort: Reasoning effort of the phase sessions (pinned, never
+                  inherited from the machine's own Claude settings)
+                - timeout: Deadline per phase in seconds; None (the default)
+                  means a phase runs until it finishes
                 - auth_mode: Claude authentication mode (auto, oauth, or api_key)
                 - wiki_dir: Output directory (default: data/wikis)
                 - staging_subdir: Staging subdirectory (default: "_staging")
                 - cleanup_staging: Remove staging after ingest (default: False)
         """
-        super().__init__(params)
+        # Keys not given come from the packaged config's learner.ingestor
+        # block, the single source of these defaults.
+        super().__init__({**learner_defaults("ingestor"), **(params or {})})
         
         # Agent configuration
-        self._timeout = self.params.get("timeout", 600)  # 10 minutes default
-        if self.params.get("auth_mode") is not None:
-            self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
-        else:
-            self._claude_auth_settings = {"auth_mode": "api_key"}
-        self._model = self.params.get("model")
+        self._timeout = self.params["timeout"]
+        self._effort = self.params["effort"]
+        self._claude_auth_settings = {"auth_mode": self.params["auth_mode"]}
+        self._model = self.params["model"]
         
         # Wiki directory configuration
         self._wiki_dir = Path(self.params.get("wiki_dir", DEFAULT_WIKI_DIR))
@@ -114,6 +118,7 @@ class ResearchIngestorBase(Ingestor):
         agent_specific = {
             "allowed_tools": ["Read", "Write", "Edit", "Bash"],
             "timeout": self._timeout,
+            "effort": self._effort,
             "planning_mode": True,
         }
         
@@ -190,13 +195,11 @@ class ResearchIngestorBase(Ingestor):
         kwargs["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M GMT")
         
         # Format the prompt
-        try:
-            return base_prompt.format(**kwargs)
-        except KeyError as e:
-            logger.warning(f"Missing format variable in {phase} prompt: {e}")
-            return base_prompt
+        # A placeholder the template names and the caller does not supply is a
+        # bug in one of the two; the prompt must never go out unformatted.
+        return base_prompt.format(**kwargs)
     
-    def _run_phase(self, phase: str, **kwargs) -> bool:
+    def _run_phase(self, phase: str, **kwargs) -> None:
         """
         Run a single phase of the pipeline.
         
@@ -204,8 +207,9 @@ class ResearchIngestorBase(Ingestor):
             phase: Phase name
             **kwargs: Variables for the prompt
             
-        Returns:
-            True if phase succeeded, False otherwise
+        Raises:
+            RuntimeError: If the phase session fails; the later phases build on
+                this one's output, so the run stops here.
         """
         start = time.time()
         logger.info(f"Running {phase} phase...")
@@ -216,13 +220,11 @@ class ResearchIngestorBase(Ingestor):
         elapsed = time.time() - start
         
         if not result.success:
-            logger.error(f"{phase} phase failed after {elapsed:.1f}s: {result.error}")
-            return False
+            raise RuntimeError(f"{phase} phase failed after {elapsed:.1f}s: {result.error}")
         
         logger.info(f"{phase} phase complete ({elapsed:.1f}s)")
-        return True
     
-    def _run_planning_phase(self, query: str, source_url: str, content: str) -> bool:
+    def _run_planning_phase(self, query: str, source_url: str, content: str) -> None:
         """
         Run Phase 1: Planning.
         
@@ -235,7 +237,7 @@ class ResearchIngestorBase(Ingestor):
             content=content,
         )
     
-    def _run_writing_phase(self, query: str, source_url: str, content: str) -> bool:
+    def _run_writing_phase(self, query: str, source_url: str, content: str) -> None:
         """
         Run Phase 2: Writing.
         
@@ -248,7 +250,7 @@ class ResearchIngestorBase(Ingestor):
             content=content,
         )
     
-    def _run_auditing_phase(self) -> bool:
+    def _run_auditing_phase(self) -> None:
         """
         Run Phase 3: Auditing.
         
@@ -317,27 +319,21 @@ class ResearchIngestorBase(Ingestor):
             logger.info("PHASE 1: Planning")
             logger.info("=" * 60)
             
-            success = self._run_planning_phase(query, source_url, content)
-            if not success:
-                logger.warning("Planning phase failed, attempting to continue...")
+            self._run_planning_phase(query, source_url, content)
             
             # Phase 2: Writing
             logger.info("=" * 60)
             logger.info("PHASE 2: Writing")
             logger.info("=" * 60)
             
-            success = self._run_writing_phase(query, source_url, content)
-            if not success:
-                logger.warning("Writing phase failed, attempting to collect partial results...")
+            self._run_writing_phase(query, source_url, content)
             
             # Phase 3: Auditing
             logger.info("=" * 60)
             logger.info("PHASE 3: Auditing")
             logger.info("=" * 60)
             
-            success = self._run_auditing_phase()
-            if not success:
-                logger.warning("Auditing phase failed, returning pages without validation...")
+            self._run_auditing_phase()
             
             # Collect pages
             pages = self._collect_pages()

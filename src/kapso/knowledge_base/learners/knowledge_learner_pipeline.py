@@ -41,7 +41,7 @@ class PipelineResult:
         total_pages_extracted: Total WikiPages extracted from all sources
         merge_result: Result from the merger (if merging was performed)
         extracted_pages: List of all extracted WikiPages
-        errors: List of errors encountered during processing
+        errors: Errors the merge reported (extraction failures raise)
     """
     sources_processed: int = 0
     total_pages_extracted: int = 0
@@ -61,8 +61,10 @@ class PipelineResult:
     
     @property
     def success(self) -> bool:
-        """Whether the pipeline completed without critical errors."""
-        return len(self.errors) == 0 or self.total_pages_extracted > 0
+        """Whether the merge reported no errors. Extraction failures raise
+        out of run() rather than landing here, so this cannot be True for a
+        run that lost a source or a phase."""
+        return not self.errors
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -178,8 +180,7 @@ class KnowledgePipeline:
         result = PipelineResult()
 
         if not sources:
-            result.errors.append("No sources provided")
-            return result
+            raise ValueError("No sources provided")
 
         # Stage 1: Ingest all sources
         all_pages = []
@@ -194,35 +195,30 @@ class KnowledgePipeline:
                     current_source=str(source),
                     pages_extracted=len(all_pages),
                 )
-            try:
-                logger.info(f"Ingesting source: {source}")
-                
-                # Get the appropriate ingestor
-                ingestor = IngestorFactory.for_source(source, **self.ingestor_params)
-                
-                # Run ingestion
-                pages = ingestor.ingest(source)
-                
-                all_pages.extend(pages)
-                result.sources_processed += 1
-                
-                # Track staging directory for the merger prompt
-                staging = ingestor.get_staging_dir()
-                if staging:
-                    last_staging_dir = staging
-                
-                # Track source URL for context
-                if hasattr(source, 'url'):
-                    source_urls.append(source.url)
-                elif hasattr(source, 'path'):
-                    source_urls.append(source.path)
-                
-                logger.info(f"Extracted {len(pages)} pages from source")
-                
-            except Exception as e:
-                error_msg = f"Failed to ingest source {source}: {e}"
-                logger.error(error_msg)
-                result.errors.append(error_msg)
+            logger.info(f"Ingesting source: {source}")
+            
+            # Get the appropriate ingestor
+            ingestor = IngestorFactory.for_source(source, **self.ingestor_params)
+            
+            # Run ingestion (a failure raises: a source that could not be
+            # ingested must not be reported as a partial success)
+            pages = ingestor.ingest(source)
+            
+            all_pages.extend(pages)
+            result.sources_processed += 1
+            
+            # Track staging directory for the merger prompt
+            staging = ingestor.get_staging_dir()
+            if staging:
+                last_staging_dir = staging
+            
+            # Track source URL for context
+            if hasattr(source, 'url'):
+                source_urls.append(source.url)
+            elif hasattr(source, 'path'):
+                source_urls.append(source.path)
+            
+            logger.info(f"Extracted {len(pages)} pages from source")
         
         result.total_pages_extracted = len(all_pages)
         result.extracted_pages = all_pages
@@ -246,29 +242,23 @@ class KnowledgePipeline:
         # Stage 2: Merge into KG
         if status is not None:
             status.phase("merge")
-        try:
-            # Run merge (Stage 2) — pass staging_dir so the agent can
-            # read candidate page files from disk on demand
-            merge_result = self._merger.merge(
-                all_pages,
-                wiki_dir=self.wiki_dir,
-                staging_dir=last_staging_dir,
-            )
-            result.merge_result = merge_result
-            
-            # Add merge errors to result
-            if merge_result.errors:
-                result.errors.extend(merge_result.errors)
-            
-            logger.info(
-                f"Pipeline complete: {result.created} created, "
-                f"{result.edited} edited"
-            )
-            
-        except Exception as e:
-            error_msg = f"Merge failed: {e}"
-            logger.error(error_msg)
-            result.errors.append(error_msg)
+        # Run merge (Stage 2) — pass staging_dir so the agent can read
+        # candidate page files from disk on demand. A failed merge raises.
+        merge_result = self._merger.merge(
+            all_pages,
+            wiki_dir=self.wiki_dir,
+            staging_dir=last_staging_dir,
+        )
+        result.merge_result = merge_result
+        
+        # Add merge errors to result
+        if merge_result.errors:
+            result.errors.extend(merge_result.errors)
+        
+        logger.info(
+            f"Pipeline complete: {result.created} created, "
+            f"{result.edited} edited"
+        )
         
         return result
     

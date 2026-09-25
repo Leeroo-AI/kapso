@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
+from kapso.knowledge_base.learners.defaults import learner_defaults
 from kapso.knowledge_base.learners.merger.prompts import load_prompt
 from kapso.knowledge_base.search.base import WikiPage, KGIndexMetadata
 
@@ -144,11 +145,16 @@ class KnowledgeMerger:
         Args:
             agent_config: Configuration for Claude Code agent. Supports:
                 - kg_index_path: Path to .index file for KG backend config
-                - timeout: Agent timeout in seconds (default: 3600)
+                - effort: Reasoning effort of the merge session (pinned, never
+                  inherited from the machine's own Claude settings)
+                - timeout: Deadline in seconds; None (the default) means the
+                  merge runs until it finishes
                 - auth_mode: Claude authentication mode (auto, oauth, or api_key)
                 - model: Model ID override
+            Keys not given come from the packaged config (the single source of
+            these defaults); learn_knowledge() passes the live config's block.
         """
-        self._agent_config = agent_config or {}
+        self._agent_config = {**learner_defaults("merger"), **(agent_config or {})}
         self._kg_index_path: Optional[str] = self._agent_config.get("kg_index_path")
         self._agent = None
     
@@ -190,22 +196,16 @@ class KnowledgeMerger:
             logger.warning("No proposed pages to merge")
             return result
         
-        try:
-            # Step 1: Check if index is available (explicit or auto-detect)
-            has_index = self._try_initialize_index(wiki_dir)
-            
-            if not has_index:
-                # No index available - create all pages as new
-                logger.info("No existing index. Creating all pages as new...")
-                return self._create_all_pages(proposed_pages, wiki_dir, result)
-            
-            # Step 2: Run agentic hierarchical merge
-            return self._run_agentic_merge(proposed_pages, wiki_dir, staging_dir)
-            
-        except Exception as e:
-            logger.error(f"Merge failed: {e}")
-            result.errors.append(str(e))
-            return result
+        # Step 1: Check if index is available (explicit or auto-detect)
+        has_index = self._try_initialize_index(wiki_dir)
+        
+        if not has_index:
+            # No index available - create all pages as new
+            logger.info("No existing index. Creating all pages as new...")
+            return self._create_all_pages(proposed_pages, wiki_dir, result)
+        
+        # Step 2: Run agentic hierarchical merge
+        return self._run_agentic_merge(proposed_pages, wiki_dir, staging_dir)
     
     def _try_initialize_index(self, wiki_dir: Path) -> bool:
         """
@@ -275,34 +275,25 @@ class KnowledgeMerger:
         
         # Write pages to wiki directory
         for page in proposed_pages:
-            try:
-                self._write_page_to_wiki(page, wiki_dir)
-                result.created.append(page.id)
-                logger.info(f"Created new page: {page.id}")
-                
-            except Exception as e:
-                error_msg = f"Failed to create {page.id}: {e}"
-                logger.error(error_msg)
-                result.errors.append(error_msg)
-                result.failed.append(page.id)
+            self._write_page_to_wiki(page, wiki_dir)
+            result.created.append(page.id)
+            logger.info(f"Created new page: {page.id}")
         
         logger.info(f"Created {len(result.created)} new pages")
         
-        # Index pages using Kapso.index_kg() - creates .index file in wiki_dir
-        # This enables auto-detection for subsequent merge calls
-        try:
-            from kapso.kapso import Kapso
-            
-            index_path = wiki_dir / ".index"
-            kapso = Kapso()
-            kapso.index_kg(
-                wiki_dir=str(wiki_dir),
-                save_to=str(index_path),
-            )
-            logger.info(f"Created index file: {index_path}")
-            
-        except Exception as e:
-            logger.warning(f"Could not create index file: {e}")
+        # Index pages using Kapso.index_kg() - creates .index file in wiki_dir,
+        # which is what makes the pages searchable and lets the next merge
+        # auto-detect them. Without it the pages exist and nothing can find
+        # them, so a failure here is the merge's failure.
+        from kapso.kapso import Kapso
+        
+        index_path = wiki_dir / ".index"
+        kapso = Kapso()
+        kapso.index_kg(
+            wiki_dir=str(wiki_dir),
+            save_to=str(index_path),
+        )
+        logger.info(f"Created index file: {index_path}")
         
         return result
     
@@ -357,21 +348,13 @@ class KnowledgeMerger:
         
         logger.info(f"Running hierarchical merge for {len(pages)} pages...")
         
-        # Single agent call
-        try:
-            agent_result = self._agent.generate_code(prompt)
-        except Exception as e:
-            logger.error(f"Agent execution failed: {e}")
-            import traceback
-            traceback.print_exc()
-            result = MergeResult(total_proposed=len(pages))
-            result.errors.append(f"Agent execution failed: {e}")
-            return result
-        
+        # Single agent call; a failed session raises rather than becoming an
+        # error string in a result that reads as a completed merge.
+        agent_result = self._agent.generate_code(prompt)
         if not agent_result.success:
-            result = MergeResult(total_proposed=len(pages))
-            result.errors.append(f"Agent failed: {agent_result.error}")
-            return result
+            raise RuntimeError(
+                f"merge session failed for {len(pages)} pages: {agent_result.error}"
+            )
         
         # Parse results from plan.md (written to staging_dir by the agent)
         plan_dir = staging_dir if staging_dir else wiki_dir
@@ -428,18 +411,15 @@ class KnowledgeMerger:
                 "mcp__kg-graph-search__kg_index",
                 "mcp__kg-graph-search__kg_edit",
             ],
-            "timeout": self._agent_config.get("timeout", 3600),
+            "timeout": self._agent_config["timeout"],
+            "effort": self._agent_config["effort"],
             "planning_mode": True,
             "mcp_servers": mcp_servers,
         }
         
         # Model from config (should be provided via config.yaml)
-        model = self._agent_config.get("model")
-        
-        if self._agent_config.get("auth_mode") is not None:
-            agent_specific["auth_mode"] = self._agent_config["auth_mode"]
-        else:
-            agent_specific["auth_mode"] = "api_key"
+        model = self._agent_config["model"]
+        agent_specific["auth_mode"] = self._agent_config["auth_mode"]
         
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",

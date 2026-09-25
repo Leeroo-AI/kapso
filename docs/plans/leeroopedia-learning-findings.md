@@ -36,7 +36,12 @@ and 110 pages per repository on `claude-opus-4-6` (189 repositories, 3 in parall
 
 ## Pipeline issues
 
-### L1. The learner runs at whatever effort the machine's user settings say
+### L1. The learner runs at whatever effort the machine's user settings say — **fixed**
+
+**Fixed 2026-09-25.** `learner.ingestor.effort` and `learner.merger.effort` in `config.yaml`
+(`xhigh`, the value every other Claude session in the config uses) are threaded into the
+repo ingestor, the research ingestors and the merger. A learner built without params takes
+the packaged config's values (`learners/defaults.py`), so there is one source for them.
 
 `RepoIngestor._initialize_agent` and `KnowledgeMerger._initialize_agent` never pass
 `effort`, so the session inherits `effortLevel` from the user's `~/.claude/settings.json`
@@ -46,7 +51,12 @@ same code behaves differently per machine. The config has no `effort` key for th
 Fix: `learner.ingestor.effort` / `learner.merger.effort` in `config.yaml`, threaded to
 the adapter's `effort` (the backend-search service already does this for its own session).
 
-### L2. The per-phase deadline is too small, and a deadline kill is treated as success
+### L2. The per-phase deadline is too small, and a deadline kill is treated as success — **fixed**
+
+**Fixed 2026-09-25, by decision: there is no wall clock on a learning phase.**
+`learner.*.timeout` is `null` by default (a phase runs until it finishes; a number of seconds
+imposes a deadline), and a failed or killed phase now raises instead of being logged and
+skipped.
 
 `excavation_synthesis` was killed at 1800 s, half-written. `_run_phase` returned False,
 `ingest()` logged "Phase failed, continuing to next phase" and went on; the final result
@@ -57,7 +67,14 @@ timed-out run also under-reports its cost.
 Fix: size the deadline per phase from config; make a killed phase a hard failure (Rule 2),
 or record per-phase status on `PipelineResult` so `success` is honest.
 
-### L3. Failures are soft everywhere
+### L3. Failures are soft everywhere — **fixed**
+
+**Fixed 2026-09-25.** Every phase raises on failure (repo ingestor, research ingestors,
+Phase 0 after its retries, the merge session); a prompt with a missing variable raises
+instead of going out unformatted; `KnowledgePipeline.run` propagates ingest and merge
+exceptions; the no-index merge's index build is mandatory; `PipelineResult.success` is
+`not errors`. Pinned by `tests/test_learners_fail_loud.py`. Still open: a resumable staging
+directory, so a long run can be continued rather than restarted.
 
 - `KnowledgePipeline.run` swallows ingest exceptions into `result.errors`;
   `PipelineResult.success` is True whenever any page came out.
