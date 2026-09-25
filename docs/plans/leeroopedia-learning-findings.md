@@ -178,5 +178,34 @@ outsiders.
 
 ## Addendum: run completion
 
-Filled in after the remaining phases finished from the staging directory (see the
-commit that updates this file).
+The first attempt was cut short by the harness wrapper around it (a 90-minute limit of
+the test setup, not of the pipeline) during orphan create; the remaining steps were run
+from the staging directory exactly as `ingest()` runs them.
+
+| Phase | Duration | CLI-reported cost | Outcome |
+|---|---|---|---|
+| orphan create | 82 s | $0.57 | nothing to create |
+| orphan verify | code | — | PASS |
+| orphan audit | 327 s | $2.50 | no changes |
+| deterministic validation | code | — | **0 errors**, 43 warnings |
+| publish | code | — | 60 pages copied to `wiki_dir` |
+
+Whole run: 9 agent sessions, about 100 minutes of session time, about $17 of
+CLI-estimated cost, 60 pages from 10 source files.
+
+**Page quality of the output (all 60 pages):** every page has an Overview and a
+Description (median 189 / 1,542 characters), all headings are wikitext, no page cites a
+temporary clone path, no page carries a plain `[[Name]]` link, and every Principle links
+to an Implementation. The corpus defects in L4 are therefore artifacts of earlier prompt
+versions, and the current prompts do not reproduce them.
+
+**Two things the run still got wrong:**
+
+- The excavation phase timed out (L2) and the audit phase had to repair the damage;
+  the final result reported success.
+- The 43 validator warnings are mostly false positives: `validate_page_indexes` does
+  not parse the `## Workflow: <name>` entries that the anchoring phase writes into
+  `_WorkflowIndex.md`, so it reports every Workflow page as missing from its index, plus
+  one stale index entry (`Train_Both_Models_In_Parallel`, a workflow that was planned
+  and then not written). Fix: one index-entry grammar shared by the writers and the
+  validator, and a check that every index entry has a page.
