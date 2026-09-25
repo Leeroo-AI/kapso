@@ -9,7 +9,7 @@ abstract: >-
   that earned it; it also learns from public repositories and papers.
 authors:
   - name: "Leeroo"
-    email: team@leeroo.com
+    email: alireza@leeroo.com
     website: https://leeroo.com
 version: 0.4.9
 date-released: 2026-09-24
