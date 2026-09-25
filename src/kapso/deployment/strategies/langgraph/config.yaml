@@ -1,6 +1,6 @@
 # LangGraph deployment strategy configuration
 name: langgraph
-provider: langgraph
+provider: langsmith
 interface: langgraph
 
 # Runner class name (in runner.py)
@@ -8,6 +8,12 @@ runner_class: LangGraphRunner
 
 # No default resources needed
 default_resources: {}
+
+requires:
+  binary: langgraph
+  install: "pip install langgraph-cli langgraph-sdk"
+
+required_files: [agent.py, langgraph.json, main.py]
 
 # Run interface configuration (passed to runner constructor)
 run_interface:

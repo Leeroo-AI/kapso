@@ -6,13 +6,21 @@ interface: function
 # Runner class name (in runner.py)
 runner_class: ModalRunner
 
-# Default resources for Modal
-default_resources:
-  gpu: T4
-  memory: 16Gi
+# No default resources: an explicit deploy(strategy=MODAL) runs on CPU, and
+# the selector names a GPU (T4, A10G, ...) only when the code needs one.
+# A T4 default here put every explicit Modal deploy on a GPU.
+default_resources: {}
 
-# Run interface configuration (passed to runner constructor)
+requires:
+  binary: modal
+  install: "pip install modal && modal token new"
+
+required_files: [modal_app.py, requirements.txt]
+
+# Run interface configuration (passed to runner constructor); the adapter
+# fills {deployment_name} from the solution path.
 run_interface:
   type: modal
+  app_name: "kapso-{deployment_name}"
   function_name: predict
 

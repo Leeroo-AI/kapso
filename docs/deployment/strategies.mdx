@@ -38,7 +38,7 @@ Runs the solution in a container, so system dependencies and Python versions sta
 deployed = kapso.deploy(solution, strategy=DeployStrategy.DOCKER)
 ```
 
-Served over HTTP at `http://localhost:8000/predict`, from a container named `solution-container`.
+Served over HTTP at `http://localhost:<port>/predict` from a container named `kapso-<solution>-<hash>`; the name and the host port are derived from the solution's path, so two solutions deployed on one machine keep their own container, image and port, and a re-deploy replaces only its own. The container runs as an unprivileged user, restarts with the daemon, and is recreated by `start()` with the same environment variables and, when the selector granted one, the GPUs.
 
 <Accordion title="Dockerfile the adapter generates">
 ```dockerfile
@@ -47,12 +47,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+RUN useradd --create-home --uid 1000 app && chown -R app:app /app
+USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)"
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 </Accordion>
+
+The runner needs the Docker SDK and `requests`: `pip install "leeroo-kapso[deploy]"`.
 
 ## Modal
 
@@ -62,7 +66,7 @@ Runs on Modal's serverless platform, which is the quickest route to a GPU you do
 deployed = kapso.deploy(solution, strategy=DeployStrategy.MODAL)
 ```
 
-The strategy declares `T4`/`16Gi` as its default resources and calls a `predict` function; the generated app itself starts CPU-only, with the GPU line ready to uncomment.
+The app is named `kapso-<solution>-<hash>` and exposes a `predict` function plus a web endpoint. An explicit `DeployStrategy.MODAL` deploy runs on CPU; under `AUTO` the selector names a GPU (`T4`, `A10G`, …) when the code needs one, and the adapter sets `gpu=` from it. `stop()` removes the app; `start()` runs `modal deploy` again from the adapted workspace. Install with `pip install "leeroo-kapso[modal]"`.
 
 <Accordion title="Modal app the adapter generates">
 ```python
@@ -88,7 +92,7 @@ def predict(inputs):
 
 ## BentoML
 
-Packages the solution as a BentoML service for self-hosted production serving. Needs `pip install bentoml`.
+Packages the solution as a BentoML service and deploys it to BentoCloud (a `BENTO_CLOUD_API_KEY` is required; serving without BentoCloud is not wired yet). Needs `pip install "leeroo-kapso[bentoml]"`.
 
 ```python
 deployed = kapso.deploy(solution, strategy=DeployStrategy.BENTOML)
@@ -110,7 +114,7 @@ class KapsoService:
 
 ## LangGraph
 
-Deploys the solution as a LangGraph agent workflow, with state, tools, streaming and checkpoints. Needs `pip install langgraph`.
+Deploys the solution as a LangGraph agent workflow, with state, tools, streaming and checkpoints, on LangGraph Platform (a `LANGSMITH_API_KEY` is required). Needs `pip install "leeroo-kapso[langgraph]"`.
 
 ```python
 deployed = kapso.deploy(solution, strategy=DeployStrategy.LANGGRAPH)
@@ -147,6 +151,12 @@ On the CLI, repeat `--env`:
 kapso deploy --solution-path ./solution --strategy docker \
     --env API_KEY=xxx --env MODEL_PATH=/models/v1
 ```
+
+The variables are written to `.env` in the adapted workspace (owner-only permissions; an existing `.env` keeps its other lines), and the adapter session sees their names, never their values. At runtime Kapso sets them itself where it owns the process: in the local runner's environment before `main` is imported, and on the Docker container both at the first `docker run --env-file .env` and whenever `start()` recreates it. For Modal, BentoCloud and LangGraph the adapter attaches the file to the deployment (`modal.Secret.from_dotenv()`, `envs:` in `bentofile.yaml`, `"env": ".env"` in `langgraph.json`).
+
+## What is checked before the software is handed back?
+
+After the adapter session, the adaptation is validated: every Python file must compile, the files the strategy's `config.yaml` names under `required_files` must exist, and — for `LOCAL`, the one target that runs in this interpreter — `main` must import. A failed check is sent back to the agent with the finding, up to two more times; a deployment that still fails validation raises instead of handing back software that cannot run.
 
 ## Related
 

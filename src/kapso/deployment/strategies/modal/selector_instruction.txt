@@ -17,11 +17,11 @@ Serverless GPU deployment on Modal.com with auto-scaling.
 - Need on-premise deployment (use docker)
 
 ## Resources
-Requires resource specification:
+Name them only when the code needs them:
 - gpu: T4, L4, A10G, A100, H100
 - memory: 8Gi, 16Gi, 32Gi
 
-Default: gpu=T4, memory=16Gi
+Default: none (CPU)
 
 ## Interface
 function (Modal SDK remote call)

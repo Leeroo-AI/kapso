@@ -34,6 +34,7 @@ class LocalRunner(Runner):
         code_path: str, 
         module: str = "main", 
         callable: str = "predict",
+        env_vars: Dict[str, str] = None,
         **kwargs,  # Accept extra params from run_interface
     ):
         """
@@ -43,11 +44,14 @@ class LocalRunner(Runner):
             code_path: Path to the solution directory
             module: Module name to import (without .py)
             callable: Function name to call
+            env_vars: Set in this process's environment before the module
+                is imported — the local target's runtime is this process
             **kwargs: Additional parameters (ignored)
         """
         self.code_path = code_path
         self.module_name = module
         self.callable_name = callable
+        self.env_vars = dict(env_vars or {})
         self._fn = None
         self._module = None
         self._logs: List[str] = []
@@ -80,6 +84,11 @@ class LocalRunner(Runner):
             )
         
         self._logs.append(f"Loading module from {module_path}")
+        
+        # The caller's variables, before any module-level code can read them
+        if self.env_vars:
+            os.environ.update(self.env_vars)
+            self._logs.append(f"Set environment variables: {', '.join(sorted(self.env_vars))}")
         
         # Import the module
         spec = importlib.util.spec_from_file_location(self.module_name, module_path)

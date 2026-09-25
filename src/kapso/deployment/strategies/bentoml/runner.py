@@ -63,10 +63,20 @@ class BentoMLRunner(Runner):
         self._deployed = False
         self._logs: List[str] = []
         
-        # If endpoint provided, mark as deployed
+        # If endpoint provided, mark as deployed. Otherwise the deployment
+        # name is enough: Kapso assigns it before the session, so the runner
+        # asks BentoCloud for the endpoint itself rather than trusting the
+        # session's final message to have reported it (a real run omitted it).
         if self._endpoint:
             self._deployed = True
             self._logs.append(f"Connected to BentoCloud: {self._endpoint}")
+        elif self.deployment_name:
+            self._endpoint = self._fetch_endpoint_from_deployment()
+            if self._endpoint:
+                self._deployed = True
+                self._logs.append(f"Found BentoCloud deployment {self.deployment_name}: {self._endpoint}")
+            else:
+                self._logs.append(f"Deployment {self.deployment_name} has no endpoint yet - call start() to deploy")
         else:
             self._logs.append("No endpoint provided - call start() to deploy")
     
@@ -194,7 +204,12 @@ class BentoMLRunner(Runner):
         return None
     
     def _fetch_endpoint_from_deployment(self) -> Optional[str]:
-        """Fetch endpoint URL from BentoCloud deployment info."""
+        """Fetch endpoint URL from BentoCloud deployment info.
+
+        Only a running deployment counts: `bentoml deployment get` describes
+        terminated and building ones too, and an endpoint that is not serving
+        must not make the runner believe it is connected.
+        """
         if not self.deployment_name:
             return None
         
@@ -207,6 +222,11 @@ class BentoMLRunner(Runner):
             )
             
             if result.returncode == 0:
+                # The YAML carries `status:` then an indented `status: <state>`
+                state = re.search(r'^\s+status:\s*(\S+)', result.stdout, re.M)
+                if state and state.group(1).lower() != "running":
+                    self._logs.append(f"Deployment {self.deployment_name} is {state.group(1)}, not running")
+                    return None
                 # Look for endpoint_urls in the output
                 match = re.search(r'https://[a-zA-Z0-9-]+\S*\.bentoml\.ai', result.stdout)
                 if match:

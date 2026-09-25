@@ -234,10 +234,23 @@ default_resources:
   gpu: T4
   memory: 16Gi
 
+# What the deploying machine needs; preflight and `kapso doctor deploy` read it
+requires:
+  binary: modal
+  install: "pip install modal && modal token new"
+
+# Files the adapter must leave behind; the validator fails without them
+required_files: [modal_app.py, requirements.txt]
+
+# Runner constructor defaults. {deployment_name} and {port} are filled per
+# solution, so names never collide between deployments
 run_interface:
   type: modal
+  app_name: "kapso-{deployment_name}"
   function_name: predict
 ```
+
+The CLI's `--strategy` choices, the doctor's target rows and the validator's file list all come from these files, so adding a strategy directory is the whole change.
 
 ### How strategies are discovered
 

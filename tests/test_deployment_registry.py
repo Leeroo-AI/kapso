@@ -77,7 +77,7 @@ def test_factory_threads_agent_and_model_to_selector_and_adapter(monkeypatch):
         def __init__(self, coding_agent_type, model, max_retries):
             built.append(("adapter", coding_agent_type, model))
 
-        def adapt(self, solution, setting, allowed_strategies=None):
+        def adapt(self, solution, setting, allowed_strategies=None, env_vars=None):
             return "adapted"
 
     monkeypatch.setattr(selector_module, "SelectorAgent", FakeSelector)

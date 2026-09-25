@@ -171,6 +171,7 @@ class DeploymentFactory:
             solution=config.solution,
             setting=setting,
             allowed_strategies=strategies,
+            env_vars=config.env_vars,
         )
     
     @classmethod
@@ -193,9 +194,13 @@ class DeploymentFactory:
         # Get run_interface from adaptation (agent output or defaults)
         run_interface = adaptation.run_interface.copy()
         
-        # Add common parameters
+        # Add common parameters. env_vars reach the runtimes Kapso manages
+        # itself (the local process, the Docker container); resources let a
+        # runner ask for what the selector granted (a GPU for Docker).
         run_interface["code_path"] = adapted_path
         run_interface["timeout"] = config.timeout
+        run_interface["env_vars"] = dict(config.env_vars or {})
+        run_interface["resources"] = dict(setting.resources or {})
         
         # Remove 'type' as it's not a constructor parameter
         run_interface.pop("type", None)

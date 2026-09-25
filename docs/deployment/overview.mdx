@@ -18,7 +18,7 @@ flowchart LR
 ```
 
 1. **Selector**: Analyzes code and chooses deployment strategy
-2. **Adapter**: Modifies code for the chosen strategy
+2. **Adapter**: Modifies code for the chosen strategy and runs the deploy command; the result is validated (syntax, required files, import for local) and the agent is asked to fix what fails
 3. **Runner**: Executes the adapted code
 4. **Software**: Unified interface for running and managing
 

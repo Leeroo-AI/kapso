@@ -1,0 +1,74 @@
+name: Tests
+
+# The unit suite runs on the pull request, before main sees the change. It
+# needs no service, key or coding-agent login: tests/live and tests/manual
+# do, and stay out; tests/deployment_examples are scripts, not tests.
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/tests.yml'
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]' numpy pandas
+
+      # Tests commit into throwaway repositories; a bare runner has no identity
+      - name: Git identity for the tests
+        run: |
+          git config --global user.name "kapso-ci"
+          git config --global user.email "ci@leeroo.com"
+
+      # The claude_code adapter refuses to construct without the binary and a
+      # credential; its unit tests drive fake processes, so the binary and a
+      # placeholder key are all they need — nothing here can reach the API
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      # Deselected: these ten need a live Codex login or the repo's data
+      # trees, and fail on a bare checkout (read on main, 2026-09-25). They
+      # belong under tests/live; until they move, naming them here keeps the
+      # gate honest about everything else.
+      - name: Unit tests
+        env:
+          ANTHROPIC_API_KEY: ci-placeholder-not-a-key
+          CLAUDE_CODE_OAUTH_TOKEN: ci-placeholder-not-a-token
+        run: >
+          python -m pytest tests -q
+          --ignore=tests/live --ignore=tests/manual --ignore=tests/deployment_examples
+          --deselect tests/test_kg_index_integration.py::TestKGLLMNavigationIntegration
+          --deselect tests/test_kg_index_integration.py::TestKGIndexErrorHandling::test_index_without_data_raises_error
+          --deselect tests/test_kg_index_integration.py::TestEvolveWithKGLLMNavigation
+          --deselect tests/test_kapso_facade_learn.py::test_learn_knowledge_records_the_index_it_wrote
+          --deselect tests/test_repo_memory.py::test_render_summary_and_toc_produces_usable_prompt
+          --deselect tests/test_repo_memory_latest_commit_semantics.py::test_repo_memory_update_runs_after_final_commit

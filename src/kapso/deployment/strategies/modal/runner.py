@@ -11,6 +11,7 @@
 
 import os
 import subprocess
+from pathlib import Path
 from typing import Any, Dict, List, Union
 
 from kapso.deployment.strategies.base import Runner
@@ -59,20 +60,35 @@ class ModalRunner(Runner):
         # Try to load Modal function if Modal is available
         self._load()
     
+    @staticmethod
+    def _authenticated() -> bool:
+        """`modal token new` writes ~/.modal.toml; CI sets the env pair."""
+        return bool(os.environ.get("MODAL_TOKEN_ID")) or (Path.home() / ".modal.toml").exists()
+    
     def _load(self) -> None:
         """Try to load the Modal function."""
         try:
             import modal
             
-            # Check for Modal token
-            if not os.environ.get("MODAL_TOKEN_ID"):
-                self._logs.append("Modal not authenticated. Set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.")
+            if not self._authenticated():
+                self._logs.append("Modal not authenticated. Run `modal token new`, or set MODAL_TOKEN_ID and MODAL_TOKEN_SECRET.")
                 self._logs.append(f"To deploy: cd {self.code_path} && modal deploy modal_app.py")
                 return
             
-            # Try to look up the deployed function
+            if not self.app_name:
+                self._logs.append("No app name specified; cannot look up the function")
+                return
+            
+            # Look up the deployed function. `Function.from_name` is the
+            # current API (lazy: it resolves on first use, so hydrate to learn
+            # now whether the app is deployed); `lookup` serves older SDKs.
             try:
-                self._fn = modal.Function.lookup(self.app_name, self.function_name)
+                from_name = getattr(modal.Function, "from_name", None)
+                fn = from_name(self.app_name, self.function_name) if from_name else modal.Function.lookup(self.app_name, self.function_name)
+                hydrate = getattr(fn, "hydrate", None)
+                if callable(hydrate):
+                    hydrate()
+                self._fn = fn
                 self._deployed = True
                 self._logs.append(f"Connected to Modal function: {self.app_name}/{self.function_name}")
             except Exception as e:
@@ -87,18 +103,47 @@ class ModalRunner(Runner):
         """
         Start or restart the Modal runner.
         
-        Re-lookups the Modal function. If the app was stopped,
-        it needs to be redeployed first with `modal deploy`.
+        Looks the function up again; when the app is not deployed (stop()
+        removes it) and the adapted workspace holds `modal_app.py`, runs
+        `modal deploy` there first, so stop() → start() is a round trip.
         """
         self._logs.append("Starting Modal runner...")
         self._fn = None
         self._deployed = False
         self._load()
         
+        if not self._deployed and self._authenticated():
+            self._deploy()
+            if not self._deployed:
+                self._load()
+        
         if self._deployed:
             self._logs.append("Modal runner started - connected to function")
         else:
             self._logs.append("Modal runner started - function not yet deployed")
+    
+    def _deploy(self) -> None:
+        """Run `modal deploy modal_app.py` in the adapted workspace."""
+        app_file = Path(self.code_path or "") / "modal_app.py"
+        if not self.code_path or not app_file.exists():
+            self._logs.append("No modal_app.py in the workspace; cannot deploy")
+            return
+        try:
+            self._logs.append(f"Running: modal deploy modal_app.py in {self.code_path}")
+            result = subprocess.run(
+                ["modal", "deploy", "modal_app.py"],
+                cwd=self.code_path, capture_output=True, text=True, timeout=600,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+            self._logs.append(f"Deploy output:\n{output[-500:]}")
+            if result.returncode != 0:
+                self._logs.append(f"modal deploy failed with code {result.returncode}")
+        except FileNotFoundError:
+            self._logs.append("Modal CLI not found. Install with: pip install modal")
+        except subprocess.TimeoutExpired:
+            self._logs.append("Timeout waiting for modal deploy (10 min)")
+        except Exception as e:
+            self._logs.append(f"Error during modal deploy: {e}")
     
     def stop(self) -> None:
         """
@@ -119,9 +164,10 @@ class ModalRunner(Runner):
             return
         
         try:
-            # Run modal app stop command
+            # --yes: the CLI asks for confirmation and aborts without a TTY,
+            # and a runner never has one
             result = subprocess.run(
-                ["modal", "app", "stop", self.app_name],
+                ["modal", "app", "stop", self.app_name, "--yes"],
                 capture_output=True,
                 text=True,
                 timeout=60,

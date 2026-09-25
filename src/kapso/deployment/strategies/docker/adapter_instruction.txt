@@ -3,25 +3,36 @@
 Docker deployment runs the solution in an isolated container.
 Best for reproducibility, isolation, and HTTP-based APIs.
 
+## NAMES AND PORT (assigned by Kapso — use them exactly)
+
+- image: `kapso-{deployment_name}`
+- container: `kapso-{deployment_name}`
+- host port: `{port}` (the container listens on 8000)
+
+Two solutions deployed on the same machine must not share names or ports;
+these are derived from this solution's path, so keep them as given.
+
 ## DEPLOY COMMAND
 
 ```bash
-docker build -t solution . && docker run -d --name solution-container -p 8000:8000 solution
+docker rm -f kapso-{deployment_name} 2>/dev/null; docker build -t kapso-{deployment_name} . && docker run -d --name kapso-{deployment_name} -p {port}:8000 --restart unless-stopped {env_file_flag} kapso-{deployment_name}
 ```
 
-Run this command to build and start the Docker container. The `-d` runs in detached mode, `--name` gives a consistent container name.
-If it fails, debug and fix the error.
+Run this command to build and start the Docker container (`rm -f` first, so a
+re-deploy replaces the previous container of this solution). If it fails,
+debug and fix the error.
 
 ## RUN INTERFACE
 - type: http
-- endpoint: http://localhost:8000
-- path: /predict
-- container_name: solution-container
-- image_name: solution
+- endpoint: http://localhost:{port}
+- predict_path: /predict
+- container_name: kapso-{deployment_name}
+- image_name: kapso-{deployment_name}
+- port: {port}
 
-After successful deployment, output this JSON (update endpoint if different):
+After successful deployment, output this JSON (update only what differs):
 ```
-<run_interface>{"type": "http", "endpoint": "http://localhost:8000", "path": "/predict", "container_name": "solution-container", "image_name": "solution"}</run_interface>
+<run_interface>{"type": "http", "endpoint": "http://localhost:{port}", "predict_path": "/predict", "container_name": "kapso-{deployment_name}", "image_name": "kapso-{deployment_name}", "port": {port}}</run_interface>
 ```
 
 ## CRITICAL: YOU MUST BUILD AND TEST THE CONTAINER
@@ -29,13 +40,21 @@ After successful deployment, output this JSON (update endpoint if different):
 **Do NOT just create files. You MUST build and verify the Docker image works.**
 
 After creating the Dockerfile:
-1. Run: `docker build -t solution .`
+1. Run the DEPLOY COMMAND above
 2. Verify the build succeeds without errors
-3. Run: `docker run -p 8000:8000 solution` to start the container
-4. Test with: `curl http://localhost:8000/health`
+3. Test with: `curl http://localhost:{port}/health`
+4. Test a prediction: `curl -X POST http://localhost:{port}/predict -H "Content-Type: application/json" -d '{"test": true}'`
 5. If there are errors, fix them and rebuild
 
 **If deployment fails, debug the error and fix it. Do not give up.**
+
+## Environment variables
+
+Variables provided by the caller: {env_var_names}. When any are listed, a
+`.env` file with them is at the workspace root; the DEPLOY COMMAND passes it
+with `--env-file`, and Kapso passes the same variables when it recreates the
+container. Keep `.env` out of the image (`.dockerignore` below) — never
+`COPY` it or bake values into `ENV` lines.
 
 ## Required Structure
 
@@ -64,12 +83,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Run as an unprivileged user
+RUN useradd --create-home --uid 1000 app && chown -R app:app /app
+USER app
+
 # Expose port for HTTP interface
 EXPOSE 8000
 
-# Health check
+# Health check (python:3.11-slim ships no curl)
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status == 200 else 1)"
 
 # Run the application
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -150,19 +173,16 @@ uvicorn>=0.23.0
 ## Testing Docker Locally
 
 ```bash
-# Build the image
-docker build -t solution .
+# Health endpoint
+curl http://localhost:{port}/health
 
-# Run the container
-docker run -p 8000:8000 solution
-
-# Test health endpoint
-curl http://localhost:8000/health
-
-# Test prediction endpoint (send input directly, not wrapped in "data")
-curl -X POST http://localhost:8000/predict \
+# Prediction endpoint (send input directly, not wrapped in "data")
+curl -X POST http://localhost:{port}/predict \
   -H "Content-Type: application/json" \
   -d '{"text": "hello"}'
+
+# Container logs
+docker logs kapso-{deployment_name}
 ```
 
 ## Notes

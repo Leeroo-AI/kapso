@@ -103,6 +103,12 @@ echo '{"text": "hello world"}' | python main.py
 python -c "from main import predict; print(predict({'test': True}))"
 ```
 
+## Environment variables
+
+Variables provided by the caller: {env_var_names}. Kapso sets them in the
+process environment before `main` is imported; read them with
+`os.environ.get(...)` and do not load `.env` yourself.
+
 ## Notes
 
 - Keep `main.py` lightweight - import heavy modules inside functions

@@ -71,6 +71,16 @@ if __name__ == "__main__":
 - NEVER hardcode sensitive values in code
 - Use `os.environ.get("VAR_NAME")` to read env vars
 
+### Environment variables provided by the caller
+
+Variables the software will find in its process environment at runtime: {env_var_names}
+
+When any are listed, a `.env` file holding them sits at the workspace root
+(`{env_file}`). Kapso injects the same variables into the runtime it manages
+(the local process, the Docker container); for cloud targets follow the
+target instructions to attach the file. Never copy their values into code,
+images or logs.
+
 ### Testing
 
 After adaptation, the following should work:

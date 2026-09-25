@@ -69,8 +69,8 @@ AVAILABLE_AGENTS = [
     if not CodingAgentFactory.get_agent_info(name).get("inference_only", False)
 ]
 
-# Available deploy strategies
-DEPLOY_STRATEGIES = ["auto", "local", "docker", "modal", "bentoml", "langgraph"]
+# Available deploy strategies: AUTO plus whatever strategies/ holds
+DEPLOY_STRATEGIES = [member.value for member in DeployStrategy]
 
 # Research depths
 RESEARCH_DEPTHS = ["light", "deep"]
@@ -561,16 +561,8 @@ def cmd_deploy(args) -> None:
         metadata={},
     )
     
-    # Parse strategy
-    strategy_map = {
-        "auto": DeployStrategy.AUTO,
-        "local": DeployStrategy.LOCAL,
-        "docker": DeployStrategy.DOCKER,
-        "modal": DeployStrategy.MODAL,
-        "bentoml": DeployStrategy.BENTOML,
-        "langgraph": DeployStrategy.LANGGRAPH,
-    }
-    strategy = strategy_map.get(args.strategy.lower(), DeployStrategy.AUTO)
+    # Parse strategy (argparse already limited it to DEPLOY_STRATEGIES)
+    strategy = DeployStrategy(args.strategy.lower())
     
     # Parse env vars
     env_vars = {}
