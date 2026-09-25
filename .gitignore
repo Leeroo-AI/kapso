@@ -7,7 +7,6 @@ public
 release-notes.md
 typescript*
 
-# wiki-backend is a separate repo (git@github.com:Leeroo-AI/wiki-backend.git)
 services/wiki_backend/
 
 # Byte-compiled / optimized / DLL files
