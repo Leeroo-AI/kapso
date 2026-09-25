@@ -50,6 +50,6 @@ Keep the code and the on-disk JSON minimal: each line, field, and file must earn
 
 A commit made directly on the default branch (`main`) is pushed in the same step — never leave `main` ahead of `origin/main` with local-only commits. This is the standing exception to Rule 8's "push only when the user asks": that default still governs feature and worktree branches, but anything that lands on `main` ships to the remote immediately (still atomic and suite-green per Rule 8 — push right after the commit). If the push is rejected because someone else advanced `origin/main`, pull/rebase and retry; never force-push `main`.
 
-## 12. Pull request descriptions carry no tool attribution
+## 12. Pull request descriptions: no tool attribution, no private references
 
-A PR description says what changed and why, in the project's voice, and nothing about what wrote it: no "Generated with Claude Code", no tool badge or footer of any kind — on this repository and on pull requests opened from the owner's account elsewhere. Commit messages keep the Co-Authored-By trailer (Rule 8); the PR body does not repeat it.
+A PR description says what changed and why, in the project's voice, and nothing about what wrote it: no "Generated with Claude Code", no tool badge or footer of any kind — on this repository and on pull requests opened from the owner's account elsewhere. Commit messages keep the Co-Authored-By trailer (Rule 8); the PR body does not repeat it. It also names nothing a reader of this public repository cannot open: no private repositories, internal documents or their paths — the reasoning a PR needs is written into the PR.
