@@ -9,7 +9,7 @@ description = "Long-running agents that optimize AI and Data systems, and learn 
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    {name = "Leeroo Team", email = "team@leeroo.com"}
+    {name = "Leeroo Team", email = "alireza@leeroo.com"}
 ]
 license = {text = "MIT"}
 classifiers = [
