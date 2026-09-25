@@ -64,14 +64,18 @@ class WikiPoller:
     @property
     def mw(self) -> MWClient:
         """Lazy-initialize MediaWiki client."""
+        # Stored only once login has succeeded. A client stored before
+        # login has no API URL, so every later call failed on that instead
+        # of logging in again: one unreachable wiki wedged the sync for good.
         if self._mw is None:
-            self._mw = MWClient(
+            client = MWClient(
                 self.config.wiki_url,
                 self.config.mw_user,
                 self.config.mw_pass,
             )
-            self._mw.login()
-            logger.info(f"Wiki poller connected to {self._mw.api_url}")
+            client.login()
+            self._mw = client
+            logger.info(f"Wiki poller connected to {client.api_url}")
         return self._mw
 
     def _get_namespace_filter(self) -> str:

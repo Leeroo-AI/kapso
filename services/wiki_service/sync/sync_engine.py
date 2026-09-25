@@ -45,14 +45,18 @@ class SyncEngine:
     @property
     def mw(self) -> MWClient:
         """Lazy-initialize MediaWiki client."""
+        # Stored only once login has succeeded. A client stored before
+        # login has no API URL, so every later call failed on that instead
+        # of logging in again: one unreachable wiki wedged the sync for good.
         if self._mw is None:
-            self._mw = MWClient(
+            client = MWClient(
                 self.config.wiki_url,
                 self.config.mw_user,
                 self.config.mw_pass,
             )
-            self._mw.login()
-            logger.info(f"Connected to MediaWiki at {self._mw.api_url}")
+            client.login()
+            self._mw = client
+            logger.info(f"Connected to MediaWiki at {client.api_url}")
         return self._mw
 
     def get_wiki_page_info(self, title: str) -> Optional[dict]:
