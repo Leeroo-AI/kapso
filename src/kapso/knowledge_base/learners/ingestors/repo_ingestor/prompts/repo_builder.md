@@ -12,24 +12,11 @@ You are a Senior Software Engineer. Your task is to create a professional, well-
 - **Suggested Repo Name**: `{suggested_repo_name}`
 - **Visibility**: `{visibility}`
 - **GitHub Organization**: `{github_org}`
-- **GitHub PAT**: `{github_pat}`
 - **Result File**: `{result_file}` (write final GitHub URL here)
 
-## CRITICAL: GitHub Authentication
+## GitHub Authentication
 
-**You MUST use the provided GitHub PAT for all GitHub operations.** Do NOT use any existing `gh` CLI authentication or SSH keys.
-
-Before ANY `gh` command, set the token:
-```bash
-export GH_TOKEN="{github_pat}"
-```
-
-Or prefix each `gh` command:
-```bash
-GH_TOKEN="{github_pat}" gh repo create ...
-```
-
-This ensures repos are created under the correct account (the PAT owner), not whatever account is logged into `gh` CLI.
+`gh` authenticates with the `GH_TOKEN` environment variable, which is set for this session. Never run `gh auth login`, never print the token, and never use SSH keys: repositories must be created under the token's account.
 
 ---
 
@@ -367,7 +354,7 @@ if __name__ == "__main__":
 
 ## Step 5: Create and Push to GitHub
 
-**CRITICAL: Always use `GH_TOKEN` for authentication. Never rely on existing `gh` CLI login.**
+**`gh` is authenticated through `GH_TOKEN`; never run `gh auth login`.**
 
 1. **Create files** in a temporary directory:
    ```bash
@@ -383,13 +370,10 @@ if __name__ == "__main__":
 
 3. **Set GitHub authentication and git author** (REQUIRED before any git/gh command):
    ```bash
-   export GH_TOKEN="{github_pat}"
-   
-   # CRITICAL: Set git author to match the PAT owner
-   # This ensures commits are attributed to the correct user, not the local git config
-   # Get the PAT owner's username and set git config
-   GH_USER=$(GH_TOKEN="{github_pat}" gh api user --jq '.login')
-   GH_NAME=$(GH_TOKEN="{github_pat}" gh api user --jq '.name // .login')
+   # Set the git author to the token's owner so commits are attributed to
+   # the publishing account, not the local git config
+   GH_USER=$(gh api user --jq '.login')
+   GH_NAME=$(gh api user --jq '.name // .login')
    git config --global user.name "$GH_NAME"
    git config --global user.email "$GH_USER@users.noreply.github.com"
    ```
@@ -403,24 +387,24 @@ if __name__ == "__main__":
    # Check if name available (include org if specified)
    # If github_org is "none", create under personal account
    # Otherwise, create under the specified organization
-   GH_TOKEN="{github_pat}" gh repo view {github_org}/{suggested_repo_name} 2>/dev/null && TAKEN=1 || TAKEN=0
+   gh repo view {github_org}/{suggested_repo_name} 2>/dev/null && TAKEN=1 || TAKEN=0
    
    # Create repo (try alternatives if taken)
    # Use --org flag if github_org is not "none"
-   # Example: GH_TOKEN="..." gh repo create my-org/repo-name --private --source=. --push
-   # Or:      GH_TOKEN="..." gh repo create repo-name --private --source=. --push (personal account)
-   GH_TOKEN="{github_pat}" gh repo create {github_org}/{suggested_repo_name} --{visibility} --source=. --push
+   # Example: gh repo create my-org/repo-name --private --source=. --push
+   # Or:      gh repo create repo-name --private --source=. --push (personal account)
+   gh repo create {github_org}/{suggested_repo_name} --{visibility} --source=. --push
    ```
    
    **IMPORTANT GitHub Organization Rules:**
    - If `{github_org}` is `none`: Create under your personal account (omit org prefix)
-     - Command: `GH_TOKEN="{github_pat}" gh repo create FINAL_NAME --{visibility} --source=. --push`
+     - Command: `gh repo create FINAL_NAME --{visibility} --source=. --push`
    - If `{github_org}` is set (e.g., `my-org`): Create under that organization
-     - Command: `GH_TOKEN="{github_pat}" gh repo create {github_org}/FINAL_NAME --{visibility} --source=. --push`
+     - Command: `gh repo create {github_org}/FINAL_NAME --{visibility} --source=. --push`
 
 5. **Write result:**
    ```bash
-   GH_TOKEN="{github_pat}" gh repo view FINAL_NAME --json url -q .url > {result_file}
+   gh repo view FINAL_NAME --json url -q .url > {result_file}
    cat {result_file}  # Verify
    ```
 

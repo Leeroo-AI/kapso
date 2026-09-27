@@ -230,8 +230,8 @@ learn_knowledge(
 | `wiki_dir` | Where extracted wiki pages are written | `"data/wikis"` |
 | `skip_merge` | Extract pages without merging them into the graph | `False` |
 | `kg_index` | Index to merge into | from the constructor |
-| `github_org` | Organisation for a staging repository | `None` |
-| `is_private` | Whether that repository is private | from config |
+| `github_org` | Organisation to publish the extracted workflows' repositories to; passing it turns publishing on for this call (`learner.ingestor.publish_workflows` otherwise) | `None` |
+| `is_private` | Whether those repositories are private; passing it turns publishing on too | from config |
 
 ```python
 kapso.learn_knowledge(

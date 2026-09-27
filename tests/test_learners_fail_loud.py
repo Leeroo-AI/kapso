@@ -46,7 +46,7 @@ def agents(monkeypatch):
 
 
 def ingestor(tmp_path, **params):
-    return ingestor_module.RepoIngestor(params={"wiki_dir": tmp_path, "github_pat": "x", **params})
+    return ingestor_module.RepoIngestor(params={"wiki_dir": tmp_path, **params})
 
 
 def test_ingestor_session_carries_config_effort_and_no_deadline(tmp_path, agents):

@@ -124,7 +124,7 @@ The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 - **Phase 2: Excavation+Synthesis** - Trace imports, write Implementation-Principle pairs together
 - **Phase 3: Enrichment** - Mine constraints/tips, write Environment/Heuristic pages
 - **Phase 4: Audit** - Validate graph integrity, fix broken links
-- **Phase 4b: Repo Builder** - Create GitHub repositories for workflows
+- **Phase 4b: Repo Builder** - Publish each Workflow as a runnable GitHub repository. Runs after the deterministic validation, and only when `learner.ingestor.publish_workflows` is on (or `github_org` / `is_private` is passed); `gh` authenticates with `GH_TOKEN`
 
 **Branch 2: Orphan Mining (runs after Branch 1)**
 - **Phase 5a: Triage (code)** - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW

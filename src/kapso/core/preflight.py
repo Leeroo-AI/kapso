@@ -523,10 +523,14 @@ def learn_knowledge_requirements(
     *,
     mode: Optional[str] = None,
     skip_merge: bool = False,
+    publish_workflows: Optional[bool] = None,
 ) -> List[Requirement]:
     """`learn_knowledge()` ingests sources into wiki pages, then merges
     them into the KG. `skip_merge=True` stops after extraction, which
-    drops the merger session and both backend stores."""
+    drops the merger session and both backend stores. Publishing the
+    extracted workflows as repositories (`learner.ingestor.publish_workflows`,
+    or the call's GitHub arguments, passed as `publish_workflows`) needs
+    the token `gh` reads."""
     mode_name, block = _mode_block(config, mode)
     learner = block.get("learner") or {}
     prefix = f"modes.{mode_name}.learner"
@@ -539,14 +543,18 @@ def learn_knowledge_requirements(
     requirements.append(_git_requirement(
         "Source.Repo ingestion clones the repository"
     ))
-    requirements.append(Requirement(
-        label="GITHUB_PAT",
-        ok=bool(os.environ.get("GITHUB_PAT")),
-        fix="add GITHUB_PAT=ghp_... to .env — or expect the workflow-repo "
-            "phase to fail or push to the wrong account",
-        origin=f"{prefix}.ingestor publishes each extracted workflow as a repo",
-        required=False,
-    ))
+    ingestor = learner.get("ingestor") or {}
+    if publish_workflows is None:
+        publish_workflows = bool(ingestor.get("publish_workflows"))
+    if publish_workflows:
+        requirements.append(Requirement(
+            label="GH_TOKEN",
+            ok=bool(os.environ.get("GH_TOKEN")),
+            fix="add GH_TOKEN=ghp_... to .env: the workflow-repo builder's gh "
+                "reads it, and without it gh would publish under whatever "
+                "account is logged in",
+            origin=f"{prefix}.ingestor.publish_workflows",
+        ))
     if not skip_merge:
         requirements.append(_embedding_requirement(
             "the merge embeds every wiki page",

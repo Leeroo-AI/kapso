@@ -50,7 +50,7 @@ def full_machine(monkeypatch):
     monkeypatch.setattr(preflight, "port_open", lambda host, port, timeout=2.0: True)
     monkeypatch.setattr(preflight, "claude_logged_in", lambda: True)
     monkeypatch.setattr(preflight, "codex_authenticated", lambda: True)
-    for name in ("OPENAI_API_KEY", "GITHUB_PAT", "LEEROOPEDIA_API_KEY"):
+    for name in ("OPENAI_API_KEY", "GH_TOKEN", "LEEROOPEDIA_API_KEY"):
         monkeypatch.setenv(name, "set")
     monkeypatch.setattr(
         preflight, "bank_origin", lambda home: None,
@@ -200,7 +200,7 @@ def test_every_failing_row_names_its_origin_and_a_fix(packaged, monkeypatch):
     monkeypatch.setattr(preflight, "port_open", lambda *a, **k: False)
     monkeypatch.setattr(preflight, "claude_logged_in", lambda: False)
     monkeypatch.setattr(preflight, "codex_authenticated", lambda: False)
-    for name in ("OPENAI_API_KEY", "GITHUB_PAT", "LEEROOPEDIA_API_KEY"):
+    for name in ("OPENAI_API_KEY", "GH_TOKEN", "LEEROOPEDIA_API_KEY"):
         monkeypatch.delenv(name, raising=False)
 
     seen = 0

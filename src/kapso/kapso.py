@@ -50,6 +50,7 @@ from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory, KGIndexInput
 from kapso.knowledge_base.search.base import KGIndexMetadata
 from kapso.knowledge_base.learners import Source, KnowledgePipeline
+from kapso.knowledge_base.learners.defaults import learner_defaults
 from kapso.core.cli_inference import resolve_inference_config
 from kapso.researcher import Researcher, ResearchDepth, ResearchMode
 from kapso.knowledge_base.types import ResearchFindings
@@ -495,12 +496,13 @@ class Kapso:
                   supported in this code path yet.
             skip_merge: If True, only extract `WikiPage`s (Stage 1) and skip merging
                 into the KG backends (Stage 2). This avoids requiring Neo4j/Weaviate.
-            github_org: Optional GitHub organization to push workflow repos to.
-                If not provided, repos are created under the authenticated user's account.
-            is_private: Whether to create private repos. None (default)
-                defers to the config's github_repo_visibility (private
-                when unset).
-                Set to False to create public repos.
+            github_org: GitHub organization to publish the extracted
+                workflows' repositories to (the token's own account when
+                not given). Passing it turns publishing on for this call;
+                otherwise `learner.ingestor.publish_workflows` decides.
+            is_private: Whether those repositories are private. None (the
+                default) defers to the config's github_repo_visibility.
+                Passing it turns publishing on for this call too.
             
         Example:
             # Learn from repo + web research and merge into local KG
@@ -521,7 +523,25 @@ class Kapso:
             raise ValueError("learn_knowledge() requires at least one source")
         # skip_merge=True stops after page extraction, so the merger session
         # and both KG stores drop out of the requirement set.
-        run_preflight("learn_knowledge", self._config, skip_merge=skip_merge)
+        # The call's GitHub arguments turn publishing on; otherwise the
+        # config's learner.ingestor block decides (packaged default when a
+        # caller's config omits the key).
+        mode_for_publishing = self._config.get("default_mode", "GENERIC")
+        ingestor_config = (
+            self._config.get("modes", {}).get(mode_for_publishing, {})
+            .get("learner", {}).get("ingestor", {})
+        )
+        publish_workflows = (
+            github_org is not None
+            or is_private is not None
+            or bool(ingestor_config.get(
+                "publish_workflows", learner_defaults("ingestor")["publish_workflows"]
+            ))
+        )
+        run_preflight(
+            "learn_knowledge", self._config,
+            skip_merge=skip_merge, publish_workflows=publish_workflows,
+        )
         # research(mode="idea"/"implementation") returns a LIST of typed
         # sources; the advertised contract passes that output directly as
         # one argument — flatten one level so the pipeline's per-source
@@ -570,19 +590,16 @@ class Kapso:
         ingestor_params = learner_config.get("ingestor", {}).copy()
         config_merger_params = learner_config.get("merger", {})
 
-        # Override ingestor params with user-provided GitHub settings
-        # These take precedence over config.yaml values
+        # The call's GitHub settings override config.yaml's; the ingestor
+        # takes the config's github_repo_visibility when is_private is not
+        # passed (stale-code audit 2026-08-26, A1).
+        ingestor_params["publish_workflows"] = publish_workflows
         if github_org is not None:
             ingestor_params["github_org"] = github_org
-        # An explicitly passed is_private wins; otherwise the config's
-        # github_repo_visibility applies (the old unconditional overwrite
-        # made the config key a lie — stale-code audit 2026-08-26, A1).
         if is_private is not None:
             ingestor_params["github_repo_visibility"] = (
                 "private" if is_private else "public"
             )
-        else:
-            ingestor_params.setdefault("github_repo_visibility", "private")
 
         # Merge config merger params with kg_index_path (kg_index_path takes precedence)
         final_merger_params = {**config_merger_params, **merger_params}

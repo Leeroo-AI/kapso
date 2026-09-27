@@ -160,8 +160,9 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
     Checks:
     - All links to core node types must point to existing pages.
     - Every Principle must have at least one implemented_by link to an Implementation.
-    - Every Workflow should have at least 2 step links (warning).
-    - Every Principle should be referenced by at least one Workflow step (warning).
+    - Every Workflow should carry its published repository URL (warning:
+      publishing is a config switch, and a page keeps its placeholder until
+      the repository exists).
     
     Notes:
     - We only strictly validate links targeting these types:
@@ -228,8 +229,7 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
                 f"{principle_id}: missing mandatory [[implemented_by::Implementation:...]] link"
             )
 
-    # 3) Mandatory: every Workflow must have a GitHub URL
-    # Workflows now link to GitHub repositories instead of step links
+    # 3) Every Workflow should carry its published repository URL
     for workflow_id in by_type.get("Workflow", []):
         if workflow_id not in workflow_github_urls:
             # Also check if the page content contains a GitHub URL
@@ -247,9 +247,10 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
                                 workflow_github_urls[workflow_id] = url_match.group(1)
                     break
         
-        if workflow_id not in workflow_github_urls:
-            report.errors.append(
-                f"{workflow_id}: missing mandatory GitHub URL link (use [URL Label] format)"
+        url = workflow_github_urls.get(workflow_id, "")
+        if not url or "PENDING" in url:
+            report.warnings.append(
+                f"{workflow_id}: no published repository URL yet ([URL Label] format once published)"
             )
 
     # 4) Note: Principles are no longer connected to Workflows via step links

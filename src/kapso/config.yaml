@@ -176,6 +176,11 @@ modes:
         cleanup: true
         cleanup_staging: false
         fail_on_validation_errors: true
+        # Publish each extracted Workflow as a runnable GitHub repository
+        # (after validation; `gh` reads GH_TOKEN). Off by default: a run then
+        # produces pages only, and Workflow pages keep a placeholder URL.
+        # learn_knowledge(github_org=..., is_private=...) turns it on for a call.
+        publish_workflows: false
         github_repo_visibility: "private"
       merger:
         model: "claude-opus-5"
@@ -236,6 +241,7 @@ modes:
         cleanup: true
         cleanup_staging: false
         fail_on_validation_errors: true
+        publish_workflows: false
         github_repo_visibility: "private"
       merger:
         model: "claude-opus-5"

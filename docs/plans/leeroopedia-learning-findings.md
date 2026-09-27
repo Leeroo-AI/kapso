@@ -107,7 +107,15 @@ Fix: deterministic checks in the validator for required sections per page type (
 `wiki_structure/*/sections_definition.md`), wikitext-only headings, no `/tmp/` paths,
 and namespaced links; a one-off repair pass over the 655 + 102 + 94 + 3,037 corpus pages.
 
-### L5. A GitHub failure discards the whole extraction
+### L5. A GitHub failure discards the whole extraction — **fixed**
+
+**Fixed 2026-09-27.** Publishing is a config switch, `learner.ingestor.publish_workflows`
+(off by default; `learn_knowledge(github_org=..., is_private=...)` turns it on for a call), it
+runs after the deterministic validation, and the phase raises if any repository is not
+created, so a publishing failure never discards validated pages. Off, a Workflow page keeps
+its placeholder URL and the validator reports that as a warning. The token no longer passes
+through our code or the prompt: `gh` reads `GH_TOKEN` itself, and the preflight requires it
+exactly when publishing is on. Pinned by `tests/test_repo_ingestor_pipeline.py`.
 
 The repo-builder phase runs before validation, and validation requires a real GitHub URL
 on every Workflow (`[https://github.com/PENDING …]` fails the regex). If a single repo
