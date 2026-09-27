@@ -15,6 +15,12 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+# Prefix of the temporary directories repositories are cloned into. A page
+# that cites such a path points at a directory that no longer exists, which
+# the validator rejects.
+CLONE_DIR_PREFIX = "kapso_repo_"
+
+
 def clone_repo(url: str, branch: str = "main") -> Path:
     """
     Clone a Git repository to a temporary directory.
@@ -32,7 +38,7 @@ def clone_repo(url: str, branch: str = "main") -> Path:
         RuntimeError: If git clone fails
     """
     # Create temp directory with recognizable prefix
-    temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
+    temp_dir = tempfile.mkdtemp(prefix=CLONE_DIR_PREFIX)
     
     logger.info(f"Cloning {url} (branch: {branch}) to {temp_dir}")
     
@@ -50,7 +56,7 @@ def clone_repo(url: str, branch: str = "main") -> Path:
             
             # Clean up failed attempt
             shutil.rmtree(temp_dir, ignore_errors=True)
-            temp_dir = tempfile.mkdtemp(prefix="kapso_repo_")
+            temp_dir = tempfile.mkdtemp(prefix=CLONE_DIR_PREFIX)
             
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", url, temp_dir],

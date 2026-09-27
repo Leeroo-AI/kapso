@@ -95,9 +95,14 @@ NOT: `## Header` or `### Header`
 
 ```mediawiki
 [https://example.com External Link]
-[[Internal_Page_Name]]
-[[Page_Name|Display Text]]
+[[Principle:Page_Name]]
+[[Implementation:Page_Name|Display Text]]
 ```
+
+Every link to a wiki page carries the page's namespace (`Workflow:`, `Principle:`,
+`Implementation:`, `Environment:`, `Heuristic:`), in prose as much as in the graph
+sections. A bare `[[Page_Name]]` resolves to the wiki's main namespace, where no
+page lives, and renders as a broken link; the validator rejects it.
 
 ### Code Blocks
 

@@ -1,11 +1,12 @@
 """The repo ingestor's phase plan: what runs, and what stops it.
 
-Pins docs/plans/leeroopedia-learning-findings.md L5 and L6: publishing the
-workflows as repositories is a config switch that runs after validation and
-fails loud when a repository is not created, a Workflow without a published
-repository is a warning rather than a rejected extraction, and the
-orphan-mining agent sessions run only when the deterministic triage left them
-work.
+Pins docs/plans/leeroopedia-learning-findings.md L4–L6: the validator checks
+what serving needs from every page (wikitext, an Overview with text, no
+temporary clone paths, namespaced links) and reads index entries from their
+file links; publishing the workflows as repositories is a config switch that
+runs after validation and fails loud when a repository is not created, while
+a Workflow without a published repository is a warning; and the orphan-mining
+agent sessions run only when the deterministic triage left them work.
 """
 
 from pathlib import Path
@@ -22,6 +23,7 @@ from kapso.knowledge_base.learners.ingestors.repo_ingestor.context_builder impor
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.wiki_validator import (
     validate_wiki_directory,
 )
+from kapso.knowledge_base.search.kg_graph_search import _extract_overview
 
 PACKAGED = load_config(str(PLATFORM_CONFIG_PATH))
 
@@ -120,7 +122,9 @@ Runs foo.
 def workflow_wiki(tmp_path, url="[https://github.com/PENDING Pending Repository Build]"):
     (tmp_path / "workflows").mkdir()
     (tmp_path / "workflows" / "Repo_Foo.md").write_text(WORKFLOW_PAGE.format(url=url))
-    (tmp_path / "_WorkflowIndex.md").write_text("## Workflow: Repo_Foo\n")
+    (tmp_path / "_WorkflowIndex.md").write_text(
+        "## Workflow: Repo_Foo\n\n**File:** [→](./workflows/Repo_Foo.md)\n"
+    )
     return tmp_path
 
 
@@ -165,7 +169,7 @@ def test_a_created_repository_is_written_into_the_workflow_page(tmp_path):
     ingestor._run_repo_builder_phase("Repo", "https://example.test/repo")
     page = (tmp_path / "workflows" / "Repo_Foo.md").read_text()
     assert "[https://github.com/org/repo-foo Workflow Repository]" in page
-    assert not any("no published repository URL" in w for w in validate_wiki_directory(tmp_path).warnings)
+    assert validate_wiki_directory(tmp_path).warnings == []
 
 
 def test_preflight_requires_the_gh_token_only_when_publishing(monkeypatch):
@@ -176,3 +180,68 @@ def test_preflight_requires_the_gh_token_only_when_publishing(monkeypatch):
     }
     assert "GH_TOKEN" not in labels(False)
     assert labels(True)["GH_TOKEN"] is True
+
+
+# --------------------------------------------------------------------------
+# What the validator requires of every page (L4)
+# --------------------------------------------------------------------------
+
+GOOD_PRINCIPLE = """{{PageInfo|type=Principle|title=Repo_Rule}}
+== Overview ==
+A rule with text.
+
+=== Description ===
+More text.
+
+== Related Pages ==
+* [[implemented_by::Implementation:Repo_Rule_Impl]]
+"""
+GOOD_IMPLEMENTATION = """{{PageInfo|type=Implementation|title=Repo_Rule_Impl}}
+== Overview ==
+The code for the rule, at src/rule.py.
+"""
+
+
+def wiki(tmp_path, principle=GOOD_PRINCIPLE):
+    for subdir in ("principles", "implementations"):
+        (tmp_path / subdir).mkdir(exist_ok=True)
+    (tmp_path / "principles" / "Repo_Rule.md").write_text(principle)
+    (tmp_path / "implementations" / "Repo_Rule_Impl.md").write_text(GOOD_IMPLEMENTATION)
+    (tmp_path / "_PrincipleIndex.md").write_text("| Page | File |\n|---|---|\n| Repo_Rule | [→](./principles/Repo_Rule.md) |\n")
+    (tmp_path / "_ImplementationIndex.md").write_text("| 1 | Repo_Rule_Impl | [→](./implementations/Repo_Rule_Impl.md) |\n")
+    return validate_wiki_directory(tmp_path)
+
+
+def test_a_well_formed_wiki_passes_with_no_warnings(tmp_path):
+    report = wiki(tmp_path)
+    assert report.errors == [] and report.warnings == []
+
+
+@pytest.mark.parametrize("page, complaint", [
+    ("## Overview\nMarkdown page.\n", "no wikitext section headings"),
+    ("== Summary ==\nOld layout.\n\n== Related Pages ==\n[[implemented_by::Implementation:Repo_Rule_Impl]]\n", "missing the == Overview =="),
+    ("== Overview ==\n\n== Related Pages ==\n[[implemented_by::Implementation:Repo_Rule_Impl]]\n", "nothing to embed"),
+    (GOOD_PRINCIPLE.replace("More text.", "See /tmp/kapso_repo_ab12cd/src/rule.py."), "temporary clone path"),
+    (GOOD_PRINCIPLE.replace("More text.", "See [[Repo_Rule_Impl]] and [[Other|the other]]."), "2 link(s) without a namespace ([[Repo_Rule_Impl]], [[Other]])"),
+], ids=["markdown", "no-overview", "empty-overview", "temp-path", "plain-links"])
+def test_the_validator_rejects_pages_serving_cannot_use(tmp_path, page, complaint):
+    report = wiki(tmp_path, principle=page)
+    assert any(complaint in error for error in report.errors), report.errors
+
+
+def test_index_entries_come_from_file_links_not_table_columns(tmp_path):
+    # A steps table whose first column is a number, and a summary table of
+    # short names, used to produce false "missing from index" warnings.
+    (tmp_path / "workflows").mkdir()
+    (tmp_path / "workflows" / "Repo_Foo.md").write_text(WORKFLOW_PAGE.format(url="[https://github.com/o/r Workflow Repository]"))
+    (tmp_path / "_WorkflowIndex.md").write_text(
+        "| Workflow | Steps |\n|---|---|\n| Foo | 3 |\n\n## Workflow: Repo_Foo\n\n**File:** [→](./workflows/Repo_Foo.md)\n\n"
+        "| # | Step | API |\n|---|---|---|\n| 1 | Load | load() |\n"
+    )
+    assert validate_wiki_directory(tmp_path).warnings == []
+
+
+def test_the_parser_reads_the_older_layouts_first_section_as_the_overview():
+    text = "{{PageInfo|type=Principle|title=X}}\n== Metadata ==\n{| table |}\n\n== Summary ==\nThe first real section.\n\n== Usage ==\nLater.\n"
+    assert _extract_overview(text) == "The first real section."
+    assert _extract_overview("== Overview ==\nProper.\n\n== Summary ==\nNot this.\n") == "Proper."

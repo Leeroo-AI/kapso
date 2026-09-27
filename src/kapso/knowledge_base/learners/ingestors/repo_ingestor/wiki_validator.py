@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
+from kapso.knowledge_base.learners.ingestors.repo_ingestor.utils import CLONE_DIR_PREFIX
 
 import re
 
@@ -60,35 +61,18 @@ class ValidationReport:
         return "\n".join(lines) + "\n"
 
 
-def _parse_index_entries(index_path: Path) -> Set[str]:
+def _parse_index_entries(index_path: Path, subdir: str) -> Set[str]:
     """
-    Parse an index file and extract page names from the table rows.
+    The pages an index file lists: every `[→](./<subdir>/<Name>.md)` link in it.
     
-    Returns a set of page names found in the index.
+    The link is the one thing every index layout shares — the per-type
+    tables and the `## Workflow:` sections of _WorkflowIndex.md alike —
+    whereas a table's first column may hold a step number or a short name.
     """
     if not index_path.exists():
         return set()
-    
     content = index_path.read_text(encoding="utf-8")
-    entries = set()
-    
-    # Match table rows: | PageName | [→](./dir/file.md) | ...
-    # The page name is typically in the first column after the leading |
-    for line in content.splitlines():
-        if not line.startswith("|"):
-            continue
-        # Skip header and separator rows
-        if "---" in line or "Page" in line and "File" in line:
-            continue
-        
-        parts = [p.strip() for p in line.split("|")]
-        if len(parts) >= 2:
-            page_name = parts[1].strip()
-            # Skip empty or placeholder entries
-            if page_name and page_name != "—" and not page_name.startswith("<!--"):
-                entries.add(page_name)
-    
-    return entries
+    return set(re.findall(rf"\(\./{re.escape(subdir)}/([^/)]+)\.md\)", content))
 
 
 def _get_pages_in_directory(wiki_dir: Path, subdir: str) -> Set[str]:
@@ -133,7 +117,7 @@ def validate_page_indexes(wiki_dir: Path, report: ValidationReport) -> None:
                 )
             continue
         
-        index_entries = _parse_index_entries(index_path)
+        index_entries = _parse_index_entries(index_path, subdir)
         dir_pages = _get_pages_in_directory(wiki_dir, subdir)
         
         # Check for pages in directory but not in index
@@ -153,11 +137,56 @@ def validate_page_indexes(wiki_dir: Path, report: ValidationReport) -> None:
                 )
 
 
+# Page-type directory for each page type (the reverse of parse_wiki_directory's map).
+_TYPE_DIRS = {
+    "Workflow": "workflows",
+    "Principle": "principles",
+    "Implementation": "implementations",
+    "Environment": "environments",
+    "Heuristic": "heuristics",
+}
+_WIKITEXT_HEADING = re.compile(r"^==+ *[^=\n]+? *==+[ \t]*$", re.M)
+_OVERVIEW_HEADING = re.compile(r"^== *(Overview|Definition) *==[ \t]*$", re.M)
+# [[Name]] or [[Name|label]] with neither a namespace (Type:Name) nor a
+# property (edge::Type:Name): MediaWiki resolves it in the main namespace,
+# where no wiki page lives, so it renders as a red link.
+_PLAIN_LINK = re.compile(r"\[\[(?![^\]]*::)(?![^\]|]*:)([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+
+def _validate_page_form(page, wiki_dir: Path, report: ValidationReport) -> None:
+    """The properties every page needs before its content is even read."""
+    path = wiki_dir / _TYPE_DIRS[page.page_type] / f"{page.id.split('/', 1)[1]}.md"
+    if not path.exists():
+        # The wiki names a page after its file; an id from an Identifier
+        # field that differs from the filename would not resolve there.
+        report.errors.append(f"{page.id}: id does not match its filename (expected {path.name})")
+        return
+    text = path.read_text(encoding="utf-8")
+    if not _WIKITEXT_HEADING.search(text):
+        report.errors.append(f"{page.id}: no wikitext section headings (== Section ==); Markdown is not rendered")
+    elif not _OVERVIEW_HEADING.search(text):
+        report.errors.append(f"{page.id}: missing the == Overview == section")
+    elif not (page.description or page.overview):
+        report.errors.append(f"{page.id}: the Overview section has no text, so there is nothing to embed")
+    if CLONE_DIR_PREFIX in text:
+        report.errors.append(f"{page.id}: cites a temporary clone path ({CLONE_DIR_PREFIX}...); use a repository-relative path or URL")
+    plain_links = _PLAIN_LINK.findall(text)
+    if plain_links:
+        shown = ", ".join(f"[[{name}]]" for name in plain_links[:3])
+        report.errors.append(
+            f"{page.id}: {len(plain_links)} link(s) without a namespace ({shown}); "
+            "write [[Type:Name]] or [[edge::Type:Name]]"
+        )
+
+
 def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
     """
     Validate a wiki directory for link integrity and mandatory constraints.
     
     Checks:
+    - Every page is wikitext with an Overview section that has text (the
+      parser embeds nothing else), cites no temporary clone path, and links
+      to other pages only with a namespace or a property.
     - All links to core node types must point to existing pages.
     - Every Principle must have at least one implemented_by link to an Implementation.
     - Every Workflow should carry its published repository URL (warning:
@@ -179,6 +208,10 @@ def validate_wiki_directory(wiki_dir: Path) -> ValidationReport:
         report.errors.append(f"Failed to parse wiki_dir: {e}")
         return report
 
+    # 0) Page form: what serving needs from every page, checked on the raw text.
+    for page in pages:
+        _validate_page_form(page, wiki_dir, report)
+    
     # Inventory
     ids: Set[str] = {p.id for p in pages}
     by_type: Dict[str, List[str]] = {}

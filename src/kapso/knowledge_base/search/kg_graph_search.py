@@ -313,29 +313,43 @@ def _extract_page_type(filename: str) -> Optional[str]:
     return None
 
 
+def _section_text(content: str, level: str, heading: str, include_subsections: bool = False) -> str:
+    """
+    Text of the first `<level> heading <level>` section: its lines up to the
+    next heading. With include_subsections the section runs to the next
+    heading of its own level and its subsections' text is kept (their
+    heading lines dropped). Reading line by line means an empty section
+    yields "" instead of swallowing the section after it, which a dot-all
+    capture did.
+    """
+    stop = r'==[^=]' if include_subsections else r'=='
+    pattern = (
+        r'^' + level + r'[ \t]*(?:' + heading + r')[ \t]*' + level + r'[ \t]*\n'
+        r'((?:(?![ \t]*' + stop + r')[^\n]*\n?)*)'
+    )
+    match = re.search(pattern, content, re.MULTILINE)
+    if not match:
+        return ""
+    lines = [line for line in match.group(1).splitlines() if not line.lstrip().startswith("==")]
+    text = re.sub(r'\[\[Category:[^\]]+\]\]', '', "\n".join(lines))
+    return re.sub(r'\n+', ' ', text).strip()
+
+
 def _extract_overview(content: str) -> str:
     """
-    Extract overview/definition from first content section.
+    The page's card text.
     
-    Looks for:
-    - == Overview == section
-    - == Definition == section
+    - The `== Overview ==` (or `== Definition ==`) section's own text.
+    - When that section holds nothing but its `=== Description ===`
+      subsection, the description stands in.
+    - Pages written before the Overview section was required (the February
+      2026 corpus) open with Summary, Purpose, a title heading and the like:
+      their first section after the metadata block, subsections included,
+      stands in.
     """
-    patterns = [
-        r'== Overview ==\s*\n+(.+?)(?=\n==|\n\{\{|\Z)',
-        r'== Definition ==\s*\n+(.+?)(?=\n==|\n\{\{|\Z)',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, content, re.DOTALL)
-        if match:
-            overview = match.group(1).strip()
-            # Clean up wiki formatting
-            overview = re.sub(r'\[\[Category:[^\]]+\]\]', '', overview)
-            overview = re.sub(r'\n+', ' ', overview)  # Collapse newlines
-            return overview.strip()
-    
-    return ""
+    if re.search(r'^==[ \t]*(Overview|Definition)[ \t]*==', content, re.MULTILINE):
+        return _section_text(content, '==', 'Overview|Definition') or _extract_description(content)
+    return _section_text(content, '==', r'(?![ \t]*Metadata\b)[^=\n][^\n]*?', include_subsections=True)
 
 
 def _extract_description(content: str) -> str:
@@ -346,16 +360,7 @@ def _extract_description(content: str) -> str:
     semantic detail than the overview summary. Used as the primary
     text source for embedding generation.
     """
-    pattern = r'=== Description ===\s*\n+(.+?)(?=\n===|\n==|\n\{\{|\Z)'
-    match = re.search(pattern, content, re.DOTALL)
-    if match:
-        description = match.group(1).strip()
-        # Clean up wiki formatting
-        description = re.sub(r'\[\[Category:[^\]]+\]\]', '', description)
-        description = re.sub(r'\n+', ' ', description)  # Collapse newlines
-        return description.strip()
-    
-    return ""
+    return _section_text(content, '===', 'Description')
 
 
 def _extract_identifier(content: str, filename: str, repo_id: str) -> str:

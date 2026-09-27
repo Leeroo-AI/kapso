@@ -86,7 +86,21 @@ directory, so a long run can be continued rather than restarted.
 Fix: fail loud per CLAUDE.md Rule 2; the only sanctioned "continue" is a phase whose
 absence the validator can prove harmless.
 
-### L4. The validator checks links, not pages
+### L4. The validator checks links, not pages — **fixed**
+
+**Fixed 2026-09-27.** `validate_wiki_directory` now rejects a page that has no wikitext
+sections, no `== Overview ==` section or no text under it, cites a temporary clone path
+(`kapso_repo_…`), or links to a page without a namespace; it reads index entries from their
+`[→](./dir/Name.md)` links, so the `## Workflow:` sections and step tables no longer produce
+false warnings. The prompts now teach namespaced links (`[[Principle:Name]]`): the live run's
+pages had 29 plain links in 60 pages, which the earlier tally missed. The parser accepts the
+older layouts (the first section after the metadata block, subsections included, stands in
+for a missing Overview; a Description-only Overview reads as the description), which makes
+649 of the 655 corpus pages embeddable without editing them; the remaining 6 are Markdown.
+Correction to the table below: 6 pages are pure Markdown; the other 96 counted are wikitext
+pages that quote Markdown headings inside their content. Pinned by
+`tests/test_repo_ingestor_pipeline.py`. The corpus repair (temp paths, plain links, the 6
+Markdown pages) is a separate data pass, recorded in the addendum.
 
 `validate_wiki_directory` enforces link targets, Principle→Implementation, Workflow
 GitHub URLs and index files. It never checks section structure, markup, or content.
