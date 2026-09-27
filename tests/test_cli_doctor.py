@@ -29,7 +29,7 @@ def full_machine(monkeypatch):
     monkeypatch.setattr(preflight, "claude_logged_in", lambda: True)
     monkeypatch.setattr(preflight, "codex_authenticated", lambda: True)
     monkeypatch.setattr(preflight, "bank_origin", lambda home: None)
-    for name in ("OPENAI_API_KEY", "GITHUB_PAT", "LEEROOPEDIA_API_KEY"):
+    for name in ("OPENAI_API_KEY", "GH_TOKEN", "LEEROOPEDIA_API_KEY"):
         monkeypatch.setenv(name, "set")
 
 
@@ -40,7 +40,7 @@ def bare_machine(monkeypatch):
     monkeypatch.setattr(preflight, "claude_logged_in", lambda: False)
     monkeypatch.setattr(preflight, "codex_authenticated", lambda: False)
     monkeypatch.setattr(preflight, "bank_origin", lambda home: None)
-    for name in ("OPENAI_API_KEY", "GITHUB_PAT", "LEEROOPEDIA_API_KEY"):
+    for name in ("OPENAI_API_KEY", "GH_TOKEN", "LEEROOPEDIA_API_KEY"):
         monkeypatch.delenv(name, raising=False)
 
 
