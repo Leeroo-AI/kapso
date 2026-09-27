@@ -14,7 +14,7 @@ A top-down DAG of 5 page types covering ML/AI topics.
 
 ## Graph Edges (top-down only)
 
-- Principle —[implemented_by]→ Implementation (mandatory, 1:1)
+- Principle —[implemented_by]→ Implementation (mandatory, 1+)
 - Principle —[uses_heuristic]→ Heuristic
 - Implementation —[requires_env]→ Environment
 - Implementation —[uses_heuristic]→ Heuristic

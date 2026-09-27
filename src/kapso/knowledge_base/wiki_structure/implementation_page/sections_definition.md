@@ -13,10 +13,6 @@ This document defines the schema, purpose, and detailed writing instructions for
 {repo_namespace}_{Implementation_Name}.md
 ```
 
-For angle-based implementations (same API documented from different Principle perspectives):
-```
-{repo_namespace}_{ClassName}_{Method}_For_{PrincipleContext}.md
-```
 
 ### WikiMedia Syntax Rules
 # First letter capitalized — Auto-converted by system
@@ -389,50 +385,47 @@ Implementation pages have outgoing connections to:
 
 ---
 
-## 5. Principle-Conditioned Documentation (CRITICAL)
+## 5. One Page Per Unit of Code (CRITICAL)
 
-### The 1:1 Rule
+### The Rule
 
-'''Each Implementation page is dedicated to exactly ONE Principle.''' The same underlying API may have multiple Implementation pages if it serves different Principles.
+'''Each Implementation page documents one unit of code — an API, class, function, script or config surface — and is linked by every Principle that unit realizes.''' The same code never gets a second Implementation page for another Principle's perspective; the page grows instead.
 
-### Why Principle-Conditioned?
+### How to Write a Page Several Principles Use
 
-The same API can be used in different contexts with different:
-* '''Important parameters:''' QLoRA cares about `load_in_4bit`, RL cares about `fast_inference`
-* '''Typical values:''' SFT uses `r=16`, RL uses `r=64`
-* '''Examples:''' Different code snippets for different use cases
-* '''Environment requirements:''' RL needs vLLM, basic loading doesn't
+When creating an Implementation page, '''know every Principle it serves''' (from the WorkflowIndex). Then:
 
-### How to Write Principle-Conditioned Docs
-
-When creating an Implementation page, '''always know which Principle it serves''' (from the WorkflowIndex). Then:
-
-'''1. Title reflects the angle:'''
-* `FastLanguageModel_from_pretrained` (default QLoRA)
-* `FastLanguageModel_from_pretrained_vllm` (RL with vLLM)
-
-'''2. Overview mentions the context:'''
+'''1. Overview names the code, not a context:'''
 ```mediawiki
 == Overview ==
 
-Loads language models with vLLM fast inference backend for reinforcement learning workflows.
+Loads language models for fine-tuning and inference, with 4-bit quantization and an optional vLLM backend.
 ```
 
-'''3. Usage focuses on the specific trigger:'''
+'''2. Usage lists each context and its trigger:'''
 ```mediawiki
 === Usage ===
 
-Use this when setting up GRPO/PPO training with vLLM-accelerated generation.
-NOT for standard SFT training (use FastLanguageModel_from_pretrained instead).
+* Standard SFT: load with `load_in_4bit=True` for QLoRA.
+* GRPO/PPO training: add `fast_inference=True` for vLLM-accelerated generation.
+* Reloading a trained adapter: pass the adapter directory as `model_name`.
 ```
 
-'''4. Key Parameters highlight what matters for this use case:'''
-* For QLoRA: `load_in_4bit`, `dtype`, `max_seq_length`
-* For RL: `fast_inference`, `max_lora_rank`, `gpu_memory_utilization`
+'''3. Key Parameters cover every context, grouped by it:'''
+* QLoRA: `load_in_4bit`, `dtype`, `max_seq_length`
+* RL: `fast_inference`, `max_lora_rank`, `gpu_memory_utilization`
 
-'''5. Examples are tailored to the workflow:'''
-* QLoRA example shows loading for fine-tuning
-* RL example shows loading with vLLM settings
+'''4. Usage Examples carry one example per context.'''
+
+'''5. Related Pages link every Principle:'''
+```mediawiki
+== Related Pages ==
+
+* [[implements::Principle:{repo}_Model_Loading]]
+* [[implements::Principle:{repo}_RL_Model_Loading]]
+```
+
+Helpers and glue code that nobody calls directly get no page of their own: describe them in the page of the code that uses them.
 
 ### Implementation Types
 

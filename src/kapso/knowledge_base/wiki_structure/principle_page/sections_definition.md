@@ -181,7 +181,7 @@ Principle pages have outgoing connections to:
 
 * '''Implementation:''' `[[implemented_by::Implementation:{Implementation_Name}]]`
 ** ''Meaning:'' "This theory is realized by this code."
-** ''Constraint:'' '''MANDATORY''' — Must have exactly ONE dedicated implementation.
+** ''Constraint:'' '''MANDATORY''' — At least one Implementation; link every page that realizes this theory.
 * '''Heuristic:''' `[[uses_heuristic::Heuristic:{Heuristic_Name}]]`
 ** ''Meaning:'' "This theory is optimized by this wisdom."
 
@@ -197,67 +197,46 @@ Principle pages have outgoing connections to:
 
 | Edge Property | Target Node | Meaning | Constraint |
 |:--------------|:------------|:--------|:-----------|
-| `implemented_by` | Implementation | "This theory runs via this code" | '''MANDATORY (1:1)''' |
+| `implemented_by` | Implementation | "This theory runs via this code" | '''MANDATORY (1+)''' |
 | `uses_heuristic` | Heuristic | "Optimized by this wisdom" | Optional |
 
 ---
 
-## 5. 1:1 Principle-Implementation Mapping (CRITICAL)
+## 5. Principles and Implementations (CRITICAL)
 
 ### The Rule
 
-'''Each Principle has exactly ONE dedicated Implementation page.''' Even if multiple Principles use the same underlying API, each gets its own Implementation that documents the API from that Principle's perspective.
+'''One Implementation page per unit of code, linked by every Principle it realizes.''' A Principle links to at least one Implementation; when several Principles use the same API, they all link to its one page. Never create a second Implementation page for the same code from another Principle's perspective.
 
-### Why 1:1 Mapping?
+'''A Principle only for a concept with a theory behind it''' — a method, an algorithm, a design idea whose why holds outside this repository. A helper, a utility or glue code is documented inside the Implementation page of the code that uses it, not as a Principle.
 
-# '''Clear ownership:''' Each Principle knows exactly where its code documentation lives.
-# '''Context-specific docs:''' The same API can have different important parameters depending on use case.
-# '''No confusion:''' Engineers following a Principle land on documentation tailored to their goal.
-# '''Maintainability:''' Updates to one use case don't affect others.
-
-### Example: Same API, Different Implementations
+### Example: Same API, One Implementation
 
 `FastLanguageModel.from_pretrained()` is used by three Principles:
 
-| Principle | Implementation | Angle/Context |
-|-----------|----------------|---------------|
-| `Model_Loading` | `FastLanguageModel_from_pretrained` | QLoRA loading, 4-bit quantization |
-| `RL_Model_Loading` | `FastLanguageModel_from_pretrained_vllm` | vLLM fast inference mode |
-| `Model_Preparation` | `FastLanguageModel_from_pretrained_lora` | Reloading saved LoRA adapters |
+| Principle | Implementation |
+|-----------|----------------|
+| `Model_Loading` | `FastLanguageModel_from_pretrained` |
+| `RL_Model_Loading` | `FastLanguageModel_from_pretrained` |
+| `Model_Preparation` | `FastLanguageModel_from_pretrained` |
 
-Each Implementation page:
-* Documents the same underlying API
-* Emphasizes parameters relevant to that use case
-* Provides examples tailored to that workflow context
-* Links to the appropriate Environment pages
-
-### Implementation Naming Convention
-
-When the same API serves multiple Principles, use suffixes to distinguish:
-
-```
-{repo}_{APIName}              → Primary/default use case
-{repo}_{APIName}_{context}    → Specialized use cases
-```
-
-Examples:
-* `unslothai_unsloth_FastLanguageModel_from_pretrained` (default QLoRA)
-* `unslothai_unsloth_FastLanguageModel_from_pretrained_vllm` (RL with vLLM)
-* `unslothai_unsloth_get_peft_model` (SFT LoRA)
-* `unslothai_unsloth_get_peft_model_rl` (RL high-rank LoRA)
+The one Implementation page:
+* Documents the API once, with the parameters that matter in each context
+* Carries an example per context (QLoRA loading, vLLM for RL, reloading adapters)
+* Links to the Environment pages any of those contexts require
 
 ### What Goes in the WorkflowIndex
 
 The `_WorkflowIndex.md` should specify which Implementation each Principle links to:
 
 ```markdown
-| Principle | Implementation | API | Angle |
-|-----------|----------------|-----|-------|
-| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` | QLoRA |
-| RL_Model_Loading | `FastLanguageModel_from_pretrained_vllm` | `from_pretrained` | vLLM |
+| Principle | Implementation | API |
+|-----------|----------------|-----|
+| Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` |
+| RL_Model_Loading | `FastLanguageModel_from_pretrained` | `from_pretrained` |
 ```
 
-This ensures Phase 2 creates the correct Implementation pages with correct mappings.
+This ensures Phase 2 creates each Implementation page once, with all its links.
 
 ---
 

@@ -1,4 +1,4 @@
-# Excavation + Synthesis Phase: Implementation-Principle Pairs
+# Excavation + Synthesis Phase: Implementation and Principle Pages
 
 You are a knowledge extraction agent. Your task is to:
 1. **Read WorkflowIndex** to get implementation context for each workflow step
@@ -152,11 +152,11 @@ The '''FastLanguageModel''' class provides optimized model loading with:
 │  Step 1: Read WorkflowIndex to get implementation context               │
 │  Step 2: For each unique concept → Create Principle page                │
 │  Step 3: For each API → Create Implementation page                      │
-│  Step 4: Link Principle → Implementation (1:1 mapping)                  │
+│  Step 4: Link each Principle to its Implementations                     │
 │  Step 5: Update all indexes                                             │
 │  Step 6: Write execution report                                         │
 ├────────────────────────────────────────────────────────────────────────┤
-│  END STATE: Standalone Principle-Implementation pairs (no Workflow link)│
+│  END STATE: Linked Principle and Implementation pages (no Workflow)     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -197,21 +197,21 @@ The WorkflowIndex was populated by Phase 1 with all the context you need.
 ### Principle Structure
 {principle_structure}
 
-## Your Task: Create Implementation-Principle Pairs
+## Your Task: Create Implementation and Principle Pages
 
-### Core Rule: 1:1 Mapping
+### Core Rule: One Page Per Unit of Code
 
-**Each Principle gets exactly ONE dedicated Implementation page.**
+**One Implementation page per unit of code** — an API, class, function, script or config surface — no matter how many Principles use it. Never write a second Implementation page for the same code from another perspective; a Principle that uses code already documented links to the existing page.
 
-If the same underlying API is used in multiple contexts, create **separate Implementation pages** with different names and perspectives:
+**A Principle page only for a concept with a theory behind it** — a method, an algorithm, a design idea with a why that holds outside this repository. A helper, a utility or glue code gets no Principle: document it inside the Implementation page of the code that uses it, or in its own Implementation page only when it has an API someone would call.
 
-| Principle | Implementation Name | Angle/Perspective |
-|-----------|---------------------|-------------------|
-| `Model_Loading` | `FastLanguageModel_from_pretrained` | QLoRA model loading |
-| `RL_Model_Loading` | `FastLanguageModel_from_pretrained_vllm` | vLLM-enabled for RL |
-| `Model_Preparation` | `FastLanguageModel_from_pretrained_lora` | Reload trained LoRA |
+| Principle | Implementation | Note |
+|-----------|----------------|------|
+| `Model_Loading` | `FastLanguageModel_from_pretrained` | one page for the API |
+| `RL_Model_Loading` | `FastLanguageModel_from_pretrained` | the same page, linked again |
+| `Model_Preparation` | `FastLanguageModel_from_pretrained` | the same page, linked again |
 
-Each Implementation documents the API **from that Principle's perspective**.
+The page's Usage and Usage Examples cover every context the WorkflowIndex records for the API; a context-specific parameter belongs in that page, not in a page of its own.
 
 ---
 
@@ -251,9 +251,9 @@ For each unique concept in the workflows, create a Principle page.
 4. `=== Usage ===` - When to use this technique
 5. `== Theoretical Basis ==` - Math, pseudocode, diagrams (if applicable)
 6. `== Practical Guide ==` - How to apply this (for concept-only principles)
-7. `== Related Pages ==` - **1:1 link to Implementation**
+7. `== Related Pages ==` - **links to every Implementation that realizes it (at least one)**
 
-**Related Pages Format (1:1):**
+**Related Pages Format:**
 ```mediawiki
 == Related Pages ==
 
@@ -275,9 +275,9 @@ For each API documented in the WorkflowIndex, create an Implementation page.
 5. `== Code Reference ==` - Source location, signature, import
 6. `== I/O Contract ==` - Inputs/outputs
 7. `== Usage Examples ==` - Examples with code
-8. `== Related Pages ==` - Link to the ONE Principle this implements
+8. `== Related Pages ==` - Link to every Principle this implements
 
-**Related Pages Format (1:1):**
+**Related Pages Format:**
 ```mediawiki
 == Related Pages ==
 
@@ -320,7 +320,7 @@ For external tools like llama.cpp:
 
 ## Step 5: Update All Indexes (After Each Pair)
 
-After writing each Implementation-Principle pair:
+After writing each page:
 
 ### 5A: Update Implementation Index
 Add row to `{wiki_dir}/_ImplementationIndex.md`:
@@ -341,20 +341,18 @@ Add row to `{wiki_dir}/_PrincipleIndex.md`:
 
 ---
 
-## Step 6: Verify 1:1 Mapping
+## Step 6: Verify the Links
 
 Before finishing, verify:
 
 ```
 For each Principle page:
-  ☑ Has exactly ONE [[implemented_by::Implementation:X]] link
-  ☑ Implementation page exists
-  ☑ Implementation links back to this ONE Principle
+  ☑ Has at least one [[implemented_by::Implementation:X]] link
+  ☑ Every linked Implementation page exists and links back with [[implements::Principle:...]]
 
 For each Implementation page:
-  ☑ Has exactly ONE [[implements::Principle:X]] link
-  ☑ Principle page exists
-  ☑ Principle links back to this ONE Implementation
+  ☑ Documents code no other Implementation page documents
+  ☑ Every [[implements::Principle:X]] target exists and links back
 ```
 
 ---
@@ -390,10 +388,10 @@ When finished, write a summary report to `{wiki_dir}/_reports/phase2_excavation_
 
 - Implementation pages created: X
 - Principle pages created: X
-- 1:1 mappings verified: X
+- Principle→Implementation links verified: X
 - Concept-only principles: X
 
-## Principle-Implementation Pairs
+## Principles and Their Implementations
 
 | Principle | Implementation | Source | Type |
 |-----------|----------------|--------|------|

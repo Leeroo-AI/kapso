@@ -173,7 +173,14 @@ missing `beartype`/`einops`). A repository's README or code can steer the agent
 Fix: drop `Bash` (the phases need `Read`/`Write`/`Edit`), or run learning in a sandbox
 with no credentials.
 
-### L8. Page count is not tied to repository size
+### L8. Page count is not tied to repository size — **prompts fixed, unverified**
+
+**2026-09-27:** the extraction prompt and the Principle and Implementation structure
+definitions no longer ask for a dedicated Implementation page per Principle (the "1:1
+mapping" that produced one page per perspective of the same API). The rule is now one
+Implementation page per unit of code, linked by every Principle it realizes; a Principle
+only for a concept with a theory behind it; helpers documented inside the page of the code
+that uses them. Whether page counts drop needs a live run.
 
 Ten source files became 60 pages (22 Principles, 22 Implementations). Whether that is
 knowledge or restatement needs a quality review; the merger's same-type similarity search
