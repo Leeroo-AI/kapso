@@ -4,6 +4,32 @@ What a live `learn_knowledge(Source.Repo(...))` run and an audit of the Leeroope
 corpus (27,803 pages, built with this pipeline in February 2026) turned up. Each item
 carries evidence, impact and a proposed fix. Status is **open** unless marked otherwise.
 
+## Verification run, 2026-09-27
+
+The same repository (`lucidrains/speculative-decoding`, 10 files), extract-only, on main at
+b9d93542 (v0.5.0 plus the pinned tool set), shipped config (`claude-opus-5`, `oauth`, `xhigh`,
+no deadline). It was launched, stopped after two minutes, and launched again to exercise the
+resume: the second run found the staging directory, skipped the clone and continued.
+
+| Phase | Duration | CLI-reported cost | Outcome |
+|---|---|---|---|
+| repo_understanding | 213 s | $1.24 | 10/10 files explored, first attempt |
+| anchoring | 1,016 s | $2.34 | 4 Workflow pages |
+| anchoring_context | 368 s | $1.88 | WorkflowIndex enriched |
+| excavation_synthesis | 2,539 s | $13.24 | 15 Principle + 19 Implementation pages; ran to completion (no deadline) |
+| enrichment | 1,191 s | $8.03 | 10 Heuristic + 3 Environment pages |
+| audit | 522 s | $3.06 | no fixes left for the validator |
+| orphan triage → review, create, audit | 0 s | $0 | nothing uncovered: all three sessions skipped |
+
+97 minutes, $29.8, 51 pages (was 60: 22 Principles + 22 Implementations became 15 + 19, with
+Implementation pages now linked by every Principle that uses them, up to five). Every session's
+init event listed exactly five tools. The in-run validation passed without the extra audit pass;
+re-validating the published pages: 0 errors, every page has Overview text, no plain links (the
+only warnings are the placeholder repository URLs, publishing being off, and the per-run index
+files that stay in staging). `PipelineResult.success` True, 0 errors; the clone was removed on
+completion and the staging directory kept with its `complete` marker. Not exercised: the merge
+(extract-only), the publishing session.
+
 ## How these were found
 
 - **Live run.** `learn_knowledge(Source.Repo("https://github.com/lucidrains/speculative-decoding"))`
