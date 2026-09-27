@@ -1550,6 +1550,19 @@ def _parse_orphan_candidates(candidates_path: Path) -> Dict[str, List[Dict]]:
     return {"auto_keep": auto_keep, "manual_review": manual_review}
 
 
+def orphan_candidate_counts(candidates_path: Path) -> Tuple[int, int]:
+    """How much orphan work the candidates file holds: files still awaiting a
+    review decision, and files that must get a page (AUTO_KEEP plus the
+    reviews that were approved). The agent phases run only when their count
+    is non-zero."""
+    parsed = _parse_orphan_candidates(candidates_path)
+    awaiting_review = sum(1 for entry in parsed["manual_review"] if entry["pending"])
+    needing_pages = len(parsed["auto_keep"]) + sum(
+        1 for entry in parsed["manual_review"] if entry["approved"]
+    )
+    return awaiting_review, needing_pages
+
+
 def verify_orphan_completion(wiki_dir: Path, repo_name: str) -> Tuple[bool, str]:
     """
     Verify all orphan candidates were processed correctly.

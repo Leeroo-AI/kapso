@@ -58,6 +58,7 @@ from kapso.knowledge_base.learners.ingestors.repo_ingestor.utils import (
 )
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.wiki_validator import validate_wiki_directory
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.context_builder import (
+    orphan_candidate_counts,
     generate_repo_scaffold,
     get_repo_map_path,
     check_exploration_progress,
@@ -727,6 +728,55 @@ class RepoIngestor(Ingestor):
             workflow_path.write_text(content + github_section, encoding="utf-8")
             logger.info(f"Added GitHub URL section to {workflow_name}")
     
+    def _run_orphan_mining(self, repo_name: str, repo_path: Path, repo_url: str, branch: str) -> None:
+        """
+        Branch 2: pages for the files the workflow branch left uncovered.
+        
+        Deterministic triage sorts those files first; each agent phase runs
+        only when there is work for it — review needs a file awaiting a
+        decision, create and audit need a file that must get a page. A
+        well-covered repository skips all three sessions.
+        """
+        logger.info("=" * 60)
+        logger.info("BRANCH 2: Orphan Mining")
+        logger.info("=" * 60)
+        
+        logger.info("Step 6a: Orphan Triage (deterministic)...")
+        candidates_path = generate_orphan_candidates(
+            repo_map_path=get_repo_map_path(self._wiki_dir, repo_name),
+            wiki_dir=self._wiki_dir,
+            repo_name=repo_name,
+        )
+        logger.info(f"Orphan candidates written to: {candidates_path}")
+        
+        awaiting_review, needing_pages = orphan_candidate_counts(candidates_path)
+        if awaiting_review:
+            logger.info(f"Step 6b: Orphan Review ({awaiting_review} files awaiting a decision)...")
+            self._run_phase("orphan_review", repo_name, str(repo_path), repo_url, branch)
+            awaiting_review, needing_pages = orphan_candidate_counts(candidates_path)
+        else:
+            logger.info("Step 6b: Orphan Review skipped: no files awaiting a decision")
+        
+        if not needing_pages:
+            logger.info("Steps 6c-7: Orphan Create and Audit skipped: no files need a page")
+            return
+        
+        logger.info(f"Step 6c: Orphan Create ({needing_pages} files need a page)...")
+        self._run_phase("orphan_create", repo_name, str(repo_path), repo_url, branch)
+        
+        logger.info("Step 6d: Orphan Verification (deterministic)...")
+        verify_success, verify_report = verify_orphan_completion(self._wiki_dir, repo_name)
+        if not verify_success:
+            logger.warning(f"Orphan verification found issues:\n{verify_report}")
+            reports_dir = self._wiki_dir / "_reports"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            (reports_dir / "phase5d_orphan_verify.md").write_text(verify_report, encoding="utf-8")
+        else:
+            logger.info("Orphan verification passed")
+        
+        logger.info("Phase 7: Orphan Audit...")
+        self._run_phase("orphan_audit", repo_name, str(repo_path), repo_url, branch)
+    
     def _collect_written_pages(self, repo_name: str) -> List[WikiPage]:
         """
         Collect WikiPage objects from files written by agent.
@@ -837,44 +887,8 @@ class RepoIngestor(Ingestor):
             logger.info("=" * 60)
             self._run_repo_builder_phase(repo_name, url)
             
-            # Step 6: Run Branch 2 - Orphan mining (multi-step pipeline)
-            logger.info("=" * 60)
-            logger.info("BRANCH 2: Orphan Mining")
-            logger.info("=" * 60)
-            
-            # Step 6a: Triage (code-based, deterministic)
-            # Generates _orphan_candidates.md with AUTO_KEEP, AUTO_DISCARD, MANUAL_REVIEW
-            logger.info("Step 6a: Orphan Triage (deterministic)...")
-            candidates_path = generate_orphan_candidates(
-                repo_map_path=get_repo_map_path(self._wiki_dir, repo_name),
-                wiki_dir=self._wiki_dir,
-                repo_name=repo_name,
-            )
-            logger.info(f"Orphan candidates written to: {candidates_path}")
-            
-            # Step 6b: Review (agent evaluates MANUAL_REVIEW files)
-            logger.info("Step 6b: Orphan Review (agent evaluation)...")
-            self._run_phase("orphan_review", repo_name, str(repo_path), url, branch)
-            
-            # Step 6c: Create (agent creates wiki pages for approved files)
-            logger.info("Step 6c: Orphan Create (page generation)...")
-            self._run_phase("orphan_create", repo_name, str(repo_path), url, branch)
-            
-            # Step 6d: Verify (code-based verification)
-            logger.info("Step 6d: Orphan Verification (deterministic)...")
-            verify_success, verify_report = verify_orphan_completion(self._wiki_dir, repo_name)
-            if not verify_success:
-                logger.warning(f"Orphan verification found issues:\n{verify_report}")
-                # Write verification report to _reports directory
-                reports_dir = self._wiki_dir / "_reports"
-                reports_dir.mkdir(parents=True, exist_ok=True)
-                (reports_dir / "phase5d_orphan_verify.md").write_text(verify_report, encoding="utf-8")
-            else:
-                logger.info("Orphan verification passed")
-            
-            # Phase 7: Orphan Audit (final validation)
-            logger.info("Phase 7: Orphan Audit...")
-            self._run_phase("orphan_audit", repo_name, str(repo_path), url, branch)
+            # Step 6: Run Branch 2 - Orphan mining
+            self._run_orphan_mining(repo_name, repo_path, url, branch)
             
             # Step 7: Collect pages written by agent (union of both branches)
             report = validate_wiki_directory(self._wiki_dir)

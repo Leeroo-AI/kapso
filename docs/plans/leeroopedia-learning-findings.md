@@ -119,7 +119,12 @@ can create repositories under whatever account `gh` is logged into.
 Fix: make repository publishing an explicit config switch; validate before building;
 treat a missing URL as a warning when publishing is off.
 
-### L6. Orphan phases run with nothing to do
+### L6. Orphan phases run with nothing to do — **fixed**
+
+**Fixed 2026-09-27.** Orphan mining is one method (`RepoIngestor._run_orphan_mining`):
+review runs only when triage left files awaiting a decision, create and audit only when
+files must get a page (`orphan_candidate_counts`). Pinned by
+`tests/test_repo_ingestor_pipeline.py`.
 
 Triage found 0 candidates, yet review, create and audit each start an Opus session.
 
