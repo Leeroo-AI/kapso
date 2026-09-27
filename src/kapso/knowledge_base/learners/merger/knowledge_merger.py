@@ -36,7 +36,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.defaults import learner_defaults
-from kapso.knowledge_base.learners.ingestors.base import LEARNER_BANNED_TOOLS
+from kapso.knowledge_base.learners.ingestors.base import LEARNER_BUILTIN_TOOLS
 from kapso.knowledge_base.learners.merger.prompts import load_prompt
 from kapso.knowledge_base.search.base import WikiPage, KGIndexMetadata
 
@@ -413,15 +413,15 @@ class KnowledgeMerger:
         
         agent_specific = {
             "allowed_tools": [
-                "Read",
-                "Write",
+                *LEARNER_BUILTIN_TOOLS,
                 "mcp__kg-graph-search__search_knowledge",
                 "mcp__kg-graph-search__get_wiki_page",
                 "mcp__kg-graph-search__get_page_structure",
                 "mcp__kg-graph-search__kg_index",
                 "mcp__kg-graph-search__kg_edit",
             ],
-            "disallowed_tools": list(LEARNER_BANNED_TOOLS),
+            "builtin_tools": list(LEARNER_BUILTIN_TOOLS),
+            "strict_mcp_config": True,
             "timeout": self._agent_config["timeout"],
             "effort": self._agent_config["effort"],
             "planning_mode": True,

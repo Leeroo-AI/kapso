@@ -83,6 +83,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - builtin_tools: The built-in tools the session may hold (--tools). None
       (default) leaves the CLI's default set; [] removes every built-in tool,
       MCP tools included in the session stay. Verified on CLI 2.1.280.
+    - strict_mcp_config: True mounts only the MCP servers given here
+      (--strict-mcp-config), not the user's own servers or account connectors
     - streaming: True (default) - stream output live to terminal for visibility
     - auth_mode: Authentication mode: auto (default), oauth, api_key, or bedrock
     - aws_region: AWS region, required when auth_mode="bedrock"
@@ -145,6 +147,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # the CLI's default set; [] ("" on the command line) removes every
         # built-in, which is how a session is reduced to its MCP tools alone.
         self._builtin_tools: Optional[List[str]] = config.agent_specific.get("builtin_tools")
+        # Only the MCP servers this config mounts: the user's own servers and
+        # the account's connectors (mcp__claude_ai_*) stay out of the session.
+        self._strict_mcp_config = bool(config.agent_specific.get("strict_mcp_config", False))
         # Optional environment overrides for the Claude Code subprocess.
         #
         # Why:
@@ -1238,6 +1243,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Add MCP config if available
         if self._mcp_config_path and self._mcp_config_path.exists():
             cmd.extend(["--mcp-config", str(self._mcp_config_path)])
+        if self._strict_mcp_config:
+            cmd.append("--strict-mcp-config")
         
         # Append system prompt if configured (e.g. workspace sandbox instructions)
         if self._append_system_prompt:

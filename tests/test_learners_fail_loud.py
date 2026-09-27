@@ -21,7 +21,9 @@ from kapso.knowledge_base.search.base import WikiPage
 
 PACKAGED = load_config(str(PLATFORM_CONFIG_PATH))
 LEARNER = PACKAGED["modes"][PACKAGED["default_mode"]]["learner"]
-BANNED = {"Bash", "WebFetch", "WebSearch"}
+# The whole built-in set of a learning session: file tools, nothing that
+# runs code, reaches the network or delegates (pinned with --tools).
+TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 
 
 class FakeAgent:
@@ -58,8 +60,8 @@ def test_ingestor_session_carries_config_effort_and_no_deadline(tmp_path, agents
     assert config.agent_specific["auth_mode"] == LEARNER["ingestor"]["auth_mode"]
     assert config.agent_specific["effort"] == LEARNER["ingestor"]["effort"]
     assert config.agent_specific["timeout"] is None
-    assert BANNED <= set(config.agent_specific["disallowed_tools"])
-    assert BANNED.isdisjoint(config.agent_specific["allowed_tools"])
+    assert config.agent_specific["builtin_tools"] == TOOLS
+    assert config.agent_specific["strict_mcp_config"] is True
 
     ingestor(tmp_path, effort="low", timeout=60)._initialize_agent(str(tmp_path))
     assert agents[1].config.agent_specific["effort"] == "low"
@@ -73,8 +75,8 @@ def test_research_ingestor_session_carries_config_effort_and_no_deadline(tmp_pat
     assert config.agent_specific["auth_mode"] == LEARNER["ingestor"]["auth_mode"]
     assert config.agent_specific["effort"] == LEARNER["ingestor"]["effort"]
     assert config.agent_specific["timeout"] is None
-    assert BANNED <= set(config.agent_specific["disallowed_tools"])
-    assert BANNED.isdisjoint(config.agent_specific["allowed_tools"])
+    assert config.agent_specific["builtin_tools"] == TOOLS
+    assert config.agent_specific["strict_mcp_config"] is True
 
 
 def test_research_phase_failure_stops_the_run(tmp_path, agents, monkeypatch):
@@ -92,8 +94,8 @@ def test_merger_session_carries_config_effort_and_no_deadline(tmp_path, agents):
     assert config.agent_specific["auth_mode"] == LEARNER["merger"]["auth_mode"]
     assert config.agent_specific["effort"] == LEARNER["merger"]["effort"]
     assert config.agent_specific["timeout"] is None
-    assert BANNED <= set(config.agent_specific["disallowed_tools"])
-    assert BANNED.isdisjoint(config.agent_specific["allowed_tools"])
+    assert config.agent_specific["builtin_tools"] == TOOLS
+    assert config.agent_specific["strict_mcp_config"] is True
 
 
 def test_failed_phase_stops_the_run(tmp_path, agents, monkeypatch):

@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.defaults import learner_defaults
-from kapso.knowledge_base.learners.ingestors.base import Ingestor, LEARNER_BANNED_TOOLS
+from kapso.knowledge_base.learners.ingestors.base import Ingestor, LEARNER_BUILTIN_TOOLS
 from kapso.knowledge_base.learners.ingestors.factory import register_ingestor
 from kapso.knowledge_base.search.base import WikiPage, DEFAULT_WIKI_DIR
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
@@ -165,16 +165,18 @@ class RepoIngestor(Ingestor):
         """Return the source type this ingestor handles."""
         return "repo"
     
-    def _make_agent(self, workspace: str, allowed_tools: List[str], disallowed_tools: List[str]):
-        """A Claude Code session on the config's model, auth, effort and deadline."""
+    def _make_agent(self, workspace: str, builtin_tools: List[str]):
+        """A Claude Code session on the config's model, auth, effort and
+        deadline, holding exactly `builtin_tools` and no MCP server."""
         model = self.params["model"]
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",
             model=model,
             debug_model=model,  # Use same model for debug
             agent_specific={
-                "allowed_tools": allowed_tools,
-                "disallowed_tools": disallowed_tools,
+                "allowed_tools": builtin_tools,
+                "builtin_tools": builtin_tools,
+                "strict_mcp_config": True,
                 "timeout": self._timeout,
                 "effort": self._effort,
                 "planning_mode": True,
@@ -184,8 +186,8 @@ class RepoIngestor(Ingestor):
         agent = CodingAgentFactory.create(config)
         agent.initialize(workspace)
         logger.info(
-            "Initialized Claude Code agent for %s (auth=%s, model=%s, banned=%s)",
-            workspace, self.params["auth_mode"], model, disallowed_tools,
+            "Initialized Claude Code agent for %s (auth=%s, model=%s, tools=%s)",
+            workspace, self.params["auth_mode"], model, builtin_tools,
         )
         return agent
     
@@ -198,7 +200,7 @@ class RepoIngestor(Ingestor):
             workspace: Path to the cloned repository
         """
         # Edit included but Write is preferred for index files (Edit can fail on tables)
-        self._agent = self._make_agent(workspace, ["Read", "Write", "Edit"], list(LEARNER_BANNED_TOOLS))
+        self._agent = self._make_agent(workspace, list(LEARNER_BUILTIN_TOOLS))
     
     def _normalize_source(self, source: Any) -> Dict[str, Any]:
         """
@@ -584,8 +586,7 @@ class RepoIngestor(Ingestor):
         # packages were validated before this phase started.
         publisher = self._make_agent(
             str(self._last_repo_path.resolve() if self._last_repo_path else Path.cwd()),
-            ["Read", "Write", "Edit", "Bash"],
-            [tool for tool in LEARNER_BANNED_TOOLS if tool != "Bash"],
+            [*LEARNER_BUILTIN_TOOLS, "Bash"],
         )
         
         # Process each workflow

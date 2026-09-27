@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.defaults import learner_defaults
-from kapso.knowledge_base.learners.ingestors.base import Ingestor, LEARNER_BANNED_TOOLS
+from kapso.knowledge_base.learners.ingestors.base import Ingestor, LEARNER_BUILTIN_TOOLS
 from kapso.knowledge_base.search.base import WikiPage, DEFAULT_WIKI_DIR
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
 
@@ -116,8 +116,9 @@ class ResearchIngestorBase(Ingestor):
         """
         # Base agent_specific config
         agent_specific = {
-            "allowed_tools": ["Read", "Write", "Edit"],
-            "disallowed_tools": list(LEARNER_BANNED_TOOLS),
+            "allowed_tools": list(LEARNER_BUILTIN_TOOLS),
+            "builtin_tools": list(LEARNER_BUILTIN_TOOLS),
+            "strict_mcp_config": True,
             "timeout": self._timeout,
             "effort": self._effort,
             "planning_mode": True,

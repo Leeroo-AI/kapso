@@ -235,12 +235,14 @@ def test_builtin_tools_option_pins_the_cli_tool_set(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
 
     cmd = ClaudeCodeCodingAgent(make_config(auth_mode="api_key"))._build_command("claude-opus-4-6")
-    assert "--tools" not in cmd
+    assert "--tools" not in cmd and "--strict-mcp-config" not in cmd
 
     for pinned, flag_value in (([], ""), (["Read", "Grep"], "Read,Grep")):
-        agent = ClaudeCodeCodingAgent(make_config(auth_mode="api_key", builtin_tools=pinned))
+        agent = ClaudeCodeCodingAgent(make_config(
+            auth_mode="api_key", builtin_tools=pinned, strict_mcp_config=True))
         cmd = agent._build_command("claude-opus-4-6", use_stream_json=True)
         assert cmd[cmd.index("--tools") + 1] == flag_value
+        assert "--strict-mcp-config" in cmd
 
 
 def test_explicit_bedrock_selects_provider_and_drops_anthropic_credentials(

@@ -16,12 +16,17 @@ from typing import Any, Dict, List, Optional
 from kapso.knowledge_base.search.base import WikiPage
 
 
-# Tools no learning session holds. Under --dangerously-skip-permissions an
-# allow-list only silences prompts; the disallow-list is what removes a tool.
-# A session that reads a third-party repository must not be able to execute
-# it (Bash) or reach out with what it finds (WebFetch, WebSearch); every
-# extraction and merge phase works from files and the knowledge tools.
-LEARNER_BANNED_TOOLS = ("Bash", "WebFetch", "WebSearch")
+# The built-in tools a learning session holds, pinned with the CLI's --tools
+# flag so the set is exactly this whatever the CLI ships: reading and writing
+# files over the clone and the staging directory, and nothing that executes
+# (Bash, and the scheduling, monitoring and sub-agent tools newer CLIs add)
+# or reaches the network (WebFetch, WebSearch, the account's connectors). A
+# ban list of names could only ever be incomplete; on CLI 2.1.283 a session
+# with Bash, WebFetch and WebSearch banned still held 35 tools. A session
+# that reads a third-party repository must not be able to run it or send
+# out what it finds; every extraction and merge phase works from files and
+# the knowledge tools mounted through --mcp-config alone (strict MCP config).
+LEARNER_BUILTIN_TOOLS = ("Read", "Write", "Edit", "Glob", "Grep")
 
 
 class Ingestor(ABC):

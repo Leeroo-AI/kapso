@@ -160,10 +160,14 @@ Fix: skip the agent phases when every bucket is empty.
 
 ### L7. The learner executes third-party code with unrestricted Bash — **fixed**
 
-**Fixed 2026-09-27.** Every extraction and merge session bans Bash, WebFetch and WebSearch
-through `--disallowedTools` (`LEARNER_BANNED_TOOLS`), the only flag that removes a tool under
-`--dangerously-skip-permissions`; the publishing session alone has Bash, for `git` and `gh`.
-Pinned by `tests/test_learners_fail_loud.py` and `tests/test_repo_ingestor_pipeline.py`.
+**Fixed 2026-09-27.** First as a ban of Bash, WebFetch and WebSearch through
+`--disallowedTools`; a probe on CLI 2.1.283 then showed such a session still holding 35 tools,
+among them Task (sub-agents), Monitor and Cron (they run commands) and the account's
+claude.ai connectors. So the built-in set is now pinned instead: every extraction and merge
+session starts with `--tools Read,Write,Edit,Glob,Grep --strict-mcp-config`
+(`LEARNER_BUILTIN_TOOLS`), which leaves exactly those five tools plus the knowledge tools the
+merge mounts; the publishing session alone also gets Bash, for `git` and `gh`. Pinned by
+`tests/test_learners_fail_loud.py` and `tests/test_repo_ingestor_pipeline.py`.
 
 The ingestor session gets `Read, Write, Edit, Bash` under `--dangerously-skip-permissions`
 inside the clone. During the run it `import`ed the repository's package (failing on

@@ -242,8 +242,8 @@ class PublishingAgent:
 
     def install(self, ingestor, monkeypatch):
         """Become the session the publishing phase creates for itself."""
-        def make(workspace, allowed_tools, disallowed_tools):
-            self.tools = (allowed_tools, disallowed_tools)
+        def make(workspace, builtin_tools):
+            self.tools = builtin_tools
             return self
         monkeypatch.setattr(ingestor, "_make_agent", make)
         return self
@@ -273,10 +273,8 @@ def test_a_repository_that_is_not_created_fails_the_publishing_phase(tmp_path, m
     # The prompt carries no token: gh reads GH_TOKEN itself.
     assert "GH_TOKEN=" not in publisher.prompts[0]
     assert "PENDING" in (tmp_path / "workflows" / "Repo_Foo.md").read_text()
-    # Publishing is the one session that may run commands, and still not reach the web.
-    allowed, disallowed = publisher.tools
-    assert "Bash" in allowed and "Bash" not in disallowed
-    assert {"WebFetch", "WebSearch"} <= set(disallowed)
+    # Publishing is the one session that may run commands, and still nothing else.
+    assert set(publisher.tools) == {"Read", "Write", "Edit", "Glob", "Grep", "Bash"}
 
 
 def test_a_created_repository_is_written_into_the_workflow_page(tmp_path, monkeypatch):

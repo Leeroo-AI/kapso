@@ -137,7 +137,7 @@ The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 - **Phase 6: Orphan Audit** - Validate orphan nodes
 - **Phase 6b: Verify (code)** - Every file that must get a page is marked done and every review has a decision; undone work gets one targeted audit pass with the findings, and the run fails if any remains
 
-**Sessions.** Every phase is a Claude Code session that can read the clone and write pages, and nothing else: Bash, WebFetch and WebSearch are removed, so a repository's code or README cannot make the session execute anything or reach the network. The one exception is the Repo Builder, which runs `git` and `gh` in a session of its own.
+**Sessions.** Every phase is a Claude Code session holding five file tools (Read, Write, Edit, Glob, Grep) and, for the merge, the knowledge tools, and nothing else: the built-in set is pinned with the CLI's `--tools` flag and only Kapso's own MCP servers are mounted, so a repository's code or README cannot make the session run anything, reach the network, delegate to a sub-agent or touch the account's connectors. The one exception is the Repo Builder, which also gets Bash for `git` and `gh`.
 
 **Staging and resume.** A run stages everything under `<wiki_dir>/_staging/<repo>/<branch>`: the clone, the repository map, the phase reports and the pages, which are copied into `wiki_dir` at the end. Each finished phase leaves a marker in `_phases/`. A run that stops, on a failed phase or a killed process, keeps the directory, and learning the same source again continues from the first unfinished phase; a completed run's directory is replaced by the next run of that source. `cleanup` removes the clone when a run completes, `cleanup_staging` the whole directory.
 
