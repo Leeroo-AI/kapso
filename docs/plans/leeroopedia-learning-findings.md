@@ -253,3 +253,14 @@ versions, and the current prompts do not reproduce them.
   one stale index entry (`Train_Both_Models_In_Parallel`, a workflow that was planned
   and then not written). Fix: one index-entry grammar shared by the writers and the
   validator, and a check that every index entry has a page.
+
+## Addendum: corpus repair (2026-09-27)
+
+A one-off pass over `data/wikis` (backed up before editing), after the validator and parser
+changes: 2,972 pages changed. 8,905 plain `[[Name]]` links gained their namespace (the
+page's type directory was unambiguous); 957 were left as they are (six ambiguous, the rest
+not page links at all: Python lists written as `[[1, 2, 3]]`, or pages that never existed).
+The 97 temporary clone paths in 94 pages became repository-relative paths. The six
+Markdown pages were converted to wikitext (headings, fences, bold, code). The wiki sync
+pushes the edits to the site at its one-edit-per-second rate. The public search API's
+collection still holds the pre-repair text of these pages until it is refreshed (L9).
