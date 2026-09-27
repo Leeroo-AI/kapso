@@ -79,6 +79,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     - planning_mode: True (default) - use planning
     - timeout: 3600 (default) - CLI timeout in seconds (1 hour)
     - allowed_tools: ["Edit", "Read", "Write", "Bash"] (default)
+    - disallowed_tools: Extra tools to ban, merged into --disallowedTools
+    - builtin_tools: The built-in tools the session may hold (--tools). None
+      (default) leaves the CLI's default set; [] removes every built-in tool,
+      MCP tools included in the session stay. Verified on CLI 2.1.280.
     - streaming: True (default) - stream output live to terminal for visibility
     - auth_mode: Authentication mode: auto (default), oauth, api_key, or bedrock
     - aws_region: AWS region, required when auth_mode="bedrock"
@@ -137,6 +141,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # removes a tool. Used to hard-disable WebSearch/WebFetch on web-off
         # (leakage-safe) ideation.
         self._disallowed_tools = config.agent_specific.get("disallowed_tools", [])
+        # The built-in tools the session holds, passed as --tools. None keeps
+        # the CLI's default set; [] ("" on the command line) removes every
+        # built-in, which is how a session is reduced to its MCP tools alone.
+        self._builtin_tools: Optional[List[str]] = config.agent_specific.get("builtin_tools")
         # Optional environment overrides for the Claude Code subprocess.
         #
         # Why:
@@ -862,6 +870,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             # later resume needs. A fresh session was told its id, so a
             # different one is a wiring bug, not a fact to record.
             cli_session_id = resume_session_id or self._session_id
+            # The tools the session actually held, from the same event: the
+            # record a caller checks when it must know a ban took effect.
+            # None when no init event was seen (the CLI died before one).
+            session_tools: Optional[List[str]] = None
             for line in raw_lines:
                 if '"init"' not in line:
                     continue
@@ -874,6 +886,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                             f"this session is {cli_session_id!r}"
                         )
                     cli_session_id = reported or cli_session_id
+                    session_tools = list(event.get("tools", []))
                     break
 
             # Use result-level tokens if available, else fall back to summed per-turn
@@ -915,6 +928,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "inbox_killed": inbox_killed,
                         "session_id": self._session_id,
                         "cli_session_id": cli_session_id,
+                        "tools": session_tools,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
@@ -935,6 +949,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "cli_session_id": cli_session_id,
+                        "tools": session_tools,
                         "completed_reaped": True,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
@@ -965,6 +980,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "cli_session_id": cli_session_id,
+                        "tools": session_tools,
                         "deadline_exceeded": True,
                         "completed_before_kill": completed_before_kill,
                         "tool_call_count": tool_call_count,
@@ -994,6 +1010,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "auth_mode": self._auth_mode,
                         "elapsed_seconds": elapsed,
                         "cli_session_id": cli_session_id,
+                        "tools": session_tools,
                         "tool_call_count": tool_call_count,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
@@ -1015,6 +1032,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "planning_mode": self._planning_mode,
                     "elapsed_seconds": elapsed,
                     "cli_session_id": cli_session_id,
+                    "tools": session_tools,
                     "streaming": True,
                     "auth_mode": self._auth_mode,
                     "tool_call_count": tool_call_count,
@@ -1212,6 +1230,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # the tool from the session's tool list (init event).
         cmd.extend(["--disallowedTools",
                     ",".join(self.PRINT_MODE_DEAD_TOOLS + self._disallowed_tools)])
+        
+        # The built-in set itself (--tools ""), when the caller pins it.
+        if self._builtin_tools is not None:
+            cmd.extend(["--tools", ",".join(self._builtin_tools)])
         
         # Add MCP config if available
         if self._mcp_config_path and self._mcp_config_path.exists():

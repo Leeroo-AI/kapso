@@ -117,6 +117,24 @@ GRANDCHILD_SCRIPT = "\n".join(
 )
 
 
+def test_the_session_tool_list_is_read_from_the_init_event(tmp_path, monkeypatch):
+    """A caller that reduced a session to its MCP tools (--tools "") checks the
+    init event's list before serving the answer; the adapter must hand it
+    over verbatim, and None when the CLI died before announcing itself."""
+    agent = make_agent(tmp_path, monkeypatch, timeout=30)
+    script = "\n".join([
+        stream_event({"type": "system", "subtype": "init", "session_id": "s1",
+                      "tools": ["mcp__kg__search_knowledge", "mcp__kg__get_wiki_page"]}),
+        stream_event({"type": "result", "result": "done", "total_cost_usd": 0.01, "is_error": False}),
+    ])
+    result = run_fake_cli(agent, monkeypatch, script)
+    assert result.success
+    assert result.metadata["tools"] == ["mcp__kg__search_knowledge", "mcp__kg__get_wiki_page"]
+
+    result = run_fake_cli(agent, monkeypatch, "raise SystemExit(3)")
+    assert not result.success and result.metadata["tools"] is None
+
+
 def test_failed_call_reports_its_parsed_cost(tmp_path, monkeypatch):
     agent = make_agent(tmp_path, monkeypatch, timeout=30)
     result = run_fake_cli(agent, monkeypatch, FAILURE_WITH_COST_SCRIPT)
