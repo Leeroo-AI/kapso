@@ -1,7 +1,8 @@
 """Learner sessions take their settings from config, and failures raise.
 
-Pins the fixes for docs/plans/leeroopedia-learning-findings.md L1–L3: a learner
-session carries the config's effort and no deadline unless one is configured, a
+Pins the fixes for docs/plans/leeroopedia-learning-findings.md L1–L3 and L7: a
+learner session carries the config's effort and no deadline unless one is
+configured, and cannot execute the repository it reads or reach the network; a
 failed phase stops the run instead of being logged and skipped, a prompt with a
 missing variable is never sent, and the pipeline propagates an ingestor failure
 instead of counting the pages that happened to come out as a success.
@@ -20,6 +21,7 @@ from kapso.knowledge_base.search.base import WikiPage
 
 PACKAGED = load_config(str(PLATFORM_CONFIG_PATH))
 LEARNER = PACKAGED["modes"][PACKAGED["default_mode"]]["learner"]
+BANNED = {"Bash", "WebFetch", "WebSearch"}
 
 
 class FakeAgent:
@@ -56,6 +58,8 @@ def test_ingestor_session_carries_config_effort_and_no_deadline(tmp_path, agents
     assert config.agent_specific["auth_mode"] == LEARNER["ingestor"]["auth_mode"]
     assert config.agent_specific["effort"] == LEARNER["ingestor"]["effort"]
     assert config.agent_specific["timeout"] is None
+    assert BANNED <= set(config.agent_specific["disallowed_tools"])
+    assert BANNED.isdisjoint(config.agent_specific["allowed_tools"])
 
     ingestor(tmp_path, effort="low", timeout=60)._initialize_agent(str(tmp_path))
     assert agents[1].config.agent_specific["effort"] == "low"
@@ -69,6 +73,8 @@ def test_research_ingestor_session_carries_config_effort_and_no_deadline(tmp_pat
     assert config.agent_specific["auth_mode"] == LEARNER["ingestor"]["auth_mode"]
     assert config.agent_specific["effort"] == LEARNER["ingestor"]["effort"]
     assert config.agent_specific["timeout"] is None
+    assert BANNED <= set(config.agent_specific["disallowed_tools"])
+    assert BANNED.isdisjoint(config.agent_specific["allowed_tools"])
 
 
 def test_research_phase_failure_stops_the_run(tmp_path, agents, monkeypatch):
@@ -86,6 +92,8 @@ def test_merger_session_carries_config_effort_and_no_deadline(tmp_path, agents):
     assert config.agent_specific["auth_mode"] == LEARNER["merger"]["auth_mode"]
     assert config.agent_specific["effort"] == LEARNER["merger"]["effort"]
     assert config.agent_specific["timeout"] is None
+    assert BANNED <= set(config.agent_specific["disallowed_tools"])
+    assert BANNED.isdisjoint(config.agent_specific["allowed_tools"])
 
 
 def test_failed_phase_stops_the_run(tmp_path, agents, monkeypatch):

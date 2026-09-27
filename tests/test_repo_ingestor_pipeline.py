@@ -134,6 +134,15 @@ class PublishingAgent:
     def __init__(self, url=None):
         self.url = url
         self.prompts = []
+        self.tools = None
+
+    def install(self, ingestor, monkeypatch):
+        """Become the session the publishing phase creates for itself."""
+        def make(workspace, allowed_tools, disallowed_tools):
+            self.tools = (allowed_tools, disallowed_tools)
+            return self
+        monkeypatch.setattr(ingestor, "_make_agent", make)
+        return self
 
     def generate_code(self, prompt, **kwargs):
         self.prompts.append(prompt)
@@ -151,21 +160,25 @@ def test_publishing_is_off_by_default_and_a_placeholder_url_is_a_warning(tmp_pat
     assert any("no published repository URL" in warning for warning in report.warnings)
 
 
-def test_a_repository_that_is_not_created_fails_the_publishing_phase(tmp_path):
+def test_a_repository_that_is_not_created_fails_the_publishing_phase(tmp_path, monkeypatch):
     ingestor = ingestor_module.RepoIngestor(params={"wiki_dir": tmp_path, "publish_workflows": True})
     ingestor._wiki_dir = workflow_wiki(tmp_path)
-    ingestor._agent = PublishingAgent(url=None)
+    publisher = PublishingAgent(url=None).install(ingestor, monkeypatch)
     with pytest.raises(RuntimeError, match="publishing failed for 1 of 1"):
         ingestor._run_repo_builder_phase("Repo", "https://example.test/repo")
     # The prompt carries no token: gh reads GH_TOKEN itself.
-    assert "GH_TOKEN=" not in ingestor._agent.prompts[0]
+    assert "GH_TOKEN=" not in publisher.prompts[0]
     assert "PENDING" in (tmp_path / "workflows" / "Repo_Foo.md").read_text()
+    # Publishing is the one session that may run commands, and still not reach the web.
+    allowed, disallowed = publisher.tools
+    assert "Bash" in allowed and "Bash" not in disallowed
+    assert {"WebFetch", "WebSearch"} <= set(disallowed)
 
 
-def test_a_created_repository_is_written_into_the_workflow_page(tmp_path):
+def test_a_created_repository_is_written_into_the_workflow_page(tmp_path, monkeypatch):
     ingestor = ingestor_module.RepoIngestor(params={"wiki_dir": tmp_path, "publish_workflows": True})
     ingestor._wiki_dir = workflow_wiki(tmp_path)
-    ingestor._agent = PublishingAgent(url="https://github.com/org/repo-foo")
+    PublishingAgent(url="https://github.com/org/repo-foo").install(ingestor, monkeypatch)
     ingestor._run_repo_builder_phase("Repo", "https://example.test/repo")
     page = (tmp_path / "workflows" / "Repo_Foo.md").read_text()
     assert "[https://github.com/org/repo-foo Workflow Repository]" in page

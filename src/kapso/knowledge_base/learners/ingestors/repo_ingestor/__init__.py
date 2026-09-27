@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.defaults import learner_defaults
-from kapso.knowledge_base.learners.ingestors.base import Ingestor
+from kapso.knowledge_base.learners.ingestors.base import Ingestor, LEARNER_BANNED_TOOLS
 from kapso.knowledge_base.learners.ingestors.factory import register_ingestor
 from kapso.knowledge_base.search.base import WikiPage, DEFAULT_WIKI_DIR
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
@@ -163,46 +163,40 @@ class RepoIngestor(Ingestor):
         """Return the source type this ingestor handles."""
         return "repo"
     
-    def _initialize_agent(self, workspace: str) -> None:
-        """
-        Initialize Claude Code agent with read + write tools.
-        
-        Args:
-            workspace: Path to the cloned repository
-        
-        Supports passing through agent_specific settings from params:
-            - auth_mode: Claude authentication mode (auto, oauth, or api_key)
-            - model: Model name (required, e.g. "claude-opus-5")
-        """
-        # Base agent_specific config
-        agent_specific = {
-            # Read for repo exploration, Write for wiki pages, Bash for file ops
-            # Edit included but Write is preferred for index files (Edit can fail on tables)
-            "allowed_tools": ["Read", "Write", "Edit", "Bash"],
-            "timeout": self._timeout,
-            "effort": self._effort,
-            "planning_mode": True,
-        }
-        
+    def _make_agent(self, workspace: str, allowed_tools: List[str], disallowed_tools: List[str]):
+        """A Claude Code session on the config's model, auth, effort and deadline."""
         model = self.params["model"]
-        agent_specific["auth_mode"] = self.params["auth_mode"]
-        
-        # Build config for Claude Code with read + write tools
         config = CodingAgentFactory.build_config(
             agent_type="claude_code",
             model=model,
             debug_model=model,  # Use same model for debug
-            agent_specific=agent_specific,
+            agent_specific={
+                "allowed_tools": allowed_tools,
+                "disallowed_tools": disallowed_tools,
+                "timeout": self._timeout,
+                "effort": self._effort,
+                "planning_mode": True,
+                "auth_mode": self.params["auth_mode"],
+            },
         )
-        
-        self._agent = CodingAgentFactory.create(config)
-        self._agent.initialize(workspace)
+        agent = CodingAgentFactory.create(config)
+        agent.initialize(workspace)
         logger.info(
-            "Initialized Claude Code agent for %s (auth=%s, model=%s)",
-            workspace,
-            agent_specific.get("auth_mode"),
-            model,
+            "Initialized Claude Code agent for %s (auth=%s, model=%s, banned=%s)",
+            workspace, self.params["auth_mode"], model, disallowed_tools,
         )
+        return agent
+    
+    def _initialize_agent(self, workspace: str) -> None:
+        """
+        The extraction session: it reads the clone and writes wiki pages, and
+        can neither execute the repository nor reach the network.
+        
+        Args:
+            workspace: Path to the cloned repository
+        """
+        # Edit included but Write is preferred for index files (Edit can fail on tables)
+        self._agent = self._make_agent(workspace, ["Read", "Write", "Edit"], list(LEARNER_BANNED_TOOLS))
     
     def _normalize_source(self, source: Any) -> Dict[str, Any]:
         """
@@ -537,6 +531,15 @@ class RepoIngestor(Ingestor):
         # Load the agentic repo_builder prompt template
         base_prompt = _load_prompt("repo_builder")
         
+        # Publishing is the one step that runs commands (git, gh), so it gets
+        # its own session with Bash and still no network tools; the pages it
+        # packages were validated before this phase started.
+        publisher = self._make_agent(
+            str(self._last_repo_path.resolve() if self._last_repo_path else Path.cwd()),
+            ["Read", "Write", "Edit", "Bash"],
+            [tool for tool in LEARNER_BANNED_TOOLS if tool != "Bash"],
+        )
+        
         # Process each workflow
         repos_created = 0
         workflow_results = []
@@ -570,7 +573,7 @@ class RepoIngestor(Ingestor):
             
             # Run the agent to create the repository
             start = time.time()
-            result = self._agent.generate_code(prompt)
+            result = publisher.generate_code(prompt)
             elapsed = time.time() - start
             
             logger.info(f"Agent completed for {workflow_name} in {elapsed:.1f}s (success={result.success})")

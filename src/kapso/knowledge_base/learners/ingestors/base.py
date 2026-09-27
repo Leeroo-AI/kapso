@@ -16,6 +16,14 @@ from typing import Any, Dict, List, Optional
 from kapso.knowledge_base.search.base import WikiPage
 
 
+# Tools no learning session holds. Under --dangerously-skip-permissions an
+# allow-list only silences prompts; the disallow-list is what removes a tool.
+# A session that reads a third-party repository must not be able to execute
+# it (Bash) or reach out with what it finds (WebFetch, WebSearch); every
+# extraction and merge phase works from files and the knowledge tools.
+LEARNER_BANNED_TOOLS = ("Bash", "WebFetch", "WebSearch")
+
+
 class Ingestor(ABC):
     """
     Abstract base class for knowledge ingestors.

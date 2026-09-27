@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.defaults import learner_defaults
+from kapso.knowledge_base.learners.ingestors.base import LEARNER_BANNED_TOOLS
 from kapso.knowledge_base.learners.merger.prompts import load_prompt
 from kapso.knowledge_base.search.base import WikiPage, KGIndexMetadata
 
@@ -411,6 +412,7 @@ class KnowledgeMerger:
                 "mcp__kg-graph-search__kg_index",
                 "mcp__kg-graph-search__kg_edit",
             ],
+            "disallowed_tools": list(LEARNER_BANNED_TOOLS),
             "timeout": self._agent_config["timeout"],
             "effort": self._agent_config["effort"],
             "planning_mode": True,
