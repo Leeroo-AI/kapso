@@ -1,94 +1,71 @@
 # Repository Ingestor Utilities
 #
 # Helper functions for the phased repo ingestor:
-# - clone_repo: Clone a git repository to temp directory
-# - cleanup_repo: Remove cloned repository
+# - clone_repo: Clone a git repository into a run's staging directory
+# - checked_out_branch: The branch a clone is on
 # - load_wiki_structure: Load wiki page definitions from wiki_structure/
 
 import logging
+import os
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-# Prefix of the temporary directories repositories are cloned into. A page
-# that cites such a path points at a directory that no longer exists, which
+# Name of the clone inside a run's staging directory. A page that cites a
+# path through it points at a directory that will not outlive the run, which
 # the validator rejects.
-CLONE_DIR_PREFIX = "kapso_repo_"
+CLONE_DIR_NAME = "kapso_repo_clone"
 
 
-def clone_repo(url: str, branch: str = "main") -> Path:
+def clone_repo(url: str, branch: Optional[str], dest: Path) -> None:
     """
-    Clone a Git repository to a temporary directory.
-    
-    Uses shallow clone (depth=1) for efficiency.
+    Shallow-clone a repository into `dest`.
     
     Args:
-        url: GitHub repository URL
-        branch: Branch to clone (default: main)
-        
-    Returns:
-        Path to the cloned repository
+        url: Repository URL
+        branch: Branch to check out; None takes the repository's default branch
+        dest: Directory to clone into (replaced if a previous clone was cut short)
         
     Raises:
-        RuntimeError: If git clone fails
+        RuntimeError: If git cannot clone the repository or the branch. Git is
+            told not to prompt for credentials, so a private or missing
+            repository fails here instead of waiting on a terminal.
     """
-    # Create temp directory with recognizable prefix
-    temp_dir = tempfile.mkdtemp(prefix=CLONE_DIR_PREFIX)
-    
-    logger.info(f"Cloning {url} (branch: {branch}) to {temp_dir}")
-    
-    try:
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", "-b", branch, url, temp_dir],
-            capture_output=True,
-            text=True,
-            timeout=300,  # 5 minute timeout for large repos
-        )
-        
-        if result.returncode != 0:
-            # Try without branch specification (might be 'master' instead of 'main')
-            logger.info(f"Branch '{branch}' failed, trying default branch...")
-            
-            # Clean up failed attempt
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            temp_dir = tempfile.mkdtemp(prefix=CLONE_DIR_PREFIX)
-            
-            result = subprocess.run(
-                ["git", "clone", "--depth", "1", url, temp_dir],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            
-            if result.returncode != 0:
-                raise RuntimeError(f"Git clone failed: {result.stderr}")
-        
-        logger.info(f"Successfully cloned repository to {temp_dir}")
-        return Path(temp_dir)
-        
-    except subprocess.TimeoutExpired:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise RuntimeError(f"Git clone timed out for {url}")
-    except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise RuntimeError(f"Failed to clone repository: {e}")
+    if dest.exists():
+        shutil.rmtree(dest)
+    command = ["git", "clone", "--depth", "1"]
+    if branch:
+        command += ["--branch", branch]
+    command += [url, str(dest)]
+    logger.info(f"Cloning {url} (branch: {branch or 'default'}) to {dest}")
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+    )
+    if result.returncode != 0:
+        shutil.rmtree(dest, ignore_errors=True)
+        wanted = f" (branch {branch})" if branch else ""
+        raise RuntimeError(f"git clone failed for {url}{wanted}: {result.stderr.strip()}")
+    logger.info(f"Cloned {url} to {dest}")
 
 
-def cleanup_repo(repo_path: Path) -> None:
-    """
-    Remove a cloned repository directory.
-    
-    Args:
-        repo_path: Path to the cloned repository
-    """
-    if repo_path and repo_path.exists():
-        logger.info(f"Cleaning up {repo_path}")
-        shutil.rmtree(repo_path, ignore_errors=True)
+def checked_out_branch(repo_path: Path) -> str:
+    """The branch a clone has checked out, as named by the repository."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"{repo_path} is not a git clone: {result.stderr.strip()}")
+    return result.stdout.strip()
 
 
 def load_wiki_structure(page_type: str) -> str:

@@ -608,6 +608,7 @@ class Kapso:
             wiki_dir=resolved_wiki_dir,
             ingestor_params=ingestor_params,
             merger_params=final_merger_params,
+            index_builder=self.index_kg,
         )
 
         # Observability (design §2): ingestion sessions run long between

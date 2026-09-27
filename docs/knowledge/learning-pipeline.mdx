@@ -25,14 +25,18 @@ flowchart LR
 ### Full pipeline
 
 ```python
+from kapso import Kapso
 from kapso.knowledge_base.learners import KnowledgePipeline, Source
 
-pipeline = KnowledgePipeline(wiki_dir="data/wikis")
+kapso = Kapso()
+pipeline = KnowledgePipeline(wiki_dir="data/wikis", index_builder=kapso.index_kg)
 
 # Full pipeline: ingest + merge
 result = pipeline.run(Source.Repo("https://github.com/user/repo"))
 print(f"Created: {result.created}, Edited: {result.edited}")
 ```
+
+`index_builder` builds the wiki's search index when it has none yet (the first merge into a fresh `wiki_dir`); `Kapso.index_kg` reads the search backends and the collection from the config. `kapso.learn_knowledge()` wires this itself.
 
 ### Via Kapso API
 
@@ -67,7 +71,7 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 
 | Source Type | Description | Status |
 |-------------|-------------|--------|
-| `Source.Repo(url, branch="main")` | Git repository | Implemented |
+| `Source.Repo(url, branch=None)` | Git repository, its default branch unless `branch` names one | Implemented |
 | `Source.Solution(solution)` | Completed experiment | Basic |
 | `Source.Idea(query, source, content)` | Research idea | Implemented |
 | `Source.Implementation(query, source, content)` | Code implementation | Implemented |
@@ -77,7 +81,7 @@ The `Source` namespace provides typed wrappers for knowledge inputs:
 from kapso.knowledge_base.types import Source
 
 # Repository source
-repo = Source.Repo("https://github.com/user/repo", branch="main")
+repo = Source.Repo("https://github.com/user/repo")  # or branch="develop"
 
 # Solution source (from evolve())
 solution = kapso.evolve(goal="...")
@@ -130,8 +134,12 @@ The most sophisticated ingestor, using a two-branch multi-phase pipeline:
 - **Phase 5a: Triage (code)** - Deterministic filtering into AUTO_KEEP/AUTO_DISCARD/MANUAL_REVIEW
 - **Phase 5b: Review (agent)** - Agent evaluates MANUAL_REVIEW files
 - **Phase 5c: Create (agent)** - Agent creates wiki pages for approved files
-- **Phase 5d: Verify (code)** - Verify all approved files have pages
 - **Phase 6: Orphan Audit** - Validate orphan nodes
+- **Phase 6b: Verify (code)** - Every file that must get a page is marked done and every review has a decision; undone work gets one targeted audit pass with the findings, and the run fails if any remains
+
+**Sessions.** Every phase is a Claude Code session that can read the clone and write pages, and nothing else: Bash, WebFetch and WebSearch are removed, so a repository's code or README cannot make the session execute anything or reach the network. The one exception is the Repo Builder, which runs `git` and `gh` in a session of its own.
+
+**Staging and resume.** A run stages everything under `<wiki_dir>/_staging/<repo>/<branch>`: the clone, the repository map, the phase reports and the pages, which are copied into `wiki_dir` at the end. Each finished phase leaves a marker in `_phases/`. A run that stops, on a failed phase or a killed process, keeps the directory, and learning the same source again continues from the first unfinished phase; a completed run's directory is replaced by the next run of that source. `cleanup` removes the clone when a run completes, `cleanup_staging` the whole directory.
 
 ### Research ingestors
 
@@ -255,7 +263,7 @@ The merger uses these MCP tools via the `kg-graph-search` server:
 ```python
 from kapso.knowledge_base.learners import KnowledgeMerger
 
-merger = KnowledgeMerger()
+merger = KnowledgeMerger(index_builder=kapso.index_kg)
 result = merger.merge(
     proposed_pages=pages,
     wiki_dir="data/wikis",
@@ -270,7 +278,7 @@ print(f"Failed: {len(result.failed)}")
 
 The merger operates in two modes based on whether a KG index exists:
 
-1. **No Index Mode**: Creates all pages as new, writes to wiki directory, then creates index
+1. **No Index Mode**: Creates all pages as new, writes to wiki directory, then builds the index through `index_builder` (a merger without one fails here)
 2. **Merge Mode**: Runs agentic hierarchical merge using MCP tools
 
 Index detection order:
@@ -315,8 +323,10 @@ class WikiPage:
 
 ## How do I run it from the CLI?
 
+The command runs `Kapso.learn_knowledge()`, so the preflight, the models and the search backends come from the config.
+
 ```bash
-# Learn from a GitHub repository
+# Learn from a GitHub repository (its default branch)
 python -m kapso.knowledge_base.learners https://github.com/user/repo
 
 # Specify a branch
@@ -328,18 +338,18 @@ python -m kapso.knowledge_base.learners https://github.com/user/repo --extract-o
 # Custom wiki directory
 python -m kapso.knowledge_base.learners https://github.com/user/repo --wiki-dir ./my_wikis
 
-# Verbose logging
-python -m kapso.knowledge_base.learners https://github.com/user/repo --verbose
+# Your own config
+python -m kapso.knowledge_base.learners https://github.com/user/repo --config ./config.yaml
 ```
 
 ### CLI options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--type` | `-t` | Source type: `repo`, `paper`, `solution` |
-| `--branch` | `-b` | Git branch (default: main) |
+| `--branch` | `-b` | Git branch (default: the repository's default branch) |
 | `--extract-only` | `-e` | Only extract, don't merge |
 | `--wiki-dir` | `-w` | Wiki directory path |
+| `--config` | `-c` | Config file (default: the packaged config) |
 | `--verbose` | `-v` | Enable verbose logging |
 
 ## What does it return?

@@ -73,8 +73,14 @@ or record per-phase status on `PipelineResult` so `success` is honest.
 Phase 0 after its retries, the merge session); a prompt with a missing variable raises
 instead of going out unformatted; `KnowledgePipeline.run` propagates ingest and merge
 exceptions; the no-index merge's index build is mandatory; `PipelineResult.success` is
-`not errors`. Pinned by `tests/test_learners_fail_loud.py`. Still open: a resumable staging
-directory, so a long run can be continued rather than restarted.
+`not errors`. Pinned by `tests/test_learners_fail_loud.py`.
+
+**2026-09-27:** a run stages under `<wiki_dir>/_staging/<repo>/<branch>`, clones into it,
+marks each finished phase in `_phases/`, and a run of the same source continues from the
+first unfinished phase (a completed run's directory is replaced). The orphan verification
+is now the gate after the orphan audit: one targeted audit pass with its findings, then the
+run fails. A missing wiki-structure file raises instead of sending a prompt that says none
+is defined. Pinned by `tests/test_repo_ingestor_pipeline.py`.
 
 - `KnowledgePipeline.run` swallows ingest exceptions into `result.errors`;
   `PipelineResult.success` is True whenever any page came out.
@@ -152,7 +158,12 @@ Triage found 0 candidates, yet review, create and audit each start an Opus sessi
 
 Fix: skip the agent phases when every bucket is empty.
 
-### L7. The learner executes third-party code with unrestricted Bash
+### L7. The learner executes third-party code with unrestricted Bash — **fixed**
+
+**Fixed 2026-09-27.** Every extraction and merge session bans Bash, WebFetch and WebSearch
+through `--disallowedTools` (`LEARNER_BANNED_TOOLS`), the only flag that removes a tool under
+`--dangerously-skip-permissions`; the publishing session alone has Bash, for `git` and `gh`.
+Pinned by `tests/test_learners_fail_loud.py` and `tests/test_repo_ingestor_pipeline.py`.
 
 The ingestor session gets `Read, Write, Edit, Bash` under `--dangerously-skip-permissions`
 inside the clone. During the run it `import`ed the repository's package (failing on
@@ -176,23 +187,34 @@ learned page appears on the wiki (via the sync) but is not searchable through th
 
 Fix: a scheduled incremental re-embed of pages missing from the served collection.
 
-### L10. Smaller items
+### L10. Smaller items — **mostly fixed 2026-09-27**
 
 - `KnowledgePipeline(weaviate_collection=...)` is a dead parameter (the collection comes
-  from the index file); the CLI still advertises `--collection`.
+  from the index file); the CLI still advertises `--collection`. **Fixed:** the pipeline
+  and the merger take an `index_builder` (`Kapso.index_kg`, which `learn_knowledge` passes;
+  the backends and the collection come from the config it reads); the pipeline's own CLI is
+  gone and `python -m kapso.knowledge_base.learners` runs the facade.
 - `KnowledgeMerger._initialize_agent` spawns the MCP server with a bare `python` from
-  `PATH`.
-- `GITHUB_PAT` is read via `os.environ` in our code (CLAUDE.md Rule 3).
+  `PATH`. **Fixed:** `sys.executable`.
+- `GITHUB_PAT` is read via `os.environ` in our code (CLAUDE.md Rule 3). **Fixed with L5:**
+  `gh` reads `GH_TOKEN` itself; our code reads no environment variable.
 - `learning.status_dir` (`learning/status`) is relative to the current directory, so a
-  run from any directory leaves a `learning/` tree there.
+  run from any directory leaves a `learning/` tree there. **Left as designed** (the
+  observability design documents the cwd-relative default).
 - A killed run leaves its clone behind (`/tmp/kapso_repo_*`; two also sit in `$HOME`):
-  `finally` never runs on SIGTERM.
+  `finally` never runs on SIGTERM. **Fixed:** the clone lives in the run's staging directory,
+  is removed when the run completes, and is kept for the resume when it does not; there is
+  no temporary directory to leak.
 - The merge path is untested at scale: one agent call with a 3600 s deadline for 100+
-  pages; the February batch never merged.
+  pages; the February batch never merged. **Still open** (the deadline is gone with L2; the
+  scale test is not done).
 - `test_learn_batch.py` relies on `load_dotenv()` and defaults `--github-org leeroopedia`
-  with public repositories.
+  with public repositories. **Still open.**
 - February's single batch failure was environmental: `git clone` hit a stale VS Code
-  credential-helper socket on the dev box.
+  credential-helper socket on the dev box. **Mitigated:** the clone runs with
+  `GIT_TERMINAL_PROMPT=0` and no stdin, so a credential prompt fails the clone at once
+  instead of hanging, and the branch is the one asked for or the repository's default,
+  never a silent fallback.
 
 ## Wiki service
 

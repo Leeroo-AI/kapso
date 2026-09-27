@@ -110,6 +110,15 @@ def test_prompt_with_a_missing_variable_is_never_sent(tmp_path, monkeypatch):
         ingestor(tmp_path)._build_phase_prompt("anchoring_context", "Some_Repo", str(tmp_path))
 
 
+def test_prompt_whose_wiki_structure_is_missing_is_never_sent(tmp_path, monkeypatch):
+    def missing(page_type):
+        raise FileNotFoundError(page_type)
+
+    monkeypatch.setattr(ingestor_module, "load_wiki_structure", missing)
+    with pytest.raises(FileNotFoundError, match="workflow"):
+        ingestor(tmp_path)._build_phase_prompt("anchoring", "Some_Repo", str(tmp_path))
+
+
 def test_pipeline_propagates_an_ingest_failure(tmp_path, monkeypatch):
     class FailingIngestor:
         def ingest(self, source):
@@ -132,15 +141,17 @@ def test_pipeline_result_is_not_a_success_with_errors():
     assert pipeline_module.PipelineResult(total_pages_extracted=60).success is True
 
 
-def test_merge_without_an_index_fails_when_the_index_cannot_be_built(tmp_path, monkeypatch):
-    class FakeKapso:
-        def index_kg(self, wiki_dir, save_to):
-            raise RuntimeError("Weaviate is down")
+def test_merge_without_an_index_fails_when_the_index_cannot_be_built(tmp_path):
+    def failing_builder(wiki_dir, save_to):
+        raise RuntimeError("Weaviate is down")
 
-    monkeypatch.setattr("kapso.kapso.Kapso", FakeKapso)
     page = WikiPage(id="Principle/A", page_type="Principle", overview="a", content="== Overview ==\na")
+    pipeline = pipeline_module.KnowledgePipeline(wiki_dir=tmp_path, index_builder=failing_builder)
     with pytest.raises(RuntimeError, match="Weaviate is down"):
-        merger_module.KnowledgeMerger().merge([page], wiki_dir=tmp_path)
+        pipeline.merge_pages([page])
     # The page was written before the index failed: the failure is not silent
     # and the file is there for the retry.
     assert (tmp_path / "principles" / "A.md").exists()
+    # Without a builder there is no way to make the pages findable.
+    with pytest.raises(RuntimeError, match="no index_builder"):
+        merger_module.KnowledgeMerger().merge([page], wiki_dir=tmp_path)

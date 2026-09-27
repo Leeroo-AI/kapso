@@ -28,10 +28,11 @@
 import json
 import logging
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.defaults import learner_defaults
@@ -139,11 +140,19 @@ class KnowledgeMerger:
     # Maximum retry attempts for failed sub-graphs
     MAX_RETRIES = 3
     
-    def __init__(self, agent_config: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        agent_config: Optional[Dict[str, Any]] = None,
+        index_builder: Optional[Callable[..., str]] = None,
+    ):
         """
         Initialize KnowledgeMerger.
         
         Args:
+            index_builder: Builds the search index of a wiki that has none,
+                called as `index_builder(wiki_dir=..., save_to=...)`;
+                `Kapso.index_kg` is the one learn_knowledge() passes. Without
+                it, a merge into a wiki with no index fails.
             agent_config: Configuration for Claude Code agent. Supports:
                 - kg_index_path: Path to .index file for KG backend config
                 - effort: Reasoning effort of the merge session (pinned, never
@@ -156,6 +165,7 @@ class KnowledgeMerger:
             these defaults); learn_knowledge() passes the live config's block.
         """
         self._agent_config = {**learner_defaults("merger"), **(agent_config or {})}
+        self._index_builder = index_builder
         self._kg_index_path: Optional[str] = self._agent_config.get("kg_index_path")
         self._agent = None
     
@@ -282,18 +292,17 @@ class KnowledgeMerger:
         
         logger.info(f"Created {len(result.created)} new pages")
         
-        # Index pages using Kapso.index_kg() - creates .index file in wiki_dir,
-        # which is what makes the pages searchable and lets the next merge
-        # auto-detect them. Without it the pages exist and nothing can find
-        # them, so a failure here is the merge's failure.
-        from kapso.kapso import Kapso
-        
+        # The .index beside the pages is what makes them searchable and lets
+        # the next merge find them; without it the pages exist and nothing
+        # can find them, so a failure here is the merge's failure.
+        if self._index_builder is None:
+            raise RuntimeError(
+                f"{wiki_dir} has no index and this merger has no index_builder to "
+                "create one: pass index_builder=Kapso().index_kg (learn_knowledge "
+                "does), or index the wiki first and pass its .index as kg_index_path"
+            )
         index_path = wiki_dir / ".index"
-        kapso = Kapso()
-        kapso.index_kg(
-            wiki_dir=str(wiki_dir),
-            save_to=str(index_path),
-        )
+        self._index_builder(wiki_dir=str(wiki_dir), save_to=str(index_path))
         logger.info(f"Created index file: {index_path}")
         
         return result
@@ -395,7 +404,7 @@ class KnowledgeMerger:
         
         mcp_servers = {
             "kg-graph-search": {
-                "command": "python",
+                "command": sys.executable,
                 "args": ["-m", "kapso.gated_mcp.server"],
                 "cwd": str(project_root),
                 "env": mcp_env,

@@ -1,14 +1,19 @@
-"""The repo ingestor's phase plan: what runs, and what stops it.
+"""The repo ingestor's phase plan: what runs, what stops it, what resumes it.
 
-Pins docs/plans/leeroopedia-learning-findings.md L4–L6: the validator checks
-what serving needs from every page (wikitext, an Overview with text, no
-temporary clone paths, namespaced links) and reads index entries from their
-file links; publishing the workflows as repositories is a config switch that
-runs after validation and fails loud when a repository is not created, while
-a Workflow without a published repository is a warning; and the orphan-mining
-agent sessions run only when the deterministic triage left them work.
+Pins docs/plans/leeroopedia-learning-findings.md L3–L6 and L10: the validator
+checks what serving needs from every page (wikitext, an Overview with text, no
+clone paths, namespaced links) and reads index entries from their file links;
+publishing the workflows as repositories is a config switch that runs after
+validation and fails loud when a repository is not created, while a Workflow
+without a published repository is a warning; the orphan-mining sessions run
+only when the deterministic triage left them work and the run fails when they
+leave work undone; a run stages under one directory per source, clones into
+it, marks each finished phase, and a run of the same source continues from
+the first unfinished one.
 """
 
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +24,11 @@ from kapso.core.preflight import learn_knowledge_requirements
 from kapso.knowledge_base.learners.ingestors import repo_ingestor as ingestor_module
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.context_builder import (
     orphan_candidate_counts,
+)
+from kapso.knowledge_base.learners.ingestors.repo_ingestor.utils import (
+    CLONE_DIR_NAME,
+    checked_out_branch,
+    clone_repo,
 )
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.wiki_validator import (
     validate_wiki_directory,
@@ -43,6 +53,26 @@ CANDIDATES = """# Orphan Candidates: Repo
 """
 NONE_KEEP = "| — | (none) | — | — | — |"
 NONE_REVIEW = "| — | (none) | — | — | — | — |"
+KEEP_TODO = "| 1 | `src/big.py` | 400 | K1 | ⬜ TODO |"
+KEEP_DONE = "| 1 | `src/big.py` | 400 | K1 | ✅ DONE |"
+REVIEW_PENDING = "| 1 | `src/a.py` | 120 | helpers | ⬜ PENDING | — |"
+REVIEW_REJECTED = "| 1 | `src/a.py` | 120 | helpers | ❌ REJECTED | trivial |"
+
+
+class SessionAgent:
+    """Stands in for a phase session: succeeds or not, records its prompts."""
+
+    def __init__(self, on_prompt=None):
+        self.success = True
+        self.prompts = []
+        self.on_prompt = on_prompt
+
+    def generate_code(self, prompt, **kwargs):
+        self.prompts.append(prompt)
+        if self.on_prompt:
+            self.on_prompt()
+        error = None if self.success else "terminated"
+        return SimpleNamespace(success=self.success, output="", error=error, metadata={})
 
 
 def candidates_file(path: Path, auto_keep=NONE_KEEP, manual_review=NONE_REVIEW) -> Path:
@@ -66,44 +96,118 @@ def test_orphan_candidate_counts(tmp_path):
 
 @pytest.fixture
 def mining(tmp_path, monkeypatch):
-    """A RepoIngestor whose triage writes a given candidates file and whose
-    agent phases are recorded instead of run."""
+    """A RepoIngestor whose triage writes a given candidates file, whose agent
+    phases are recorded instead of run (a hook per phase stands in for the
+    session's work on the candidates file), and whose targeted audit pass is a
+    recorded session with its own hook."""
     ingestor = ingestor_module.RepoIngestor(params={"wiki_dir": tmp_path})
     ingestor._wiki_dir = tmp_path
-    phases = []
-    monkeypatch.setattr(ingestor, "_run_phase", lambda phase, *args: phases.append(phase))
+    path = tmp_path / "_orphan_candidates.md"
+    phases, hooks = [], {}
+    monkeypatch.setattr(ingestor, "_run_phase", lambda phase, *args: (
+        phases.append(phase), hooks.get(phase, lambda p: None)(path)))
+    ingestor._agent = SessionAgent(on_prompt=lambda: hooks.get("targeted_audit", lambda p: None)(path))
 
-    def run(auto_keep=NONE_KEEP, manual_review=NONE_REVIEW, on_review=None):
-        path = tmp_path / "_orphan_candidates.md"
+    def run(auto_keep=NONE_KEEP, manual_review=NONE_REVIEW, **on_phase):
+        shutil.rmtree(tmp_path / "_phases", ignore_errors=True)  # a fresh run
         monkeypatch.setattr(
             ingestor_module, "generate_orphan_candidates",
             lambda **kwargs: candidates_file(path, auto_keep, manual_review),
         )
-        if on_review:
-            monkeypatch.setattr(ingestor, "_run_phase", lambda phase, *args: (
-                phases.append(phase), phase == "orphan_review" and on_review(path)))
+        hooks.clear()
+        hooks.update(on_phase)
         phases.clear()
         ingestor._run_orphan_mining("Repo", tmp_path, "https://example.test/repo", "main")
         return list(phases)
 
+    run.agent = ingestor._agent
+    run.report = tmp_path / "_reports" / "phase7_orphan_verify.md"
     return run
 
 
 def test_orphan_phases_skip_when_triage_finds_nothing(mining):
     assert mining() == []
+    assert not mining.report.exists()
 
 
 def test_orphan_review_runs_only_for_pending_files_and_create_only_for_approved(mining):
     # Review pending, agent rejects: no page work follows.
     assert mining(
-        manual_review="| 1 | `src/a.py` | 120 | helpers | ⬜ PENDING | — |",
-        on_review=lambda path: candidates_file(
-            path, manual_review="| 1 | `src/a.py` | 120 | helpers | ❌ REJECTED | trivial |"),
+        manual_review=REVIEW_PENDING,
+        orphan_review=lambda path: candidates_file(path, manual_review=REVIEW_REJECTED),
     ) == ["orphan_review"]
-    # AUTO_KEEP files need pages without any review.
-    assert mining(auto_keep="| 1 | `src/big.py` | 400 | K1 | ⬜ TODO |") == [
-        "orphan_create", "orphan_audit",
-    ]
+    # AUTO_KEEP files need pages without any review; create marks them done.
+    assert mining(
+        auto_keep=KEEP_TODO,
+        orphan_create=lambda path: candidates_file(path, auto_keep=KEEP_DONE),
+    ) == ["orphan_create", "orphan_audit"]
+    assert "Result: PASS" in mining.report.read_text()
+    assert mining.agent.prompts == []
+
+
+def test_undone_orphan_work_gets_one_targeted_audit_pass_then_fails_the_run(mining):
+    # Nothing marks the file done: the verification's findings go to one
+    # audit session, and the run fails when they are still there after it.
+    with pytest.raises(RuntimeError, match="left work undone"):
+        mining(auto_keep=KEEP_TODO)
+    assert len(mining.agent.prompts) == 1
+    assert "AUTO_KEEP not completed: src/big.py" in mining.agent.prompts[0]
+    assert "Result: FAIL" in mining.report.read_text()
+    # The targeted pass fixing the bookkeeping is enough.
+    assert mining(
+        auto_keep=KEEP_TODO,
+        targeted_audit=lambda path: candidates_file(path, auto_keep=KEEP_DONE),
+    ) == ["orphan_create", "orphan_audit"]
+    assert "Result: PASS" in mining.report.read_text()
+
+
+# --------------------------------------------------------------------------
+# Staging, clone and resume (L3, L10)
+# --------------------------------------------------------------------------
+
+
+def test_a_stopped_run_resumes_at_its_first_unfinished_phase(tmp_path, monkeypatch):
+    monkeypatch.setattr(ingestor_module, "_load_prompt", lambda name: "do {repo_name}")
+    ingestor = ingestor_module.RepoIngestor(params={"wiki_dir": tmp_path})
+    staging = ingestor._open_staging("Repo", "feature/x")
+    assert staging == tmp_path / "_staging" / "Repo" / "feature_x"
+    ingestor._wiki_dir = staging
+    agent = ingestor._agent = SessionAgent()
+
+    ingestor._run_phase("anchoring", "Repo", "/clone")
+    ingestor._run_phase("anchoring", "Repo", "/clone")  # marked done: no session
+    assert len(agent.prompts) == 1
+    agent.success = False
+    with pytest.raises(RuntimeError, match="excavation_synthesis phase failed"):
+        ingestor._run_phase("excavation_synthesis", "Repo", "/clone")
+    assert not (staging / "_phases" / "excavation_synthesis").exists()
+
+    # The same source opens the same directory with its markers...
+    ingestor._wiki_dir = tmp_path
+    assert ingestor._open_staging("Repo", "feature/x") == staging
+    assert (staging / "_phases" / "anchoring").exists()
+    # ...until a run completed: the next run of the source starts over.
+    ingestor._wiki_dir = staging
+    ingestor._mark_phase_done("complete")
+    ingestor._wiki_dir = tmp_path
+    ingestor._open_staging("Repo", "feature/x")
+    assert list((staging / "_phases").iterdir()) == []
+
+
+def test_the_clone_takes_the_default_branch_and_fails_loud_on_a_missing_one(tmp_path):
+    origin = tmp_path / "origin"
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test"]
+    subprocess.run(["git", "init", "-q", "-b", "trunk", str(origin)], check=True)
+    (origin / "README.md").write_text("hello")
+    subprocess.run(git + ["-C", str(origin), "add", "."], check=True)
+    subprocess.run(git + ["-C", str(origin), "commit", "-q", "-m", "init"], check=True)
+
+    dest = tmp_path / "staging" / CLONE_DIR_NAME
+    clone_repo(f"file://{origin}", None, dest)
+    assert checked_out_branch(dest) == "trunk"
+    with pytest.raises(RuntimeError, match="branch nope"):
+        clone_repo(f"file://{origin}", "nope", dest)
+    assert not dest.exists()
 
 
 # --------------------------------------------------------------------------
@@ -183,6 +287,10 @@ def test_a_created_repository_is_written_into_the_workflow_page(tmp_path, monkey
     page = (tmp_path / "workflows" / "Repo_Foo.md").read_text()
     assert "[https://github.com/org/repo-foo Workflow Repository]" in page
     assert validate_wiki_directory(tmp_path).warnings == []
+    # A resumed run does not create the repository a second time.
+    publisher = PublishingAgent(url=None).install(ingestor, monkeypatch)
+    ingestor._run_repo_builder_phase("Repo", "https://example.test/repo")
+    assert publisher.prompts == []
 
 
 def test_preflight_requires_the_gh_token_only_when_publishing(monkeypatch):
@@ -234,7 +342,7 @@ def test_a_well_formed_wiki_passes_with_no_warnings(tmp_path):
     ("## Overview\nMarkdown page.\n", "no wikitext section headings"),
     ("== Summary ==\nOld layout.\n\n== Related Pages ==\n[[implemented_by::Implementation:Repo_Rule_Impl]]\n", "missing the == Overview =="),
     ("== Overview ==\n\n== Related Pages ==\n[[implemented_by::Implementation:Repo_Rule_Impl]]\n", "nothing to embed"),
-    (GOOD_PRINCIPLE.replace("More text.", "See /tmp/kapso_repo_ab12cd/src/rule.py."), "temporary clone path"),
+    (GOOD_PRINCIPLE.replace("More text.", f"See /w/_staging/Repo/main/{CLONE_DIR_NAME}/src/rule.py."), "temporary clone path"),
     (GOOD_PRINCIPLE.replace("More text.", "See [[Repo_Rule_Impl]] and [[Other|the other]]."), "2 link(s) without a namespace ([[Repo_Rule_Impl]], [[Other]])"),
 ], ids=["markdown", "no-overview", "empty-overview", "temp-path", "plain-links"])
 def test_the_validator_rejects_pages_serving_cannot_use(tmp_path, page, complaint):

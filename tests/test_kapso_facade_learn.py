@@ -450,9 +450,11 @@ def test_learn_knowledge_records_the_index_it_wrote(tmp_path, monkeypatch):
     wiki_dir.mkdir()
     (wiki_dir / ".index").write_text('{"page_count": 3}')
 
+    wiring = {}
+
     class FakePipeline:
         def __init__(self, **kwargs):
-            pass
+            wiring.update(kwargs)
 
         def run(self, *sources, skip_merge=False, status=None):
             return SimpleNamespace(
@@ -467,5 +469,8 @@ def test_learn_knowledge_records_the_index_it_wrote(tmp_path, monkeypatch):
             is_enabled=lambda: True), create_null=lambda: None),
     )
     kapso.learn_knowledge(object(), wiki_dir=str(wiki_dir))
+    # The merge builds a missing index through the facade, which owns the
+    # config that names the search backends.
+    assert wiring["index_builder"] == kapso.index_kg
     assert kapso._kg_index_path == str(wiki_dir / ".index")
     assert kapso.memory.knowledge_index == str(wiki_dir / ".index")

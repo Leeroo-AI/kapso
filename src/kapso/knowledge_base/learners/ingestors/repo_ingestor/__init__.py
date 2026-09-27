@@ -38,7 +38,6 @@ import logging
 import re
 import shutil
 import time
-import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -50,8 +49,9 @@ from kapso.knowledge_base.search.base import WikiPage, DEFAULT_WIKI_DIR
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
 
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.utils import (
+    CLONE_DIR_NAME,
+    checked_out_branch,
     clone_repo,
-    cleanup_repo,
     load_wiki_structure,
     get_repo_namespace_from_url,
 )
@@ -131,9 +131,11 @@ class RepoIngestor(Ingestor):
                 - timeout: Deadline per phase in seconds; None (the default)
                   means a phase runs until it finishes
                 - auth_mode: Claude authentication mode (auto, oauth, or api_key)
-                - cleanup: Whether to cleanup cloned repos (default: True)
+                - cleanup: Remove the clone once a run completes (default: True);
+                  a run that stopped keeps it for the resume
                 - wiki_dir: Output directory for wiki pages (default: data/wikis)
-                - staging_subdir: Where to stage phase outputs inside wiki_dir (default: "_staging")
+                - staging_subdir: Where runs stage their phase outputs inside
+                  wiki_dir (default: "_staging"); see _open_staging
                 - cleanup_staging: Whether to remove the staging directory after ingest (default: False)
                 - fail_on_validation_errors: If True, raise if deterministic validation fails (default: True)
                 - github_repo_visibility: "private" or "public" for workflow repos (default: "private")
@@ -269,13 +271,13 @@ class RepoIngestor(Ingestor):
             "orphan_audit": ["workflow", "implementation", "principle", "heuristic"],
         }
         
-        # Load relevant wiki structure definitions
-        structure_content = {}
-        for page_type in structures_needed.get(phase, []):
-            try:
-                structure_content[f"{page_type}_structure"] = load_wiki_structure(page_type)
-            except FileNotFoundError:
-                structure_content[f"{page_type}_structure"] = f"(No structure defined for {page_type})"
+        # Load relevant wiki structure definitions (packaged with kapso; a
+        # missing one is a packaging bug and raises rather than sending a
+        # prompt that tells the agent no structure is defined)
+        structure_content = {
+            f"{page_type}_structure": load_wiki_structure(page_type)
+            for page_type in structures_needed.get(phase, [])
+        }
         
         # Get path to the _RepoMap file (used by all phases after Phase 0)
         repo_map_path = get_repo_map_path(self._wiki_dir, repo_name)
@@ -315,6 +317,8 @@ class RepoIngestor(Ingestor):
                 on this one's output, so a failed phase stops the run rather
                 than leaving a half-written wiki for the next phase to read.
         """
+        if self._phase_done(phase):
+            return
         start = time.time()
         logger.info(f"Running {phase} phase...")
         
@@ -332,6 +336,47 @@ class RepoIngestor(Ingestor):
         agent_elapsed = result.metadata.get("elapsed_seconds") if result.metadata else None
         elapsed_str = f"{agent_elapsed:.1f}s" if agent_elapsed else f"{elapsed:.1f}s"
         logger.info(f"{phase} phase complete ({elapsed_str})")
+        self._mark_phase_done(phase)
+    
+    # -------------------------------------------------------------------
+    # Resumable staging: each finished phase leaves a marker in the run's
+    # staging directory, and a run of the same source skips the phases
+    # that are marked. The markers are the run's only progress record.
+    # -------------------------------------------------------------------
+    
+    def _phase_done(self, phase: str) -> bool:
+        if (self._wiki_dir / "_phases" / phase).exists():
+            logger.info(f"{phase} already complete in {self._wiki_dir}; skipping")
+            return True
+        return False
+    
+    def _mark_phase_done(self, phase: str) -> None:
+        marker = self._wiki_dir / "_phases" / phase
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    
+    def _open_staging(self, repo_name: str, branch: Optional[str]) -> Path:
+        """
+        The staging directory of a source: `<wiki_dir>/<staging_subdir>/<repo>/<branch>`.
+        
+        Every phase reads and writes there. A directory holding markers but no
+        `complete` marker belongs to a run that stopped, and the run of the
+        same source that finds it continues from the phase that was missing;
+        the directory of a completed run is replaced, so that run starts over.
+        """
+        segment = branch.replace("/", "_") if branch else "default"
+        staging_dir = self._wiki_dir / self._staging_subdir / repo_name / segment
+        phases_dir = staging_dir / "_phases"
+        if (phases_dir / "complete").exists():
+            logger.info(f"Replacing the completed run in {staging_dir}")
+            shutil.rmtree(staging_dir)
+        if phases_dir.exists():
+            done = sorted(marker.name for marker in phases_dir.iterdir())
+            logger.info(f"Resuming the stopped run in {staging_dir} (done: {done})")
+        else:
+            logger.info(f"Repo ingestion staging wiki_dir: {staging_dir}")
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        return staging_dir
     
     def _run_phase_zero(self, repo_name: str, repo_path: Path, repo_url: str, branch: str) -> None:
         """
@@ -353,6 +398,8 @@ class RepoIngestor(Ingestor):
             RuntimeError: If a session fails, the repository has no files the
                 scaffold can map, or files stay unexplored after every attempt.
         """
+        if self._phase_done("repo_understanding"):
+            return
         start = time.time()
         logger.info("Running Phase 0: Repository Understanding...")
         
@@ -413,6 +460,7 @@ class RepoIngestor(Ingestor):
             if explored >= total:
                 elapsed = time.time() - start
                 logger.info(f"Phase 0 complete: {explored}/{total} files explored ({elapsed:.1f}s)")
+                self._mark_phase_done("repo_understanding")
                 return
             
             # Not all files explored
@@ -545,6 +593,19 @@ class RepoIngestor(Ingestor):
         workflow_results = []
         
         for workflow_name in workflows:
+            # A resumed run finds the repositories an earlier attempt created
+            # in their Workflow pages and does not create them twice.
+            page_path = self._wiki_dir / "workflows" / f"{workflow_name}.md"
+            published = page_path.exists() and re.search(
+                r"\[(https://github\.com/(?!PENDING)[^\s\]]+)\s+Workflow Repository\]",
+                page_path.read_text(encoding="utf-8"),
+            )
+            if published:
+                logger.info(f"{workflow_name} already has a repository ({published.group(1)}); skipping")
+                workflow_results.append((workflow_name, "SUCCESS", published.group(1)))
+                repos_created += 1
+                continue
+            
             logger.info(f"Building repository for {workflow_name}")
             
             # Prepare result file path - use ABSOLUTE paths for agent
@@ -736,13 +797,18 @@ class RepoIngestor(Ingestor):
         logger.info("BRANCH 2: Orphan Mining")
         logger.info("=" * 60)
         
-        logger.info("Step 6a: Orphan Triage (deterministic)...")
-        candidates_path = generate_orphan_candidates(
-            repo_map_path=get_repo_map_path(self._wiki_dir, repo_name),
-            wiki_dir=self._wiki_dir,
-            repo_name=repo_name,
-        )
-        logger.info(f"Orphan candidates written to: {candidates_path}")
+        # Triage rewrites the candidates file with every decision pending, so
+        # a resumed run keeps the one the review phase already worked on.
+        candidates_path = get_orphan_candidates_path(self._wiki_dir)
+        if not self._phase_done("orphan_triage"):
+            logger.info("Step 6a: Orphan Triage (deterministic)...")
+            generate_orphan_candidates(
+                repo_map_path=get_repo_map_path(self._wiki_dir, repo_name),
+                wiki_dir=self._wiki_dir,
+                repo_name=repo_name,
+            )
+            self._mark_phase_done("orphan_triage")
+            logger.info(f"Orphan candidates written to: {candidates_path}")
         
         awaiting_review, needing_pages = orphan_candidate_counts(candidates_path)
         if awaiting_review:
@@ -759,18 +825,32 @@ class RepoIngestor(Ingestor):
         logger.info(f"Step 6c: Orphan Create ({needing_pages} files need a page)...")
         self._run_phase("orphan_create", repo_name, str(repo_path), repo_url, branch)
         
-        logger.info("Step 6d: Orphan Verification (deterministic)...")
-        verify_success, verify_report = verify_orphan_completion(self._wiki_dir, repo_name)
-        if not verify_success:
-            logger.warning(f"Orphan verification found issues:\n{verify_report}")
-            reports_dir = self._wiki_dir / "_reports"
-            reports_dir.mkdir(parents=True, exist_ok=True)
-            (reports_dir / "phase5d_orphan_verify.md").write_text(verify_report, encoding="utf-8")
-        else:
-            logger.info("Orphan verification passed")
-        
         logger.info("Phase 7: Orphan Audit...")
         self._run_phase("orphan_audit", repo_name, str(repo_path), repo_url, branch)
+        
+        # The deterministic check comes last, as the gate on what the two
+        # sessions left: every file that must get a page is marked done and
+        # every review has a decision. Undone work gets one targeted audit
+        # pass with the findings; work still undone after it fails the run.
+        logger.info("Step 7b: Orphan Verification (deterministic)...")
+        verified, report = verify_orphan_completion(self._wiki_dir, repo_name)
+        if not verified:
+            logger.warning(f"Orphan verification found undone work; one targeted audit pass:\n{report}")
+            prompt = self._build_phase_prompt("orphan_audit", repo_name, str(repo_path), repo_url, branch)
+            prompt += "\n\n## Orphan Verification Findings (MUST FIX)\n\n" + report
+            result = self._agent.generate_code(prompt)
+            if not result.success:
+                raise RuntimeError(f"targeted orphan audit failed for {repo_name}: {result.error}")
+            verified, report = verify_orphan_completion(self._wiki_dir, repo_name)
+        reports_dir = self._wiki_dir / "_reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        report_path = reports_dir / "phase7_orphan_verify.md"
+        report_path.write_text(report, encoding="utf-8")
+        if not verified:
+            raise RuntimeError(
+                f"Orphan mining left work undone for {repo_name} (report: {report_path})\n\n{report}"
+            )
+        logger.info("Orphan verification passed")
     
     def _collect_written_pages(self, repo_name: str) -> List[WikiPage]:
         """
@@ -817,51 +897,44 @@ class RepoIngestor(Ingestor):
             ValueError: If url is not provided
             RuntimeError: If cloning or extraction fails
         """
-        # Normalize source to dict
         source_data = self._normalize_source(source)
-        
         url = source_data.get("url", "")
-        branch = source_data.get("branch", "main")
-        
+        branch = source_data.get("branch")
         if not url:
             raise ValueError("Repository URL is required")
+        repo_name = get_repo_namespace_from_url(url)
         
-        repo_path = None
-        staging_dir = None
-        wiki_dir_original: Optional[Path] = None
-        
+        # The run stages everything under one directory of the global
+        # wiki_dir (isolated per source, so shared wiki_dirs never mix runs)
+        # and the phases only read and write there; the clone lives inside
+        # it, so a resumed run continues on the tree its pages describe.
+        wiki_dir_original = self._wiki_dir
+        staging_dir = self._open_staging(repo_name, branch)
+        self._last_staging_dir = staging_dir
+        self._wiki_dir = staging_dir
+        repo_path = staging_dir / CLONE_DIR_NAME
+        completed = False
         try:
-            wiki_dir_original = self._wiki_dir
-            # Step 1: Clone the repository
-            repo_path = clone_repo(url, branch)
-            self._last_repo_path = repo_path
-            repo_name = get_repo_namespace_from_url(url)
-            
-            # Step 1b: Create isolated staging directory for this ingestion run.
-            # This prevents cross-repo contamination when wiki_dir is shared.
-            run_id = uuid.uuid4().hex[:12]
-            staging_dir = (self._wiki_dir / self._staging_subdir / repo_name / run_id)
-            self._last_staging_dir = staging_dir
-            logger.info(f"Repo ingestion staging wiki_dir: {staging_dir}")
-            
-            # IMPORTANT: phases should only read/write inside the staging wiki_dir,
-            # never directly in the global wiki_dir.
-            self._wiki_dir = staging_dir
-            
-            # Step 2: Ensure wiki directories exist
             self._ensure_wiki_directories()
             
-            # Step 3: Initialize Claude Code agent
+            # Step 1: Clone the repository
+            if not self._phase_done("clone"):
+                clone_repo(url, branch, repo_path)
+                self._mark_phase_done("clone")
+            self._last_repo_path = repo_path
+            branch = checked_out_branch(repo_path)
+            
+            # Step 2: Initialize Claude Code agent
             self._initialize_agent(str(repo_path))
             
-            # Step 4: Run Phase 0 - Repository Understanding
+            # Step 3: Run Phase 0 - Repository Understanding
             logger.info("=" * 60)
             logger.info("PHASE 0: Repository Understanding")
             logger.info("=" * 60)
             
             self._run_phase_zero(repo_name, repo_path, url, branch)
             
-            # Step 5: Run Branch 1 - Workflow-based extraction
+            # Step 4: Run Branch 1 - Workflow-based extraction
             logger.info("=" * 60)
             logger.info("BRANCH 1: Workflow-Based Extraction")
             logger.info("=" * 60)
@@ -876,10 +949,10 @@ class RepoIngestor(Ingestor):
             for phase in branch1_phases:
                 self._run_phase(phase, repo_name, str(repo_path), url, branch)
             
-            # Step 6: Run Branch 2 - Orphan mining
+            # Step 5: Run Branch 2 - Orphan mining
             self._run_orphan_mining(repo_name, repo_path, url, branch)
             
-            # Step 7: Collect pages written by agent (union of both branches)
+            # Step 6: Validate what the phases wrote (union of both branches)
             report = validate_wiki_directory(self._wiki_dir)
             if report.errors:
                 msg = (
@@ -900,7 +973,7 @@ class RepoIngestor(Ingestor):
                         f"Fix errors in staging dir: {self._wiki_dir}\n\n{report.to_text()}"
                     )
             
-            # Step 7b: Publish each Workflow as a runnable repository (config switch).
+            # Step 6b: Publish each Workflow as a runnable repository (config switch).
             # After validation, so a publishing failure never discards validated
             # pages; the phase raises if any repository is not created.
             if self._publish_workflows:
@@ -911,45 +984,35 @@ class RepoIngestor(Ingestor):
             
             pages = self._collect_written_pages(repo_name)
             
-            # Step 8: Publish phase outputs into the final wiki_dir (optional but default-safe)
-            # We only publish if staging is inside wiki_dir; copy is limited to this run.
-            # This preserves existing behavior for extract-only runs, while avoiding
-            # phases accidentally reading/editing other repos.
-            if wiki_dir_original and wiki_dir_original != self._wiki_dir:
-                # Ensure final output dirs exist.
-                for subdir in ["workflows", "principles", "implementations", "environments", "heuristics"]:
-                    (wiki_dir_original / subdir).mkdir(parents=True, exist_ok=True)
-                
-                for subdir in ["workflows", "principles", "implementations", "environments", "heuristics"]:
-                    src_dir = self._wiki_dir / subdir
-                    dst_dir = wiki_dir_original / subdir
-                    if not src_dir.exists():
-                        continue
-                    for md_file in src_dir.glob("*.md"):
-                        # Copy into final directory, overwriting same-name pages.
-                        shutil.copy2(md_file, dst_dir / md_file.name)
-                logger.info(f"Published staged wiki files into final wiki_dir: {wiki_dir_original}")
-                
-                # Restore global wiki_dir for downstream callers.
-                self._wiki_dir = wiki_dir_original
+            # Step 7: Publish the run's pages into the global wiki_dir,
+            # overwriting same-name pages and nothing else.
+            for subdir in ["workflows", "principles", "implementations", "environments", "heuristics"]:
+                src_dir = self._wiki_dir / subdir
+                dst_dir = wiki_dir_original / subdir
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                for md_file in src_dir.glob("*.md"):
+                    shutil.copy2(md_file, dst_dir / md_file.name)
+            logger.info(f"Published staged wiki files into final wiki_dir: {wiki_dir_original}")
+            
+            self._mark_phase_done("complete")
+            completed = True
+            if self._cleanup:
+                shutil.rmtree(repo_path)
+                self._last_repo_path = None
+            if self._cleanup_staging:
+                shutil.rmtree(staging_dir)
+                self._last_staging_dir = None
             
             logger.info(f"Extracted {len(pages)} pages from {url}")
             return pages
             
         finally:
-            # Restore wiki_dir if we swapped to staging.
-            if wiki_dir_original is not None and staging_dir and self._wiki_dir == staging_dir:
-                self._wiki_dir = wiki_dir_original
-            
-            # Cleanup cloned repository
-            if self._cleanup and repo_path:
-                cleanup_repo(repo_path)
-                self._last_repo_path = None
-            
-            # Cleanup staging outputs if requested
-            if self._cleanup_staging and staging_dir and staging_dir.exists():
-                shutil.rmtree(staging_dir, ignore_errors=True)
-                self._last_staging_dir = None
+            self._wiki_dir = wiki_dir_original
+            if not completed:
+                logger.error(
+                    f"Ingestion of {url} stopped; its clone and finished phases are kept in "
+                    f"{staging_dir}, and a run of the same source continues from there"
+                )
     
     def get_last_repo_path(self) -> Optional[Path]:
         """

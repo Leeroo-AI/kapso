@@ -233,6 +233,8 @@ learn_knowledge(
 | `github_org` | Organisation to publish the extracted workflows' repositories to; passing it turns publishing on for this call (`learner.ingestor.publish_workflows` otherwise) | `None` |
 | `is_private` | Whether those repositories are private; passing it turns publishing on too | from config |
 
+A run that stops keeps its clone and finished phases under `<wiki_dir>/_staging/<repo>/<branch>`; calling `learn_knowledge()` again with the same source continues from the first unfinished phase.
+
 ```python
 kapso.learn_knowledge(
     Source.Repo("https://github.com/huggingface/trl"),
@@ -245,7 +247,7 @@ kapso.learn_knowledge(
 
 | Variant | Takes |
 |---------|-------|
-| `Source.Repo(url)` | A repository URL |
+| `Source.Repo(url, branch=None)` | A repository URL; its default branch unless `branch` names one |
 | `Source.Solution(obj)` | A `SolutionResult` |
 | `Source.Idea(query, source, content)` | A research idea |
 | `Source.Implementation(query, source, content)` | An implementation reference |

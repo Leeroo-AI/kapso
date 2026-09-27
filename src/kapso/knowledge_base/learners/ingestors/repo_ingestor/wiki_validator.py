@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 from kapso.knowledge_base.search.kg_graph_search import parse_wiki_directory
-from kapso.knowledge_base.learners.ingestors.repo_ingestor.utils import CLONE_DIR_PREFIX
+from kapso.knowledge_base.learners.ingestors.repo_ingestor.utils import CLONE_DIR_NAME
 
 import re
 
@@ -168,8 +168,8 @@ def _validate_page_form(page, wiki_dir: Path, report: ValidationReport) -> None:
         report.errors.append(f"{page.id}: missing the == Overview == section")
     elif not (page.description or page.overview):
         report.errors.append(f"{page.id}: the Overview section has no text, so there is nothing to embed")
-    if CLONE_DIR_PREFIX in text:
-        report.errors.append(f"{page.id}: cites a temporary clone path ({CLONE_DIR_PREFIX}...); use a repository-relative path or URL")
+    if CLONE_DIR_NAME in text:
+        report.errors.append(f"{page.id}: cites a temporary clone path ({CLONE_DIR_NAME}/...); use a repository-relative path or URL")
     plain_links = _PLAIN_LINK.findall(text)
     if plain_links:
         shown = ", ".join(f"[[{name}]]" for name in plain_links[:3])

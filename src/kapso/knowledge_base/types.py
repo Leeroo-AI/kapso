@@ -51,9 +51,11 @@ class Source:
         
         Processed by: RepoIngestor
         Extracts: README, code patterns, docstrings, structure
+        
+        `branch` None learns from the repository's default branch.
         """
         url: str
-        branch: str = "main"
+        branch: Optional[str] = None
         
         def to_dict(self) -> Dict[str, Any]:
             return {"url": self.url, "branch": self.branch}
