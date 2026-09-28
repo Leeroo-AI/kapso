@@ -26,6 +26,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
 
 # Optional dependencies (may not be installed)
 try:
@@ -542,6 +543,9 @@ class KGGraphSearch(KnowledgeSearch):
         
         Args:
             params: Configuration parameters (defaults from knowledge_search.yaml):
+                - weaviate_url, weaviate_grpc_port: The Weaviate server
+                - neo4j_uri, neo4j_user: The Neo4j server (its password is the
+                  one connection secret, read from NEO4J_PASSWORD)
                 - embedding_provider: "openai" or "vertex" (see embeddings.py)
                 - embedding_model: Embedding model of that provider
                 - weaviate_collection: Weaviate collection name
@@ -551,6 +555,10 @@ class KGGraphSearch(KnowledgeSearch):
         super().__init__(params=params)
         
         # Extract params (defaults come from knowledge_search.yaml via factory)
+        self.weaviate_url = self.params["weaviate_url"]
+        self.weaviate_grpc_port = int(self.params["weaviate_grpc_port"])
+        self.neo4j_uri = self.params["neo4j_uri"]
+        self.neo4j_user = self.params["neo4j_user"]
         self.embedding_model = self.params.get("embedding_model")
         self.weaviate_collection = self.params.get("weaviate_collection")
         self.include_connected_pages = self.params.get("include_connected_pages", True)
@@ -616,12 +624,11 @@ class KGGraphSearch(KnowledgeSearch):
             return
             
         try:
-            uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-            user = os.getenv("NEO4J_USER", "neo4j")
+            # The endpoint and user are config; the password is the one
+            # connection secret and comes from the environment.
             password = os.getenv("NEO4J_PASSWORD", "password")
-            
-            self._neo4j_driver = GraphDatabase.driver(uri, auth=(user, password))
-            logger.info(f"Connected to Neo4j at {uri}")
+            self._neo4j_driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, password))
+            logger.info(f"Connected to Neo4j at {self.neo4j_uri}")
             
         except Exception as e:
             logger.error(f"Failed to connect to Neo4j: {e}")
@@ -633,15 +640,20 @@ class KGGraphSearch(KnowledgeSearch):
             return
             
         try:
-            url = os.getenv("WEAVIATE_URL", "http://localhost:8080")
-            # Parse host and port from URL
-            host = url.replace("http://", "").replace("https://", "").split(":")[0]
-            port = 8080
-            if ":" in url.replace("http://", "").replace("https://", ""):
-                port = int(url.split(":")[-1])
-            
-            self._weaviate_client = weaviate.connect_to_local(host=host, port=port)
-            logger.info(f"Connected to Weaviate at {url}")
+            # Both channels are named explicitly: the gRPC port is not derived
+            # from the HTTP one, so a second Weaviate on other ports (a test
+            # stack beside production) is reached on both.
+            parts = urlparse(self.weaviate_url)
+            secure = parts.scheme == "https"
+            self._weaviate_client = weaviate.connect_to_custom(
+                http_host=parts.hostname,
+                http_port=parts.port or (443 if secure else 80),
+                http_secure=secure,
+                grpc_host=parts.hostname,
+                grpc_port=self.weaviate_grpc_port,
+                grpc_secure=secure,
+            )
+            logger.info(f"Connected to Weaviate at {self.weaviate_url} (gRPC port {self.weaviate_grpc_port})")
             
         except Exception as e:
             logger.error(f"Failed to connect to Weaviate: {e}")
@@ -2005,11 +2017,16 @@ Only include pages that would actually help answer the query.
         """
         Return backend-specific references for index file.
 
-        Records where the pages live and exactly how they were embedded, so a
-        search built from these refs embeds queries with the same provider,
-        model and size as the pages.
+        Records where the pages live (the stores and the collection) and
+        exactly how they were embedded, so a search or merge built from these
+        refs reaches the stores the index was built on and embeds queries with
+        the same provider, model and size as the pages.
         """
         refs = {
+            "weaviate_url": self.weaviate_url,
+            "weaviate_grpc_port": self.weaviate_grpc_port,
+            "neo4j_uri": self.neo4j_uri,
+            "neo4j_user": self.neo4j_user,
             "weaviate_collection": self.weaviate_collection,
             "embedding_provider": self.params["embedding_provider"],
             "embedding_model": self.embedding_model,

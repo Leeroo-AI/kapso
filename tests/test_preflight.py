@@ -117,6 +117,21 @@ def test_skip_merge_drops_the_merger_and_both_kg_stores(packaged, full_machine):
     )
 
 
+def test_kg_store_rows_name_the_configured_endpoints(packaged, full_machine):
+    """A test stack beside production (other ports) is what the config names,
+    so the rows must check those endpoints, not localhost:8080/7687."""
+    import copy
+    config = copy.deepcopy(packaged)
+    config["modes"]["GENERIC"]["knowledge_search"]["params"] = {
+        "weaviate_url": "http://localhost:18080",
+        "neo4j_uri": "bolt://localhost:17687",
+    }
+    merging = labels(requirements_for("learn_knowledge", config, skip_merge=False))
+    assert "Weaviate (localhost:18080)" in merging
+    assert "Neo4j (localhost:17687)" in merging
+    assert "Weaviate (localhost:8080)" not in merging
+
+
 def test_codify_target_decides_whether_gcloud_is_required(packaged, full_machine):
     """`learning.codify.target: gcp_ephemeral` shells out to gcloud — a
     requirement no user would guess, and one that must vanish when the

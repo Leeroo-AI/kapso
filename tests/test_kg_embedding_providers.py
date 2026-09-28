@@ -206,6 +206,10 @@ def test_index_refs_rebuild_the_same_embedder(vertex_session, offline_backend):
 
     refs = built.get_backend_refs()
     assert refs == {
+        "weaviate_url": "http://localhost:8080",
+        "weaviate_grpc_port": 50051,
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
         "weaviate_collection": "LeeroopediaKG",
         "embedding_provider": "vertex",
         "embedding_model": "gemini-embedding-2",
@@ -237,10 +241,47 @@ def test_index_without_a_provider_keeps_openai(monkeypatch, offline_backend):
     })
     assert isinstance(served._embedder, embeddings.OpenAIEmbedder)
     assert served.get_backend_refs() == {
+        "weaviate_url": "http://localhost:8080",
+        "weaviate_grpc_port": 50051,
+        "neo4j_uri": "bolt://localhost:7687",
+        "neo4j_user": "neo4j",
         "weaviate_collection": "KapsoKG",
         "embedding_provider": "openai",
         "embedding_model": "text-embedding-3-large",
     }
+
+
+def test_the_stores_are_config_and_travel_with_the_index(monkeypatch):
+    """A second Weaviate and Neo4j beside production (a test stack) are named
+    in params, reached on both of Weaviate's channels (the gRPC port is not
+    derived from the HTTP one), and recorded in the index refs so a merge or
+    search opened from that index never lands on the production stores."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("NEO4J_PASSWORD", "learntest")
+    monkeypatch.setattr(graph.KGGraphSearch, "_initialize_llm", lambda self: None)
+    connections = {}
+    monkeypatch.setattr(graph, "HAS_WEAVIATE", True)
+    monkeypatch.setattr(graph.weaviate, "connect_to_custom", lambda **kw: connections.setdefault("weaviate", kw))
+    monkeypatch.setattr(graph, "HAS_NEO4J", True)
+    monkeypatch.setattr(graph.GraphDatabase, "driver", lambda uri, auth: connections.setdefault("neo4j", (uri, auth)))
+
+    search = KnowledgeSearchFactory.create("kg_graph_search", params={
+        "weaviate_url": "http://localhost:18080",
+        "weaviate_grpc_port": 50052,
+        "neo4j_uri": "bolt://localhost:17687",
+        "weaviate_collection": "KapsoLearnTest",
+    })
+    search._initialize_clients()
+    assert connections["weaviate"] == {
+        "http_host": "localhost", "http_port": 18080, "http_secure": False,
+        "grpc_host": "localhost", "grpc_port": 50052, "grpc_secure": False,
+    }
+    assert connections["neo4j"] == ("bolt://localhost:17687", ("neo4j", "learntest"))
+    refs = search.get_backend_refs()
+    assert refs["weaviate_url"] == "http://localhost:18080"
+    assert refs["weaviate_grpc_port"] == 50052
+    assert refs["neo4j_uri"] == "bolt://localhost:17687"
+    assert refs["weaviate_collection"] == "KapsoLearnTest"
 
 
 def test_index_build_stops_on_an_embedding_failure(vertex_session, offline_backend, monkeypatch):

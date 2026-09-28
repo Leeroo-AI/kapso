@@ -31,6 +31,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 from kapso.core.config import deep_merge, load_config, load_deployment_defaults
 from kapso.core.agent_manifest import load_agent_manifest
@@ -39,6 +40,7 @@ from kapso.core.api_endpoint import (
     validate_api_base_url,
 )
 from kapso.gated_mcp.presets import GATES, resolve_gates
+from kapso.knowledge_base.search.factory import KnowledgeSearchFactory
 from kapso.learning.bank_remote import bank_origin, bank_remote_error
 
 # The packaged platform config is the single source for preflight's own
@@ -452,18 +454,27 @@ def _embedding_requirement(origin: str, params=None) -> Requirement:
     )
 
 
-def _kg_backend_requirements(origin: str) -> List[Requirement]:
-    """The two stores a knowledge-graph read or write touches."""
+def _kg_backend_requirements(origin: str, search_config=None) -> List[Requirement]:
+    """The two stores a knowledge-graph read or write touches, at the
+    endpoints the config names (knowledge_search params over the shipped
+    defaults, the preset in between)."""
+    search_config = search_config or {}
+    params = KnowledgeSearchFactory.get_defaults("kg_graph_search")
+    if search_config.get("preset"):
+        params.update(KnowledgeSearchFactory.get_preset_params("kg_graph_search", search_config["preset"]))
+    params.update(search_config.get("params") or {})
+    weaviate = urlparse(params["weaviate_url"])
+    neo4j = urlparse(params["neo4j_uri"])
     return [
         Requirement(
-            label="Weaviate (localhost:8080)",
-            ok=port_open("localhost", 8080),
+            label=f"Weaviate ({weaviate.hostname}:{weaviate.port})",
+            ok=port_open(weaviate.hostname, weaviate.port),
             fix="bash scripts/start_infra.sh   (starts Weaviate + Neo4j in docker)",
             origin=origin,
         ),
         Requirement(
-            label="Neo4j (localhost:7687)",
-            ok=port_open("localhost", 7687),
+            label=f"Neo4j ({neo4j.hostname}:{neo4j.port})",
+            ok=port_open(neo4j.hostname, neo4j.port),
             fix="bash scripts/start_infra.sh   (starts Weaviate + Neo4j in docker)",
             origin=origin,
         ),
@@ -562,7 +573,8 @@ def learn_knowledge_requirements(
         ))
         requirements.extend(_kg_backend_requirements(
             "the merge writes pages into the KG stores "
-            "(pass skip_merge=True to extract only)"
+            "(pass skip_merge=True to extract only)",
+            block.get("knowledge_search"),
         ))
     return requirements
 
@@ -619,7 +631,8 @@ def evolve_requirements(
             (block.get("knowledge_search") or {}).get("params"),
         ))
         requirements.extend(_kg_backend_requirements(
-            f"knowledge search — Kapso(kg_index={kg_index!r})"
+            f"knowledge search — Kapso(kg_index={kg_index!r})",
+            block.get("knowledge_search"),
         ))
 
     serving = ((config.get("learning") or {}).get("serving") or {})

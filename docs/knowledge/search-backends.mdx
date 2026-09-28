@@ -60,6 +60,8 @@ Its three presets differ only in how much work they do after the vector search:
 
 Shipped defaults are `embedding_provider: openai`, `embedding_model: text-embedding-3-large`, `weaviate_collection: KapsoKG`, `include_connected_pages: true`, `use_llm_reranker: false` and `reranker_overview_max_chars: 300`. A preset overrides them; anything a preset omits falls back to these.
 
+The stores themselves are parameters too: `weaviate_url` (default `http://localhost:8080`), `weaviate_grpc_port` (`50051`), `neo4j_uri` (`bolt://localhost:7687`) and `neo4j_user` (`neo4j`). The Neo4j password is the one connection secret and is read from `NEO4J_PASSWORD`. An index records the endpoints in its `backend_refs`, so a search or merge opened from an index reaches the stores it was built on: a test index built on its own Weaviate and Neo4j never touches the production ones.
+
 <Note>
   This is a different setting from `defaults.models.embedding` in the main config, which is `text-embedding-3-small` and is used for memory rather than for this backend.
 </Note>
@@ -194,6 +196,10 @@ The `.index` file is a small JSON reference, not the data itself:
   "data_source": "data/wikis",
   "search_backend": "kg_graph_search",
   "backend_refs": {
+    "weaviate_url": "http://localhost:8080",
+    "weaviate_grpc_port": 50051,
+    "neo4j_uri": "bolt://localhost:7687",
+    "neo4j_user": "neo4j",
     "weaviate_collection": "KapsoKG",
     "embedding_provider": "openai",
     "embedding_model": "text-embedding-3-large"

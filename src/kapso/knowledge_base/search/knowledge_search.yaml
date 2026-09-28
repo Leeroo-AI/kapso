@@ -57,6 +57,14 @@ searches:
     
     # Default values used when params are not specified
     defaults:
+      # Where the stores are. An index records these in its backend_refs, so
+      # a search or merge opened from an index reaches the stores it was
+      # built on. The Neo4j password is the one connection secret and is
+      # read from the environment (NEO4J_PASSWORD).
+      weaviate_url: "http://localhost:8080"
+      weaviate_grpc_port: 50051
+      neo4j_uri: "bolt://localhost:7687"
+      neo4j_user: "neo4j"
       # Who embeds pages and queries: "openai" or "vertex" (Google Vertex AI,
       # e.g. embedding_model "gemini-embedding-2"). An index records its
       # provider, model and size in backend_refs, and search rebuilds the same

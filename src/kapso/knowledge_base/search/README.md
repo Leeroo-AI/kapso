@@ -45,13 +45,10 @@ export OPENAI_API_KEY="sk-..."
 # ... or Google Vertex AI (embedding_provider: vertex), which uses
 # Application Default Credentials:  gcloud auth application-default login
 
-# Neo4j connection
-export NEO4J_URI="bolt://localhost:7687"
-export NEO4J_USER="neo4j"
+# The Neo4j password is the one connection secret. The endpoints are config:
+# knowledge_search.params weaviate_url, weaviate_grpc_port, neo4j_uri, neo4j_user
+# (defaults: http://localhost:8080, 50051, bolt://localhost:7687, neo4j).
 export NEO4J_PASSWORD="password123"
-
-# Weaviate connection
-export WEAVIATE_URL="http://localhost:8081"
 ```
 
 ## Usage
