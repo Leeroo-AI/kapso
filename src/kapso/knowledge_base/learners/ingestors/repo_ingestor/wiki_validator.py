@@ -151,6 +151,13 @@ _OVERVIEW_HEADING = re.compile(r"^== *(Overview|Definition) *==[ \t]*$", re.M)
 # property (edge::Type:Name): MediaWiki resolves it in the main namespace,
 # where no wiki page lives, so it renders as a red link.
 _PLAIN_LINK = re.compile(r"\[\[(?![^\]]*::)(?![^\]|]*:)([^\]|]+)(?:\|[^\]]*)?\]\]")
+# Code is not prose: a nested list literal in an example (`[[0.7, 0.3]]`)
+# is not a link, so code blocks and inline code are cut before the scan.
+_CODE = re.compile(
+    r"```.*?```|<syntaxhighlight[^>]*>.*?</syntaxhighlight>|<pre>.*?</pre>"
+    r"|<code>.*?</code>|<nowiki>.*?</nowiki>|`[^`\n]*`",
+    re.S,
+)
 
 
 def _validate_page_form(page, wiki_dir: Path, report: ValidationReport) -> None:
@@ -170,7 +177,7 @@ def _validate_page_form(page, wiki_dir: Path, report: ValidationReport) -> None:
         report.errors.append(f"{page.id}: the Overview section has no text, so there is nothing to embed")
     if CLONE_DIR_NAME in text:
         report.errors.append(f"{page.id}: cites a temporary clone path ({CLONE_DIR_NAME}/...); use a repository-relative path or URL")
-    plain_links = _PLAIN_LINK.findall(text)
+    plain_links = _PLAIN_LINK.findall(_CODE.sub("", text))
     if plain_links:
         shown = ", ".join(f"[[{name}]]" for name in plain_links[:3])
         report.errors.append(

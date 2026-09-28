@@ -348,6 +348,17 @@ def test_the_validator_rejects_pages_serving_cannot_use(tmp_path, page, complain
     assert any(complaint in error for error in report.errors), report.errors
 
 
+def test_list_literals_in_code_examples_are_not_links(tmp_path):
+    # A live run's Implementation page carried `probs = torch.tensor([[0.7, 0.3]])`
+    # in its example and was rejected for "links without a namespace".
+    page = GOOD_PRINCIPLE.replace(
+        "More text.",
+        "<syntaxhighlight lang=\"python\">\nprobs = torch.tensor([[0.7, 0.3], [0.4, 0.6]])\n</syntaxhighlight>\n"
+        "Inline `x[[1, 2]]` too, and a fence:\n```python\nids = [[1, 2, 3]]\n```\n",
+    )
+    assert wiki(tmp_path, principle=page).errors == []
+
+
 def test_index_entries_come_from_file_links_not_table_columns(tmp_path):
     # A steps table whose first column is a number, and a summary table of
     # short names, used to produce false "missing from index" warnings.

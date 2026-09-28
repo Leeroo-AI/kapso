@@ -153,6 +153,10 @@ Fix: deterministic checks in the validator for required sections per page type (
 `wiki_structure/*/sections_definition.md`), wikitext-only headings, no `/tmp/` paths,
 and namespaced links; a one-off repair pass over the 655 + 102 + 94 + 3,037 corpus pages.
 
+**2026-09-28:** the plain-link check flagged nested list literals in code examples
+(`[[0.7, 0.3]]` in a tensor, `[[1, 2, 3]]`) on the second verification run; it now ignores
+code blocks and inline code before scanning for links.
+
 ### L5. A GitHub failure discards the whole extraction — **fixed**
 
 **Fixed 2026-09-27.** Publishing is a config switch, `learner.ingestor.publish_workflows`
