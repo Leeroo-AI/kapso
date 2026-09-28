@@ -169,7 +169,7 @@ modes:
       # Claude settings. `timeout: null` means no deadline: a phase runs until
       # it finishes (a number of seconds imposes one).
       ingestor:
-        model: "claude-opus-5"
+        model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
         timeout: null
@@ -183,7 +183,7 @@ modes:
         publish_workflows: false
         github_repo_visibility: "private"
       merger:
-        model: "claude-opus-5"
+        model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
         timeout: null
@@ -234,7 +234,7 @@ modes:
     # Learner configuration for kapso.learn()
     learner:
       ingestor:
-        model: "claude-opus-5"
+        model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
         timeout: null
@@ -244,7 +244,7 @@ modes:
         publish_workflows: false
         github_repo_visibility: "private"
       merger:
-        model: "claude-opus-5"
+        model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
         timeout: null
