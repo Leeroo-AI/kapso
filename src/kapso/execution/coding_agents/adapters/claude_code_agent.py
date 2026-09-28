@@ -594,6 +594,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         # Metrics: count tool calls and track token usage
         tool_call_count: int = 0
         last_tool: str = ""
+        # Every tool call the session made (name and input), the record a
+        # caller checks when the session's own account of its work cannot be
+        # trusted, such as which knowledge pages a merge created or edited.
+        tool_calls: List[Dict[str, Any]] = []
         input_tokens: int = 0
         output_tokens: int = 0
         
@@ -860,6 +864,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                             if block.get("type") == "tool_use":
                                 tool_call_count += 1
                                 tool_input = block.get("input", {}) or {}
+                                tool_calls.append({"name": block.get("name", "?"), "input": tool_input})
                                 last_tool = (
                                     f"{block.get('name', '?')}: "
                                     f"{str(tool_input.get('command') or tool_input.get('file_path') or '')[:200]}"
@@ -935,6 +940,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "cli_session_id": cli_session_id,
                         "tools": session_tools,
                         "tool_call_count": tool_call_count,
+                        "tool_calls": tool_calls,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -957,6 +963,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "tools": session_tools,
                         "completed_reaped": True,
                         "tool_call_count": tool_call_count,
+                        "tool_calls": tool_calls,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -989,6 +996,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "deadline_exceeded": True,
                         "completed_before_kill": completed_before_kill,
                         "tool_call_count": tool_call_count,
+                        "tool_calls": tool_calls,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -1017,6 +1025,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         "cli_session_id": cli_session_id,
                         "tools": session_tools,
                         "tool_call_count": tool_call_count,
+                        "tool_calls": tool_calls,
                         "last_tool": last_tool,
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
@@ -1041,6 +1050,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     "streaming": True,
                     "auth_mode": self._auth_mode,
                     "tool_call_count": tool_call_count,
+                    "tool_calls": tool_calls,
                         "last_tool": last_tool,
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,

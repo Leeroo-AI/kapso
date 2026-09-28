@@ -281,6 +281,8 @@ The merger operates in two modes based on whether a KG index exists:
 1. **No Index Mode**: Creates all pages as new, writes to wiki directory, then builds the index through `index_builder` (a merger without one fails here)
 2. **Merge Mode**: Runs agentic hierarchical merge using MCP tools
 
+In merge mode the result is settled from the store after the session, not from the plan file the session writes: `created` are the proposed pages the store now holds, `edited` the pages the session's `kg_edit` calls named, and the remaining proposed pages were folded into those, so their files (published into `wiki_dir` before the merge) are removed and the index file's page count follows the store. A page the session indexed that the store does not hold fails the merge, as does a proposed page that vanished while nothing was edited.
+
 Index detection order:
 1. Explicit `kg_index_path` from config
 2. Auto-detect `.index` file in wiki directory

@@ -30,7 +30,35 @@ files that stay in staging). `PipelineResult.success` True, 0 errors; the clone 
 completion and the staging directory kept with its `complete` marker. Not exercised: the merge
 (extract-only), the publishing session.
 
-## How these were found
+### Second run, 2026-09-28: another repository, with the merge
+
+`feifeibear/LLMSpeculativeSampling` (9 files, same subject), learned with the merge on into a
+test wiki that already held the first repository's 51 pages and their index. The knowledge
+stores were a second Weaviate and Neo4j beside production, which the config named (the
+endpoints became config and part of the index file that day, ed7eeb7d): every production count
+stayed the same throughout (KapsoKG 3,098, LeeroopediaKG 27,797, Neo4j 28,280 nodes).
+
+| Phase | Duration | CLI-reported cost | Outcome |
+|---|---|---|---|
+| repo_understanding | 384 s | $1.77 | 12/12 files, first attempt |
+| anchoring | 283 s | $1.55 | 4 Workflow pages |
+| anchoring_context | 281 s | $1.42 | |
+| excavation_synthesis | 1,639 s | $8.74 | 9 Principle + 17 Implementation pages |
+| enrichment | 1,165 s | $6.87 | 13 Heuristic + 4 Environment pages |
+| audit | 295 s | $3.17 | |
+| extra audit pass | 260 s | $2.20 | two validator false positives (list literals in code examples; fixed, 587e427c) |
+| orphan triage | 0 s | $0 | nothing uncovered, sessions skipped |
+| merge session | 2,976 s | $39.20 | 21 searches, 42 `kg_index`, 6 `kg_edit`; 41 pages created, 6 Principles folded into the first repository's |
+
+121 minutes, $65, of which the merge of 47 pages against 51 was 50 minutes and $39: the
+session writes and rewrites a 32 KB plan file as it works. The merge session held ten tools,
+the five file tools and the five knowledge tools. What it decided reads well: the shared
+concepts (speculative decoding, modified rejection sampling, autoregressive decoding, KV-cache
+rollback, throughput measurement, truncated sampling) were merged into the existing Principle
+pages, everything code-specific was created. Two defects surfaced, both fixed the same day
+(L11).
+
+
 
 - **Live run.** `learn_knowledge(Source.Repo("https://github.com/lucidrains/speculative-decoding"))`
   on the shipped config (`learner.ingestor`: `claude-opus-5`, `oauth`, timeout 1800 s;
@@ -227,6 +255,24 @@ search API serves a different, separately built collection that nothing refreshe
 learned page appears on the wiki (via the sync) but is not searchable through the API.
 
 Fix: a scheduled incremental re-embed of pages missing from the served collection.
+
+### L11. The merge result came from the session's plan file — **fixed**
+
+**Found and fixed 2026-09-28** on the second verification run. `KnowledgePipeline` reported
+`created=0, edited=0, errors=0` for a merge that had indexed 41 pages and edited 6, because
+`_parse_merge_plan` looked for `### Created Pages` and the session wrote `### Created Pages
+(41)`: a session's own summary, parsed loosely, was the pipeline's result. And the six proposed
+Principles the session folded into existing pages stayed in `wiki_dir` as files (the ingestor
+publishes every staged page before the merge), so the wiki on disk had 98 pages for a store
+of 92, and the index file still said 51.
+
+Fix: the adapter hands back every tool call of a session (`metadata["tool_calls"]`), and the
+merger settles the result from the store: `created` = proposed pages the store holds,
+`edited` = pages named by the session's `kg_edit` calls, the rest folded (their files removed);
+an indexed page missing from the store, or a vanished page with nothing edited, raises. The
+index file's page count follows the store. Pinned by `tests/test_learners_fail_loud.py` and
+`tests/test_streaming_cost_and_deadline.py`. Still open: the merge's cost and duration at
+scale (50 min / $39 for 47 pages).
 
 ### L10. Smaller items — **mostly fixed 2026-09-27**
 

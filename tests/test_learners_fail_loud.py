@@ -8,6 +8,7 @@ missing variable is never sent, and the pipeline propagates an ingestor failure
 instead of counting the pages that happened to come out as a success.
 """
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -141,6 +142,66 @@ def test_pipeline_result_is_not_a_success_with_errors():
     # The old rule — success whenever any page came out — hid lost sources.
     assert pipeline_module.PipelineResult(total_pages_extracted=60, errors=["x"]).success is False
     assert pipeline_module.PipelineResult(total_pages_extracted=60).success is True
+
+
+def merge_setup(tmp_path, monkeypatch, tool_calls, in_store):
+    """A merger over an index whose store holds `in_store`, with a session
+    that reports `tool_calls`; the proposed pages are already published into
+    wiki_dir, as the ingestor does before the merge."""
+    wiki = tmp_path / "wiki"
+    (wiki / "principles").mkdir(parents=True, exist_ok=True)
+    index = wiki / ".index"
+    index.write_text(json.dumps({
+        "version": "1.0", "created_at": "now", "data_source": str(wiki),
+        "search_backend": "kg_graph_search", "backend_refs": {"weaviate_collection": "T"}, "page_count": 1,
+    }))
+    pages = [WikiPage(id=f"Principle/{name}", page_type="Principle", overview=name, content=f"== Overview ==\n{name}")
+             for name in ("New", "Folded")]
+    for page in pages:
+        (wiki / "principles" / f"{page.id.split('/')[1]}.md").write_text(page.content)
+
+    class FakeStore:
+        def page_exists(self, page_id): return page_id in in_store
+        def get_indexed_count(self): return len(in_store)
+        def close(self): pass
+
+    class MergeAgent:
+        def __init__(self, config): pass
+        def initialize(self, workspace): pass
+        def generate_code(self, prompt, **kwargs):
+            return SimpleNamespace(success=True, output="", error=None, metadata={"tool_calls": tool_calls})
+
+    monkeypatch.setattr(merger_module.KnowledgeSearchFactory, "create", staticmethod(lambda *a, **k: FakeStore()))
+    monkeypatch.setattr(merger_module.CodingAgentFactory, "create", staticmethod(lambda config: MergeAgent(config)))
+    merger = merger_module.KnowledgeMerger(agent_config={"kg_index_path": str(index)})
+    return merger, pages, wiki, index
+
+
+def test_merge_result_comes_from_the_store_not_the_plan(tmp_path, monkeypatch):
+    # Live run 2026-09-28: 41 pages indexed and 6 merged, reported as 0 and 0
+    # because the plan file's headings differed from what a parser expected.
+    calls = [
+        {"name": "mcp__kg-graph-search__kg_index", "input": {"page_data": {"page_id": "Principle/New"}}},
+        {"name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/Old", "updates": {}}},
+    ]
+    merger, pages, wiki, index = merge_setup(tmp_path, monkeypatch, calls, in_store={"Principle/Old", "Principle/New"})
+    result = merger.merge(pages, wiki_dir=wiki, staging_dir=wiki)
+    assert result.created == ["Principle/New"] and result.edited == ["Principle/Old"]
+    # The folded page lives on in the page it was merged into: its file goes.
+    assert (wiki / "principles" / "New.md").exists()
+    assert not (wiki / "principles" / "Folded.md").exists()
+    assert json.loads(index.read_text())["page_count"] == 2
+
+
+def test_merge_fails_when_an_indexed_page_is_not_in_the_store(tmp_path, monkeypatch):
+    calls = [{"name": "mcp__kg-graph-search__kg_index", "input": {"page_data": {"page_id": "Principle/New"}}}]
+    merger, pages, wiki, _ = merge_setup(tmp_path, monkeypatch, calls, in_store=set())
+    with pytest.raises(RuntimeError, match="does not hold"):
+        merger.merge(pages, wiki_dir=wiki, staging_dir=wiki)
+    # And a page that simply vanished, with nothing edited, is not "merged".
+    merger, pages, wiki, _ = merge_setup(tmp_path, monkeypatch, [], in_store={"Principle/New"})
+    with pytest.raises(RuntimeError, match="neither in the store nor merged"):
+        merger.merge(pages, wiki_dir=wiki, staging_dir=wiki)
 
 
 def test_merge_without_an_index_fails_when_the_index_cannot_be_built(tmp_path):

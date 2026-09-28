@@ -135,6 +135,25 @@ def test_the_session_tool_list_is_read_from_the_init_event(tmp_path, monkeypatch
     assert not result.success and result.metadata["tools"] is None
 
 
+def test_every_tool_call_is_handed_back_with_its_input(tmp_path, monkeypatch):
+    """The merge settles what a session did from its kg_index / kg_edit calls,
+    not from the summary the session writes, so the calls must come back
+    verbatim."""
+    agent = make_agent(tmp_path, monkeypatch, timeout=30)
+    script = "\n".join([
+        stream_event({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/A", "updates": {"content": "x"}}},
+            {"type": "text", "text": "done"},
+        ]}}),
+        stream_event({"type": "result", "result": "done", "total_cost_usd": 0.01, "is_error": False}),
+    ])
+    result = run_fake_cli(agent, monkeypatch, script)
+    assert result.metadata["tool_call_count"] == 1
+    assert result.metadata["tool_calls"] == [
+        {"name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/A", "updates": {"content": "x"}}},
+    ]
+
+
 def test_failed_call_reports_its_parsed_cost(tmp_path, monkeypatch):
     agent = make_agent(tmp_path, monkeypatch, timeout=30)
     result = run_fake_cli(agent, monkeypatch, FAILURE_WITH_COST_SCRIPT)

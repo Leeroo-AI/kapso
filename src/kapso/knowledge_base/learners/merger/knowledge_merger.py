@@ -39,6 +39,7 @@ from kapso.knowledge_base.learners.defaults import learner_defaults
 from kapso.knowledge_base.learners.ingestors.base import LEARNER_BUILTIN_TOOLS
 from kapso.knowledge_base.learners.merger.prompts import load_prompt
 from kapso.knowledge_base.search.base import WikiPage, KGIndexMetadata
+from kapso.knowledge_base.search.factory import KnowledgeSearchFactory
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +49,15 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Data Structures
 # =============================================================================
+
+_TYPE_SUBDIRS = {
+    "Workflow": "workflows",
+    "Principle": "principles",
+    "Implementation": "implementations",
+    "Environment": "environments",
+    "Heuristic": "heuristics",
+}
+
 
 @dataclass
 class MergeResult:
@@ -167,6 +177,7 @@ class KnowledgeMerger:
         self._agent_config = {**learner_defaults("merger"), **(agent_config or {})}
         self._index_builder = index_builder
         self._kg_index_path: Optional[str] = self._agent_config.get("kg_index_path")
+        self._index_metadata: Optional[KGIndexMetadata] = None
         self._agent = None
     
     # =========================================================================
@@ -253,6 +264,7 @@ class KnowledgeMerger:
             
             index_data = json.loads(index_path.read_text(encoding="utf-8"))
             metadata = KGIndexMetadata.from_dict(index_data)
+            self._index_metadata = metadata
             
             backend = (metadata.search_backend or "").strip()
             if backend.lower() != "kg_graph_search":
@@ -309,13 +321,7 @@ class KnowledgeMerger:
     
     def _write_page_to_wiki(self, page: WikiPage, wiki_dir: Path) -> None:
         """Write a WikiPage to the wiki directory."""
-        type_to_subdir = {
-            "Workflow": "workflows",
-            "Principle": "principles",
-            "Implementation": "implementations",
-            "Environment": "environments",
-            "Heuristic": "heuristics",
-        }
+        type_to_subdir = _TYPE_SUBDIRS
         
         subdir = type_to_subdir.get(page.page_type, "other")
         type_dir = wiki_dir / subdir
@@ -366,17 +372,77 @@ class KnowledgeMerger:
                 f"merge session failed for {len(pages)} pages: {agent_result.error}"
             )
         
-        # Parse results from plan.md (written to staging_dir by the agent)
-        plan_dir = staging_dir if staging_dir else wiki_dir
-        result = self._parse_merge_plan(plan_dir)
-        result.total_proposed = len(pages)
-        
+        # The result is what the store holds now, checked against the calls
+        # the session made, never the session's own summary: the plan file
+        # it writes is its working document, and one run reported 0 created
+        # and 0 edited for 41 pages indexed and 6 merged because the summary
+        # headings did not match what a parser expected.
+        result = self._reconcile(pages, wiki_dir, agent_result.metadata["tool_calls"])
+        result.plan_path = (staging_dir if staging_dir else wiki_dir) / "_merge_plan.md"
         logger.info(
             f"Merge complete: {len(result.created)} created, "
-            f"{len(result.edited)} edited, {len(result.errors)} errors"
+            f"{len(result.edited)} edited, "
+            f"{len(pages) - len(result.created) - len(result.edited)} folded into existing pages"
         )
-        
         return result
+    
+    def _reconcile(self, pages: List[WikiPage], wiki_dir: Path, tool_calls: List[Dict[str, Any]]) -> MergeResult:
+        """
+        Settle the merge from the store and the session's tool calls.
+        
+        created: proposed pages the store holds now; edited: pages the
+        session's kg_edit calls named; the rest of the proposed pages were
+        folded into those, and their files, published into wiki_dir before
+        the merge, are removed so the wiki on disk matches the store. A page
+        the session indexed that the store does not hold is a failure. The
+        index file's page count follows the store.
+        
+        Raises:
+            RuntimeError: If a proposed page is missing without any page
+                having been edited, or an indexed page is not in the store.
+        """
+        edited = list(dict.fromkeys(
+            call["input"]["page_id"] for call in tool_calls
+            if call["name"].endswith("__kg_edit") and call["input"].get("page_id")
+        ))
+        indexed = {
+            call["input"]["page_data"]["page_id"] for call in tool_calls
+            if call["name"].endswith("__kg_index") and (call["input"].get("page_data") or {}).get("page_id")
+        }
+        store = KnowledgeSearchFactory.create(
+            self._index_metadata.search_backend, params=self._index_metadata.backend_refs
+        )
+        created, folded, failed = [], [], []
+        for page in pages:
+            if page.id in edited:
+                continue
+            if store.page_exists(page.id):
+                created.append(page.id)
+            elif page.id in indexed:
+                failed.append(page.id)
+            else:
+                folded.append(page.id)
+        page_count = store.get_indexed_count()
+        store.close()
+        if failed:
+            raise RuntimeError(
+                f"the merge session indexed {len(failed)} page(s) the store does not hold: {failed}"
+            )
+        if folded and not edited:
+            raise RuntimeError(
+                f"{len(folded)} proposed page(s) are neither in the store nor merged into any page: {folded}"
+            )
+        for page_id in folded:
+            page_type, name = page_id.split("/", 1)
+            path = wiki_dir / _TYPE_SUBDIRS[page_type] / f"{name}.md"
+            if path.exists():
+                path.unlink()
+                logger.info(f"Removed {path.name}: folded into an existing page")
+        index_path = Path(self._kg_index_path).expanduser().resolve()
+        index_data = json.loads(index_path.read_text(encoding="utf-8"))
+        index_data["page_count"] = page_count
+        index_path.write_text(json.dumps(index_data, indent=2), encoding="utf-8")
+        return MergeResult(total_proposed=len(pages), created=created, edited=edited)
     
     def _initialize_agent(self, workspace: Path) -> None:
         """
@@ -540,82 +606,6 @@ class KnowledgeMerger:
             lines.append(f"- {ptype}: {count}")
         
         return "\n".join(lines)
-    
-    def _parse_merge_plan(self, wiki_dir: Path) -> MergeResult:
-        """
-        Parse the plan.md file to extract merge results.
-        """
-        plan_path = wiki_dir / "_merge_plan.md"
-        result = MergeResult(plan_path=plan_path)
-        
-        if not plan_path.exists():
-            result.errors.append("Plan file not found: _merge_plan.md")
-            return result
-        
-        content = plan_path.read_text(encoding="utf-8")
-        
-        # Parse created pages
-        created_match = re.search(
-            r'### Created Pages\s*\n(.*?)(?=###|\Z)',
-            content,
-            re.DOTALL
-        )
-        if created_match:
-            for line in created_match.group(1).strip().split('\n'):
-                line = line.strip()
-                if line.startswith('- '):
-                    page_id = line[2:].strip()
-                    if page_id and not page_id.startswith('('):
-                        result.created.append(page_id)
-        
-        # Parse edited pages
-        edited_match = re.search(
-            r'### Edited Pages\s*\n(.*?)(?=###|\Z)',
-            content,
-            re.DOTALL
-        )
-        if edited_match:
-            for line in edited_match.group(1).strip().split('\n'):
-                line = line.strip()
-                if line.startswith('- '):
-                    page_id = line[2:].strip()
-                    if page_id and not page_id.startswith('('):
-                        result.edited.append(page_id)
-        
-        # Parse failed pages
-        failed_match = re.search(
-            r'### Failed Pages\s*\n(.*?)(?=###|\Z)',
-            content,
-            re.DOTALL
-        )
-        if failed_match:
-            for line in failed_match.group(1).strip().split('\n'):
-                line = line.strip()
-                if line.startswith('- '):
-                    # Format: "- page_id - reason" or just "- page_id"
-                    parts = line[2:].split(' - ', 1)
-                    page_id = parts[0].strip()
-                    if page_id and not page_id.startswith('('):
-                        result.failed.append(page_id)
-                        if len(parts) > 1:
-                            result.errors.append(f"{page_id}: {parts[1]}")
-        
-        # Parse status
-        status_match = re.search(r'### Status:\s*(\w+)', content)
-        if status_match:
-            status = status_match.group(1).upper()
-            if status == "FAILED":
-                result.errors.append("Merge failed - see plan.md for details")
-        
-        # Count subgraphs
-        subgraph_matches = re.findall(r'### SubGraph \d+', content)
-        result.subgraphs_processed = len(subgraph_matches)
-        
-        return result
-    
-    # =========================================================================
-    # Cleanup
-    # =========================================================================
     
     def close(self) -> None:
         """Clean up resources."""
