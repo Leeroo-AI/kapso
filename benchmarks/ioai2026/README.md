@@ -14,6 +14,8 @@ puts AI systems in the same exam hall: the same
 sessions with three tasks each, up to 50 submission attempts per task, every solution scored
 on standardized single GPU hardware. Once a session starts, no human may solve, correct, or
 improve anything. Fourteen AI labs entered as Founding AI Participants; Kapso was one of them.
+The olympiad's own account of the inaugural track:
+[What happens when autonomous AI takes on the same tasks as the world's top young AI talents?](https://ioai-official.org/what-happens-when-autonomous-ai-takes-on-the-same-tasks-as-the-worlds-top-young-ai-talents/)
 
 ## Results
 
