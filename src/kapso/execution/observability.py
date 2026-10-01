@@ -390,8 +390,11 @@ class OperationStatusView:
 
     def campaign_tree(self) -> list:
         if self.operation != "evolve":
-            raise ValueError("campaign tree is only available for evolve")
-        checkpoint = json.loads((self.path.parent / "run_state.json").read_text())
+            return ["", "campaign tree is only available for evolve"]
+        checkpoint_path = self.path.parent / "run_state.json"
+        if not checkpoint_path.exists():
+            return ["", "no checkpoint yet"]
+        checkpoint = json.loads(checkpoint_path.read_text())
         strategy_state = checkpoint.get("strategy_state")
         if not isinstance(strategy_state, dict):
             raise ValueError("evolve checkpoint is missing strategy state")
@@ -438,7 +441,7 @@ class OperationStatusView:
             node = nodes[node_id]
             branch_name = node.get("branch_name") or f"node-{node_id}"
             score = node.get("score")
-            score_text = "unscored" if score is None else str(score)
+            score_text = "unscored" if score is None else f"{score:.6g}"
             outcome = "error" if node.get("had_error") else "ok"
             if node.get("suspended"):
                 outcome = "waiting"

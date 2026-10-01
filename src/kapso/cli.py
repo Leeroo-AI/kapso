@@ -712,10 +712,8 @@ def cmd_watch(args) -> None:
     """One watch command for evolve / learn / learn_knowledge status files
     (observability design §3). Pure reader — never writes."""
     view = Kapso.status(args.path)
-    show_tree = getattr(args, "tree", False)
+    show_tree = args.tree
     if args.json:
-        if show_tree:
-            raise ValueError("--tree cannot be combined with --json")
         print(json.dumps(view.data, indent=1))
         return
     if not args.follow:
@@ -1047,15 +1045,15 @@ Examples:
         "path",
         help="Workspace, status file, or directory of status files",
     )
-    watch_parser.add_argument(
-        "--json", action="store_true",
-        help="Print the status file once, as JSON",
+    output_group = watch_parser.add_mutually_exclusive_group()
+    output_group.add_argument(
+        "--json", action="store_true", help="Print the status file once, as JSON",
     )
     watch_parser.add_argument(
         "--follow", action="store_true",
         help="Re-render on each heartbeat until the operation ends",
     )
-    watch_parser.add_argument(
+    output_group.add_argument(
         "--tree", action="store_true", help="Show the evolve campaign tree",
     )
 

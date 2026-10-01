@@ -216,6 +216,7 @@ def test_watch_json_is_a_pure_passthrough(tmp_path, capsys):
     args.path = str(path)
     args.json = True
     args.follow = False
+    args.tree = False
     cmd_watch(args)
     assert json.loads(capsys.readouterr().out)["iteration"] == 7
 
@@ -248,6 +249,25 @@ def test_evolve_watch_rejects_missing_checkpoint_parent(tmp_path):
     }))
     with pytest.raises(ValueError, match="missing parent"):
         OperationStatusView(state_dir / "status.json").explain(tree=True)
+
+
+def test_watch_tree_reports_missing_checkpoint(tmp_path):
+    state_dir = tmp_path / "campaign" / ".kapso"
+    state_dir.mkdir(parents=True)
+    EvolveStatus(state_dir / "status.json").update(iteration=2)
+    screen = OperationStatusView(state_dir / "status.json").explain(tree=True)
+    assert "no checkpoint yet" in screen
+
+
+def test_watch_tree_reports_non_evolve_status(tmp_path):
+    status_path = tmp_path / "learn.json"
+    status_path.write_text(json.dumps({
+        "operation": "learn",
+        "state": "running",
+        "heartbeat_at": "2026-01-01T00:00:00+00:00",
+    }))
+    screen = OperationStatusView(status_path).explain(tree=True)
+    assert "campaign tree is only available for evolve" in screen
 
 
 def test_config_carries_the_observability_keys():
