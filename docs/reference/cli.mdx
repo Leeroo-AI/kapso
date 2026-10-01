@@ -264,11 +264,13 @@ Renders the status of a running `evolve`, `learn` or `learn_knowledge` operation
 | `path` | Workspace, status file, or directory of status files. **Required** | — |
 | `--json` | Print the status file once, as JSON | off |
 | `--follow` | Re-render on each heartbeat until the operation ends | off |
+| `--tree` | Show the evolve campaign's search lineage from its checkpoint | off |
 
 ```bash
 kapso watch ./campaign
 kapso watch learning/status
 kapso watch ./campaign --follow
+kapso watch ./campaign --tree
 kapso watch ./campaign --json | jq -r '[.state] | @tsv'
 ```
 
