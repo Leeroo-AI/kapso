@@ -355,7 +355,7 @@ class OperationStatusView:
 
     # ---------------------------------------------------------- renderer
 
-    def explain(self) -> str:
+    def explain(self, *, tree: bool = False) -> str:
         """The watch screen as a string — the CLI shows this verbatim."""
         d = self.data
         age = self.heartbeat_age_seconds
@@ -377,6 +377,8 @@ class OperationStatusView:
         if self.recent:
             lines.append("recent:")
             lines.extend(f"  {line}" for line in self.recent)
+        if tree:
+            lines.extend(self.campaign_tree())
         title = f" {self.operation} {self.path} "
         width = max(
             [len(line) for line in lines] + [len(title)]
@@ -385,6 +387,75 @@ class OperationStatusView:
         bordered.extend(f"│ {line}".ljust(width + 1) + "│" for line in lines)
         bordered.append("└" + "─" * width + "┘")
         return "\n".join(bordered)
+
+    def campaign_tree(self) -> list:
+        if self.operation != "evolve":
+            raise ValueError("campaign tree is only available for evolve")
+        checkpoint = json.loads((self.path.parent / "run_state.json").read_text())
+        strategy_state = checkpoint.get("strategy_state")
+        if not isinstance(strategy_state, dict):
+            raise ValueError("evolve checkpoint is missing strategy state")
+        node_history = strategy_state.get("node_history")
+        if not isinstance(node_history, list):
+            raise ValueError("evolve checkpoint is missing node history")
+        nodes = {}
+        for node in node_history:
+            if not isinstance(node, dict):
+                raise ValueError("evolve checkpoint contains an invalid node")
+            node_id = node.get("node_id")
+            if isinstance(node_id, bool) or not isinstance(node_id, int) or node_id < 0:
+                raise ValueError("evolve checkpoint node IDs must be non-negative integers")
+            if node_id in nodes:
+                raise ValueError("evolve checkpoint contains duplicate node IDs")
+            parent_node_id = node.get("parent_node_id")
+            if parent_node_id is not None and (
+                isinstance(parent_node_id, bool)
+                or not isinstance(parent_node_id, int)
+                or parent_node_id < 0
+            ):
+                raise ValueError("evolve checkpoint contains an invalid parent node ID")
+            nodes[node_id] = node
+        children = {node_id: [] for node_id in nodes}
+        roots = []
+        for node_id, node in nodes.items():
+            parent_node_id = node.get("parent_node_id")
+            if parent_node_id is None:
+                roots.append(node_id)
+            elif parent_node_id not in nodes:
+                raise ValueError(f"evolve checkpoint node {node_id} has a missing parent")
+            else:
+                children[parent_node_id].append(node_id)
+        for child_ids in children.values():
+            child_ids.sort()
+        roots.sort()
+        tree_lines = ["", "campaign tree:"]
+        visited = set()
+
+        def render(node_id: int, prefix: str, is_last: bool) -> None:
+            if node_id in visited:
+                raise ValueError("evolve checkpoint contains a cycle")
+            visited.add(node_id)
+            node = nodes[node_id]
+            branch_name = node.get("branch_name") or f"node-{node_id}"
+            score = node.get("score")
+            score_text = "unscored" if score is None else str(score)
+            outcome = "error" if node.get("had_error") else "ok"
+            if node.get("suspended"):
+                outcome = "waiting"
+            connector = "└─" if is_last else "├─"
+            tree_lines.append(
+                f"{prefix}{connector} {branch_name} "
+                f"(score={score_text}, {outcome})"
+            )
+            child_prefix = prefix + ("  " if is_last else "│ ")
+            for index, child_id in enumerate(children[node_id]):
+                render(child_id, child_prefix, index == len(children[node_id]) - 1)
+
+        for index, root_id in enumerate(roots):
+            render(root_id, "  ", index == len(roots) - 1)
+        if len(visited) != len(nodes):
+            raise ValueError("evolve checkpoint contains an unreachable node")
+        return tree_lines
 
     def _operation_block(self) -> list:
         d = self.data

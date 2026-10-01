@@ -220,6 +220,36 @@ def test_watch_json_is_a_pure_passthrough(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["iteration"] == 7
 
 
+def test_evolve_watch_renders_checkpoint_tree(tmp_path):
+    state_dir = tmp_path / "campaign" / ".kapso"
+    state_dir.mkdir(parents=True)
+    EvolveStatus(state_dir / "status.json").update(iteration=2)
+    (state_dir / "run_state.json").write_text(json.dumps({
+        "strategy_state": {"node_history": [
+            {"node_id": 0, "parent_node_id": None, "branch_name": "baseline", "score": 0.4},
+            {"node_id": 1, "parent_node_id": 0, "branch_name": "candidate-a", "score": 0.8},
+            {"node_id": 2, "parent_node_id": 0, "branch_name": "candidate-b", "suspended": True},
+        ]}
+    }))
+    screen = OperationStatusView(state_dir / "status.json").explain(tree=True)
+    assert "campaign tree:" in screen
+    assert "candidate-a (score=0.8, ok)" in screen
+    assert "candidate-b (score=unscored, waiting)" in screen
+
+
+def test_evolve_watch_rejects_missing_checkpoint_parent(tmp_path):
+    state_dir = tmp_path / "campaign" / ".kapso"
+    state_dir.mkdir(parents=True)
+    EvolveStatus(state_dir / "status.json").update(iteration=2)
+    (state_dir / "run_state.json").write_text(json.dumps({
+        "strategy_state": {"node_history": [
+            {"node_id": 1, "parent_node_id": 9, "branch_name": "orphan"},
+        ]}
+    }))
+    with pytest.raises(ValueError, match="missing parent"):
+        OperationStatusView(state_dir / "status.json").explain(tree=True)
+
+
 def test_config_carries_the_observability_keys():
     # The wiring reads these (Rule 1: config is the single source) — a
     # missing key kills learn()/solve() at status construction.

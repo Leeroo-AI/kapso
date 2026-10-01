@@ -712,18 +712,21 @@ def cmd_watch(args) -> None:
     """One watch command for evolve / learn / learn_knowledge status files
     (observability design §3). Pure reader — never writes."""
     view = Kapso.status(args.path)
+    show_tree = getattr(args, "tree", False)
     if args.json:
+        if show_tree:
+            raise ValueError("--tree cannot be combined with --json")
         print(json.dumps(view.data, indent=1))
         return
     if not args.follow:
-        print(view.explain())
+        print(view.explain(tree=show_tree))
         return
     # Follow: re-render at the operation's own heartbeat cadence (falls
     # back to a display-structural 5s when the file records none).
     interval = float(view.data.get("heartbeat_seconds") or 5)
     while True:
         view = Kapso.status(args.path)
-        print("\x1b[2J\x1b[H" + view.explain(), flush=True)
+        print("\x1b[2J\x1b[H" + view.explain(tree=show_tree), flush=True)
         if view.state in ("done", "failed"):
             return
         time.sleep(interval)
@@ -1036,6 +1039,7 @@ Examples:
   kapso watch learning/status            # newest status file in a directory
   kapso watch learning/status/learn-20260826T120000.json
   kapso watch ./campaign --follow        # live re-render until terminal
+  kapso watch ./campaign --tree          # show evolve search lineage
   kapso watch ./campaign --json | jq -r '[.state] | @tsv'
 """,
     )
@@ -1050,6 +1054,9 @@ Examples:
     watch_parser.add_argument(
         "--follow", action="store_true",
         help="Re-render on each heartbeat until the operation ends",
+    )
+    watch_parser.add_argument(
+        "--tree", action="store_true", help="Show the evolve campaign tree",
     )
 
     # =========================================================================
