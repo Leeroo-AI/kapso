@@ -47,6 +47,17 @@ the campaign's first answer to the balance after its last. A configured gate
 that cannot resolve is named once in the launch banner with its fix, for
 example a missing `LEEROOPEDIA_API_KEY`.
 
+## What the agent is told
+
+Each gate owns its own "when to call these tools" text, one prompt file per
+phase under the strategy's `prompts/gates/` directory, and a session's prompt
+carries the guidance of exactly the gates it mounted. A gate that did not
+resolve — no key, a `skip` policy, a Codex ensemble member that runs without
+MCP — is not described, so the prompt never names a tool the session does not
+have. Leeroopedia's guidance places its tools at decision points (plan before
+code, priors before fixing a value, diagnosis on the first failed run) and
+asks for `[PageID]` citations where an answer shaped the work.
+
 ## Failure policies
 
 `resolve_gates` accepts three policies:
@@ -140,6 +151,7 @@ GATES["example"] = GateDefinition(
     url=_HOSTED_GATES["example"]["url"],  # from config.yaml `gates:`
     tool_timeout_seconds=_HOSTED_GATES["example"]["tool_timeout_seconds"],
     required_env=["EXAMPLE_API_KEY"],
+    guidance=_guidance("example", "ideation", "implementation"),  # prompts/gates/example.<phase>.md
 )
 ```
 

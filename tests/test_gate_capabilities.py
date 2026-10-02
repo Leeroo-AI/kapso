@@ -12,9 +12,11 @@ from kapso.gated_mcp import (
     gate_usage,
     get_allowed_tools_for_gates,
     get_mcp_config,
+    knowledge_tools_block,
     resolve_gates,
     user_setup_gaps,
 )
+from kapso.core.prompt_loader import load_prompt
 from kapso.gated_mcp.server import _resolve_configuration
 
 
@@ -333,3 +335,47 @@ def test_user_setup_gaps_name_only_what_the_user_must_provide(monkeypatch):
 
     monkeypatch.setenv("LEEROOPEDIA_API_KEY", "kpsk_x")
     assert [gate for gate, _, _ in user_setup_gaps(["leeroopedia", "repo_memory"])] == []
+
+
+def test_every_declared_gate_guidance_file_exists_and_names_its_tools():
+    """Guidance is the gate's own prompt text, one file per phase; a file
+    that does not load, or that never names the gate's tools, is a
+    registry bug, not something a campaign should discover."""
+    declared = {(gate, phase): path for gate, d in GATES.items() for phase, path in d.guidance.items()}
+    assert ("leeroopedia", "ideation") in declared and ("leeroopedia", "implementation") in declared
+    assert ("repo_memory", "implementation") in declared and ("experiment_history", "ideation") in declared
+    for (gate, phase), path in declared.items():
+        text = load_prompt(path)
+        assert any(f"**{tool}**" in text for tool in GATES[gate].tools), (gate, phase)
+
+
+def test_knowledge_tools_block_describes_only_the_mounted_gates():
+    """The prompt names a gate's tools only when the session can call them:
+    the shipped ideation whitelist carries repo memory, experiment history,
+    research and Leeroopedia; it never carried the wiki_* tools the old static
+    prompt advertised, and a session with no MCP (a codex ensemble member)
+    gets no gate text at all."""
+    servers, allowed = get_mcp_config(
+        ["research", "experiment_history", "repo_memory", "leeroopedia"],
+        experiment_history_path="/tmp/history.json",
+        repo_root="/tmp/repo",
+        gate_failure_policy="skip",
+        include_base_tools=False,
+    )
+    # No OPENAI_API_KEY or LEEROOPEDIA_API_KEY in this test's env: those two
+    # gates did not resolve and must not be described.
+    block = knowledge_tools_block("ideation", allowed)
+    assert "### Experiment History" in block and "**get_top_experiments**" in block
+    assert "### RepoMemory Access" in block
+    assert "Leeroopedia" not in block and "research_idea" not in block
+    assert "wiki_idea_search" not in block
+    # Registry order: experiment history (a MUST) precedes repo memory.
+    assert block.index("### Experiment History") < block.index("### RepoMemory Access")
+
+    with_leeroopedia = allowed + ["mcp__leeroopedia__build_plan", "mcp__leeroopedia__get_page"]
+    block = knowledge_tools_block("implementation", with_leeroopedia)
+    assert "### Leeroopedia" in block and "**build_plan**" in block
+    assert "Experiment History" not in block  # no implementation guidance for that gate
+
+    assert knowledge_tools_block("ideation", []) == ""
+    assert knowledge_tools_block("ideation", ["Read", "Bash", "WebSearch"]) == ""

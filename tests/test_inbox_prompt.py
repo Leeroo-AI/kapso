@@ -121,3 +121,27 @@ def test_ideation_prompt_carries_the_rule_and_the_answered_requests():
     assert "- env:X: 'not available, use bge-large'" in on
     assert "- data/y.csv: provided" in on
     assert "{{" not in on
+
+
+def test_ideation_prompt_carries_the_mounted_gates_guidance_only():
+    """`{{knowledge_tools}}` is rendered from the session's whitelist: with
+    Leeroopedia mounted its guidance is in the prompt, without it the prompt
+    does not mention the tools at all (a session must never be told to call a
+    tool it does not have)."""
+    from kapso.gated_mcp import knowledge_tools_block
+
+    mounted = ["Read", "mcp__gated-knowledge__get_repo_memory_summary", "mcp__leeroopedia__search_knowledge"]
+    with_gate = build_ideation_prompt(
+        "goal", "brief", budget_status="b", shared_artifacts_brief="none",
+        knowledge_tools=knowledge_tools_block("ideation", mounted),
+    )
+    assert "### Leeroopedia (MCP Tools)" in with_gate
+    assert "**review_plan**" in with_gate and "### RepoMemory Access" in with_gate
+    assert "{{knowledge_tools}}" not in with_gate
+
+    without = build_ideation_prompt(
+        "goal", "brief", budget_status="b", shared_artifacts_brief="none",
+        knowledge_tools=knowledge_tools_block("ideation", ["Read"]),
+    )
+    assert "Leeroopedia" not in without and "get_repo_memory_summary" not in without
+    assert "{{knowledge_tools}}" not in without

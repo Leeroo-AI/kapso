@@ -29,6 +29,7 @@ from kapso.gated_mcp.presets import (
     get_mcp_config,
     list_gates,
     get_gate_config,
+    knowledge_tools_block,
     resolve_gates,
     user_setup_gaps,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "get_mcp_config",
     "list_gates",
     "get_gate_config",
+    "knowledge_tools_block",
     "resolve_gates",
     "user_setup_gaps",
     # Server

@@ -18,27 +18,7 @@ You are a world class developer and programmer. Your task is to implement the pr
 - **Edit**: Make targeted edits to existing files
 - **Bash**: Run shell commands
 
-### RepoMemory Access (MCP Tools)
-- **get_repo_memory_section**: Get detailed content for a specific section
-  - Example: `get_repo_memory_section(section_id="core.architecture")`
-  - Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-
-- **get_repo_memory_summary**: Get the summary and table of contents
-  - Example: `get_repo_memory_summary()`
-
-- **list_repo_memory_sections**: List all available section IDs
-  - Example: `list_repo_memory_sections()`
-
-### Knowledge Search (MCP Tools)
-- **wiki_code_search**: Search curated ML/AI knowledge base for implementation patterns
-  - Use for: code examples, implementation details, library usage
-  - Example: "early-stopping implementation", "efficient data-loading code"
-
-- **research_implementation**: Research implementations from the web
-  - Use for: finding open-source implementations, library documentation
-
-- **research_study**: Deep research on a topic
-  - Use for: understanding complex implementation details{{inbox_tool_line}}
+{{knowledge_tools}}{{inbox_tool_line}}
 
 ## Knowledge bank (when served)
 If the problem context carries a "Knowledge bank" section and the

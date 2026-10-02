@@ -15,53 +15,7 @@ did the work, not the surface recipe.
 ### Codebase Access
 - **Read**: Read any file in the repository to understand the current implementation
 
-### RepoMemory Access (MCP Tools)
-The repository has a semantic memory that captures architecture, gotchas, and key patterns.
-
-- **get_repo_memory_summary**: Get the summary and table of contents
-  - Use this first to understand what sections are available
-  - Example: `get_repo_memory_summary()`
-
-- **get_repo_memory_section**: Get detailed content for a specific section
-  - Use this to dive deep into architecture, gotchas, etc.
-  - Example: `get_repo_memory_section(section_id="core.architecture")`
-  - Available sections: core.architecture, core.entrypoints, core.where_to_edit, core.invariants, core.testing, core.gotchas, core.dependencies
-
-- **list_repo_memory_sections**: List all available section IDs
-  - Example: `list_repo_memory_sections()`
-
-### Experiment History (MCP Tools)
-**IMPORTANT: You MUST check experiment history before generating a solution.**
-
-- **get_top_experiments**: Get the best-scoring experiments so far
-  - Use this to understand what approaches have worked well
-  - Example: `get_top_experiments(k=5)` returns top 5 experiments by score
-
-- **get_recent_experiments**: Get the most recent experiments
-  - Use this to see what was tried recently and avoid repeating failures
-  - Example: `get_recent_experiments(k=5)` returns last 5 experiments
-
-- **search_similar_experiments**: Search for experiments similar to your idea
-  - Use this to check if your approach was already tried
-  - Example: `search_similar_experiments(query="<your candidate approach>", k=3)`
-
-### Knowledge Search (MCP Tools)
-- **wiki_idea_search**: Search curated ML/AI knowledge base for principles and heuristics
-  - Use for: foundational concepts, best practices, theoretical understanding
-  - Example: "overfitting mitigation principles", "hyperparameter search best practices"
-
-- **wiki_code_search**: Search for implementation patterns and code examples
-  - Use for: concrete code patterns, implementation details
-  - Example: "early-stopping implementation", "efficient data-loading code"
-
-- **research_idea**: Research ideas from the web (use when curated knowledge is insufficient)
-  - Use for: cutting-edge techniques, recent papers, novel approaches
-
-- **research_implementation**: Research implementations from the web
-  - Use for: finding open-source implementations, library usage examples
-
-- **research_study**: Deep research on a topic
-  - Use for: comprehensive understanding of a complex topic
+{{knowledge_tools}}
 
 ### Web Search (native tools)
 - FIRST search priority: if the problem context names a knowledge bank, start
@@ -110,11 +64,11 @@ may ASSUME them and spend the budget on what they enable instead of
 rebuilding them — say so explicitly in the solution.{{inbox_ideation}}
 
 ## Your Process
-1. **Check experiment history FIRST**: 
-   - Call `get_top_experiments(5)` to see what worked best
-   - Call `get_recent_experiments(5)` to see recent attempts
-   - Learn from past successes and failures
-2. **Understand the codebase**: Read key files and use RepoMemory tools (especially get_repo_memory_section for core.architecture, core.where_to_edit)
+1. **Check experiment history FIRST** (when its tools are offered above): what
+   worked best, what was tried recently; learn from past successes and failures.
+2. **Understand the codebase**: Read key files and use the repository memory
+   tools when offered (especially the core.architecture and core.where_to_edit
+   sections).
 3. **Ground yourself in the measured eval profile.** If a prior iteration
    left `kapso_evaluation/eval_profile.md` (or an experiment in history
    quotes one), read it and treat its axes as requirements. Whether or not

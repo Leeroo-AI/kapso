@@ -14,9 +14,9 @@ import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from kapso.gated_mcp.presets import user_setup_gaps
+from kapso.gated_mcp.presets import knowledge_tools_block, user_setup_gaps
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
@@ -987,14 +987,18 @@ class GenericSearch(SearchStrategy):
         self,
         problem: str,
         repo_memory_brief: str,
+        allowed_tools: Sequence[str] = (),
     ) -> str:
-        """Build the ideation prompt for Claude Code."""
+        """Build the ideation prompt for Claude Code; ``allowed_tools`` is
+        the session's whitelist, which decides whose gate guidance the
+        prompt carries."""
         return build_ideation_prompt(
             problem,
             repo_memory_brief,
             budget_status=self._render_budget_status(),
             shared_artifacts_brief=self.shared_artifacts_brief,
             inbox_ideation=self._render_inbox_ideation(),
+            knowledge_tools=knowledge_tools_block("ideation", allowed_tools),
         )
 
     def _render_inbox_ideation(self) -> str:
@@ -1108,8 +1112,11 @@ class GenericSearch(SearchStrategy):
         previous_errors: str,
         lane_brief: str = "",
         inbox_section: str = "",
+        allowed_tools: Sequence[str] = (),
     ) -> str:
-        """Build the implementation prompt for Claude Code."""
+        """Build the implementation prompt for Claude Code; ``allowed_tools``
+        is the session's whitelist, which decides whose gate guidance the
+        prompt carries."""
         return build_implementation_prompt(
             solution=solution,
             problem=problem,
@@ -1124,6 +1131,7 @@ class GenericSearch(SearchStrategy):
             shared_artifacts_brief=self.shared_artifacts_brief,
             lane_brief=lane_brief,
             inbox_section=inbox_section,
+            knowledge_tools=knowledge_tools_block("implementation", allowed_tools),
         )
 
     def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:

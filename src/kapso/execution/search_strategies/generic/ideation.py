@@ -334,10 +334,12 @@ def generate_solution(
             },
         )
 
-        # 5. Build the ideation prompt.
+        # 5. Build the ideation prompt — with the guidance of exactly the
+        # gates this session can call.
         prompt = build_prompt(
             problem=problem,
             repo_memory_brief=repo_memory_brief,
+            allowed_tools=ideation_allowed_tools,
         )
 
         # 6. Run Claude Code from the selected parent worktree.
@@ -423,9 +425,6 @@ def generate_solution_ensemble(
 
     phase_started = time.monotonic()
 
-    base_prompt = build_prompt(
-        problem=problem, repo_memory_brief=repo_memory_brief
-    )
     addendum_template = load_prompt(
         "execution/search_strategies/generic/prompts/ideation_ensemble_addendum.md"
     )
@@ -449,7 +448,24 @@ def generate_solution_ensemble(
     )
 
     def run_member(member: Dict[str, str], lens: str) -> Dict[str, Any]:
-        prompt = base_prompt + "\n\n" + render_prompt(
+        # The prompt is per member: a codex member runs read-only with no
+        # MCP, so its prompt describes no gate tools; a claude member gets
+        # the guidance of the gates it mounts. WebSearch is an Anthropic
+        # SERVER-side tool an OSS endpoint cannot serve (Fireworks 400s
+        # the request envelope — verified live on kimi-k3-fast,
+        # 2026-08-03), so an oss member keeps client-side WebFetch only.
+        is_oss = member["cli"] == "oss_claude_code"
+        if member["cli"] == "codex":
+            member_allowed_tools: List[str] = []
+        elif is_oss:
+            member_allowed_tools = [t for t in ideation_allowed_tools if t != "WebSearch"]
+        else:
+            member_allowed_tools = list(ideation_allowed_tools)
+        prompt = build_prompt(
+            problem=problem,
+            repo_memory_brief=repo_memory_brief,
+            allowed_tools=member_allowed_tools,
+        ) + "\n\n" + render_prompt(
             addendum_template,
             {
                 "lens": lens,
@@ -532,15 +548,6 @@ def generate_solution_ensemble(
         from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
         from kapso.execution.coding_agents.adapters.oss_claude_code_agent import OssClaudeCodeCodingAgent
 
-        is_oss = member["cli"] == "oss_claude_code"
-        # WebSearch is an Anthropic SERVER-side tool an OSS endpoint
-        # cannot serve (Fireworks 400s the request envelope — verified
-        # live on kimi-k3-fast, 2026-08-03), so any oss member keeps
-        # client-side WebFetch only.
-        member_allowed_tools = (
-            [t for t in ideation_allowed_tools if t != "WebSearch"]
-            if is_oss else ideation_allowed_tools
-        )
         agent_specific = {
             "env_strip": env_strip,
             "env_defaults": env_defaults,
@@ -902,11 +909,14 @@ def build_ideation_prompt(
     budget_status: str,
     shared_artifacts_brief: str,
     inbox_ideation: str = "",
+    knowledge_tools: str = "",
 ) -> str:
     """Build the ideation prompt for Claude Code. ``inbox_ideation`` is
     the rendered inbox block — the rule against designing around a
     person-only gap and what the person already answered (empty keeps
-    the prompt byte-identical to before the inbox)."""
+    the prompt byte-identical to before the inbox). ``knowledge_tools``
+    is the guidance of the gates this session mounted (empty for a
+    session with no gates)."""
     # Load and render the prompt template
     template = load_prompt("execution/search_strategies/generic/prompts/ideation_claude_code.md")
     return render_prompt(
@@ -917,6 +927,7 @@ def build_ideation_prompt(
             "budget_status": budget_status,
             "shared_artifacts_brief": shared_artifacts_brief,
             "inbox_ideation": inbox_ideation,
+            "knowledge_tools": knowledge_tools,
         },
     )
 

@@ -21,6 +21,7 @@ from typing import (
 )
 
 from kapso.core.config import PLATFORM_CONFIG_PATH, load_config
+from kapso.core.prompt_loader import load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ class GateDefinition:
     # pattern's one group is that balance (what the campaign summary turns
     # into credits used).
     credits_pattern: Optional[str] = None
+    # The gate's own "when to call these tools" text per phase (ideation,
+    # implementation), as a prompt file. A session's prompt carries the
+    # guidance of the gates it actually mounted and nothing else.
+    guidance: Dict[str, str] = field(default_factory=dict)
     required_env: List[str] = field(default_factory=list)
     # How a user obtains what this gate needs. A gate declares its own
     # requirements, so it declares its own remedy — preflight renders this
@@ -65,6 +70,13 @@ class GateDefinition:
     # set — but preflight must not report them as missing user setup: they
     # are not the user's to provide.
     injected_env: List[str] = field(default_factory=list)
+
+
+_GATE_PROMPTS = "execution/search_strategies/generic/prompts/gates"
+
+
+def _guidance(gate_name: str, *phases: str) -> Dict[str, str]:
+    return {phase: f"{_GATE_PROMPTS}/{gate_name}.{phase}.md" for phase in phases}
 
 
 @dataclass(frozen=True)
@@ -148,6 +160,7 @@ GATES: Dict[str, GateDefinition] = {
     ),
     "idea": GateDefinition(
         tools=["wiki_idea_search"],
+        guidance=_guidance("idea", "ideation"),
         default_params={
             "top_k": 5,
             "use_llm_reranker": True,
@@ -158,6 +171,7 @@ GATES: Dict[str, GateDefinition] = {
     ),
     "code": GateDefinition(
         tools=["wiki_code_search"],
+        guidance=_guidance("code", "ideation", "implementation"),
         default_params={
             "top_k": 5,
             "use_llm_reranker": True,
@@ -172,6 +186,7 @@ GATES: Dict[str, GateDefinition] = {
             "research_implementation",
             "research_study",
         ],
+        guidance=_guidance("research", "ideation", "implementation"),
         default_params={
             "default_depth": "deep",
             "default_top_k": 5,
@@ -184,6 +199,7 @@ GATES: Dict[str, GateDefinition] = {
             "get_recent_experiments",
             "search_similar_experiments",
         ],
+        guidance=_guidance("experiment_history", "ideation"),
         default_params={
             "top_k": 5,
             "recent_k": 5,
@@ -198,6 +214,7 @@ GATES: Dict[str, GateDefinition] = {
             "list_repo_memory_sections",
             "get_repo_memory_summary",
         ],
+        guidance=_guidance("repo_memory", "ideation", "implementation"),
         default_params={},
     ),
     # Knowledge-bank tools (serving-agentic-redesign.md): ideation +
@@ -242,6 +259,7 @@ GATES: Dict[str, GateDefinition] = {
             "query_hyperparameter_priors",
             "get_page",
         ],
+        guidance=_guidance("leeroopedia", "ideation", "implementation"),
         default_params={},
         server_name="leeroopedia",
         url=_HOSTED_GATES["leeroopedia"]["url"],
@@ -355,6 +373,30 @@ def user_setup_gaps(gates: Sequence[str]) -> List[Tuple[str, str, Tuple[str, ...
             fix = definition.setup_hint or f"set {', '.join(missing)} in .env"
             gaps.append((diagnostic.gate_name, fix, missing))
     return gaps
+
+
+def knowledge_tools_block(
+    phase: str,
+    allowed_tools: Sequence[str],
+    server_name: str = "gated-knowledge",
+) -> str:
+    """The "when to call these tools" text for a session: the guidance of
+    every gate that has some for this phase AND whose tools the session
+    may call, in registry order. A gate that did not resolve — no key, a
+    skip policy, a session that mounts no MCP at all — is not described,
+    so the prompt never names a tool the session does not have.
+    """
+    allowed = set(allowed_tools)
+    blocks = []
+    for gate_name, gate_def in GATES.items():
+        path = gate_def.guidance.get(phase)
+        if not path:
+            continue
+        server = gate_def.server_name or server_name
+        if not any(f"mcp__{server}__{tool}" in allowed for tool in gate_def.tools):
+            continue
+        blocks.append(load_prompt(path).strip())
+    return "\n\n".join(blocks)
 
 
 def gate_usage(

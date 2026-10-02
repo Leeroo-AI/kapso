@@ -249,6 +249,39 @@ def test_fanout_pools_candidates_and_selector_choice_wins(tmp_path, monkeypatch)
     assert events["codex_calls"][0]["effort"] == "xhigh"
 
 
+def test_member_prompts_describe_only_the_gates_each_member_mounts(tmp_path, monkeypatch):
+    """One prompt per member, not one per phase: a claude member mounts the
+    gates and is told how to use them; a codex member runs read-only with no
+    MCP, so its prompt names no gate tool at all."""
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('claude A')}</solution>",
+        codex_output=f"<solution>{_plan('codex A')}</solution>",
+        selector_output=f"<solution>{_plan('winner')}</solution>",
+    )
+    monkeypatch.setattr(
+        gated_mcp_module, "get_mcp_config",
+        lambda **kw: (
+            {"leeroopedia": {"type": "http", "url": "https://mcp.leeroopedia.com/mcp?token=x", "timeout": 600000}},
+            ["mcp__leeroopedia__search_knowledge", "mcp__leeroopedia__review_plan"],
+        ),
+    )
+    strategy._generate_solution("problem", "main")
+
+    member_prompts = [p for is_sel, p in events["claude_prompts"] if not is_sel]
+    assert len(member_prompts) == 1
+    assert "### Leeroopedia (MCP Tools)" in member_prompts[0]
+    assert "**review_plan**" in member_prompts[0]
+    assert "{{knowledge_tools}}" not in member_prompts[0]
+
+    codex_prompt = events["codex_calls"][0]["prompt"]
+    assert "Leeroopedia" not in codex_prompt
+    assert "MCP Tools" not in codex_prompt
+    assert "{{knowledge_tools}}" not in codex_prompt
+
+
 def test_selector_failure_falls_back_to_first_claude_candidate(tmp_path, monkeypatch):
     strategy, _ = make_ensemble_strategy(
         tmp_path, monkeypatch,

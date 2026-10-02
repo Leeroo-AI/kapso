@@ -276,6 +276,7 @@ def run_implementation(
             repo_memory_detail_access_instructions=repo_memory_detail_access_instructions,
             previous_errors=previous_errors_text,
             lane_brief=lane_brief,
+            allowed_tools=implementation_allowed_tools,
             **(
                 {"inbox_section": render_inbox_section(
                     load_requests(inbox_settings["path"]),
@@ -476,10 +477,12 @@ def build_implementation_prompt(
     shared_artifacts_brief: str,
     lane_brief: str = "",
     inbox_section: str = "",
+    knowledge_tools: str = "",
 ) -> str:
     """Build the implementation prompt for Claude Code. With the inbox
     off (empty ``inbox_section``) the render is byte-identical to the
-    prompt before the inbox existed."""
+    prompt before the inbox existed. ``knowledge_tools`` is the guidance
+    of the gates this session mounted (empty for a session with none)."""
     template = load_prompt("execution/search_strategies/generic/prompts/implementation_claude_code.md")
     inbox_on = bool(inbox_section)
     return render_prompt(
@@ -497,6 +500,7 @@ def build_implementation_prompt(
             "lane_brief": lane_brief,
             "inbox_section": ("\n\n" + inbox_section) if inbox_on else "",
             "inbox_tool_line": INBOX_TOOL_LINE if inbox_on else "",
+            "knowledge_tools": knowledge_tools,
             "inbox_checklist_note": CHECKLIST_NOTE_WITH_INBOX if inbox_on else "",
             "closing_line": (
                 CLOSING_LINE_WITH_INBOX if inbox_on else CLOSING_LINE_WITHOUT_INBOX
