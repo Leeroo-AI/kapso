@@ -99,8 +99,12 @@ deployment:
 # deployment; anything modes legitimately differ on stays per-mode.
 defaults:
   models:
-    # Embeddings route (experiment-store semantic search, knowledge search).
-    embedding: "text-embedding-3-small"
+    # Semantic search over past experiments (`search_similar_experiments`
+    # and the ideation gate's similarity lookup) embeds every node's
+    # solution with this model through OPENAI_API_KEY. Null turns it off:
+    # the experiment store is recency-only and no OpenAI key is needed.
+    # Turn it on with an OpenAI embedding model, e.g. "text-embedding-3-small".
+    embedding: null
   budget:
     # Durable-clock + status heartbeat interval. Feeds the orchestrator's
     # checkpoint heartbeat daemon (elapsed_seconds stays fresh between

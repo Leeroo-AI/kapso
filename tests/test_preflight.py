@@ -720,3 +720,20 @@ def test_inference_like_path_does_not_grant_capability():
     )
     assert any(not row.ok and "inference-only" in row.label
                for row in preflight.cli_requirements(specs))
+
+
+def test_evolve_asks_for_the_openai_key_only_when_something_will_embed(packaged, full_machine, monkeypatch):
+    """The shipped config leaves `models.embedding` null, so a stock campaign
+    embeds nothing and doctor must not ask for the key (it used to pass and
+    the campaign died at the first node's bookkeeping). Naming a model turns
+    the row on, with the store as its reason."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    stock = by_label(requirements_for("evolve", packaged))
+    assert not [label for label in stock if label.startswith("OPENAI_API_KEY")]
+
+    embedding_on = copy.deepcopy(packaged)
+    embedding_on["modes"]["GENERIC"]["models"] = {"embedding": "text-embedding-3-small"}
+    rows = by_label(requirements_for("evolve", embedding_on))
+    row = rows["OPENAI_API_KEY (embeddings: https://api.openai.com/v1)"]
+    assert row.ok is False and row.required is True
+    assert "experiment store" in row.origin and "text-embedding-3-small" in row.origin

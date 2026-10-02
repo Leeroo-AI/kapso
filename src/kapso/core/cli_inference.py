@@ -211,6 +211,11 @@ class CliInference:
 
     # ------------------------------------------------- delegated surface
 
+    @property
+    def embedding_model(self) -> Optional[str]:
+        """The configured embedding model, or None when embeddings are off."""
+        return self._backend.embedding_model
+
     def create_embedding(self, text: str, model: Optional[str] = None):
         return self._backend.create_embedding(text, model)
 

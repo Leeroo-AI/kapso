@@ -14,7 +14,7 @@ Kapso sends every model call through a coding-agent CLI. Install those CLIs and 
 | Codex CLI, logged in | Research, judging and utility calls | `codex authenticated` |
 | Claude Code CLI, logged in | Ideation and implementation in the default `GENERIC` mode | `claude authenticated` |
 | Python 3.10 or newer | The `leeroo-kapso` package | — |
-| An OpenAI API key | Embeddings for knowledge search and memory. Not used for generation | `OPENAI_API_KEY (embeddings: https://api.openai.com/v1)` |
+| An OpenAI API key (optional) | Embeddings, never generation: the knowledge graph, and semantic search over past experiments when `models.embedding` is set. A stock install needs neither | `OPENAI_API_KEY (embeddings: https://api.openai.com/v1)`, only when something will embed |
 | Git | Kapso commits every experiment to a branch | `git` |
 
 ## Install Kapso
@@ -33,14 +33,12 @@ Kapso sends every model call through a coding-agent CLI. Install those CLIs and 
     browser, see [Using API keys instead of a CLI login](#using-api-keys-instead-of-a-cli-login).
   </Step>
 
-  <Step title="Add an OpenAI key for embeddings">
-    Create a `.env` file in the directory you will run Kapso from:
+  <Step title="Optional: an OpenAI key for embeddings">
+    Only the knowledge graph and semantic search over past experiments embed text, and generation never touches the OpenAI API. Nothing in a stock install needs the key. When you turn either on (a `kg_index`, `learn_knowledge`, or `models.embedding` in your config), put the key in a `.env` file in the directory you run Kapso from:
 
     ```bash
     echo 'OPENAI_API_KEY=sk-...' >> .env
     ```
-
-    This key is used only to embed text for knowledge search and memory. Generation runs through the CLIs above.
   </Step>
 
   <Step title="Install the package">
@@ -308,9 +306,9 @@ I want to set up Kapso, the open-source software factory by Leeroo (PyPI package
 
 3. Logins. Run `claude auth status` and `codex login status`. For each one that is not logged in, start the login (`claude auth login`; `codex login`, or `codex login --device-auth` on a machine without a browser), show me the sign-in URL and any one-time code, and wait for me. If a step needs a code pasted back into the terminal, tell me and I will do it in my own terminal. Re-check both statuses before continuing.
 
-4. Keys. Ask me for two keys and write them to a `.env` file in this directory (Kapso reads `.env` from the directory it runs in):
-   OPENAI_API_KEY=...        used only to embed text for memory and knowledge search
-   LEEROOPEDIA_API_KEY=...   lets campaigns consult Leeroopedia, a hosted knowledge base of ML and AI frameworks; nothing to install, and a new account at https://app.leeroopedia.com/dashboard comes with $20 of free credit
+4. Keys. Write what I give you to a `.env` file in this directory (Kapso reads `.env` from the directory it runs in):
+   LEEROOPEDIA_API_KEY=...   recommended: lets campaigns consult Leeroopedia, a hosted knowledge base of ML and AI frameworks; nothing to install, and a new account at https://app.leeroopedia.com/dashboard comes with $20 of free credit
+   OPENAI_API_KEY=...        optional: only for embeddings — the knowledge graph, and semantic search over past experiments once models.embedding is set in the config; generation never uses it
    If I do not have one of them, continue and tell me which doctor row will report it.
 
 5. Package. In the Python environment I use here (if none is active, create `.venv` in this directory, use it from now on, and tell me):

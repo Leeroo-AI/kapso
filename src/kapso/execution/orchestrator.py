@@ -364,10 +364,15 @@ class OrchestratorAgent:
             ".kapso", 
             "experiment_history.json"
         )
+        # With no embedding model configured (`models.embedding` null, the
+        # shipped default) the store is recency-only — a documented
+        # capability absence, not an embedding call that fails at the
+        # first node's bookkeeping.
+        embedding_model = (self.mode_config.get("models") or {}).get("embedding")
         self.experiment_store = ExperimentHistoryStore(
             json_path=experiment_history_path,
             goal=self.goal,
-            llm=self.llm,
+            llm=self.llm if embedding_model else None,
         )
         
         # Create knowledge search backend (or use provided instance).

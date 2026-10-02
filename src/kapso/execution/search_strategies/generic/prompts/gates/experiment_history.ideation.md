@@ -12,3 +12,4 @@
 - **search_similar_experiments**: Search for experiments similar to your idea
   - Use this to check if your approach was already tried
   - Example: `search_similar_experiments(query="<your candidate approach>", k=3)`
+  - Without a configured embedding model this returns the most recent experiments

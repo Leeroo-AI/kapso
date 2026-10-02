@@ -173,7 +173,12 @@ def test_cumulative_cost_sums_cli_sessions_and_embedding_backend(monkeypatch):
 
     monkeypatch.setattr(llm_module, "embedding", fake_embedding)
     factory = FakeFactory(outputs=["a", "b"], cost=1.5)
-    backend = cli(factory)
+    # Embeddings are off unless a model is configured; this test meters one.
+    backend = CliInference(
+        inference=INFERENCE,
+        agent_factory=factory,
+        models={"embedding": "text-embedding-3-small"},
+    )
     backend.llm_completion(messages=[{"role": "user", "content": "q"}])
     backend.llm_completion(messages=[{"role": "user", "content": "q"}])
     assert backend.create_embedding("text") == [0.5]

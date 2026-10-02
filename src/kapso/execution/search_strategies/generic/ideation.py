@@ -281,9 +281,7 @@ def generate_solution(
                 experiment_history_path
             ),
             experiment_embedding_model=(
-                llm.resolve_model(None, default_role="embedding")
-                if llm is not None
-                else None
+                llm.embedding_model if llm is not None else None
             ),
             repo_root=ideation_dir,
             include_base_tools=False,

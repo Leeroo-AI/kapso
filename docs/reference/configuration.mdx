@@ -145,7 +145,7 @@ The agent must be able to serve the model: a Claude model name on the `codex` ag
 ```yaml
 defaults:
   models:
-    embedding: text-embedding-3-small
+    embedding: null
   budget:
     checkpoint_heartbeat_seconds: 60
   retry:
@@ -158,7 +158,7 @@ defaults:
 
 | Key | What it does | Shipped value |
 |-----|--------------|---------------|
-| `models.embedding` | Embedding model for knowledge search and memory | `text-embedding-3-small` |
+| `models.embedding` | The OpenAI embedding model for semantic search over past experiments (`search_similar_experiments`). `null` turns it off: the experiment store is recency-only and no `OPENAI_API_KEY` is needed. Set it (for example `text-embedding-3-small`) to turn it on; `kapso doctor evolve` then checks for the key | `null` |
 | `budget.checkpoint_heartbeat_seconds` | How often a run writes its checkpoint and status | `60` |
 | `retry.request_timeout_seconds` | Default request timeout | `600` |
 | `inbox.enabled` | Let a blocked session ask you through the inbox and pause the campaign. See [the inbox](/docs/evolve/inbox) | `true` |

@@ -101,7 +101,8 @@ def test_mode_without_retry_inherits_request_timeout(tmp_path):
     path = _write_config(tmp_path, {"modes": {"BARE": {"budget": {}}}})
     resolved = load_mode_config(path, "BARE")
     assert resolved["retry"]["request_timeout_seconds"] == 600
-    assert resolved["models"]["embedding"] == "text-embedding-3-small"
+    # The platform ships embeddings off; a mode that says nothing inherits that.
+    assert resolved["models"]["embedding"] is None
 
 
 def test_benchmark_override_beats_platform_default(tmp_path):
@@ -155,7 +156,8 @@ def test_kaggle_resolves_overrides_and_inherited_defaults():
     )
     assert resolved["search_strategy"]["params"]["implementation_web"] is True
     assert resolved["retry"]["request_timeout_seconds"] == 600
-    assert resolved["models"]["embedding"] == "text-embedding-3-small"
+    # The platform ships embeddings off; a mode that says nothing inherits that.
+    assert resolved["models"]["embedding"] is None
 
 
 def test_every_shipped_mode_constructs_a_model_router():

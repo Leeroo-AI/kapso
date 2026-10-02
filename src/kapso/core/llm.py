@@ -27,9 +27,6 @@ _EMBEDDING_ENCODING = "cl100k_base"
 # Embedding is the ONLY model role left: every other completion moved to
 # coding-agent CLI sessions (cli-only-inference design, 2026-08-26).
 MODEL_ROLES = frozenset({"embedding"})
-DEFAULT_MODEL_ROUTES: Dict[str, str] = {
-    "embedding": "text-embedding-3-small",
-}
 
 
 class ModelRouter:
@@ -37,7 +34,10 @@ class ModelRouter:
 
     Reasoning-effort routing died with the completion surface: a CLI
     session's model/effort come from the `inference:` role specs, so a
-    route value is just a bare model string.
+    route value is just a bare model string. A role has no built-in
+    model: the config names one (`models.embedding`) or leaves it null,
+    which turns the role OFF — `route()` reports None, and resolving the
+    role is an error, so nothing embeds by accident.
     """
 
     def __init__(self, routes: Optional[Mapping[str, Any]] = None):
@@ -46,12 +46,31 @@ class ModelRouter:
         if unknown:
             raise ValueError(f"Unknown model role(s): {', '.join(unknown)}")
 
-        merged = dict(DEFAULT_MODEL_ROUTES)
+        merged: Dict[str, Optional[str]] = {role: None for role in MODEL_ROLES}
         for role, value in supplied.items():
+            if value is None:
+                continue
             if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"Model route '{role}' must be a non-empty string")
+                raise ValueError(
+                    f"Model route '{role}' must be a non-empty string or null"
+                )
             merged[role] = value.strip()
         self._routes = merged
+
+    def route(self, role: str) -> Optional[str]:
+        """The configured model for a role, or None when the role is off."""
+        if role not in MODEL_ROLES:
+            raise ValueError(f"Unknown model role: {role}")
+        return self._routes[role]
+
+    def _configured(self, role: str) -> str:
+        value = self._routes[role]
+        if value is None:
+            raise ValueError(
+                f"No {role} model configured: set models.{role} in the config "
+                f"to turn it on"
+            )
+        return value
 
     def resolve(
         self,
@@ -62,16 +81,16 @@ class ModelRouter:
         if default_role not in MODEL_ROLES:
             raise ValueError(f"Unknown default model role: {default_role}")
         if model is None:
-            return self._routes[default_role]
+            return self._configured(default_role)
         if not isinstance(model, str) or not model.strip():
             raise ValueError("model must be a non-empty string or None")
 
         requested = model.strip()
         if requested in MODEL_ROLES:
-            return self._routes[requested]
+            return self._configured(requested)
         return requested
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> Dict[str, Optional[str]]:
         return dict(self._routes)
 
 
@@ -255,6 +274,11 @@ class LLMBackend:
 
     def get_cumulative_cost(self) -> float:
         return self._cumulative_cost
+
+    @property
+    def embedding_model(self) -> Optional[str]:
+        """The configured embedding model, or None when embeddings are off."""
+        return self.model_router.route("embedding")
 
     def resolve_model(
         self,

@@ -46,6 +46,7 @@ def test_model_router_is_embedding_only_after_cli_conversion():
     assert router.resolve("embedding") == "vendor/embedder"
     assert router.resolve("vendor/custom") == "vendor/custom"
     assert router.to_dict() == {"embedding": "vendor/embedder"}
+    assert router.route("embedding") == "vendor/embedder"
     # Retired roles are now configuration errors, not silent routes.
     with pytest.raises(ValueError, match="Unknown model role"):
         ModelRouter({"utility": "vendor/cheap"})
@@ -58,7 +59,6 @@ def test_model_router_is_embedding_only_after_cli_conversion():
     [
         ({"unknown": "model"}, "Unknown model role"),
         ({"embedding": ""}, "non-empty string"),
-        ({"embedding": None}, "non-empty string"),
         # The rich {model, reasoning_effort} form died with completions.
         ({"embedding": {"model": "m"}}, "non-empty string"),
     ],
@@ -190,13 +190,35 @@ def test_create_embedding_default_role_and_explicit_override(monkeypatch):
         return embedding_response([1.0])
 
     monkeypatch.setattr(llm_module, "embedding", fake_embedding)
-    backend = LLMBackend(retry_policy=no_jitter_policy())
+    backend = LLMBackend(
+        models={"embedding": "text-embedding-3-small"},
+        retry_policy=no_jitter_policy(),
+    )
 
     backend.create_embedding("a")
     backend.create_embedding("b", model="custom-embedder")
 
-    assert calls[0]["model"] == "text-embedding-3-small"  # router default
+    assert calls[0]["model"] == "text-embedding-3-small"  # configured route
     assert calls[1]["model"] == "custom-embedder"          # explicit wins
+
+
+def test_a_null_route_turns_the_role_off_with_no_built_in_model():
+    """`models.embedding: null` (the shipped default) means no embedding:
+    the route reports None, resolving the role is a configuration error
+    naming the key to set, and an explicit model string still passes
+    through. A missing OpenAI key used to surface only at the first
+    node's bookkeeping, half an hour into a campaign."""
+    for routes in (None, {}, {"embedding": None}):
+        router = ModelRouter(routes)
+        assert router.route("embedding") is None
+        assert router.to_dict() == {"embedding": None}
+        with pytest.raises(ValueError, match="models.embedding"):
+            router.resolve(None)
+        with pytest.raises(ValueError, match="models.embedding"):
+            router.resolve("embedding")
+        assert router.resolve("vendor/custom") == "vendor/custom"
+    assert LLMBackend().embedding_model is None
+    assert LLMBackend(models={"embedding": "m"}).embedding_model == "m"
 
 
 def test_create_embedding_retries_transient_then_raises_loud(monkeypatch):
@@ -210,6 +232,7 @@ def test_create_embedding_retries_transient_then_raises_loud(monkeypatch):
 
     monkeypatch.setattr(llm_module, "embedding", fake_embedding)
     backend = LLMBackend(
+        models={"embedding": "text-embedding-3-small"},
         retry_policy=no_jitter_policy(max_attempts=2),
         sleep_fn=lambda _s: None,
     )

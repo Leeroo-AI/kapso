@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
-from kapso.core.config import deep_merge, load_config, load_deployment_defaults
+from kapso.core.config import deep_merge, load_config, load_deployment_defaults, load_platform_defaults
 from kapso.core.agent_manifest import load_agent_manifest
 from kapso.core.api_endpoint import (
     openai_compatible_options,
@@ -624,12 +624,28 @@ def evolve_requirements(
         "the campaign workspace is a git repository"
     ))
     requirements.extend(_gate_requirements(params, prefix))
-
+    # The key is needed exactly when something will embed: the experiment
+    # store when `models.embedding` names a model (the mode block over
+    # the platform defaults, as the campaign resolves it), and knowledge
+    # search when an index is served.
+    embedding_model = (
+        (deep_merge(load_platform_defaults(), block).get("models") or {})
+        .get("embedding")
+    )
+    embedding_uses = []
+    if embedding_model:
+        embedding_uses.append(
+            f"the experiment store embeds every node's solution "
+            f"(models.embedding = {embedding_model})"
+        )
     if kg_index:
+        embedding_uses.append(f"knowledge search — Kapso(kg_index={kg_index!r})")
+    if embedding_uses:
         requirements.append(_embedding_requirement(
-            f"knowledge search — Kapso(kg_index={kg_index!r})",
+            "; ".join(embedding_uses),
             (block.get("knowledge_search") or {}).get("params"),
         ))
+    if kg_index:
         requirements.extend(_kg_backend_requirements(
             f"knowledge search — Kapso(kg_index={kg_index!r})",
             block.get("knowledge_search"),

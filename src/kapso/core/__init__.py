@@ -7,7 +7,6 @@
 # on every cold start of the MCP server subprocess.
 
 from kapso.core.llm import (
-    DEFAULT_MODEL_ROUTES,
     MODEL_ROLES,
     LLMBackend,
     LLMRetryError,
@@ -19,7 +18,6 @@ from kapso.core.config import load_config, load_mode_config
 
 __all__ = [
     # LLM
-    "DEFAULT_MODEL_ROUTES",
     "MODEL_ROLES",
     "LLMBackend",
     "LLMRetryError",

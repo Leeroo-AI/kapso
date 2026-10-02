@@ -82,7 +82,9 @@ npm install -g @anthropic-ai/claude-code  # ideation + implementation (default m
 claude auth login
 ```
 
-Add an OpenAI key for embeddings (memory and knowledge-search indexing):
+An OpenAI key is optional: only the knowledge graph and semantic search
+over past experiments (`models.embedding` in your config) embed text, and
+generation never uses it. When you turn either on:
 
 ```bash
 echo 'OPENAI_API_KEY=sk-...' >> .env
