@@ -17,6 +17,10 @@ the source is large and a session that greps it runs out of turns before answeri
 - Every model call runs through a coding-agent CLI that must be logged in:
   `claude` (ideation, implementation, judging) and `codex` (research, utilities).
   There is no API-key fallback. `OPENAI_API_KEY` is used only for embeddings.
+- `LEEROOPEDIA_API_KEY` in `.env` connects every campaign session to Leeroopedia,
+  a hosted knowledge base of ML and AI frameworks (nothing to install; a new
+  account at https://app.leeroopedia.com/dashboard has $20 of free credit).
+  Without it the campaign still runs and `doctor` shows the row as `[-- ]`.
 - Secrets come from `.env` in the directory you run from (`find_dotenv(usecwd=True)`);
   a shell export works only if it is actually exported. Config never holds secrets.
 - All knobs live in one YAML. To change anything, copy the packaged file, edit, and

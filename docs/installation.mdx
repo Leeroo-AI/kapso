@@ -70,6 +70,16 @@ Kapso sends every model call through a coding-agent CLI. Install those CLIs and 
   </Step>
 </Steps>
 
+## Connect Leeroopedia (recommended)
+
+[Leeroopedia](https://leeroopedia.com) is a hosted knowledge base of ML and AI frameworks. With a key in `.env`, every campaign session can ask it how a framework actually behaves, have its plan reviewed, pull documented hyperparameter ranges and diagnose a failed run. There is nothing to install: sessions connect to Leeroopedia's hosted MCP server. Sign up at [app.leeroopedia.com](https://app.leeroopedia.com/dashboard) (new accounts get $20 of free credit), copy your key, and add it:
+
+```bash
+LEEROOPEDIA_API_KEY=kpsk_...
+```
+
+`kapso doctor` confirms the gate is live. Without a key the campaign still runs; the launch banner says the gate is off and how to turn it on. What each node consulted, and the credits used, appear in `kapso watch --tree` and the campaign's final summary. See [MCP gates](/docs/evolve/mcp-gates) for what the agent is told about it.
+
 ## How do I check my setup?
 
 `kapso doctor` reports what **your config** requires, and names one fix for anything missing:
@@ -244,18 +254,6 @@ The benchmark harnesses live in the source checkout under `benchmarks/` and each
   </Tab>
 </Tabs>
 
-## Optional: Leeroopedia MCP
-
-[Leeroopedia](https://leeroopedia.com) is a curated knowledge base of ML and AI frameworks. Kapso agents query it during ideation and implementation to look up APIs, build plans and diagnose failures.
-
-There is nothing to install: Kapso connects every session to Leeroopedia's hosted MCP server. Sign up at [app.leeroopedia.com](https://app.leeroopedia.com/dashboard) (new accounts get $20 of free credit), copy your key, and add it to `.env`:
-
-```bash
-LEEROOPEDIA_API_KEY=kpsk_...
-```
-
-`kapso doctor` confirms the gate is live; without a key the campaign runs without it.
-
 ## Troubleshooting
 
 <AccordionGroup>
@@ -295,9 +293,46 @@ LEEROOPEDIA_API_KEY=kpsk_...
   </Accordion>
 </AccordionGroup>
 
-## Working through a coding agent
+## Set up through your coding agent
 
-If Claude Code, Codex or OpenCode will be running Kapso for you, copy the [Kapso skill](/docs/coding-agent-skills) into the project as well. It has the agent run `kapso doctor` first, name the right package, and launch campaigns in the background with the handoff you need.
+Paste this into Claude Code, Codex or OpenCode and it walks the steps above with you, hands you the sign-in links, asks for the keys instead of hunting for them, and verifies with `kapso doctor`:
+
+```text
+I want to set up Kapso, the open-source software factory by Leeroo (PyPI package leeroo-kapso, docs at https://docs.leeroo.com), on this machine so you can run it from this session. Explain the commands you plan to run, then run them. Do nothing beyond these steps, and never print a key or token.
+
+1. Prerequisites. Check `node --version` (18 or newer), `python3 --version` (3.10 or newer) and `git --version`. Install whatever is missing the way this OS installs software; ask me before using sudo.
+
+2. Coding-agent CLIs. Kapso sends every model call through Claude Code and Codex; there is no API-key fallback for generation. Install both:
+   npm install -g @anthropic-ai/claude-code @openai/codex
+   If a global npm install needs root, install with --prefix "$HOME/.local" and put "$HOME/.local/bin" on PATH instead.
+
+3. Logins. Run `claude auth status` and `codex login status`. For each one that is not logged in, start the login (`claude auth login`; `codex login`, or `codex login --device-auth` on a machine without a browser), show me the sign-in URL and any one-time code, and wait for me. If a step needs a code pasted back into the terminal, tell me and I will do it in my own terminal. Re-check both statuses before continuing.
+
+4. Keys. Ask me for two keys and write them to a `.env` file in this directory (Kapso reads `.env` from the directory it runs in):
+   OPENAI_API_KEY=...        used only to embed text for memory and knowledge search
+   LEEROOPEDIA_API_KEY=...   lets campaigns consult Leeroopedia, a hosted knowledge base of ML and AI frameworks; nothing to install, and a new account at https://app.leeroopedia.com/dashboard comes with $20 of free credit
+   If I do not have one of them, continue and tell me which doctor row will report it.
+
+5. Package. In the Python environment I use here (if none is active, create `.venv` in this directory, use it from now on, and tell me):
+   pip show kapso        # the PyPI package named `kapso` is an unrelated tool that shadows the command; if present: pip uninstall -y kapso
+   pip install leeroo-kapso
+
+6. Verify. Run `kapso doctor evolve`: every required row must read `[OK ]`; fix what it names and rerun. Then run `kapso doctor` and tell me what its `[-- ]` rows would enable; the Weaviate and Neo4j rows belong to the knowledge-graph features and need Docker, so leave them unless I ask. Finish with `kapso doctor evolve --models`, which spends a few tokens to confirm each configured model is reachable.
+
+7. The Kapso skill. Install the skill written for you, so you operate Kapso the way its docs say:
+   git clone --depth 1 https://github.com/Leeroo-AI/kapso /tmp/kapso-src
+   Claude Code:  mkdir -p .claude/skills   && cp -r /tmp/kapso-src/skills/claude-code/kapso .claude/skills/kapso
+   Codex:        mkdir -p .agents/skills   && cp -r /tmp/kapso-src/skills/codex/kapso .agents/skills/kapso
+   OpenCode:     mkdir -p .opencode/skills && cp -r /tmp/kapso-src/skills/opencode/kapso .opencode/skills/kapso
+   Then load it. Ask me whether to also connect the docs: `claude mcp add --transport http kapso-docs https://docs.leeroo.com/mcp` or `codex mcp add kapso-docs --url https://docs.leeroo.com/mcp`.
+
+8. Finish with a short overview of what you can now do, and do not start a campaign until I give you a goal:
+   - run a campaign toward a measurable goal, in the background: kapso evolve --goal "<metric and target>" --initial-repo . --eval-dir <judge dir> --output ../<campaign>
+   - follow it: kapso watch ../<campaign> --follow; answer a pause (WAITING ON YOU): kapso inbox
+   - bank what it taught: Kapso().learn("../<campaign>"); ship the winner: kapso deploy --solution-path ../<campaign> --strategy local
+```
+
+The last step installs the [Kapso skill](/docs/coding-agent-skills), which has the agent run `kapso doctor` first, name the right package, and launch campaigns in the background with the handoff you need.
 
 ## Related
 

@@ -5,7 +5,7 @@ description: "How knowledge from repositories and research is acquired, stored a
 keywords: ["knowledge graph", "domain knowledge", "Weaviate", "Neo4j", "knowledge search"]
 ---
 
-The knowledge graph is Kapso's imported memory: what other people have written, drawn from repositories and research and searchable during a campaign. It is the counterpart to the [lesson bank](/docs/learning/overview), which holds what Kapso measured itself.
+The knowledge graph is Kapso's imported memory: what other people have written, drawn from repositories and research and searchable during a campaign. It is the counterpart to the [lesson bank](/docs/learning/overview), which holds what Kapso measured itself, and to [Leeroopedia](#hosted-knowledge-leeroopedia), the hosted knowledge base a campaign reaches with one key.
 
 ## What is in the knowledge graph?
 
@@ -13,6 +13,10 @@ Wiki pages — overviews, detailed content, and the links between them — held 
 
 - **The [learning pipeline](/docs/knowledge/learning-pipeline)** turns a source into pages (ingestors), then merges them into the existing graph (a hierarchical, sub-graph-aware merge).
 - **[Knowledge search](/docs/knowledge/search-backends)** retrieves at campaign time: semantic search, graph traversal, and reranking.
+
+## Hosted knowledge: Leeroopedia
+
+The graph is yours to build; [Leeroopedia](https://leeroopedia.com) is the hosted layer beside it: a curated knowledge base of ML and AI frameworks that sessions query over MCP with one key in `.env` and no infrastructure. Ideation asks it how a framework behaves and has its plan reviewed; implementation asks for build plans, documented hyperparameter ranges and failure diagnoses. What each node consulted, and the credits spent, appear in `kapso watch --tree` and the final summary. See [Connect Leeroopedia](/docs/installation#connect-leeroopedia-recommended) and [MCP gates](/docs/evolve/mcp-gates).
 
 ## How do I get knowledge into a campaign?
 

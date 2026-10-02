@@ -97,7 +97,17 @@ deployed.stop()
 
 ## Give the campaign more to work with
 
-A campaign starts stronger when it starts with context. Both of these are optional.
+A campaign starts stronger when it starts with context. All three are optional; the first is a single line.
+
+### Connect Leeroopedia
+
+A key for [Leeroopedia](https://leeroopedia.com), the hosted knowledge base of ML and AI frameworks, and every session can look up how a framework actually behaves, have its plan reviewed, pull documented hyperparameter ranges and diagnose a failed run. Nothing to install; new accounts come with $20 of free credit.
+
+```bash
+LEEROOPEDIA_API_KEY=kpsk_...   # in .env
+```
+
+The final summary and `kapso watch --tree` show what the campaign consulted and the credits used. See [Connect Leeroopedia](/docs/installation#connect-leeroopedia-recommended).
 
 ### Research the problem first
 
