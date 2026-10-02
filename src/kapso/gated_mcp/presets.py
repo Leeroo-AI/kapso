@@ -334,6 +334,51 @@ def resolve_gates(
     )
 
 
+def user_setup_gaps(gates: Sequence[str]) -> List[Tuple[str, str, Tuple[str, ...]]]:
+    """The requested gates the USER still has to set up, as (gate, fix,
+    missing env). Env Kapso injects when it launches a session is not the
+    user's to provide and is never reported."""
+    gaps = []
+    for diagnostic in resolve_gates(gates, policy="skip").diagnostics:
+        definition = GATES[diagnostic.gate_name]
+        missing = tuple(
+            name for name in diagnostic.missing_env
+            if name not in definition.injected_env
+        )
+        if missing:
+            fix = definition.setup_hint or f"set {', '.join(missing)} in .env"
+            gaps.append((diagnostic.gate_name, fix, missing))
+    return gaps
+
+
+def gate_call_counts(
+    tool_calls: Sequence[Mapping[str, Any]],
+    server_name: str = "gated-knowledge",
+) -> Dict[str, float]:
+    """A session's MCP tool calls tallied per gate, in phase-telemetry
+    shape: `<gate>_calls` for the gate's total plus `<gate>.<tool>` per
+    tool. A call is attributed by (server, tool) — two gates may share a
+    tool name across servers. Tools of servers Kapso did not mount (a
+    user's own MCP servers) are not knowledge calls and are left out.
+    """
+    owner: Dict[Tuple[str, str], str] = {}
+    for gate_name, gate_def in GATES.items():
+        for tool in gate_def.tools:
+            owner[(gate_def.server_name or server_name, tool)] = gate_name
+    counts: Dict[str, float] = {}
+    for call in tool_calls:
+        name = str(call["name"])
+        if not name.startswith("mcp__"):
+            continue
+        _, server, tool = name.split("__", 2)
+        gate_name = owner.get((server, tool))
+        if gate_name is None:
+            continue
+        for key in (f"{gate_name}_calls", f"{gate_name}.{tool}"):
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def get_allowed_tools_for_gates(
     gates: Sequence[str],
     mcp_server_name: str,

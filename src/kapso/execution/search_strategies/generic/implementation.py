@@ -138,7 +138,7 @@ def run_implementation(
     """
     from kapso.execution.coding_agents.base import CodingAgentConfig
     from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from kapso.gated_mcp import get_mcp_config
+    from kapso.gated_mcp import gate_call_counts, get_mcp_config
     from kapso.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
     
     # Create experiment session (handles git branching). A continuation
@@ -225,9 +225,6 @@ def run_implementation(
                 # Transcript stream persisted for the difficulties
                 # fallback's forensics, same as the claude path.
                 "stream_artifact_path": session_stream_path(branch_name),
-                # The inbox needs the thread id (the resume handle) and
-                # the tail-and-stop; both ride the same settings.
-                "capture_thread_id": inbox_on,
                 **inbox_agent_settings,
             },
         )
@@ -414,9 +411,13 @@ def run_implementation(
                     )
     finally:
         agent.cleanup()
+    # Per-gate knowledge calls ride the phase telemetry (`<gate>_calls`,
+    # `<gate>.<tool>`): the only durable record of what the session
+    # consulted, and what watch and the final summary report.
     telemetry = {
         "cost_usd": phase_cost,
         "duration_seconds": time.monotonic() - phase_started,
+        **gate_call_counts(meta["tool_calls"]),
     }
     
     # 7. Update RepoMemory for this experiment branch — not for a session

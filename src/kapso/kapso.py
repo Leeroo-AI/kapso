@@ -41,6 +41,7 @@ from kapso.execution.observability import (
     KnowledgeStatus,
     LessonStatus,
     OperationStatusView,
+    knowledge_summary,
 )
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.solution import SolutionResult
@@ -1540,6 +1541,14 @@ class Kapso:
         print(f"Goal achieved: {solution.succeeded}")
         if solution.final_score is not None:
             print(f"Final score: {solution.final_score}")
+        # Every gate call across the campaign's nodes, per gate and tool.
+        knowledge = knowledge_summary({
+            f"{node.node_id}:{phase}": values
+            for node in orchestrator.search_strategy.get_experiment_history()
+            for phase, values in node.phase_telemetry.items()
+        })
+        if knowledge:
+            print(f"Knowledge consulted: {knowledge}")
         
         return solution
 

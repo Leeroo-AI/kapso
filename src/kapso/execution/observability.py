@@ -15,7 +15,7 @@ import threading
 from abc import ABC
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 # Structural constant, not a knob: how many consecutive heartbeats may be
 # missed before a reader calls the operation stalled.
@@ -25,6 +25,33 @@ STALL_MISSED_HEARTBEATS = 3
 RECENT_RING_SIZE = 10
 
 _TERMINAL_STATES = ("done", "failed")
+
+
+def knowledge_summary(phase_telemetry: Mapping[str, Mapping[str, float]]) -> str:
+    """What the gates were asked, from the per-gate call keys the phases
+    record (`<gate>_calls`, `<gate>.<tool>`), summed across the phases
+    given: "leeroopedia 2 (build_plan, diagnose_failure); repo_memory 3".
+    Empty when no gate was consulted. Any mapping of label -> phase
+    values works, so a campaign total is the nodes' phases merged."""
+    totals: Dict[str, float] = {}
+    tools: Dict[str, Dict[str, float]] = {}
+    for phase_values in phase_telemetry.values():
+        for key, count in phase_values.items():
+            if key.endswith("_calls"):
+                gate = key[: -len("_calls")]
+                totals[gate] = totals.get(gate, 0) + count
+            elif "." in key:
+                gate, tool = key.split(".", 1)
+                per_gate = tools.setdefault(gate, {})
+                per_gate[tool] = per_gate.get(tool, 0) + count
+    parts = []
+    for gate, total in sorted(totals.items(), key=lambda item: -item[1]):
+        detail = ", ".join(
+            f"{tool}×{int(n)}" if n > 1 else tool
+            for tool, n in sorted(tools.get(gate, {}).items(), key=lambda item: -item[1])
+        )
+        parts.append(f"{gate} {int(total)}" + (f" ({detail})" if detail else ""))
+    return "; ".join(parts)
 
 
 def _utcnow() -> str:
@@ -445,10 +472,12 @@ class OperationStatusView:
             outcome = "error" if node.get("had_error") else "ok"
             if node.get("suspended"):
                 outcome = "waiting"
+            knowledge = knowledge_summary(node.get("phase_telemetry") or {})
             connector = "└─" if is_last else "├─"
             tree_lines.append(
                 f"{prefix}{connector} {branch_name} "
                 f"(score={score_text}, {outcome})"
+                + (f" knowledge: {knowledge}" if knowledge else "")
             )
             child_prefix = prefix + ("  " if is_last else "│ ")
             for index, child_id in enumerate(children[node_id]):

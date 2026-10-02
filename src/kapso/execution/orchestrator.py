@@ -47,7 +47,7 @@ from kapso.execution.evaluation_integrity import (
     manifest_fingerprint,
     verify_data_manifest,
 )
-from kapso.execution.observability import EvolveStatus
+from kapso.execution.observability import EvolveStatus, knowledge_summary
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
     RunCheckpointError,
@@ -1476,10 +1476,14 @@ class OrchestratorAgent:
                 print(f"  - Should stop: {node.should_stop}")
                 print(f"  - Evaluation valid: {node.evaluation_valid}")
                 print(f"  - Feedback: {node.feedback or ''}")
+                knowledge = knowledge_summary(node.phase_telemetry)
+                if knowledge:
+                    print(f"  - Knowledge consulted: {knowledge}")
 
                 best_node = self.search_strategy.get_best_experiment()
                 self.operation_status.note(
-                    f"node {node.node_id} completed score={node.score}",
+                    f"node {node.node_id} completed score={node.score}"
+                    + (f"; knowledge: {knowledge}" if knowledge else ""),
                     last={"score": node.score, "node": node.node_id},
                     best=(
                         {

@@ -47,8 +47,8 @@ def claude_agent(monkeypatch, tmp_path):
 
 def test_claude_resume_command_keeps_launch_flags(monkeypatch, tmp_path):
     agent = claude_agent(monkeypatch, tmp_path)
-    launch = agent._build_command("claude-opus-5", use_stream_json=True)
-    resumed = agent._build_command("claude-opus-5", use_stream_json=True, resume_session_id="sid-1")
+    launch = agent._build_command("claude-opus-5")
+    resumed = agent._build_command("claude-opus-5", resume_session_id="sid-1")
     assert resumed[resumed.index("--resume") + 1] == "sid-1"
     assert "--session-id" not in resumed
     for flag in ("--model", "--effort", "--allowedTools", "--disallowedTools", "--mcp-config", "--output-format"):

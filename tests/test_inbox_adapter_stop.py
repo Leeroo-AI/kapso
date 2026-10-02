@@ -7,7 +7,7 @@ which is not a deadline kill; either way the result is a success carrying
 the request ids and the session id, never a retryable failure; a request
 filed for another session is ignored; Claude is launched with the id
 kapso minted and a different id in its init event is a wiring error;
-Codex with capture_thread_id passes --json and records the thread id.
+Codex always runs --json and records the thread id.
 """
 
 import json
@@ -71,7 +71,7 @@ def claude_agent(tmp_path, monkeypatch, inbox, *, session_id="sid-1"):
 
 def run_claude(agent, monkeypatch, inbox, mode, line, init_id="sid-1"):
     fake_cmd = [sys.executable, "-u", "-c", CLAUDE_FAKE, str(inbox), mode, line, init_id]
-    monkeypatch.setattr(agent, "_build_command", lambda model, use_stream_json=False: fake_cmd)
+    monkeypatch.setattr(agent, "_build_command", lambda model, resume_session_id=None: fake_cmd)
     return agent._run_streaming("prompt", "m", agent._timeout)
 
 
@@ -120,7 +120,7 @@ def test_claude_init_session_id_mismatch_is_a_wiring_error(tmp_path, monkeypatch
 def test_claude_launch_carries_the_minted_session_id(tmp_path, monkeypatch):
     inbox = tmp_path / "inbox.jsonl"
     agent = claude_agent(tmp_path, monkeypatch, inbox)
-    cmd = agent._build_command("m", use_stream_json=True)
+    cmd = agent._build_command("m")
     assert cmd[cmd.index("--session-id") + 1] == "sid-1"
     assert "--resume" not in cmd
 
@@ -177,12 +177,12 @@ def fake_codex(tmp_path, monkeypatch):
     return workspace
 
 
-def codex_agent(workspace, inbox, *, session_id="sid-9", line=None, capture=True):
+def codex_agent(workspace, inbox, *, session_id="sid-9", line=None):
     agent = CodexCodingAgent(CodingAgentConfig(
         agent_type="codex", model="m1", debug_model="m1",
         agent_specific={
             "session_id": session_id, "inbox_path": str(inbox),
-            "inbox_stop_grace_seconds": GRACE, "capture_thread_id": capture,
+            "inbox_stop_grace_seconds": GRACE,
             "env_overrides": {
                 "FAKE_INBOX_PATH": str(inbox),
                 "FAKE_REQUEST_LINE": line or requested_line(session_id),
@@ -221,13 +221,14 @@ def test_codex_is_ended_after_the_grace(tmp_path, fake_codex, monkeypatch):
     assert result.metadata["deadline_exceeded"] is False
 
 
-def test_codex_ignores_other_sessions_and_json_is_opt_in(tmp_path, fake_codex, monkeypatch):
+def test_codex_ignores_other_sessions(tmp_path, fake_codex, monkeypatch):
     argdump = tmp_path / "args.txt"
     monkeypatch.setenv("FAKE_CODEX_ARGDUMP", str(argdump))
     inbox = tmp_path / "inbox.jsonl"
-    agent = codex_agent(fake_codex, inbox, line=requested_line("someone-else"), capture=False)
+    agent = codex_agent(fake_codex, inbox, line=requested_line("someone-else"))
     result = agent.generate_code("go")
     assert result.success and result.output == "FINAL"
     assert result.metadata["stopped_for_inbox"] is False
-    assert result.metadata["cli_session_id"] is None
-    assert "--json" not in argdump.read_text()
+    # The thread id is always recorded now (sessions always run --json).
+    assert result.metadata["cli_session_id"] == "thr-123"
+    assert "--json" in argdump.read_text()

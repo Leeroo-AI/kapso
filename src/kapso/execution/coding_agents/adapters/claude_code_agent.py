@@ -85,7 +85,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
       MCP tools included in the session stay. Verified on CLI 2.1.280.
     - strict_mcp_config: True mounts only the MCP servers given here
       (--strict-mcp-config), not the user's own servers or account connectors
-    - streaming: True (default) - stream output live to terminal for visibility
+    - streaming: True (default) - tee the live transcript to the terminal
+      (every session runs on stream-json regardless; this is console only)
     - auth_mode: Authentication mode: auto (default), oauth, api_key, or bedrock
     - aws_region: AWS region, required when auth_mode="bedrock"
     - append_system_prompt: Optional string appended to Claude Code's default system prompt
@@ -461,12 +462,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         )
 
         try:
-            # Use streaming or buffered mode. The prompt travels via stdin,
-            # never argv (see _build_command).
-            if self._streaming:
-                return self._run_streaming(prompt, model, effective_timeout)
-            else:
-                return self._run_buffered(prompt, model, effective_timeout)
+            # One runner for every session: the stream-json events carry
+            # the cost, the tool calls (per-gate telemetry), the session
+            # id and the inbox stop; `streaming` only decides whether the
+            # transcript is also teed to the console. The prompt travels
+            # via stdin, never argv (see _build_command).
+            return self._run_streaming(prompt, model, effective_timeout)
 
         except subprocess.TimeoutExpired:
             return CodingResult(
@@ -502,54 +503,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             resume_session_id=cli_session_id,
         )
 
-    def _run_buffered(
-        self, prompt: str, model: str, timeout_seconds: Optional[float]
-    ) -> CodingResult:
-        """Run Claude Code CLI in buffered mode (no live output)."""
-        cmd = self._build_command(model, use_stream_json=False)
-        result = subprocess.run(
-            cmd,
-            cwd=self.workspace,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=self._get_env()
-        )
-        
-        output = result.stdout
-        stderr = result.stderr
-        
-        if result.returncode != 0:
-            # Check if it's a non-fatal warning
-            if "warning" in stderr.lower() and output:
-                pass  # Continue with output
-            else:
-                return CodingResult(
-                    success=False,
-                    output=output,
-                    error=stderr or f"CLI exited with code {result.returncode}"
-                )
-        
-        # Parse the response
-        files_changed = self._get_changed_files()
-        
-        # Estimate cost (Claude Code doesn't report directly)
-        cost = self._estimate_cost(len(cmd[2]) if len(cmd) > 2 else 0, len(output))
-        self._cumulative_cost += cost
-        
-        return CodingResult(
-            success=True,
-            output=output,
-            files_changed=files_changed,
-            cost=cost,
-            metadata={
-                "model": model,
-                "planning_mode": self._planning_mode,
-                "auth_mode": self._auth_mode,
-            }
-        )
-    
     def _run_streaming(
         self,
         prompt: str,
@@ -567,10 +520,10 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         """
         if resume_session_id:
             stream_cmd = self._build_command(
-                model, use_stream_json=True, resume_session_id=resume_session_id
+                model, resume_session_id=resume_session_id
             )
         else:
-            stream_cmd = self._build_command(model, use_stream_json=True)
+            stream_cmd = self._build_command(model)
 
         start_time = time.time()
         raw_lines: List[str] = []
@@ -603,7 +556,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         
         c = _COLORS  # shorthand
         
-        print(f"\n{c['cyan']}━━━ Claude Code Starting ━━━{c['reset']}", flush=True)
+        self._say(f"\n{c['cyan']}━━━ Claude Code Starting ━━━{c['reset']}", flush=True)
 
         # Ensure stdout/stderr pipes are always closed.
         #
@@ -692,7 +645,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     err_line = process.stderr.readline()
                     if err_line:
                         err_line = err_line.rstrip('\n')
-                        print(f"{c['yellow']}  [stderr] {err_line}{c['reset']}", file=sys.stderr, flush=True)
+                        self._say(f"{c['yellow']}  [stderr] {err_line}{c['reset']}", file=sys.stderr, flush=True)
                         stderr_tail = (stderr_tail + [err_line])[-20:]
                         got_output = True
                         last_heartbeat = time.time()
@@ -709,7 +662,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     and time.time() - completion_armed_at
                     > _POST_COMPLETION_GRACE_SECONDS
                 ):
-                    print(
+                    self._say(
                         f"{c['yellow']}  Session completed its report but the "
                         f"CLI lingered — reaping after "
                         f"{_POST_COMPLETION_GRACE_SECONDS:.0f}s of silence"
@@ -729,7 +682,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     now = time.time()
                     if now - last_heartbeat > heartbeat_interval:
                         elapsed = now - start_time
-                        print(f"{c['dim']}  ... still working ({elapsed:.0f}s){c['reset']}", flush=True)
+                        self._say(f"{c['dim']}  ... still working ({elapsed:.0f}s){c['reset']}", flush=True)
                         last_heartbeat = now
                 
                 if retcode is not None:
@@ -744,7 +697,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                             self._display_stream_event(line, assistant_texts)
                     if process.stderr:
                         for err_line in process.stderr:
-                            print(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
+                            self._say(f"{c['yellow']}  [stderr] {err_line.rstrip()}{c['reset']}", file=sys.stderr, flush=True)
                             stderr_tail = (stderr_tail + [err_line.rstrip()])[-20:]
                     break
 
@@ -759,7 +712,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     if new_ids:
                         inbox_request_ids.extend(new_ids)
                         inbox_stop_at = time.time() + self._inbox_stop_grace_seconds
-                        print(
+                        self._say(
                             f"{c['yellow']}  Session asked the person (requests "
                             f"{', '.join(f'#{i}' for i in new_ids)}) — ending it "
                             f"after {self._inbox_stop_grace_seconds:.0f}s unless "
@@ -772,7 +725,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     and time.time() >= inbox_stop_at
                 ):
                     inbox_killed = True
-                    print(
+                    self._say(
                         f"{c['yellow']}  Grace over — ending the session for the "
                         f"inbox{c['reset']}",
                         flush=True,
@@ -796,7 +749,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     and time.time() - start_time >= timeout_seconds
                 ):
                     deadline_exceeded = True
-                    print(
+                    self._say(
                         f"{c['yellow']}  Deadline of {timeout_seconds}s reached — "
                         f"terminating Claude Code{c['reset']}",
                         flush=True,
@@ -905,7 +858,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             if output_tokens == 0 and cumulative_output > 0:
                 output_tokens = cumulative_output
             
-            print(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n", flush=True)
+            self._say(f"{c['cyan']}━━━ Claude Code Finished ({elapsed:.1f}s, ${total_cost:.4f}, {tool_call_count} tools, {input_tokens}+{output_tokens} tokens) ━━━{c['reset']}\n", flush=True)
             
             # A kill after the session already delivered its complete final
             # report (all completion markers present in the captured stream)
@@ -1085,6 +1038,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             except Exception:
                 pass
     
+    def _say(self, *args: Any, **kwargs: Any) -> None:
+        """Console output for a streaming session; buffered sessions
+        (other expansion lanes) run the same stream-json runner silently."""
+        if self._streaming:
+            print(*args, **kwargs)
+
     def _display_stream_event(self, line: str, assistant_texts: List[str]) -> None:
         """Parse and display a single stream-json event."""
         c = _COLORS
@@ -1096,7 +1055,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             event = json.loads(line)
         except json.JSONDecodeError:
             # Not JSON, just print raw (might be progress indicator or other text)
-            print(f"  {line}", flush=True)
+            self._say(f"  {line}", flush=True)
             return
         
         event_type = event.get("type", "")
@@ -1106,7 +1065,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             # Initialization event
             model = event.get("model", "unknown")
             tools = event.get("tools", [])
-            print(f"{c['dim']}  [init] model={model}, tools={len(tools)}{c['reset']}", flush=True)
+            self._say(f"{c['dim']}  [init] model={model}, tools={len(tools)}{c['reset']}", flush=True)
         
         elif event_type == "assistant":
             # Assistant message (thinking + tool calls)
@@ -1118,23 +1077,23 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                     if text:
                         assistant_texts.append(text)
                         # Show full thinking text (no truncation)
-                        print(f"{c['green']}  [thinking] {text}{c['reset']}", flush=True)
+                        self._say(f"{c['green']}  [thinking] {text}{c['reset']}", flush=True)
                 elif block.get("type") == "tool_use":
                     tool_name = block.get("name", "unknown")
                     tool_input = block.get("input", {})
                     # Show tool call summary with arguments
                     if tool_name in ("Read", "Edit", "Write"):
                         path = tool_input.get("file_path", tool_input.get("path", "?"))
-                        print(f"{c['blue']}  [tool:{tool_name}] {path}{c['reset']}", flush=True)
+                        self._say(f"{c['blue']}  [tool:{tool_name}] {path}{c['reset']}", flush=True)
                     elif tool_name == "Bash":
                         cmd = tool_input.get("command", "")[:80]
-                        print(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
+                        self._say(f"{c['magenta']}  [tool:Bash] {cmd}{c['reset']}", flush=True)
                     elif tool_name.startswith("mcp__"):
                         # MCP tool - show full arguments for transparency
                         args_str = json.dumps(tool_input, ensure_ascii=False)
-                        print(f"{c['blue']}  [tool:{tool_name}] {args_str}{c['reset']}", flush=True)
+                        self._say(f"{c['blue']}  [tool:{tool_name}] {args_str}{c['reset']}", flush=True)
                     else:
-                        print(f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True)
+                        self._say(f"{c['blue']}  [tool:{tool_name}]{c['reset']}", flush=True)
         
         elif event_type == "user":
             # Tool result returned to Claude — show full content for transparency.
@@ -1166,22 +1125,22 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         result_text = str(raw) if raw else ""
 
                     if result_text.strip():
-                        print(f"{c['dim']}  [result:{status}] ↓{c['reset']}", flush=True)
+                        self._say(f"{c['dim']}  [result:{status}] ↓{c['reset']}", flush=True)
                         for result_line in result_text.splitlines():
-                            print(f"{c['dim']}    {result_line}{c['reset']}", flush=True)
+                            self._say(f"{c['dim']}    {result_line}{c['reset']}", flush=True)
                     else:
-                        print(f"{c['dim']}  [result:{status}] (empty){c['reset']}", flush=True)
+                        self._say(f"{c['dim']}  [result:{status}] (empty){c['reset']}", flush=True)
         
         elif event_type == "result":
             # Final result - show summary
             duration = event.get("duration_ms", 0) / 1000
             cost = event.get("total_cost_usd", 0)
-            print(f"{c['dim']}  [result] duration={duration:.1f}s, cost=${cost:.4f}{c['reset']}", flush=True)
+            self._say(f"{c['dim']}  [result] duration={duration:.1f}s, cost=${cost:.4f}{c['reset']}", flush=True)
         
         else:
             # Unknown event type - show it for debugging
             if event_type:
-                print(f"{c['dim']}  [{event_type}:{subtype}]{c['reset']}", flush=True)
+                self._say(f"{c['dim']}  [{event_type}:{subtype}]{c['reset']}", flush=True)
     
     # Tools whose delivery machinery does not run in print (-p) sessions —
     # the only mode this adapter ever spawns. ScheduleWakeup accepts the
@@ -1198,7 +1157,6 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
     def _build_command(
         self,
         model: str,
-        use_stream_json: bool = False,
         resume_session_id: Optional[str] = None,
     ) -> List[str]:
         """Build the Claude Code CLI command.
@@ -1222,11 +1180,9 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
         elif self._session_id:
             cmd.extend(["--session-id", self._session_id])
         
-        # Output format: stream-json for live visibility, text for buffered
-        if use_stream_json:
-            cmd.extend(["--output-format", "stream-json", "--verbose"])
-        else:
-            cmd.extend(["--output-format", "text"])
+        # stream-json: the events are the session's record (cost, tool
+        # calls, session id, how it ended), console or not.
+        cmd.extend(["--output-format", "stream-json", "--verbose"])
         
         # Add model if specified
         if model:

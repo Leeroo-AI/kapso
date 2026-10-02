@@ -37,7 +37,7 @@ def make_agent(monkeypatch, streaming):
 
 def test_build_command_contains_no_prompt(monkeypatch):
     agent = make_agent(monkeypatch, streaming=False)
-    cmd = agent._build_command("claude-opus-4-8", use_stream_json=True)
+    cmd = agent._build_command("claude-opus-4-8")
     assert cmd[:2] == ["claude", "-p"]
     joined = " ".join(cmd)
     assert "pkill" not in joined  # sanity: nothing content-like in argv
@@ -45,19 +45,51 @@ def test_build_command_contains_no_prompt(monkeypatch):
     assert all(len(part) < 200 for part in cmd)
 
 
-def test_buffered_run_pipes_prompt_via_stdin(monkeypatch):
+def test_non_streaming_session_runs_the_same_stream_json_runner_silently(monkeypatch, capsys):
+    """`streaming: False` (expansion lanes other than lane 0) used to take a
+    plain-text `claude -p` path with no cost, tool-call, session-id or inbox
+    handling. One runner now: stream-json always, console tee only when
+    streaming is on."""
     agent = make_agent(monkeypatch, streaming=False)
     captured = {}
 
-    def fake_run(cmd, cwd, input, capture_output, text, timeout, env):
-        captured.update(cmd=cmd, input=input)
-        return SimpleNamespace(returncode=0, stdout="done", stderr="")
+    class FakeStdin:
+        def __init__(self):
+            self.data = ""
+            self.closed = False
 
-    monkeypatch.setattr(claude_module.subprocess, "run", fake_run)
+        def write(self, text):
+            self.data += text
+
+        def close(self):
+            self.closed = True
+
+    class FakeProc:
+        def __init__(self):
+            self.stdin = FakeStdin()
+            self.stdout = None
+            self.stderr = None
+            self.pid = 999
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(cmd, cwd, stdin, stdout, stderr, text, env, bufsize, start_new_session):
+        captured.update(cmd=cmd)
+        proc = FakeProc()
+        captured["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(claude_module.subprocess, "Popen", fake_popen)
     result = agent.generate_code("SECRET PLAN mentioning vllm and pkill")
-    assert result.success
-    assert captured["input"] == "SECRET PLAN mentioning vllm and pkill"
+    assert "stream-json" in captured["cmd"]
+    assert captured["proc"].stdin.data == "SECRET PLAN mentioning vllm and pkill"
     assert all("SECRET PLAN" not in part for part in captured["cmd"])
+    assert "tool_calls" in result.metadata
+    assert capsys.readouterr().out == ""
 
 
 def test_streaming_run_pipes_prompt_via_stdin(monkeypatch):

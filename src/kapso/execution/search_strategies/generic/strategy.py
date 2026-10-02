@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from kapso.gated_mcp.presets import user_setup_gaps
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
@@ -439,6 +440,16 @@ class GenericSearch(SearchStrategy):
         print(f"  - ideation_gates: {self.ideation_gates}")
         print(f"  - implementation_gates: {self.implementation_gates}")
         print(f"  - gate_failure_policy: {self.gate_failure_policy}")
+        # A gate the user has not set up is silently absent for the whole
+        # campaign; say so once, with the fix, where the gate lists are.
+        configured_gates = list(dict.fromkeys(
+            list(self.ideation_gates) + list(self.implementation_gates)
+        ))
+        for gate_name, fix, missing in user_setup_gaps(configured_gates):
+            print(
+                f"  - gate '{gate_name}' is OFF this campaign "
+                f"(missing {', '.join(missing)}): {fix}"
+            )
         print(f"  - parent_policy: {self.parent_policy}")
         print(f"  - experiment_history_path: {self.experiment_history_path}")
         print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
@@ -708,13 +719,14 @@ class GenericSearch(SearchStrategy):
             node_id=node.node_id,
             continuation=Continuation(node.cli_session_id, follow_up),
         )
-        # Implementation telemetry accumulates across the node's sessions.
+        # Implementation telemetry accumulates across the node's sessions:
+        # cost, duration and the per-gate knowledge calls alike.
         prior = node.phase_telemetry.get("implementation", {})
         node.phase_telemetry["implementation"] = {
-            "cost_usd": prior.get("cost_usd", 0.0)
-            + implementation_telemetry.get("cost_usd", 0.0),
-            "duration_seconds": prior.get("duration_seconds", 0.0)
-            + implementation_telemetry.get("duration_seconds", 0.0),
+            key: prior.get(key, 0.0) + implementation_telemetry.get(key, 0.0)
+            for key in list(prior) + [
+                key for key in implementation_telemetry if key not in prior
+            ]
         }
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(node.branch_name, node.parent_branch_name)

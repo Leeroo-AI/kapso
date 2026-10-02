@@ -9,9 +9,11 @@ from kapso.gated_mcp import (
     GATES,
     GateCapabilityError,
     GateDefinition,
+    gate_call_counts,
     get_allowed_tools_for_gates,
     get_mcp_config,
     resolve_gates,
+    user_setup_gaps,
 )
 from kapso.gated_mcp.server import _resolve_configuration
 
@@ -284,3 +286,45 @@ def test_research_gate_failures_propagate(monkeypatch):
         with pytest.raises(RuntimeError, match="provider 400"):
             asyncio.run(gate.handle_call(tool, {"query": "q"}))
     monkeypatch.setattr(backends, "_researcher_backend", None)
+
+
+def test_gate_call_counts_attribute_by_server_and_tool():
+    """A session's tool calls become per-gate telemetry keys. `search_knowledge`
+    exists on two servers (the bundled kg gate and hosted Leeroopedia), so
+    attribution is by (server, tool); built-in tools and a user's own MCP
+    servers are not knowledge calls."""
+    counts = gate_call_counts([
+        {"name": "Bash", "input": {"command": "ls"}},
+        {"name": "mcp__leeroopedia__search_knowledge", "input": {"query": "q"}},
+        {"name": "mcp__leeroopedia__search_knowledge", "input": {"query": "r"}},
+        {"name": "mcp__leeroopedia__build_plan", "input": {"goal": "g"}},
+        {"name": "mcp__gated-knowledge__search_knowledge", "input": {"query": "q"}},
+        {"name": "mcp__gated-knowledge__get_repo_memory_summary", "input": {}},
+        {"name": "mcp__brightdata__scrape_as_markdown", "input": {"url": "u"}},
+    ])
+    assert counts == {
+        "leeroopedia_calls": 3,
+        "leeroopedia.search_knowledge": 2,
+        "leeroopedia.build_plan": 1,
+        "kg_calls": 1,
+        "kg.search_knowledge": 1,
+        "repo_memory_calls": 1,
+        "repo_memory.get_repo_memory_summary": 1,
+    }
+    assert gate_call_counts([]) == {}
+
+
+def test_user_setup_gaps_name_only_what_the_user_must_provide(monkeypatch):
+    """Injected env (set by Kapso at launch) is never a gap; a hosted gate's
+    gap carries its own setup hint, a bundled gate's the variable to set."""
+    gaps = user_setup_gaps(["repo_memory", "research", "leeroopedia", "inbox", "bank"])
+    assert [(gate, missing) for gate, _, missing in gaps] == [
+        ("research", ("OPENAI_API_KEY",)),
+        ("leeroopedia", ("LEEROOPEDIA_API_KEY",)),
+    ]
+    fixes = {gate: fix for gate, fix, _ in gaps}
+    assert fixes["research"] == "set OPENAI_API_KEY in .env"
+    assert "LEEROOPEDIA_API_KEY" in fixes["leeroopedia"] and "nothing to install" in fixes["leeroopedia"]
+
+    monkeypatch.setenv("LEEROOPEDIA_API_KEY", "kpsk_x")
+    assert [gate for gate, _, _ in user_setup_gaps(["leeroopedia", "repo_memory"])] == []

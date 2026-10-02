@@ -39,7 +39,7 @@ from kapso.core.api_endpoint import (
     openai_compatible_options,
     validate_api_base_url,
 )
-from kapso.gated_mcp.presets import GATES, resolve_gates
+from kapso.gated_mcp.presets import user_setup_gaps
 from kapso.knowledge_base.search.factory import KnowledgeSearchFactory
 from kapso.learning.bank_remote import bank_origin, bank_remote_error
 
@@ -662,35 +662,19 @@ def _gate_requirements(
     if not gates:
         return []
     policy = str(params.get("gate_failure_policy") or "warn").strip().lower()
-    # Resolve in skip mode and decide required-ness here, so a policy of
-    # `error` yields a readable row rather than a bare capability raise.
-    resolution = resolve_gates(gates, policy="skip")
+    # The same gap list the campaign banner prints; decide required-ness
+    # here, so a policy of `error` yields a readable row rather than a
+    # bare capability raise. Under `warn`/`skip` the [warn] mark already
+    # says the campaign proceeds, so only `error` — where the user may
+    # want to downgrade the policy instead — earns an extra clause.
     requirements = []
-    for diagnostic in resolution.diagnostics:
-        if diagnostic.enabled:
-            continue
-        definition = GATES[diagnostic.gate_name]
-        # Vars Kapso sets when it launches the session are not the user's
-        # to provide — reporting them here would be a guaranteed false
-        # positive on every clean machine.
-        missing_env = tuple(
-            name for name in diagnostic.missing_env
-            if name not in definition.injected_env
-        )
-        if not missing_env:
-            continue
-        # The gate's own setup_hint when it has one; otherwise name exactly
-        # what is missing. Under `warn`/`skip` the [warn] mark already says
-        # the campaign proceeds, so only `error` — where the user may want
-        # to downgrade the policy instead — earns an extra clause.
-        remedy = definition.setup_hint or f"set {', '.join(missing_env)} in .env"
+    for gate_name, remedy, missing_env in user_setup_gaps(gates):
         if policy == "error":
-            downgrade = "set gate_failure_policy: warn to run without it"
-            fix = f"{remedy} — or {downgrade}" if remedy else downgrade
+            fix = f"{remedy} — or set gate_failure_policy: warn to run without it"
         else:
             fix = remedy
         requirements.append(Requirement(
-            label=f"MCP gate '{diagnostic.gate_name}'",
+            label=f"MCP gate '{gate_name}'",
             ok=False,
             fix=fix,
             origin=f"{prefix}.search_strategy.params gates",

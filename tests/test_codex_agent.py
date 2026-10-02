@@ -36,6 +36,14 @@ case "$FAKE_CODEX_MODE" in
   sleep) sleep 60 ;;
   fail) exit 3 ;;
   nomsg) exit 0 ;;
+  mcp)
+    echo '{"type":"thread.started","thread_id":"thr-1"}'
+    echo 'warning: Model metadata for `m1` not found. Defaulting to fallback metadata'
+    echo '{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"leeroopedia","tool":"get_page","arguments":{"page_id":"P"},"result":null,"error":null,"status":"in_progress"}}'
+    echo '{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"leeroopedia","tool":"get_page","arguments":{"page_id":"P"},"result":null,"error":null,"status":"completed"}}'
+    echo '{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"ls","status":"completed"}}'
+    echo '{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"ok"}}'
+    printf 'FINAL[%s]' "$model" > "$last" ;;
   *) printf 'FINAL[%s]' "$model" > "$last" ;;
 esac
 """
@@ -206,6 +214,9 @@ def test_hosted_mcp_server_becomes_a_url_override(tmp_path, fake_codex, monkeypa
     argv = argdump.read_text()
     assert 'mcp_servers.leeroopedia.url="https://mcp.leeroopedia.com/mcp?token=kpsk_x"' in argv
     assert "mcp_servers.leeroopedia.tool_timeout_sec=600" in argv
+    # exec never prompts: a read-only sandbox refused the call as "requires
+    # approval" until the gate's tools were pre-approved (live 2026-10-02).
+    assert 'mcp_servers.leeroopedia.default_tools_approval_mode="auto"' in argv
     assert "mcp_servers.leeroopedia.command" not in argv
     assert "mcp_servers.leeroopedia.env" not in argv
 
@@ -241,3 +252,21 @@ def test_none_timeout_is_the_default_deadline(tmp_path, fake_codex):
     deadline, not a crash (live L2 on codex, 2026-09-04)."""
     assert make_agent(tmp_path, timeout=None)._timeout == 3600.0
     assert make_agent(tmp_path, timeout=120)._timeout == 120.0
+
+
+def test_mcp_tool_calls_are_read_from_the_json_stream(tmp_path, fake_codex, monkeypatch):
+    """Sessions always run --json; the mcp_tool_call items become the same
+    tool_calls metadata the claude adapter returns (per-gate telemetry),
+    merged-stderr noise is not an event, and the final answer still comes
+    from --output-last-message."""
+    argdump = tmp_path / "args.txt"
+    monkeypatch.setenv("FAKE_CODEX_ARGDUMP", str(argdump))
+    monkeypatch.setenv("FAKE_CODEX_MODE", "mcp")
+    result = make_agent(fake_codex).generate_code("use the gate")
+    assert result.success and result.output == "FINAL[m1]"
+    assert "--json" in argdump.read_text().split()
+    assert result.metadata["cli_session_id"] == "thr-1"
+    assert result.metadata["tool_call_count"] == 1
+    assert result.metadata["tool_calls"] == [
+        {"name": "mcp__leeroopedia__get_page", "input": {"page_id": "P"}},
+    ]

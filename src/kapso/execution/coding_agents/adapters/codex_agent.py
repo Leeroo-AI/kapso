@@ -36,7 +36,7 @@ from kapso.execution.coding_agents.base import (
 
 _DEADLINE_GRACE_SECONDS = 5.0
 _POLL_INTERVAL_SECONDS = 0.5
-# The first `--json` event names the thread; the stream is merged with
+# The first `--json` event names the thread (the resume handle); the stream is merged with
 # stderr, so the id is matched on the line rather than parsed as JSON.
 _THREAD_STARTED_PATTERN = re.compile(
     r'"type"\s*:\s*"thread\.started".*?"thread_id"\s*:\s*"([^"]+)"'
@@ -63,6 +63,10 @@ def mcp_config_overrides(mcp_servers: Dict[str, Any]) -> List[str]:
         if "url" in spec:
             overrides += ["-c", f"mcp_servers.{name}.url={json.dumps(spec['url'])}"]
             overrides += ["-c", f"mcp_servers.{name}.tool_timeout_sec={spec['timeout'] // 1000}"]
+            # Under a read-only sandbox codex refuses MCP calls that "require
+            # approval" (exec never prompts); a knowledge gate is read-only
+            # by nature, so its tools are pre-approved.
+            overrides += ["-c", f'mcp_servers.{name}.default_tools_approval_mode="auto"']
             continue
         overrides += ["-c", f"mcp_servers.{name}.command={json.dumps(spec['command'])}"]
         args = spec.get("args") or []
@@ -77,6 +81,30 @@ def mcp_config_overrides(mcp_servers: Dict[str, Any]) -> List[str]:
             body = ", ".join(f"{k} = {json.dumps(v)}" for k, v in env.items())
             overrides += ["-c", f"mcp_servers.{name}.env={{{body}}}"]
     return overrides
+
+
+def mcp_tool_calls(stream: str) -> List[Dict[str, Any]]:
+    """The MCP tool calls in a `codex exec --json` stream, in the claude
+    adapter's shape ({name: mcp__<server>__<tool>, input}): one per
+    `item.completed` event whose item is an mcp_tool_call (verified live
+    2026-10-02). Lines that are not JSON events (merged stderr, warnings)
+    are skipped; a line shaped like an event that does not parse raises.
+    """
+    calls: List[Dict[str, Any]] = []
+    for line in stream.splitlines():
+        if not line.startswith('{"type":'):
+            continue
+        event = json.loads(line)
+        if event["type"] != "item.completed":
+            continue
+        item = event["item"]
+        if item["type"] != "mcp_tool_call":
+            continue
+        calls.append({
+            "name": f"mcp__{item['server']}__{item['tool']}",
+            "input": item["arguments"] or {},
+        })
+    return calls
 
 
 class CodexCodingAgent(CodingAgentInterface):
@@ -106,8 +134,11 @@ class CodexCodingAgent(CodingAgentInterface):
         inbox_stop_grace_seconds: how long the session gets to end its own
             turn after asking, before it is ended (config
             inbox.stop_grace_seconds)
-        capture_thread_id: pass --json and record the thread id from the
-            thread.started event — what `resume` needs
+
+    Sessions always run with --json: the thread id (what `resume` needs)
+    and the MCP tool calls (per-gate knowledge telemetry) both come from
+    the event stream; the final answer still comes from
+    --output-last-message.
     """
 
     def __init__(self, config: CodingAgentConfig):
@@ -147,7 +178,6 @@ class CodexCodingAgent(CodingAgentInterface):
         self._inbox_stop_grace_seconds: float = (
             float(spec["inbox_stop_grace_seconds"]) if self._inbox_path else 0.0
         )
-        self._capture_thread_id: bool = bool(spec.get("capture_thread_id", False))
         self._thread_id: Optional[str] = None
         self._workspace: str = ""
         if not shutil.which("codex"):
@@ -210,8 +240,7 @@ class CodexCodingAgent(CodingAgentInterface):
         if self._effort:
             cmd.extend(["-c", f'model_reasoning_effort="{self._effort}"'])
         cmd.extend(self._mcp_overrides)
-        if self._capture_thread_id:
-            cmd.append("--json")
+        cmd.append("--json")
         return cmd
 
     def _run_session(
@@ -270,7 +299,7 @@ class CodexCodingAgent(CodingAgentInterface):
             for line in process.stdout:
                 stream_file.write(line)
                 stream_file.flush()
-                if self._capture_thread_id and self._thread_id is None:
+                if self._thread_id is None:
                     match = _THREAD_STARTED_PATTERN.search(line)
                     if match:
                         self._thread_id = match.group(1)
@@ -340,6 +369,7 @@ class CodexCodingAgent(CodingAgentInterface):
             os.unlink(stream_path)
 
         output = last_message if last_message else stream
+        tool_calls = mcp_tool_calls(stream)
         error: Optional[str] = None
         if inbox_request_ids:
             # Asked the person and stopped — not a failure however the
@@ -373,6 +403,8 @@ class CodexCodingAgent(CodingAgentInterface):
                 "inbox_killed": inbox_killed,
                 "session_id": self._session_id,
                 "cli_session_id": self._thread_id,
+                "tool_call_count": len(tool_calls),
+                "tool_calls": tool_calls,
             },
         )
 

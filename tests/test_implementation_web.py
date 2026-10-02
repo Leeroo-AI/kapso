@@ -58,7 +58,7 @@ def run_fake_implementation(tmp_path, monkeypatch, *, implementation_cli,
             return SimpleNamespace(
                 success=True,
                 output="<score>1.0</score>",
-                metadata={},
+                metadata={"tool_calls": []},
                 error=None,
             )
 

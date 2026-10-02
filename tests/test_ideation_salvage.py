@@ -64,6 +64,6 @@ def test_non_deadline_failures_are_not_salvaged():
         success=False,
         output="Traceback (most recent call last): boom " * 20,
         error="CLI exited with code 1",
-        metadata={},
+        metadata={"tool_calls": []},
     )
     assert make_strategy()._salvage_ideation_output(result) is None

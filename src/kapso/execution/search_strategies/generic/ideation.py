@@ -260,7 +260,7 @@ def generate_solution(
     """
     from kapso.execution.coding_agents.base import CodingAgentConfig
     from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from kapso.gated_mcp import get_mcp_config
+    from kapso.gated_mcp import gate_call_counts, get_mcp_config
     
     # 1. Load RepoMemory (read-only)
     repo_memory_doc = RepoMemoryManager.load_from_git_branch(
@@ -348,9 +348,13 @@ def generate_solution(
         phase_started = time.monotonic()
         try:
             result = agent.generate_code(prompt)
+            # Per-gate knowledge calls ride the phase telemetry: the
+            # ideation worktree is deleted afterwards, so this tally is
+            # the only durable record of what the session consulted.
             telemetry = {
                 "cost_usd": agent.get_cumulative_cost(),
                 "duration_seconds": time.monotonic() - phase_started,
+                **gate_call_counts(result.metadata["tool_calls"]),
             }
 
             if not result.success:
@@ -415,6 +419,8 @@ def generate_solution_ensemble(
     the pooled <solution> candidates. Fail-soft ladder: selector failure
     -> first claude_code candidate -> any candidate -> template fallback.
     """
+    from kapso.gated_mcp import gate_call_counts
+
     phase_started = time.monotonic()
 
     base_prompt = build_prompt(
@@ -512,6 +518,8 @@ def generate_solution_ensemble(
                 "cli": "codex",
                 "candidates": candidates,
                 "sections": [],
+                # Codex ideation mounts no gates (read-only, no MCP).
+                "gate_calls": {},
                 "cost_usd": 0.0,
                 "duration_seconds": duration,
                 "timed_out": timed_out,
@@ -583,6 +591,7 @@ def generate_solution_ensemble(
             "cli": "claude_code",
             "candidates": candidates,
             "sections": extract_sections_consulted(result.output),
+            "gate_calls": gate_call_counts(result.metadata["tool_calls"]),
             "cost_usd": cost,
         }
 
@@ -600,8 +609,12 @@ def generate_solution_ensemble(
     pool: List[Dict[str, str]] = []
     sections: List[str] = []
     total_cost = lens_planner_cost
+    # Every member consulted the gates for this node: the tally is the sum.
+    gate_calls: Dict[str, float] = {}
     for member_result in member_results:
         total_cost += member_result["cost_usd"]
+        for key, count in member_result["gate_calls"].items():
+            gate_calls[key] = gate_calls.get(key, 0) + count
         for section in member_result["sections"]:
             if section not in sections:
                 sections.append(section)
@@ -639,6 +652,7 @@ def generate_solution_ensemble(
     telemetry = {
         "cost_usd": total_cost,
         "duration_seconds": time.monotonic() - phase_started,
+        **gate_calls,
     }
     print(
         f"[GenericSearch] Ensemble ideation pooled {len(pool)} candidates "

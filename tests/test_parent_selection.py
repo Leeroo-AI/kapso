@@ -178,6 +178,7 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
                 success=True,
                 output="<solution>selected solution</solution>",
                 error=None,
+                metadata={"tool_calls": []},
             )
 
         def get_cumulative_cost(self):

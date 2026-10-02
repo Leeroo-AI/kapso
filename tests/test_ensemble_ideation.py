@@ -144,13 +144,13 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
                     success=selector_success,
                     output=selector_output if selector_success else "",
                     error=None if selector_success else "boom",
-                    metadata={},
+                    metadata={"tool_calls": []},
                 )
             return SimpleNamespace(
                 success=claude_success,
                 output=claude_output if claude_success else "",
                 error=None if claude_success else "CLI exited with code 1",
-                metadata={},
+                metadata={"tool_calls": []},
             )
 
         def get_cumulative_cost(self):

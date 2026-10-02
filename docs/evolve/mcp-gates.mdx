@@ -34,6 +34,16 @@ is true, so the gate always resolves. See the [inbox](/docs/evolve/inbox).
 that a dependency is configured; it does not make a network request or prove
 that a credential is valid.
 
+## What a campaign records
+
+Every session's MCP tool calls are tallied per gate into the node's phase
+telemetry (`<gate>_calls` and `<gate>.<tool>` under `ideation` and
+`implementation`), so the checkpoint keeps what each node consulted. The
+tally appears on the node-completed line in the log and status file, on each
+row of `kapso watch --tree`, and as "Knowledge consulted" totals in the final
+summary. A configured gate that cannot resolve is named once in the launch
+banner with its fix, for example a missing `LEEROOPEDIA_API_KEY`.
+
 ## Failure policies
 
 `resolve_gates` accepts three policies:

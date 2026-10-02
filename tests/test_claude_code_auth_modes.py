@@ -217,12 +217,12 @@ def test_print_mode_dead_tools_always_disallowed(monkeypatch):
     """Every adapter session runs -p mode, where ScheduleWakeup never fires
     (0/50 across our and official PTB traces; repro on CLI 2.1.157) while
     its result text promises re-invocation — run #18 idled 3h on it. The
-    ban must be present in every constructed command, both output modes."""
+    ban must be present in every constructed command."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic")
     agent = ClaudeCodeCodingAgent(make_config(auth_mode="api_key"))
 
-    for use_stream_json in (False, True):
-        cmd = agent._build_command("claude-opus-4-6", use_stream_json=use_stream_json)
+    for resume_session_id in (None, "sid-1"):
+        cmd = agent._build_command("claude-opus-4-6", resume_session_id=resume_session_id)
         flag_index = cmd.index("--disallowedTools")
         banned = cmd[flag_index + 1].split(",")
         assert "ScheduleWakeup" in banned
@@ -240,7 +240,7 @@ def test_builtin_tools_option_pins_the_cli_tool_set(monkeypatch):
     for pinned, flag_value in (([], ""), (["Read", "Grep"], "Read,Grep")):
         agent = ClaudeCodeCodingAgent(make_config(
             auth_mode="api_key", builtin_tools=pinned, strict_mcp_config=True))
-        cmd = agent._build_command("claude-opus-4-6", use_stream_json=True)
+        cmd = agent._build_command("claude-opus-4-6")
         assert cmd[cmd.index("--tools") + 1] == flag_value
         assert "--strict-mcp-config" in cmd
 

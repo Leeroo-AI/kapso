@@ -16,6 +16,7 @@ import pytest
 
 from kapso.core.config import load_platform_defaults, load_config
 from kapso.execution.observability import (
+    knowledge_summary,
     EvolveStatus,
     KnowledgeStatus,
     LessonStatus,
@@ -228,14 +229,27 @@ def test_evolve_watch_renders_checkpoint_tree(tmp_path):
     (state_dir / "run_state.json").write_text(json.dumps({
         "strategy_state": {"node_history": [
             {"node_id": 0, "parent_node_id": None, "branch_name": "baseline", "score": 0.4},
-            {"node_id": 1, "parent_node_id": 0, "branch_name": "candidate-a", "score": 0.8},
+            {"node_id": 1, "parent_node_id": 0, "branch_name": "candidate-a", "score": 0.8,
+             "phase_telemetry": {
+                 "ideation": {"cost_usd": 0.2, "leeroopedia_calls": 2, "leeroopedia.build_plan": 1,
+                              "leeroopedia.search_knowledge": 1},
+                 "implementation": {"cost_usd": 1.0, "leeroopedia_calls": 1,
+                                    "leeroopedia.search_knowledge": 1, "repo_memory_calls": 3,
+                                    "repo_memory.get_repo_memory_section": 3},
+             }},
             {"node_id": 2, "parent_node_id": 0, "branch_name": "candidate-b", "suspended": True},
         ]}
     }))
     screen = OperationStatusView(state_dir / "status.json").explain(tree=True)
     assert "campaign tree:" in screen
-    assert "candidate-a (score=0.8, ok)" in screen
-    assert "candidate-b (score=unscored, waiting)" in screen
+    # The knowledge tally rides each row: gates by calls, tools by calls.
+    assert (
+        "candidate-a (score=0.8, ok) knowledge: leeroopedia 3 "
+        "(search_knowledge×2, build_plan); repo_memory 3 (get_repo_memory_section×3)"
+    ) in screen
+    waiting_row = next(line for line in screen.splitlines() if "candidate-b" in line)
+    assert "candidate-b (score=unscored, waiting)" in waiting_row
+    assert "knowledge" not in waiting_row
 
 
 def test_evolve_watch_rejects_missing_checkpoint_parent(tmp_path):
@@ -317,3 +331,8 @@ def test_dead_writer_is_reported_before_the_heartbeat_goes_stale(tmp_path):
     data["state"] = "done"
     path.write_text(json.dumps(data))
     assert OperationStatusView(path).dead is False
+
+
+def test_knowledge_summary_is_empty_without_gate_calls():
+    assert knowledge_summary({}) == ""
+    assert knowledge_summary({"implementation": {"cost_usd": 1.0, "duration_seconds": 9.0}}) == ""
