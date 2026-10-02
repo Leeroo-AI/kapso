@@ -39,13 +39,16 @@ class GateDefinition:
     server. A hosted gate names its MCP server and the streamable-HTTP URL
     sessions connect to; `{VAR}` placeholders in the URL are filled from
     the gate's required_env at launch, so a key can ride on the address
-    without ever being written into code or config.
+    without ever being written into code or config. tool_timeout_seconds
+    is how long a session waits on one of its tool calls (both CLIs
+    default to 60s, too short for agentic tools).
     """
 
     tools: List[str]
     default_params: Dict[str, Any] = field(default_factory=dict)
     server_name: Optional[str] = None
     url: Optional[str] = None
+    tool_timeout_seconds: Optional[int] = None
     required_env: List[str] = field(default_factory=list)
     # How a user obtains what this gate needs. A gate declares its own
     # requirements, so it declares its own remedy — preflight renders this
@@ -237,6 +240,7 @@ GATES: Dict[str, GateDefinition] = {
         default_params={},
         server_name="leeroopedia",
         url=_HOSTED_GATES["leeroopedia"]["url"],
+        tool_timeout_seconds=_HOSTED_GATES["leeroopedia"]["tool_timeout_seconds"],
         required_env=["LEEROOPEDIA_API_KEY"],
         setup_hint=(
             "put LEEROOPEDIA_API_KEY=kpsk_... in .env — sign up at "
@@ -495,7 +499,9 @@ def get_mcp_config(
         }
     
     # Hosted servers: the URL template is filled from the gate's required
-    # env and handed to the CLI as a streamable-HTTP server.
+    # env and handed to the CLI as a streamable-HTTP server. The per-call
+    # timeout is Claude Code's per-server `timeout` (milliseconds); the
+    # Codex adapter translates it to its own key.
     for gate_name in enabled_gates:
         gate_def = GATES[gate_name]
         if gate_def.url:
@@ -504,6 +510,7 @@ def get_mcp_config(
                 "url": gate_def.url.format(
                     **{key: effective_env[key] for key in gate_def.required_env}
                 ),
+                "timeout": gate_def.tool_timeout_seconds * 1000,
             }
     
     # Get allowed tools

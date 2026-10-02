@@ -113,9 +113,17 @@ These are the same checks [`kapso doctor`](/docs/reference/cli#kapso-doctor) rep
 gates:
   leeroopedia:
     url: "https://mcp.leeroopedia.com/mcp?token={LEEROOPEDIA_API_KEY}"
+    tool_timeout_seconds: 600
 ```
 
-The addresses of the hosted MCP gates (see [MCP gates](/docs/evolve/mcp-gates)). Bundled gates run in-process and have no entry here. A `{VAR}` placeholder is filled from the gate's required environment variable when a session launches, so the key rides on the URL without ever being written into the config or the campaign tree. Sessions connect to Leeroopedia's hosted server directly; there is nothing to install.
+The hosted MCP gates (see [MCP gates](/docs/evolve/mcp-gates)). Bundled gates run in-process and have no entry here.
+
+| Key | What it does | Shipped value |
+|-----|--------------|---------------|
+| `url` | The server's streamable-HTTP address. A `{VAR}` placeholder is filled from the gate's required environment variable when a session launches, so the key rides on the URL without ever being written into the config or the campaign tree | `https://mcp.leeroopedia.com/mcp?token={LEEROOPEDIA_API_KEY}` |
+| `tool_timeout_seconds` | How long a session waits on one tool call. Both CLIs default to 60 seconds, which cuts off Leeroopedia's agentic tools (`build_plan`, `verify_code_math`) mid-answer | `600` |
+
+Sessions connect to Leeroopedia's hosted server directly; there is nothing to install.
 
 ## deployment
 

@@ -73,6 +73,10 @@ gates:
     # filled from LEEROOPEDIA_API_KEY when a session launches — the key
     # never enters this file or the campaign tree.
     url: "https://mcp.leeroopedia.com/mcp?token={LEEROOPEDIA_API_KEY}"
+    # The agentic tools (build_plan, verify_code_math, ...) take 45-180s on
+    # the server; both CLIs cut an MCP tool call at 60s unless told
+    # otherwise (live, 2026-10-02: the two slowest tools timed out at 60.0s).
+    tool_timeout_seconds: 600
 
 # =============================================================================
 # Deployment — the two sessions deploy() runs: the selector (picks a target

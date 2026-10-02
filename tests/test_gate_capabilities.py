@@ -156,7 +156,9 @@ def test_hosted_gate_is_an_http_server_carrying_the_key_and_spawns_no_bundled_se
 ):
     """The hosted server takes the key on the query string (a Bearer header
     is refused at initialize, verified 2026-10-01), so the launch fills the
-    URL template from the env rather than passing env to a subprocess."""
+    URL template from the env rather than passing env to a subprocess. The
+    per-call timeout rides along: the CLI default of 60s cut the two
+    slowest tools at exactly 60.0s in the live run of 2026-10-02."""
     monkeypatch.setenv("LEEROOPEDIA_API_KEY", "secret")
 
     servers, tools = get_mcp_config(
@@ -170,6 +172,7 @@ def test_hosted_gate_is_an_http_server_carrying_the_key_and_spawns_no_bundled_se
     assert servers["leeroopedia"] == {
         "type": "http",
         "url": "https://mcp.leeroopedia.com/mcp?token=secret",
+        "timeout": 600_000,
     }
     assert "mcp__leeroopedia__search_knowledge" in tools
 

@@ -187,8 +187,9 @@ def test_mcp_servers_become_config_overrides(tmp_path, fake_codex, monkeypatch):
 
 
 def test_hosted_mcp_server_becomes_a_url_override(tmp_path, fake_codex, monkeypatch):
-    """A hosted gate ({type: http, url}) mounts as `mcp_servers.<name>.url`
-    — `codex mcp add --url` — with no command/args/env keys emitted."""
+    """A hosted gate ({type: http, url, timeout}) mounts as
+    `mcp_servers.<name>.url` — `codex mcp add --url` — with the claude-shaped
+    millisecond timeout as `tool_timeout_sec`, and no command/args/env keys."""
     argdump = tmp_path / "args.txt"
     monkeypatch.setenv("FAKE_CODEX_ARGDUMP", str(argdump))
     agent = make_agent(
@@ -197,12 +198,14 @@ def test_hosted_mcp_server_becomes_a_url_override(tmp_path, fake_codex, monkeypa
             "leeroopedia": {
                 "type": "http",
                 "url": "https://mcp.leeroopedia.com/mcp?token=kpsk_x",
+                "timeout": 600_000,
             }
         },
     )
     assert agent.generate_code("with hosted mcp").success
     argv = argdump.read_text()
     assert 'mcp_servers.leeroopedia.url="https://mcp.leeroopedia.com/mcp?token=kpsk_x"' in argv
+    assert "mcp_servers.leeroopedia.tool_timeout_sec=600" in argv
     assert "mcp_servers.leeroopedia.command" not in argv
     assert "mcp_servers.leeroopedia.env" not in argv
 

@@ -86,10 +86,10 @@ are forwarded only to the bundled MCP subprocess. Kapso uses the running Python
 interpreter for that subprocess, which avoids relying on a separate `python`
 executable on `PATH`. If all internal gates are omitted, no empty bundled server
 is created. A hosted gate is handed to the CLI as a streamable-HTTP server under
-its own name and tool-name prefix; its address lives in the packaged config's
-`gates:` block, and `{VAR}` placeholders in it are filled from the gate's
-required environment when the session launches, so the key rides on the URL
-and is never written into code or config.
+its own name and tool-name prefix; its address and per-call timeout live in the
+packaged config's `gates:` block, and `{VAR}` placeholders in the address are
+filled from the gate's required environment when the session launches, so the
+key rides on the URL and is never written into code or config.
 
 ## Generic search
 
@@ -125,6 +125,7 @@ GATES["example"] = GateDefinition(
     tools=["example_search"],
     server_name="example",       # hosted server; omit for bundled gates
     url=_HOSTED_GATES["example"]["url"],  # from config.yaml `gates:`
+    tool_timeout_seconds=_HOSTED_GATES["example"]["tool_timeout_seconds"],
     required_env=["EXAMPLE_API_KEY"],
 )
 ```
