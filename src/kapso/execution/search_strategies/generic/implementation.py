@@ -138,7 +138,7 @@ def run_implementation(
     """
     from kapso.execution.coding_agents.base import CodingAgentConfig
     from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from kapso.gated_mcp import gate_call_counts, get_mcp_config
+    from kapso.gated_mcp import gate_usage, get_mcp_config
     from kapso.execution.memories.repo_memory.observation import extract_repo_memory_sections_consulted
     
     # Create experiment session (handles git branching). A continuation
@@ -417,7 +417,7 @@ def run_implementation(
     telemetry = {
         "cost_usd": phase_cost,
         "duration_seconds": time.monotonic() - phase_started,
-        **gate_call_counts(meta["tool_calls"]),
+        **gate_usage(meta["tool_calls"]),
     }
     
     # 7. Update RepoMemory for this experiment branch — not for a session

@@ -9,7 +9,7 @@ from kapso.gated_mcp import (
     GATES,
     GateCapabilityError,
     GateDefinition,
-    gate_call_counts,
+    gate_usage,
     get_allowed_tools_for_gates,
     get_mcp_config,
     resolve_gates,
@@ -288,30 +288,35 @@ def test_research_gate_failures_propagate(monkeypatch):
     monkeypatch.setattr(backends, "_researcher_backend", None)
 
 
-def test_gate_call_counts_attribute_by_server_and_tool():
+def test_gate_usage_attributes_by_server_and_tool_and_reads_credit_balances():
     """A session's tool calls become per-gate telemetry keys. `search_knowledge`
     exists on two servers (the bundled kg gate and hosted Leeroopedia), so
     attribution is by (server, tool); built-in tools and a user's own MCP
-    servers are not knowledge calls."""
-    counts = gate_call_counts([
-        {"name": "Bash", "input": {"command": "ls"}},
-        {"name": "mcp__leeroopedia__search_knowledge", "input": {"query": "q"}},
-        {"name": "mcp__leeroopedia__search_knowledge", "input": {"query": "r"}},
-        {"name": "mcp__leeroopedia__build_plan", "input": {"goal": "g"}},
-        {"name": "mcp__gated-knowledge__search_knowledge", "input": {"query": "q"}},
+    servers are not knowledge calls. Leeroopedia answers end with a balance
+    footer (live 2026-10-02: "---\n*Credits remaining: 761*"); the first and
+    last balance of the session are kept, an error answer reports none."""
+    footer = "\n\n---\n*Credits remaining: {}*"
+    usage = gate_usage([
+        {"name": "Bash", "input": {"command": "ls"}, "result": "file.py"},
+        {"name": "mcp__leeroopedia__search_knowledge", "input": {"query": "q"}, "result": "# LoRA" + footer.format(761)},
+        {"name": "mcp__leeroopedia__search_knowledge", "input": {"query": "r"}, "result": "The operation timed out."},
+        {"name": "mcp__leeroopedia__build_plan", "input": {"goal": "g"}, "result": "# Plan" + footer.format(747)},
+        {"name": "mcp__gated-knowledge__search_knowledge", "input": {"query": "q"}, "result": "pages"},
         {"name": "mcp__gated-knowledge__get_repo_memory_summary", "input": {}},
-        {"name": "mcp__brightdata__scrape_as_markdown", "input": {"url": "u"}},
+        {"name": "mcp__brightdata__scrape_as_markdown", "input": {"url": "u"}, "result": "html"},
     ])
-    assert counts == {
+    assert usage == {
         "leeroopedia_calls": 3,
         "leeroopedia.search_knowledge": 2,
         "leeroopedia.build_plan": 1,
+        "leeroopedia_credits_first": 761,
+        "leeroopedia_credits_last": 747,
         "kg_calls": 1,
         "kg.search_knowledge": 1,
         "repo_memory_calls": 1,
         "repo_memory.get_repo_memory_summary": 1,
     }
-    assert gate_call_counts([]) == {}
+    assert gate_usage([]) == {}
 
 
 def test_user_setup_gaps_name_only_what_the_user_must_provide(monkeypatch):

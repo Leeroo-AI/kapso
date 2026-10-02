@@ -40,7 +40,8 @@ case "$FAKE_CODEX_MODE" in
     echo '{"type":"thread.started","thread_id":"thr-1"}'
     echo 'warning: Model metadata for `m1` not found. Defaulting to fallback metadata'
     echo '{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"leeroopedia","tool":"get_page","arguments":{"page_id":"P"},"result":null,"error":null,"status":"in_progress"}}'
-    echo '{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"leeroopedia","tool":"get_page","arguments":{"page_id":"P"},"result":null,"error":null,"status":"completed"}}'
+    echo '{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"leeroopedia","tool":"get_page","arguments":{"page_id":"P"},"result":{"content":[{"type":"text","text":"# P\n\n---\n*Credits remaining: 760*"}],"structured_content":{"result":"# P"}},"error":null,"status":"completed"}}'
+    echo '{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","server":"leeroopedia","tool":"build_plan","arguments":{"goal":"g"},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"},"status":"failed"}}'
     echo '{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"ls","status":"completed"}}'
     echo '{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"ok"}}'
     printf 'FINAL[%s]' "$model" > "$last" ;;
@@ -266,7 +267,9 @@ def test_mcp_tool_calls_are_read_from_the_json_stream(tmp_path, fake_codex, monk
     assert result.success and result.output == "FINAL[m1]"
     assert "--json" in argdump.read_text().split()
     assert result.metadata["cli_session_id"] == "thr-1"
-    assert result.metadata["tool_call_count"] == 1
+    assert result.metadata["tool_call_count"] == 2
     assert result.metadata["tool_calls"] == [
-        {"name": "mcp__leeroopedia__get_page", "input": {"page_id": "P"}},
+        {"name": "mcp__leeroopedia__get_page", "input": {"page_id": "P"},
+         "result": "# P\n\n---\n*Credits remaining: 760*"},
+        {"name": "mcp__leeroopedia__build_plan", "input": {"goal": "g"}, "result": ""},
     ]

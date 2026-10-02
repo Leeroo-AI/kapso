@@ -61,6 +61,22 @@ from kapso.execution.coding_agents.base import (
 )
 
 
+def _tool_result_text(raw: Any) -> str:
+    """A stream-json tool_result's content as one string: the CLI sends
+    either a plain str or a list of content blocks ({"type": "text", ...})."""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts = []
+        for item in raw:
+            if isinstance(item, dict) and item.get("text"):
+                parts.append(item["text"])
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    return str(raw) if raw else ""
+
+
 class ClaudeCodeCodingAgent(CodingAgentInterface):
     """
     Claude Code-based coding agent.
@@ -808,6 +824,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
             # doesn't include aggregated token counts.
             cumulative_input = 0
             cumulative_output = 0
+            call_index_by_id: Dict[str, int] = {}
             for line in raw_lines:
                 try:
                     event = json.loads(line)
@@ -817,7 +834,8 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                             if block.get("type") == "tool_use":
                                 tool_call_count += 1
                                 tool_input = block.get("input", {}) or {}
-                                tool_calls.append({"name": block.get("name", "?"), "input": tool_input})
+                                call_index_by_id[str(block.get("id", ""))] = len(tool_calls)
+                                tool_calls.append({"name": block.get("name", "?"), "input": tool_input, "result": ""})
                                 last_tool = (
                                     f"{block.get('name', '?')}: "
                                     f"{str(tool_input.get('command') or tool_input.get('file_path') or '')[:200]}"
@@ -826,6 +844,14 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                         usage = msg.get("usage", {})
                         cumulative_input += usage.get("input_tokens", 0)
                         cumulative_output += usage.get("output_tokens", 0)
+                    elif event.get("type") == "user":
+                        # The tool's answer, matched to its call: the
+                        # per-gate telemetry reads credit balances from it.
+                        for block in event.get("message", {}).get("content", []):
+                            if isinstance(block, dict) and block.get("type") == "tool_result":
+                                index = call_index_by_id.get(str(block.get("tool_use_id", "")))
+                                if index is not None:
+                                    tool_calls[index]["result"] = _tool_result_text(block.get("content", ""))
                 except json.JSONDecodeError:
                     continue
             
@@ -1107,22 +1133,7 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 if block.get("type") == "tool_result":
                     is_error = block.get("is_error", False)
                     status = "error" if is_error else "ok"
-                    raw = block.get("content", "")
-
-                    # Normalise content to a single string
-                    if isinstance(raw, str):
-                        result_text = raw
-                    elif isinstance(raw, list):
-                        # List of content blocks — extract text from each
-                        parts = []
-                        for item in raw:
-                            if isinstance(item, dict) and item.get("text"):
-                                parts.append(item["text"])
-                            elif isinstance(item, str):
-                                parts.append(item)
-                        result_text = "\n".join(parts)
-                    else:
-                        result_text = str(raw) if raw else ""
+                    result_text = _tool_result_text(block.get("content", ""))
 
                     if result_text.strip():
                         self._say(f"{c['dim']}  [result:{status}] ↓{c['reset']}", flush=True)

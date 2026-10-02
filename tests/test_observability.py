@@ -16,6 +16,7 @@ import pytest
 
 from kapso.core.config import load_platform_defaults, load_config
 from kapso.execution.observability import (
+    credits_summary,
     knowledge_summary,
     EvolveStatus,
     KnowledgeStatus,
@@ -232,10 +233,12 @@ def test_evolve_watch_renders_checkpoint_tree(tmp_path):
             {"node_id": 1, "parent_node_id": 0, "branch_name": "candidate-a", "score": 0.8,
              "phase_telemetry": {
                  "ideation": {"cost_usd": 0.2, "leeroopedia_calls": 2, "leeroopedia.build_plan": 1,
-                              "leeroopedia.search_knowledge": 1},
+                              "leeroopedia.search_knowledge": 1,
+                              "leeroopedia_credits_first": 761, "leeroopedia_credits_last": 752},
                  "implementation": {"cost_usd": 1.0, "leeroopedia_calls": 1,
                                     "leeroopedia.search_knowledge": 1, "repo_memory_calls": 3,
-                                    "repo_memory.get_repo_memory_section": 3},
+                                    "repo_memory.get_repo_memory_section": 3,
+                                    "leeroopedia_credits_first": 747, "leeroopedia_credits_last": 747},
              }},
             {"node_id": 2, "parent_node_id": 0, "branch_name": "candidate-b", "suspended": True},
         ]}
@@ -250,6 +253,8 @@ def test_evolve_watch_renders_checkpoint_tree(tmp_path):
     waiting_row = next(line for line in screen.splitlines() if "candidate-b" in line)
     assert "candidate-b (score=unscored, waiting)" in waiting_row
     assert "knowledge" not in waiting_row
+    # The metered gate's balance across the campaign closes the tree.
+    assert "credits: leeroopedia 761 → 747 remaining" in screen
 
 
 def test_evolve_watch_rejects_missing_checkpoint_parent(tmp_path):
@@ -336,3 +341,14 @@ def test_dead_writer_is_reported_before_the_heartbeat_goes_stale(tmp_path):
 def test_knowledge_summary_is_empty_without_gate_calls():
     assert knowledge_summary({}) == ""
     assert knowledge_summary({"implementation": {"cost_usd": 1.0, "duration_seconds": 9.0}}) == ""
+
+
+def test_credits_summary_spans_parallel_lanes_by_balance_not_order():
+    """Lanes run in parallel, so the campaign's first balance is the highest
+    reported and the last the lowest; a gate without a balance is silent."""
+    assert credits_summary({
+        "1:implementation": {"leeroopedia_credits_first": 740, "leeroopedia_credits_last": 731},
+        "2:implementation": {"leeroopedia_credits_first": 747, "leeroopedia_credits_last": 735},
+        "0:ideation": {"repo_memory_calls": 2},
+    }) == "leeroopedia 747 → 731 remaining"
+    assert credits_summary({"implementation": {"cost_usd": 1.0}}) == ""

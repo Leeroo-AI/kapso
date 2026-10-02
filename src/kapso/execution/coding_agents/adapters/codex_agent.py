@@ -85,10 +85,12 @@ def mcp_config_overrides(mcp_servers: Dict[str, Any]) -> List[str]:
 
 def mcp_tool_calls(stream: str) -> List[Dict[str, Any]]:
     """The MCP tool calls in a `codex exec --json` stream, in the claude
-    adapter's shape ({name: mcp__<server>__<tool>, input}): one per
-    `item.completed` event whose item is an mcp_tool_call (verified live
-    2026-10-02). Lines that are not JSON events (merged stderr, warnings)
-    are skipped; a line shaped like an event that does not parse raises.
+    adapter's shape ({name: mcp__<server>__<tool>, input, result}): one
+    per `item.completed` event whose item is an mcp_tool_call, the result
+    being the text of the server's answer ("" when the call failed). Lines
+    that are not JSON events (merged stderr, warnings) are skipped; a line
+    shaped like an event that does not parse raises. Verified live
+    2026-10-02.
     """
     calls: List[Dict[str, Any]] = []
     for line in stream.splitlines():
@@ -100,9 +102,19 @@ def mcp_tool_calls(stream: str) -> List[Dict[str, Any]]:
         item = event["item"]
         if item["type"] != "mcp_tool_call":
             continue
+        result = item["result"]
+        text = (
+            "".join(
+                block.get("text", "")
+                for block in result.get("content", [])
+                if isinstance(block, dict)
+            )
+            if isinstance(result, dict) else ""
+        )
         calls.append({
             "name": f"mcp__{item['server']}__{item['tool']}",
             "input": item["arguments"] or {},
+            "result": text,
         })
     return calls
 

@@ -6,6 +6,7 @@ Each gate groups related tools with default configuration parameters.
 
 import logging
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,6 +50,10 @@ class GateDefinition:
     server_name: Optional[str] = None
     url: Optional[str] = None
     tool_timeout_seconds: Optional[int] = None
+    # A metered gate reports its remaining balance in every answer; the
+    # pattern's one group is that balance (what the campaign summary turns
+    # into credits used).
+    credits_pattern: Optional[str] = None
     required_env: List[str] = field(default_factory=list)
     # How a user obtains what this gate needs. A gate declares its own
     # requirements, so it declares its own remedy — preflight renders this
@@ -241,6 +246,7 @@ GATES: Dict[str, GateDefinition] = {
         server_name="leeroopedia",
         url=_HOSTED_GATES["leeroopedia"]["url"],
         tool_timeout_seconds=_HOSTED_GATES["leeroopedia"]["tool_timeout_seconds"],
+        credits_pattern=r"\*Credits remaining: (\d+)\*",
         required_env=["LEEROOPEDIA_API_KEY"],
         setup_hint=(
             "put LEEROOPEDIA_API_KEY=kpsk_... in .env — sign up at "
@@ -351,21 +357,24 @@ def user_setup_gaps(gates: Sequence[str]) -> List[Tuple[str, str, Tuple[str, ...
     return gaps
 
 
-def gate_call_counts(
+def gate_usage(
     tool_calls: Sequence[Mapping[str, Any]],
     server_name: str = "gated-knowledge",
 ) -> Dict[str, float]:
     """A session's MCP tool calls tallied per gate, in phase-telemetry
     shape: `<gate>_calls` for the gate's total plus `<gate>.<tool>` per
-    tool. A call is attributed by (server, tool) — two gates may share a
-    tool name across servers. Tools of servers Kapso did not mount (a
-    user's own MCP servers) are not knowledge calls and are left out.
+    tool, and for a metered gate `<gate>_credits_first` /
+    `<gate>_credits_last` — the balance its first and last answer in the
+    session reported. A call is attributed by (server, tool) — two gates
+    may share a tool name across servers. Tools of servers Kapso did not
+    mount (a user's own MCP servers) are not knowledge calls and are left
+    out; an answer without the balance (an error text) reports none.
     """
     owner: Dict[Tuple[str, str], str] = {}
     for gate_name, gate_def in GATES.items():
         for tool in gate_def.tools:
             owner[(gate_def.server_name or server_name, tool)] = gate_name
-    counts: Dict[str, float] = {}
+    usage: Dict[str, float] = {}
     for call in tool_calls:
         name = str(call["name"])
         if not name.startswith("mcp__"):
@@ -375,8 +384,15 @@ def gate_call_counts(
         if gate_name is None:
             continue
         for key in (f"{gate_name}_calls", f"{gate_name}.{tool}"):
-            counts[key] = counts.get(key, 0) + 1
-    return counts
+            usage[key] = usage.get(key, 0) + 1
+        pattern = GATES[gate_name].credits_pattern
+        if pattern:
+            match = re.search(pattern, str(call.get("result", "")))
+            if match:
+                balance = float(match.group(1))
+                usage.setdefault(f"{gate_name}_credits_first", balance)
+                usage[f"{gate_name}_credits_last"] = balance
+    return usage
 
 
 def get_allowed_tools_for_gates(

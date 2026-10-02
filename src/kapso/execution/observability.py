@@ -54,6 +54,29 @@ def knowledge_summary(phase_telemetry: Mapping[str, Mapping[str, float]]) -> str
     return "; ".join(parts)
 
 
+def credits_summary(phase_telemetry: Mapping[str, Mapping[str, float]]) -> str:
+    """What the metered gates reported, from the `<gate>_credits_first` /
+    `<gate>_credits_last` keys: "leeroopedia 761 → 747 remaining" — the
+    balance after the earliest answer to the balance after the latest,
+    over all the phases given (lanes run in parallel, so earliest is the
+    highest balance and latest the lowest). Empty when no metered gate
+    answered."""
+    first: Dict[str, float] = {}
+    last: Dict[str, float] = {}
+    for phase_values in phase_telemetry.values():
+        for key, balance in phase_values.items():
+            if key.endswith("_credits_first"):
+                gate = key[: -len("_credits_first")]
+                first[gate] = max(first.get(gate, balance), balance)
+            elif key.endswith("_credits_last"):
+                gate = key[: -len("_credits_last")]
+                last[gate] = min(last.get(gate, balance), balance)
+    return "; ".join(
+        f"{gate} {int(first[gate])} → {int(last[gate])} remaining"
+        for gate in sorted(first) if gate in last
+    )
+
+
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -487,6 +510,13 @@ class OperationStatusView:
             render(root_id, "  ", index == len(roots) - 1)
         if len(visited) != len(nodes):
             raise ValueError("evolve checkpoint contains an unreachable node")
+        credits = credits_summary({
+            f"{node_id}:{phase}": values
+            for node_id, node in nodes.items()
+            for phase, values in (node.get("phase_telemetry") or {}).items()
+        })
+        if credits:
+            tree_lines.append(f"  credits: {credits}")
         return tree_lines
 
     def _operation_block(self) -> list:

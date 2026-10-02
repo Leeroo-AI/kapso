@@ -142,15 +142,24 @@ def test_every_tool_call_is_handed_back_with_its_input(tmp_path, monkeypatch):
     agent = make_agent(tmp_path, monkeypatch, timeout=30)
     script = "\n".join([
         stream_event({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/A", "updates": {"content": "x"}}},
+            {"type": "tool_use", "id": "t1", "name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/A", "updates": {"content": "x"}}},
+            {"type": "tool_use", "id": "t2", "name": "mcp__leeroopedia__get_page", "input": {"page_id": "P"}},
             {"type": "text", "text": "done"},
+        ]}}),
+        # Answers arrive as user events, as a plain string or as text blocks.
+        stream_event({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t2", "content": [{"type": "text", "text": "# P\n\n---\n*Credits remaining: 760*"}]},
+        ]}}),
+        stream_event({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "edited"},
         ]}}),
         stream_event({"type": "result", "result": "done", "total_cost_usd": 0.01, "is_error": False}),
     ])
     result = run_fake_cli(agent, monkeypatch, script)
-    assert result.metadata["tool_call_count"] == 1
+    assert result.metadata["tool_call_count"] == 2
     assert result.metadata["tool_calls"] == [
-        {"name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/A", "updates": {"content": "x"}}},
+        {"name": "mcp__kg-graph-search__kg_edit", "input": {"page_id": "Principle/A", "updates": {"content": "x"}}, "result": "edited"},
+        {"name": "mcp__leeroopedia__get_page", "input": {"page_id": "P"}, "result": "# P\n\n---\n*Credits remaining: 760*"},
     ]
 
 

@@ -260,7 +260,7 @@ def generate_solution(
     """
     from kapso.execution.coding_agents.base import CodingAgentConfig
     from kapso.execution.coding_agents.adapters.claude_code_agent import ClaudeCodeCodingAgent
-    from kapso.gated_mcp import gate_call_counts, get_mcp_config
+    from kapso.gated_mcp import gate_usage, get_mcp_config
     
     # 1. Load RepoMemory (read-only)
     repo_memory_doc = RepoMemoryManager.load_from_git_branch(
@@ -354,7 +354,7 @@ def generate_solution(
             telemetry = {
                 "cost_usd": agent.get_cumulative_cost(),
                 "duration_seconds": time.monotonic() - phase_started,
-                **gate_call_counts(result.metadata["tool_calls"]),
+                **gate_usage(result.metadata["tool_calls"]),
             }
 
             if not result.success:
@@ -419,7 +419,7 @@ def generate_solution_ensemble(
     the pooled <solution> candidates. Fail-soft ladder: selector failure
     -> first claude_code candidate -> any candidate -> template fallback.
     """
-    from kapso.gated_mcp import gate_call_counts
+    from kapso.gated_mcp import gate_usage
 
     phase_started = time.monotonic()
 
@@ -591,7 +591,7 @@ def generate_solution_ensemble(
             "cli": "claude_code",
             "candidates": candidates,
             "sections": extract_sections_consulted(result.output),
-            "gate_calls": gate_call_counts(result.metadata["tool_calls"]),
+            "gate_calls": gate_usage(result.metadata["tool_calls"]),
             "cost_usd": cost,
         }
 

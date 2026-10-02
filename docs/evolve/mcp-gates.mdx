@@ -41,8 +41,11 @@ telemetry (`<gate>_calls` and `<gate>.<tool>` under `ideation` and
 `implementation`), so the checkpoint keeps what each node consulted. The
 tally appears on the node-completed line in the log and status file, on each
 row of `kapso watch --tree`, and as "Knowledge consulted" totals in the final
-summary. A configured gate that cannot resolve is named once in the launch
-banner with its fix, for example a missing `LEEROOPEDIA_API_KEY`.
+summary. Leeroopedia answers carry the account's remaining credits, so the tree
+and the summary also show "leeroopedia 761 → 747 remaining": the balance after
+the campaign's first answer to the balance after its last. A configured gate
+that cannot resolve is named once in the launch banner with its fix, for
+example a missing `LEEROOPEDIA_API_KEY`.
 
 ## Failure policies
 
