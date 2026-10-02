@@ -344,3 +344,17 @@ Kapso gets better at your company the longer it works: every task feeds a living
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
+
+## Citation
+
+If you use Kapso in your work, please cite the technical report:
+
+```bibtex
+@article{nadafian2026kapso,
+  title   = {KAPSO: A Knowledge-grounded framework for Autonomous Program Synthesis and Optimization},
+  author  = {Nadafian, Alireza and Mohammadshahi, Alireza and Yazdani, Majid},
+  journal = {arXiv preprint arXiv:2601.21526},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2601.21526}
+}
+```
