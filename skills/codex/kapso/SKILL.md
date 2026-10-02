@@ -6,7 +6,7 @@ description: Operate Kapso (PyPI leeroo-kapso), the long-running agents that opt
 # Kapso
 
 Kapso runs experiment campaigns: propose a candidate, implement it on its own git
-branch, score it with the judge, keep the best, repeat. Everything below is 0.4.x.
+branch, score it with the judge, keep the best, repeat. Everything below is 0.6.x.
 Prefer the facts here and the docs links at the end over reading the package source;
 the source is large and a session that greps it runs out of turns before answering.
 
