@@ -186,6 +186,27 @@ def test_mcp_servers_become_config_overrides(tmp_path, fake_codex, monkeypatch):
     assert 'mcp_servers.gated-knowledge.env={MCP_ENABLED_GATES = "repo_memory"}' in argv
 
 
+def test_hosted_mcp_server_becomes_a_url_override(tmp_path, fake_codex, monkeypatch):
+    """A hosted gate ({type: http, url}) mounts as `mcp_servers.<name>.url`
+    — `codex mcp add --url` — with no command/args/env keys emitted."""
+    argdump = tmp_path / "args.txt"
+    monkeypatch.setenv("FAKE_CODEX_ARGDUMP", str(argdump))
+    agent = make_agent(
+        fake_codex,
+        mcp_servers={
+            "leeroopedia": {
+                "type": "http",
+                "url": "https://mcp.leeroopedia.com/mcp?token=kpsk_x",
+            }
+        },
+    )
+    assert agent.generate_code("with hosted mcp").success
+    argv = argdump.read_text()
+    assert 'mcp_servers.leeroopedia.url="https://mcp.leeroopedia.com/mcp?token=kpsk_x"' in argv
+    assert "mcp_servers.leeroopedia.command" not in argv
+    assert "mcp_servers.leeroopedia.env" not in argv
+
+
 def test_unsafe_mcp_server_name_rejected(fake_codex):
     with pytest.raises(ValueError, match="TOML-bare-key"):
         make_agent(fake_codex, mcp_servers={"bad name!": {"command": "x"}})

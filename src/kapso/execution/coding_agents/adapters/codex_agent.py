@@ -50,13 +50,18 @@ def mcp_config_overrides(mcp_servers: Dict[str, Any]) -> List[str]:
 
     {name: {command, args, cwd, env}} becomes dotted-path TOML overrides
     (`mcp_servers.<name>.command="..."` etc.) — the per-invocation
-    equivalent of `codex mcp add`. JSON string encoding is valid TOML for
-    these values (paths and identifiers).
+    equivalent of `codex mcp add`; a hosted server ({name: {type: http,
+    url}}) becomes `mcp_servers.<name>.url` (`codex mcp add --url`). JSON
+    string encoding is valid TOML for these values (paths, URLs,
+    identifiers).
     """
     overrides: List[str] = []
     for name, spec in (mcp_servers or {}).items():
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError(f"MCP server name not TOML-bare-key safe: {name!r}")
+        if "url" in spec:
+            overrides += ["-c", f"mcp_servers.{name}.url={json.dumps(spec['url'])}"]
+            continue
         overrides += ["-c", f"mcp_servers.{name}.command={json.dumps(spec['command'])}"]
         args = spec.get("args") or []
         overrides += [
@@ -83,8 +88,8 @@ class CodexCodingAgent(CodingAgentInterface):
             write+network parity of Claude's skip-permissions sessions)
         web_search: enable the native --search tool (default True)
         mcp_servers: claude-shaped MCP server spec {name: {command, args,
-            cwd, env}} mounted via per-invocation `-c mcp_servers.*`
-            overrides
+            cwd, env}} or {name: {type: http, url}} mounted via
+            per-invocation `-c mcp_servers.*` overrides
         streaming: tee the live transcript to the console (default False;
             the artifact file always gets the full stream)
         env_strip: env var names removed from the child environment

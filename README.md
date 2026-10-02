@@ -138,10 +138,9 @@ pip install -e .
 The legacy aider adapter is an extra (`pip install "leeroo-kapso[aider]"`,
 Python <3.13); the default claude/codex agents need no extras.
 
-**Leeroopedia MCP (optional)** — connect Kapso to [Leeroopedia](https://leeroopedia.com), a curated ML/AI knowledge base. Get an API key from the [Leeroopedia dashboard](https://app.leeroopedia.com/dashboard), then:
+**Leeroopedia MCP (optional)** — connect Kapso to [Leeroopedia](https://leeroopedia.com), a curated ML/AI knowledge base, through its hosted MCP server. Nothing to install: sign up at the [Leeroopedia dashboard](https://app.leeroopedia.com/dashboard) ($20 free credit), then:
 
 ```bash
-pip install leeroopedia-mcp
 echo 'LEEROOPEDIA_API_KEY=kpsk_your_key_here' >> .env
 ```
 

@@ -33,18 +33,17 @@ def isolated_capabilities(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def command_lookup(*available):
-    available_commands = set(available)
-    return lambda command: f"/bin/{command}" if command in available_commands else None
-
-
-def test_registry_declares_environment_and_command_requirements():
+def test_registry_declares_environment_requirements():
     assert GATES["research"].required_env == ["OPENAI_API_KEY"]
     assert GATES["experiment_history"].required_env == [
         "EXPERIMENT_HISTORY_PATH"
     ]
     assert GATES["leeroopedia"].required_env == ["LEEROOPEDIA_API_KEY"]
-    assert GATES["leeroopedia"].required_commands == ["leeroopedia-mcp"]
+    # Hosted, nothing to install: the only requirement is the key, and the
+    # address comes from the packaged config (Rule 1).
+    assert GATES["leeroopedia"].url == (
+        "https://mcp.leeroopedia.com/mcp?token={LEEROOPEDIA_API_KEY}"
+    )
 
 
 def test_resolution_preserves_order_deduplicates_and_reports_every_gate():
@@ -79,7 +78,6 @@ def test_error_policy_aggregates_missing_capabilities():
             ["research", "leeroopedia"],
             policy="error",
             env={},
-            command_resolver=command_lookup(),
         )
 
     error = exc_info.value
@@ -88,7 +86,7 @@ def test_error_policy_aggregates_missing_capabilities():
         "leeroopedia",
     ]
     assert "OPENAI_API_KEY" in str(error)
-    assert "leeroopedia-mcp" in str(error)
+    assert "LEEROOPEDIA_API_KEY" in str(error)
 
 
 @pytest.mark.parametrize("policy", ["ignore", "", "WARN_AND_CONTINUE"])
@@ -153,23 +151,25 @@ def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
     assert "mcp__gated-knowledge__get_repo_memory_summary" in tools
 
 
-def test_only_available_external_gate_does_not_spawn_empty_internal_server(
+def test_hosted_gate_is_an_http_server_carrying_the_key_and_spawns_no_bundled_server(
     monkeypatch, tmp_path
 ):
+    """The hosted server takes the key on the query string (a Bearer header
+    is refused at initialize, verified 2026-10-01), so the launch fills the
+    URL template from the env rather than passing env to a subprocess."""
     monkeypatch.setenv("LEEROOPEDIA_API_KEY", "secret")
 
     servers, tools = get_mcp_config(
         ["leeroopedia"],
         project_root=tmp_path,
         gate_failure_policy="error",
-        command_resolver=command_lookup("leeroopedia-mcp"),
         include_base_tools=False,
     )
 
     assert set(servers) == {"leeroopedia"}
     assert servers["leeroopedia"] == {
-        "command": "leeroopedia-mcp",
-        "env": {"LEEROOPEDIA_API_KEY": "secret"},
+        "type": "http",
+        "url": "https://mcp.leeroopedia.com/mcp?token=secret",
     }
     assert "mcp__leeroopedia__search_knowledge" in tools
 

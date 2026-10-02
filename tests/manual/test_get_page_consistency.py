@@ -3,7 +3,7 @@
 Run the get_page test case 10 times and verify all runs return the same page.
 
 Uses the exact same approach as test_leeroopedia_mcp_claude_code.py:
-  Claude Code CLI -> MCP stdio -> leeroopedia-mcp -> api.leeroopedia.com
+  Claude Code CLI -> Leeroopedia's hosted MCP server (Kapso's gate config)
 
 Compares the RAW tool result (from MCP server) across all 10 runs,
 not Claude's prose summary which varies due to LLM non-determinism.
@@ -26,8 +26,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_leeroopedia_mcp_claude_code import (
     create_mcp_config,
     run_claude_with_tool,
-    API_KEY,
-    BEDROCK_TOKEN,
     MCP_TOOL_PREFIX,
     LOG_PATH,
 )
@@ -91,14 +89,11 @@ def normalize_tool_result(text: str) -> str:
 
 
 def main():
-    if not API_KEY:
+    if not os.environ.get("LEEROOPEDIA_API_KEY"):
         print("ERROR: LEEROOPEDIA_API_KEY not set.")
         sys.exit(1)
-    if not BEDROCK_TOKEN:
-        print("ERROR: AWS_BEARER_TOKEN_BEDROCK not set.")
-        sys.exit(1)
 
-    config_path = create_mcp_config(API_KEY)
+    config_path = create_mcp_config()
 
     # The prompt — same style as TEST_CASES in the original test
     prompt = (

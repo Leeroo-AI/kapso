@@ -63,6 +63,18 @@ preflight:
   live_model_probe: false
 
 # =============================================================================
+# Hosted MCP gates — where the gate registry (gated_mcp/presets.py) points
+# sessions. Bundled gates run in-process and need no address.
+# =============================================================================
+gates:
+  leeroopedia:
+    # Leeroopedia's hosted MCP server (streamable HTTP; nothing to install).
+    # The server reads the key from the query string, so the placeholder is
+    # filled from LEEROOPEDIA_API_KEY when a session launches — the key
+    # never enters this file or the campaign tree.
+    url: "https://mcp.leeroopedia.com/mcp?token={LEEROOPEDIA_API_KEY}"
+
+# =============================================================================
 # Deployment — the two sessions deploy() runs: the selector (picks a target
 # for DeployStrategy.AUTO) and the adapter (rewrites a copy of the solution
 # for the target). One coding agent and one model for both. The agent must

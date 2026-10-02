@@ -13,27 +13,26 @@ experiment.
 
 ## Gate registry
 
-| Gate | Required environment | Required command | Server |
-|------|----------------------|------------------|--------|
-| `kg` | `KG_INDEX_PATH` | — | Bundled |
-| `idea` | `KG_INDEX_PATH` | — | Bundled |
-| `code` | `KG_INDEX_PATH` | — | Bundled |
-| `research` | `OPENAI_API_KEY` | — | Bundled |
-| `experiment_history` | `EXPERIMENT_HISTORY_PATH` | — | Bundled |
-| `repo_memory` | — | — | Bundled |
-| `bank` | `KAPSO_BANK_DIR`, `KAPSO_BANK_HEAD`, `KAPSO_SERVING_PULL_LOG`, `KAPSO_TASK_FAMILY`, `KAPSO_PROBE_BUDGET` | — | Bundled |
-| `leeroopedia` | `LEEROOPEDIA_API_KEY` | `leeroopedia-mcp` | External |
-| `inbox` | `KAPSO_INBOX_PATH`, `KAPSO_SESSION_ID`, `KAPSO_NODE_ID` (injected by Kapso per session) | — | Bundled |
+| Gate | Required environment | Server |
+|------|----------------------|--------|
+| `kg` | `KG_INDEX_PATH` | Bundled |
+| `idea` | `KG_INDEX_PATH` | Bundled |
+| `code` | `KG_INDEX_PATH` | Bundled |
+| `research` | `OPENAI_API_KEY` | Bundled |
+| `experiment_history` | `EXPERIMENT_HISTORY_PATH` | Bundled |
+| `repo_memory` | — | Bundled |
+| `bank` | `KAPSO_BANK_DIR`, `KAPSO_BANK_HEAD`, `KAPSO_SERVING_PULL_LOG`, `KAPSO_TASK_FAMILY`, `KAPSO_PROBE_BUDGET` | Bundled |
+| `leeroopedia` | `LEEROOPEDIA_API_KEY` | Hosted (`mcp.leeroopedia.com`, nothing to install) |
+| `inbox` | `KAPSO_INBOX_PATH`, `KAPSO_SESSION_ID`, `KAPSO_NODE_ID` (injected by Kapso per session) | Bundled |
 
 The `inbox` gate carries one tool, `request_from_user`, through which an
 implementation session asks you for a credential, access or a file; Kapso
 injects the gate's three variables for each session when `inbox.enabled`
 is true, so the gate always resolves. See the [inbox](/docs/evolve/inbox).
 
-`GateDefinition.required_env` checks for a non-empty value.
-`required_commands` uses the system command lookup. These checks establish that
-a dependency is configured; they do not make a network request or prove that a
-credential is valid.
+`GateDefinition.required_env` checks for a non-empty value. That establishes
+that a dependency is configured; it does not make a network request or prove
+that a credential is valid.
 
 ## Failure policies
 
@@ -86,7 +85,11 @@ Explicit path arguments satisfy the corresponding environment requirement and
 are forwarded only to the bundled MCP subprocess. Kapso uses the running Python
 interpreter for that subprocess, which avoids relying on a separate `python`
 executable on `PATH`. If all internal gates are omitted, no empty bundled server
-is created. External gates retain their own MCP server and tool-name prefix.
+is created. A hosted gate is handed to the CLI as a streamable-HTTP server under
+its own name and tool-name prefix; its address lives in the packaged config's
+`gates:` block, and `{VAR}` placeholders in it are filled from the gate's
+required environment when the session launches, so the key rides on the URL
+and is never written into code or config.
 
 ## Generic search
 
@@ -120,17 +123,16 @@ Dependencies belong beside the tool definition, not in a search strategy:
 ```python
 GATES["example"] = GateDefinition(
     tools=["example_search"],
-    command="example-mcp",       # external server; omit for bundled gates
-    server_name="example",
+    server_name="example",       # hosted server; omit for bundled gates
+    url=_HOSTED_GATES["example"]["url"],  # from config.yaml `gates:`
     required_env=["EXAMPLE_API_KEY"],
-    required_commands=["example-mcp"],
 )
 ```
 
-For a bundled gate, also register its `ToolGate` class in `GATE_CLASSES`. For an
-external gate, set both `command` and `server_name`. Add hermetic resolution
-tests for missing and available dependencies; live credential tests should
-remain opt-in.
+For a bundled gate, also register its `ToolGate` class in `GATE_CLASSES`. For a
+hosted gate, set both `url` and `server_name` and put the address in the
+`gates:` block of `config.yaml`. Add hermetic resolution tests for missing and
+available dependencies; live credential tests should remain opt-in.
 
 ## Related
 

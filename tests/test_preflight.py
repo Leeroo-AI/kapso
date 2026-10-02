@@ -173,15 +173,14 @@ def test_gate_policy_decides_whether_a_missing_gate_blocks(
     packaged, full_machine, monkeypatch,
 ):
     monkeypatch.delenv("LEEROOPEDIA_API_KEY", raising=False)
-    real_which = preflight.shutil.which
-    monkeypatch.setattr(
-        preflight.shutil, "which",
-        lambda name, *a, **k: None if name == "leeroopedia-mcp"
-        else real_which(name),
-    )
 
     warn = by_label(requirements_for("evolve", packaged))
     assert warn["MCP gate 'leeroopedia'"].required is False
+    # Hosted gate: the fix is the key alone, never an install step.
+    assert "LEEROOPEDIA_API_KEY" in warn["MCP gate 'leeroopedia'"].fix
+    assert "install" not in warn["MCP gate 'leeroopedia'"].fix.replace(
+        "nothing to install", ""
+    )
 
     strict = copy.deepcopy(packaged)
     strict["modes"]["GENERIC"]["search_strategy"]["params"][

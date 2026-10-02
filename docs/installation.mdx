@@ -248,15 +248,13 @@ The benchmark harnesses live in the source checkout under `benchmarks/` and each
 
 [Leeroopedia](https://leeroopedia.com) is a curated knowledge base of ML and AI frameworks. Kapso agents query it during ideation and implementation to look up APIs, build plans and diagnose failures.
 
-```bash
-pip install leeroopedia-mcp
-```
-
-Get a key at [app.leeroopedia.com](https://app.leeroopedia.com), then add it to `.env`:
+There is nothing to install: Kapso connects every session to Leeroopedia's hosted MCP server. Sign up at [app.leeroopedia.com](https://app.leeroopedia.com/dashboard) (new accounts get $20 of free credit), copy your key, and add it to `.env`:
 
 ```bash
 LEEROOPEDIA_API_KEY=kpsk_...
 ```
+
+`kapso doctor` confirms the gate is live; without a key the campaign runs without it.
 
 ## Troubleshooting
 

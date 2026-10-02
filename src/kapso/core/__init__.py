@@ -1,8 +1,11 @@
 # Core Module - Shared fundamentals
 #
-# Contains configuration utilities and LLM backend.
+# Contains configuration utilities and LLM backend. Nothing here may import
+# from kapso.execution: the gate registry (gated_mcp/presets.py) reads the
+# packaged config through kapso.core.config, and the execution package
+# imports the gate registry — an execution import here closes that cycle
+# on every cold start of the MCP server subprocess.
 
-from kapso.execution.types import ContextData
 from kapso.core.llm import (
     DEFAULT_MODEL_ROUTES,
     MODEL_ROLES,
@@ -15,8 +18,6 @@ from kapso.core.llm import (
 from kapso.core.config import load_config, load_mode_config
 
 __all__ = [
-    # Types
-    "ContextData",
     # LLM
     "DEFAULT_MODEL_ROUTES",
     "MODEL_ROLES",

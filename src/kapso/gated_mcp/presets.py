@@ -6,13 +6,11 @@ Each gate groups related tools with default configuration parameters.
 
 import logging
 import os
-import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
     Dict,
     List,
     Mapping,
@@ -21,25 +19,34 @@ from typing import (
     Tuple,
 )
 
+from kapso.core.config import PLATFORM_CONFIG_PATH, load_config
+
 logger = logging.getLogger(__name__)
+
+# The hosted servers the registry points sessions at. Their addresses are
+# config, not code (Rule 1): the packaged config's `gates:` block is the
+# one source.
+_HOSTED_GATES: Dict[str, Dict[str, str]] = load_config(
+    str(PLATFORM_CONFIG_PATH)
+)["gates"]
 
 
 @dataclass
 class GateDefinition:
     """Definition of a gate with its tools and default config.
-    
-    For internal gates (bundled into gated-knowledge server), server_name and
-    command are None. For external gates (e.g., leeroopedia-mcp), set server_name
-    to the MCP server name and command to the CLI entry point.
+
+    Bundled gates (server_name and url None) run inside the gated-knowledge
+    server. A hosted gate names its MCP server and the streamable-HTTP URL
+    sessions connect to; `{VAR}` placeholders in the URL are filled from
+    the gate's required_env at launch, so a key can ride on the address
+    without ever being written into code or config.
     """
-    
+
     tools: List[str]
     default_params: Dict[str, Any] = field(default_factory=dict)
-    # External server fields (None = bundled in gated-knowledge)
     server_name: Optional[str] = None
-    command: Optional[str] = None
+    url: Optional[str] = None
     required_env: List[str] = field(default_factory=list)
-    required_commands: List[str] = field(default_factory=list)
     # How a user obtains what this gate needs. A gate declares its own
     # requirements, so it declares its own remedy — preflight renders this
     # verbatim as the fix line rather than keeping a second copy.
@@ -59,19 +66,12 @@ class GateDiagnostic:
     gate_name: str
     enabled: bool
     missing_env: Tuple[str, ...] = ()
-    missing_commands: Tuple[str, ...] = ()
 
     @property
     def reason(self) -> str:
         if self.enabled:
             return "available"
-
-        parts = []
-        if self.missing_env:
-            parts.append(f"missing environment: {', '.join(self.missing_env)}")
-        if self.missing_commands:
-            parts.append(f"missing commands: {', '.join(self.missing_commands)}")
-        return "; ".join(parts) or "unavailable"
+        return f"missing environment: {', '.join(self.missing_env)}"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -79,7 +79,6 @@ class GateDiagnostic:
             "enabled": self.enabled,
             "reason": self.reason,
             "missing_env": list(self.missing_env),
-            "missing_commands": list(self.missing_commands),
         }
 
 
@@ -222,8 +221,8 @@ GATES: Dict[str, GateDefinition] = {
         required_env=["KAPSO_INBOX_PATH", "KAPSO_SESSION_ID", "KAPSO_NODE_ID"],
         injected_env=["KAPSO_INBOX_PATH", "KAPSO_SESSION_ID", "KAPSO_NODE_ID"],
     ),
-    # External MCP server: leeroopedia-mcp (api.leeroopedia.com)
-    # Runs as a separate process, not bundled in gated-knowledge
+    # Leeroopedia's hosted MCP server: sessions connect over HTTP with the
+    # user's key — nothing runs locally, nothing to install.
     "leeroopedia": GateDefinition(
         tools=[
             "search_knowledge",
@@ -237,12 +236,12 @@ GATES: Dict[str, GateDefinition] = {
         ],
         default_params={},
         server_name="leeroopedia",
-        command="leeroopedia-mcp",
+        url=_HOSTED_GATES["leeroopedia"]["url"],
         required_env=["LEEROOPEDIA_API_KEY"],
-        required_commands=["leeroopedia-mcp"],
         setup_hint=(
-            "pip install leeroopedia-mcp, then put LEEROOPEDIA_API_KEY in "
-            ".env — get a key at https://app.leeroopedia.com/dashboard"
+            "put LEEROOPEDIA_API_KEY=kpsk_... in .env — sign up at "
+            "https://app.leeroopedia.com/dashboard ($20 free credit); "
+            "nothing to install"
         ),
     ),
 }
@@ -280,7 +279,6 @@ def resolve_gates(
     *,
     policy: str = "warn",
     env: Optional[Mapping[str, str]] = None,
-    command_resolver: Optional[Callable[[str], Optional[str]]] = None,
 ) -> GateResolution:
     """Resolve requested gates against their declared capabilities.
 
@@ -297,30 +295,18 @@ def resolve_gates(
 
     requested = _normalize_gate_names(gates)
     effective_env = os.environ if env is None else env
-    resolve_command = command_resolver or shutil.which
     diagnostics = []
 
     for gate_name in requested:
         definition = GATES[gate_name]
-        required_commands = list(definition.required_commands)
-        if definition.command:
-            required_commands.append(definition.command)
-        required_commands = list(dict.fromkeys(required_commands))
-
         missing_env = tuple(
             name for name in definition.required_env if not effective_env.get(name)
-        )
-        missing_commands = tuple(
-            command
-            for command in required_commands
-            if not resolve_command(command)
         )
         diagnostics.append(
             GateDiagnostic(
                 gate_name=gate_name,
-                enabled=not missing_env and not missing_commands,
+                enabled=not missing_env,
                 missing_env=missing_env,
-                missing_commands=missing_commands,
             )
         )
 
@@ -394,7 +380,6 @@ def get_mcp_config(
     repo_root: Optional[str] = None,
     include_base_tools: bool = True,
     gate_failure_policy: str = "warn",
-    command_resolver: Optional[Callable[[str], Optional[str]]] = None,
     bank_serving: Optional[Dict[str, str]] = None,
     inbox: Optional[Dict[str, str]] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
@@ -418,7 +403,6 @@ def get_mcp_config(
                    REPO_MEMORY_ROOT env var or CWD.
         include_base_tools: Include Read, Write, Bash in allowed_tools (default True)
         gate_failure_policy: Missing-capability policy: skip, warn, or error.
-        command_resolver: Optional command lookup override for testing.
         bank_serving: Campaign parameters for the "bank" gate, keyed by its
                       KAPSO_* env names (KAPSO_BANK_DIR, KAPSO_BANK_HEAD,
                       KAPSO_SERVING_PULL_LOG, KAPSO_TASK_FAMILY,
@@ -458,7 +442,6 @@ def get_mcp_config(
         gates,
         policy=gate_failure_policy,
         env=effective_env,
-        command_resolver=command_resolver,
     )
     enabled_gates = list(resolution.enabled_gates)
 
@@ -471,11 +454,11 @@ def get_mcp_config(
     if not python_path.is_dir():
         python_path = project_root
     
-    # Split gates into internal (bundled in gated-knowledge) and external (separate servers)
+    # Split gates into internal (bundled in gated-knowledge) and hosted
     internal_gates = [
         gate_name
         for gate_name in enabled_gates
-        if GATES[gate_name].command is None
+        if GATES[gate_name].url is None
     ]
     
     # Build environment for MCP server (internal gates only)
@@ -511,18 +494,16 @@ def get_mcp_config(
             "env": mcp_env,
         }
     
-    # Add external MCP servers (e.g., leeroopedia-mcp)
+    # Hosted servers: the URL template is filled from the gate's required
+    # env and handed to the CLI as a streamable-HTTP server.
     for gate_name in enabled_gates:
         gate_def = GATES[gate_name]
-        if gate_def.command and gate_def.server_name:
-            ext_env = {}
-            for key in gate_def.required_env:
-                val = effective_env.get(key, "")
-                if val:
-                    ext_env[key] = val
+        if gate_def.url:
             mcp_servers[gate_def.server_name] = {
-                "command": gate_def.command,
-                "env": ext_env,
+                "type": "http",
+                "url": gate_def.url.format(
+                    **{key: effective_env[key] for key in gate_def.required_env}
+                ),
             }
     
     # Get allowed tools

@@ -677,39 +677,25 @@ def _gate_requirements(
             name for name in diagnostic.missing_env
             if name not in definition.injected_env
         )
-        if not missing_env and not diagnostic.missing_commands:
+        if not missing_env:
             continue
         # The gate's own setup_hint when it has one; otherwise name exactly
         # what is missing. Under `warn`/`skip` the [warn] mark already says
         # the campaign proceeds, so only `error` — where the user may want
         # to downgrade the policy instead — earns an extra clause.
-        remedy = definition.setup_hint
-        if not remedy:
-            parts = []
-            if diagnostic.missing_commands:
-                parts.append(f"install {', '.join(diagnostic.missing_commands)}")
-            if missing_env:
-                parts.append(f"set {', '.join(missing_env)} in .env")
-            remedy = "; ".join(parts)
+        remedy = definition.setup_hint or f"set {', '.join(missing_env)} in .env"
         if policy == "error":
             downgrade = "set gate_failure_policy: warn to run without it"
             fix = f"{remedy} — or {downgrade}" if remedy else downgrade
         else:
             fix = remedy
-        reason = []
-        if missing_env:
-            reason.append(f"missing environment: {', '.join(missing_env)}")
-        if diagnostic.missing_commands:
-            reason.append(
-                f"missing commands: {', '.join(diagnostic.missing_commands)}"
-            )
         requirements.append(Requirement(
             label=f"MCP gate '{diagnostic.gate_name}'",
             ok=False,
             fix=fix,
             origin=f"{prefix}.search_strategy.params gates",
             required=policy == "error",
-            detail="; ".join(reason),
+            detail=f"missing environment: {', '.join(missing_env)}",
         ))
     return requirements
 
