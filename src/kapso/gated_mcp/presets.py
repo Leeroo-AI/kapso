@@ -191,7 +191,6 @@ GATES: Dict[str, GateDefinition] = {
             "default_depth": "deep",
             "default_top_k": 5,
         },
-        required_env=["OPENAI_API_KEY"],
     ),
     "experiment_history": GateDefinition(
         tools=[

@@ -38,7 +38,8 @@ def isolated_capabilities(monkeypatch):
 
 
 def test_registry_declares_environment_requirements():
-    assert GATES["research"].required_env == ["OPENAI_API_KEY"]
+    # Research runs as a codex web-search session: no API key of its own.
+    assert GATES["research"].required_env == []
     assert GATES["experiment_history"].required_env == [
         "EXPERIMENT_HISTORY_PATH"
     ]
@@ -52,44 +53,44 @@ def test_registry_declares_environment_requirements():
 
 def test_resolution_preserves_order_deduplicates_and_reports_every_gate():
     resolution = resolve_gates(
-        ["repo_memory", "research", "repo_memory"],
+        ["repo_memory", "experiment_history", "repo_memory"],
         policy="skip",
         env={},
     )
 
-    assert resolution.requested_gates == ("repo_memory", "research")
+    assert resolution.requested_gates == ("repo_memory", "experiment_history")
     assert resolution.enabled_gates == ("repo_memory",)
-    assert resolution.unavailable_gates == ("research",)
+    assert resolution.unavailable_gates == ("experiment_history",)
     assert [item.reason for item in resolution.diagnostics] == [
         "available",
-        "missing environment: OPENAI_API_KEY",
+        "missing environment: EXPERIMENT_HISTORY_PATH",
     ]
-    assert resolution.to_dict()["unavailable_gates"] == ["research"]
+    assert resolution.to_dict()["unavailable_gates"] == ["experiment_history"]
 
 
 def test_warn_policy_logs_and_omits_unavailable_gate(caplog):
     with caplog.at_level(logging.WARNING):
-        resolution = resolve_gates(["research"], policy="warn", env={})
+        resolution = resolve_gates(["experiment_history"], policy="warn", env={})
 
     assert resolution.enabled_gates == ()
-    assert "Skipping unavailable MCP gate 'research'" in caplog.text
-    assert "OPENAI_API_KEY" in caplog.text
+    assert "Skipping unavailable MCP gate 'experiment_history'" in caplog.text
+    assert "EXPERIMENT_HISTORY_PATH" in caplog.text
 
 
 def test_error_policy_aggregates_missing_capabilities():
     with pytest.raises(GateCapabilityError) as exc_info:
         resolve_gates(
-            ["research", "leeroopedia"],
+            ["experiment_history", "leeroopedia"],
             policy="error",
             env={},
         )
 
     error = exc_info.value
     assert [item.gate_name for item in error.diagnostics] == [
-        "research",
+        "experiment_history",
         "leeroopedia",
     ]
-    assert "OPENAI_API_KEY" in str(error)
+    assert "EXPERIMENT_HISTORY_PATH" in str(error)
     assert "LEEROOPEDIA_API_KEY" in str(error)
 
 
@@ -141,7 +142,7 @@ def test_explicit_paths_satisfy_internal_gate_requirements(tmp_path):
 
 def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
     servers, tools = get_mcp_config(
-        ["research", "repo_memory"],
+        ["experiment_history", "repo_memory"],
         project_root=tmp_path,
         repo_root=str(tmp_path),
         gate_failure_policy="warn",
@@ -151,7 +152,7 @@ def test_warn_config_keeps_available_gates_and_removes_missing_tools(tmp_path):
     assert servers["gated-knowledge"]["env"]["MCP_ENABLED_GATES"] == (
         "repo_memory"
     )
-    assert all("research_" not in tool for tool in tools)
+    assert all("experiments" not in tool for tool in tools)
     assert "mcp__gated-knowledge__get_repo_memory_summary" in tools
 
 
@@ -183,7 +184,7 @@ def test_hosted_gate_is_an_http_server_carrying_the_key_and_spawns_no_bundled_se
 
 def test_skipping_all_gates_returns_only_requested_base_tools(tmp_path):
     servers, tools = get_mcp_config(
-        ["research"],
+        ["experiment_history"],
         project_root=tmp_path,
         gate_failure_policy="skip",
         include_base_tools=True,
@@ -204,7 +205,7 @@ def test_bundled_server_rejects_unknown_and_external_gate_names(monkeypatch):
 
 
 def test_bundled_server_applies_capability_policy(monkeypatch):
-    monkeypatch.setenv("MCP_ENABLED_GATES", "research,repo_memory")
+    monkeypatch.setenv("MCP_ENABLED_GATES", "experiment_history,repo_memory")
     monkeypatch.setenv("MCP_GATE_FAILURE_POLICY", "skip")
 
     configs = _resolve_configuration()
@@ -326,11 +327,9 @@ def test_user_setup_gaps_name_only_what_the_user_must_provide(monkeypatch):
     gap carries its own setup hint, a bundled gate's the variable to set."""
     gaps = user_setup_gaps(["repo_memory", "research", "leeroopedia", "inbox", "bank"])
     assert [(gate, missing) for gate, _, missing in gaps] == [
-        ("research", ("OPENAI_API_KEY",)),
         ("leeroopedia", ("LEEROOPEDIA_API_KEY",)),
     ]
     fixes = {gate: fix for gate, fix, _ in gaps}
-    assert fixes["research"] == "set OPENAI_API_KEY in .env"
     assert "LEEROOPEDIA_API_KEY" in fixes["leeroopedia"] and "nothing to install" in fixes["leeroopedia"]
 
     monkeypatch.setenv("LEEROOPEDIA_API_KEY", "kpsk_x")
@@ -362,12 +361,13 @@ def test_knowledge_tools_block_describes_only_the_mounted_gates():
         gate_failure_policy="skip",
         include_base_tools=False,
     )
-    # No OPENAI_API_KEY or LEEROOPEDIA_API_KEY in this test's env: those two
-    # gates did not resolve and must not be described.
+    # No LEEROOPEDIA_API_KEY in this test's env: that gate did not resolve
+    # and must not be described; research needs no key and is.
     block = knowledge_tools_block("ideation", allowed)
     assert "### Experiment History" in block and "**get_top_experiments**" in block
     assert "### RepoMemory Access" in block
-    assert "Leeroopedia" not in block and "research_idea" not in block
+    assert "### Web Research" in block and "**research_idea**" in block
+    assert "Leeroopedia" not in block
     assert "wiki_idea_search" not in block
     # Registry order: experiment history (a MUST) precedes repo memory.
     assert block.index("### Experiment History") < block.index("### RepoMemory Access")
