@@ -358,6 +358,11 @@ class ExperimentWorkspace:
             # Campaign shared cache holds large reusable artifacts (tables,
             # embeddings); they must never enter experiment branches.
             ".kapso/shared_cache/",
+            # The per-session MCP config the Claude Code adapter writes into
+            # the workspace carries gate credentials (API keys, the hosted
+            # Leeroopedia token); sessions used to commit it into experiment
+            # branches.
+            ".claude_mcp/",
             # Seeded repos may arrive with bytecode; once tracked it goes
             # stale on re-import and blocks every later branch checkout.
             "__pycache__/",

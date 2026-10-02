@@ -289,6 +289,29 @@ def test_seeded_bytecode_is_neither_copied_nor_ever_tracked(tmp_path: Path) -> N
     assert workspace.get_current_branch() == "main"
 
 
+def test_session_mcp_config_never_enters_an_experiment_branch(tmp_path: Path) -> None:
+    """The Claude Code adapter writes `.claude_mcp/mcp_config.json` — gate
+    env with API keys — into the workspace; sessions committed it into
+    their experiment branches (lab fixture generic_exp_0, 2026-10-01)."""
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "main.py").write_text("print('hi')\n")
+
+    workspace = ExperimentWorkspace(
+        coding_agent_config=_agent_config(),
+        workspace_dir=str(tmp_path / "workspace"),
+        initial_repo=str(seed),
+    )
+    assert ".claude_mcp/" in Path(workspace.workspace_dir, ".gitignore").read_text()
+
+    workspace.repo.git.checkout("-b", "exp_0")
+    mcp_dir = Path(workspace.workspace_dir, ".claude_mcp")
+    mcp_dir.mkdir()
+    (mcp_dir / "mcp_config.json").write_text('{"mcpServers": {"x": {"env": {"OPENAI_API_KEY": "sk-leak"}}}}')
+    workspace.repo.git.add("-A")
+    assert workspace.repo.git.status("--porcelain") == ""
+
+
 def test_seeding_into_an_output_inside_the_seed_does_not_copy_the_workspace_into_itself(
     tmp_path: Path,
 ) -> None:
