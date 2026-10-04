@@ -129,4 +129,4 @@ __all__ = [
 
 # Kept in lockstep with pyproject.toml's version — tests/test_version.py
 # fails the suite if the two ever drift (Rule 1: one release number).
-__version__ = "0.6.1"
+__version__ = "0.6.2"
