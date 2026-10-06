@@ -1572,7 +1572,12 @@ class OrchestratorAgent:
                         if not candidate.cost_refusal
                     ])
                 
-                if getattr(node, "suspended", False):
+                # A sibling's campaign-budget refusal takes precedence
+                # over the representative waiting for user input.
+                if (
+                    getattr(node, "suspended", False)
+                    and not self._platform_budget_exhausted
+                ):
                     # The session asked the person and was stopped: no
                     # judgement, no iteration counted — pause until the
                     # reply is in (design v4 §4.3).
