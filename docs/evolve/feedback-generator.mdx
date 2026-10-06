@@ -19,7 +19,12 @@ flowchart LR
     F --> G[Next Iteration]
 ```
 
-After the coding agent implements a solution and runs evaluation, the feedback generator validates the evaluation, extracts the score, checks goal completion, and generates feedback — each covered in [What does it check?](#what-does-it-check) below.
+After evaluation, the feedback generator validates the result, extracts the
+score, checks goal completion, and generates feedback. With the default
+configuration, the coding agent runs evaluation during implementation. With
+[cost-aware selection](/docs/evolve/cost-aware-selection), Kapso runs it after
+the finalized candidate passes its cost checks. A refused candidate receives
+cost refusal feedback and skips the feedback judge.
 
 ## FeedbackResult
 
@@ -144,7 +149,9 @@ feedback_generator:
 
 ## How does the search strategy use it?
 
-Feedback generation happens within the search strategy, not the orchestrator: each node gets its own verdict right after implementation, and the orchestrator only checks `node.should_stop`.
+Feedback generation happens within the search strategy. Each evaluated node
+gets its own verdict after evaluation, and the orchestrator checks
+`node.should_stop`. The default implementation flow is:
 
 ```python
 # In the generic strategy's iteration
@@ -159,6 +166,12 @@ node.should_stop = feedback.stop
 # score overrides the judge's reading when present.
 node.score = feedback.score if feedback.evaluation_valid else None
 ```
+
+The evaluation manifest may also report `cost: "<number> <unit>"`. The feedback
+flow stores it as `node.measured_cost`; when cost-aware selection is enabled,
+that measurement replaces the estimate in ranking and campaign accounting.
+Cost changes selection utility without rewriting `node.score`. See the
+[manifest example](/docs/evolve/cost-aware-selection#measured-cost-and-ranking).
 
 A fixed score threshold would need the evaluation format known in advance and would trust every evaluation equally; the judged verdict reads any format, checks the evaluation itself for fairness, and returns suggestions rather than a bare number.
 

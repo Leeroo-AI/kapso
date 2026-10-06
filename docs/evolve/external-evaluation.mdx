@@ -6,7 +6,8 @@ keywords: ["external evaluation", "IterationEvaluator", "custom metrics", "candi
 ---
 
 Kapso can run a caller-owned evaluator once for every candidate finalized by
-an evolution iteration. This is useful for integration tests, benchmark
+an evolution iteration, except candidates refused by
+[cost-aware selection](/docs/evolve/cost-aware-selection). This is useful for integration tests, benchmark
 harnesses, validation suites, performance measurements, and observational
 holdout reporting.
 
@@ -154,7 +155,8 @@ flowchart LR
 ```
 
 Generic search normally finalizes one candidate per iteration; expansion lanes
-can finalize several. The evaluator runs exactly once for each new candidate. A
+can finalize several. The evaluator runs exactly once for each new candidate
+that was not refused by the cost policy. A
 resumed run evaluates only candidates created after the resume, not candidates
 already stored in its checkpoint.
 

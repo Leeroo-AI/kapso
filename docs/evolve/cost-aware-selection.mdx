@@ -1,0 +1,170 @@
+---
+title: "Estimate platform cost before evaluating a candidate"
+sidebarTitle: "Cost-aware selection"
+description: "Refuse expensive candidates before evaluation, account for campaign platform cost, and use cost alongside the internal score when selecting an experiment."
+keywords: ["cost estimation", "candidate selection", "platform budget", "credits", "cost refusal"]
+---
+
+Generic search can estimate the platform cost of each candidate before running
+its evaluation. An estimate above the per-candidate cap refuses that candidate;
+an estimate above the remaining campaign budget stops the campaign. Accepted
+candidates are ranked using their internal score and platform cost together.
+
+This policy is off by default. The existing `cost_budget` argument still meters
+model spend in USD on a best-effort basis. Platform cost has its own unit,
+estimator, caps, and ranking weight.
+
+## Configuration
+
+```yaml
+modes:
+  GENERIC:
+    search_strategy:
+      type: generic
+      params:
+        cost:
+          enabled: true
+          estimator: my_campaign.costs.estimate_candidate
+          cap_per_candidate: 10.0
+          campaign_budget: 50.0
+          unit: credits
+          weight: 0.1
+          history_field: estimated_cost
+```
+
+The packaged defaults are `enabled: false`, `estimator: null`,
+`cap_per_candidate: null`, `campaign_budget: null`, `unit: "credits"`,
+`weight: 0.0`, and `history_field: "estimated_cost"`. A null cap or budget has no
+limit. Enabling the policy without an estimator fails during initialization.
+Amounts, caps, budgets, and weights must be finite and non-negative.
+
+The packaged source is `defaults.search_strategy.params.cost`, inherited by
+every mode. A mode can override individual cost keys. Cost-aware campaigns
+require the `generic` strategy and `budget.fidelity.mode: off`. They also reject
+evaluator transitions before running a bridge evaluation. Those features can
+remeasure a candidate, while this policy accounts for one evaluation per node.
+
+`unit` is a label, with no currency conversion or provider pricing lookup.
+Estimates and measurements must use that same label. `history_field` chooses
+which cost field the history tools show first: `estimated_cost` or
+`measured_cost`. Both fields are shown when present, and measured cost always
+takes precedence in ranking and budget accounting.
+
+## Estimator contract
+
+The estimator is caller-owned Python code, imported by its module-qualified
+name. It receives an `IterationEvaluationContext` with `iteration`, `goal`,
+`workspace_dir`, `git_ref`, `parent_ref`, and `node`. The workspace is a
+temporary detached Git worktree at the finalized candidate ref. `iteration`
+is one-based, including resumed iterations. The context is frozen and `node`
+is a detached snapshot, so mutating it cannot change live search state.
+The worktree exists only during the callback; changes inside it are discarded.
+See [External evaluation](/docs/evolve/external-evaluation#callback-context)
+for the shared context contract.
+
+```python
+import json
+
+from kapso.execution.cost_estimator import CostEstimate
+from kapso.execution.iteration_evaluator import IterationEvaluationContext
+
+
+def estimate_candidate(context: IterationEvaluationContext) -> CostEstimate:
+    plan = json.loads((context.workspace_dir / "platform_plan.json").read_text())
+    return CostEstimate(
+        amount=plan["estimated_credits"],
+        unit="credits",
+        basis="Candidate warehouse plan",
+        metadata={"plan_version": plan["version"], "ref": context.git_ref},
+    )
+```
+
+Return a `CostEstimate` with an amount, unit, non-empty basis, and JSON-compatible
+metadata with string keys. Booleans are not valid amounts. Estimator exceptions
+and malformed results fail loudly. Keep the estimator inexpensive: inspect a
+plan or ask a platform for its estimate without running the candidate workload.
+
+## Admission and refusal
+
+When cost is enabled, the implementation session is instructed to build the
+candidate and evaluator without running either. Kapso finalizes the candidate,
+checks evaluator integrity, calls the estimator, and admits evaluation only
+after checking the caps. The admitted run uses the registered evaluator when available, otherwise
+`kapso_evaluation/evaluate.py`.
+
+The evaluator retains the session's configured `env_strip`,
+`session_env_defaults`, and `expansion_lane_env`: stripped names are removed,
+lane values override inherited values, and defaults apply only to absent names.
+Other inherited credentials and runtime settings remain available to the evaluator.
+
+An estimate strictly greater than `cap_per_candidate` sets `score` to `None`,
+marks `evaluation_valid` false, and records `cost_refusal` with the estimate and
+cap. The candidate remains in recent and similar history so the next idea can
+learn why it was refused. It cannot become a parent or top experiment.
+Refused candidates also skip the external iteration evaluator.
+
+The campaign adds each admitted candidate's measured cost, or its estimate when
+no measurement is available. Refused candidates add no platform cost. If the
+next estimate would exceed `campaign_budget`, the campaign stops with
+`cost_budget_exhausted` in the checkpoint's `last_stop` and the solution's
+`metadata["stopped_reason"]`. An estimate equal to either limit is allowed.
+When both limits would be exceeded, the campaign budget stop takes precedence.
+Candidates that fail or pause before admission, with no estimate or measurement,
+have no recorded platform charge. A scored candidate with an unknown cost is
+rejected when cost-aware ranking is enabled.
+
+These are estimate-based controls. Actual usage can exceed an estimate, and the
+coding agent is not a security sandbox. Enforce provider-side limits when a
+workload must have a hard spending ceiling.
+
+## Measured cost and ranking
+
+An evaluator can add a `cost` string to its printed manifest line:
+
+```text
+KAPSO_EVAL_MANIFEST {"score": 0.92, "cost": "2.5 credits"}
+```
+
+Registered evaluators retain their normal manifest fields, including fidelity,
+fraction, seed, items, and total items. An unregistered evaluator may print a
+manifest containing only `cost` alongside its normal evaluation output. Units
+may contain spaces, for example `"2.5 core hours"`.
+
+The measurement is stored as `measured_cost` and replaces `estimated_cost` for
+that candidate in every cost-aware ranking and in campaign accounting. Zero is
+a valid measurement. An evaluation that ran counts toward the budget even if
+its result is invalid. Malformed or mismatched-unit costs are rejected. The raw
+internal score remains unchanged:
+
+| Problem direction | Higher-is-better selection value |
+|-------------------|---------------------------------|
+| Maximize | `score - weight * cost` |
+| Minimize | `-score - weight * cost` |
+
+Equal-score candidates therefore prefer the cheaper design when `weight` is
+positive. Equal-cost candidates retain the problem's score ordering. External
+iteration-evaluator metrics remain observational.
+
+The same cost utility guides best-candidate selection, `parent_policy: best`,
+top-experiment queries, and the strategy template's ranking. With `weight: 0.0`,
+caps still apply without a cost penalty in selection. With `enabled: false`,
+existing rankings and agent-facing history remain unchanged.
+
+## History and resume
+
+The experiment-history tools show each candidate's estimate, measurement, unit,
+and refusal when present. They report the full campaign's budget usage once at
+the top, even when a query returns only one candidate. Estimate basis, metadata,
+feedback, and query text are passed to ideation in full.
+
+The history store persists the cost policy beside its experiment records so the
+MCP process uses the campaign's actual weight, unit, and scoring direction.
+The estimator entry point and all cost settings are part of the run
+configuration fingerprint. Resume rejects a changed estimator, cap, or other
+cost setting by name. Keep the estimator's implementation and its external
+pricing inputs stable during a campaign; the entry point does not fingerprint
+arbitrary caller-owned code or remote pricing data.
+
+Related pages: [Parent selection](/docs/evolve/parent-selection) · [Configuration](/docs/reference/configuration#search_strategy) · [External evaluation](/docs/evolve/external-evaluation)
+
+Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

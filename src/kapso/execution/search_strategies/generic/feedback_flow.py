@@ -7,10 +7,36 @@ structured agent-result extraction (XML tags). Stateless functions only —
 GenericSearch assembles arguments from its state and delegates here.
 """
 
+import json
 import re
 from typing import Any, Callable, Dict, Optional
 
 from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.cost_estimator import validate_cost_value
+from kapso.execution.evaluation_maintainer.maintainer import MANIFEST_MARKER
+
+
+def measured_cost_from_output(
+    output: str, expected_unit: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Read optional ``cost: '<number> <unit>'`` from the final manifest."""
+    manifest = None
+    for line in output.splitlines():
+        if line.strip().startswith(MANIFEST_MARKER):
+            manifest = json.loads(line.strip()[len(MANIFEST_MARKER):].strip())
+            if not isinstance(manifest, dict):
+                raise ValueError("Evaluation cost manifest must be an object")
+    if manifest is None or "cost" not in manifest:
+        return None
+    cost = manifest["cost"]
+    if not isinstance(cost, str) or len(cost.split(maxsplit=1)) != 2:
+        raise ValueError("Evaluation cost must be '<number> <unit>'")
+    amount, unit = cost.split(maxsplit=1)
+    if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", amount):
+        raise ValueError("Evaluation cost amount must be a finite number")
+    return validate_cost_value(
+        {"amount": float(amount), "unit": unit}, expected_unit,
+    )
 
 
 def generate_feedback(
@@ -23,6 +49,8 @@ def generate_feedback(
     clamped_timeout: Callable[[float], float],
     manifest_of_record: Callable[[SearchNode], Optional[Dict[str, Any]]],
     finalize_run_selection: Callable[[Dict[str, Any], bool], None],
+    expected_cost_unit: Optional[str] = None,
+    execution_valid: bool = True,
 ) -> SearchNode:
     """
     Generate feedback for a node using the FeedbackGenerator.
@@ -35,6 +63,9 @@ def generate_feedback(
     Returns:
         The same node with feedback, score, should_stop populated
     """
+    node.measured_cost = measured_cost_from_output(
+        node.evaluation_output or "", expected_cost_unit,
+    )
     if feedback_generator is None:
         print("[GenericSearch] No feedback generator configured, skipping feedback")
         return node
@@ -64,10 +95,10 @@ def generate_feedback(
 
         # Update node with feedback results
         node.feedback = feedback_result.feedback
-        node.evaluation_valid = feedback_result.evaluation_valid
+        node.evaluation_valid = feedback_result.evaluation_valid and execution_valid
         node.score = (
             feedback_result.score
-            if feedback_result.evaluation_valid
+            if node.evaluation_valid
             else None
         )
         # In registered mode the manifest line is the score of record;
@@ -104,7 +135,7 @@ def generate_feedback(
                 ),
             )
         node.should_stop = (
-            feedback_result.stop and feedback_result.evaluation_valid
+            feedback_result.stop and node.evaluation_valid
         )
         if feedback_result.duration_seconds is not None:
             node.phase_telemetry["feedback"] = {

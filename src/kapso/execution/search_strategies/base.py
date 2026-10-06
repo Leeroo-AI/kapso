@@ -19,6 +19,7 @@ from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from kapso.execution.types import ContextData
+from kapso.execution.cost_estimator import validate_cost_refusal, validate_cost_value
 from kapso.execution.experiment_workspace.experiment_workspace import ExperimentWorkspace
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
@@ -81,6 +82,11 @@ class SearchNode:
     evaluation_valid: bool = True
     evaluation_provenance: str = AGENT_GENERATED
     evaluation_integrity_error: str = ""
+
+    # Platform execution cost in the campaign's unit, distinct from model USD.
+    estimated_cost: Optional[Dict[str, Any]] = None
+    measured_cost: Optional[Dict[str, Any]] = None
+    cost_refusal: Optional[Dict[str, Any]] = None
 
     # Observational metrics from a caller-owned iteration evaluator. These do
     # not participate in search, stopping, or best-candidate selection.
@@ -251,6 +257,14 @@ class SearchNode:
                     "or null"
                 )
 
+        for name in ("estimated_cost", "measured_cost"):
+            if values.get(name) is not None:
+                values[name] = validate_cost_value(
+                    values[name], estimated=name == "estimated_cost"
+                )
+        if values.get("cost_refusal") is not None:
+            values["cost_refusal"] = validate_cost_refusal(values["cost_refusal"])
+
         phase_telemetry = values.get("phase_telemetry", {})
         if not isinstance(phase_telemetry, dict):
             raise ValueError("Search node phase_telemetry must be an object")
@@ -350,6 +364,9 @@ class ExperimentResult:
     evaluation_valid: bool = True
     evaluation_provenance: str = AGENT_GENERATED
     evaluation_integrity_error: str = ""
+    estimated_cost: Optional[Dict[str, Any]] = None
+    measured_cost: Optional[Dict[str, Any]] = None
+    cost_refusal: Optional[Dict[str, Any]] = None
     code_diff: str = ""
     workspace_dir: str = ""
     technical_difficulties: str = ""
@@ -392,6 +409,9 @@ class ExperimentResult:
             evaluation_valid=node.evaluation_valid,
             evaluation_provenance=node.evaluation_provenance,
             evaluation_integrity_error=node.evaluation_integrity_error,
+            estimated_cost=node.estimated_cost,
+            measured_cost=node.measured_cost,
+            cost_refusal=node.cost_refusal,
             code_diff=node.code_diff,
             workspace_dir=node.workspace_dir,
             metrics=dict(node.metrics),
@@ -866,4 +886,3 @@ class SearchStrategy(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not support resumable state"
         )
-

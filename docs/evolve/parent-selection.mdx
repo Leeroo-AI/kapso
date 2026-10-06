@@ -53,6 +53,11 @@ is valid are eligible. Selection uses Kapso's internal experiment score and the
 problem handler's maximize/minimize direction. Metrics from an optional external
 iteration evaluator remain observational and do not affect parent selection.
 
+With [cost-aware selection](/docs/evolve/cost-aware-selection) enabled, selection
+also subtracts a weighted platform cost from the direction-adjusted score.
+Measured cost replaces the estimate when present; a candidate refused by the
+cost policy is ineligible as a parent.
+
 ## Ref-correct ideation
 
 The root experiment workspace may be checked out on a different branch from

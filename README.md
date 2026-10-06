@@ -239,6 +239,11 @@ result = deployed.run({"input": "data"})
 deployed.stop()
 ```
 
+### How do I bound a campaign?
+
+Use `max_iterations`, `time_budget_minutes`, and `cost_budget` to bound iterations, elapsed time, and best-effort model spend in USD.
+For platform costs, enable [cost-aware selection](https://docs.leeroo.com/docs/evolve/cost-aware-selection) in `search_strategy.params.cost` with your estimator, `cap_per_candidate`, and `campaign_budget`; its `weight` also lets selection prefer cheaper candidates.
+
 ### Choosing models
 
 Every model Kapso uses is named in one config file. The packaged default

@@ -98,6 +98,17 @@ deployment:
 # override it — keep this layer to values that are correct for every
 # deployment; anything modes legitimately differ on stays per-mode.
 defaults:
+  search_strategy:
+    params:
+      # Platform execution cost, separate from model spend in USD.
+      cost:
+        enabled: false
+        estimator: null
+        cap_per_candidate: null
+        campaign_budget: null
+        unit: "credits"
+        weight: 0.0
+        history_field: "estimated_cost"
   models:
     # Semantic search over past experiments (`search_similar_experiments`
     # and the ideation gate's similarity lookup) embeds every node's
