@@ -1612,9 +1612,6 @@ class GenericSearch(SearchStrategy):
                 lambda manifest, valid:
                 self.problem_handler.finalize_run_selection(manifest, valid)
             ),
-            expected_cost_unit=(
-                self.cost_config["unit"] if self._cost_enabled() else None
-            ),
             execution_valid=node.evaluation_valid if self._cost_enabled() else True,
         )
 

@@ -49,7 +49,6 @@ def generate_feedback(
     clamped_timeout: Callable[[float], float],
     manifest_of_record: Callable[[SearchNode], Optional[Dict[str, Any]]],
     finalize_run_selection: Callable[[Dict[str, Any], bool], None],
-    expected_cost_unit: Optional[str] = None,
     execution_valid: bool = True,
 ) -> SearchNode:
     """
@@ -63,9 +62,6 @@ def generate_feedback(
     Returns:
         The same node with feedback, score, should_stop populated
     """
-    node.measured_cost = measured_cost_from_output(
-        node.evaluation_output or "", expected_cost_unit,
-    )
     if feedback_generator is None:
         print("[GenericSearch] No feedback generator configured, skipping feedback")
         return node

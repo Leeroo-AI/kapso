@@ -127,6 +127,20 @@ def test_admission_runs_frame_evaluation_and_measures_before_next_lane(tmp_path)
     assert all("KAPSO_EVAL_MANIFEST" in output for output in strategy.feedback_generator.outputs)
 
 
+@pytest.mark.parametrize("cost", [3.0, "3 credits"])
+def test_disabled_cost_preserves_feedback_without_measuring_cost(tmp_path, cost):
+    strategy, nodes, _ = candidate_strategy(tmp_path)
+    strategy.cost_config["enabled"] = False
+    nodes[0].evaluation_output = "KAPSO_EVAL_MANIFEST " + json.dumps({"cost": cost})
+
+    strategy._finalize_nodes(nodes, time.monotonic(), append=True)
+
+    assert nodes[0].score == 0.8
+    assert nodes[0].evaluation_valid is True
+    assert nodes[0].measured_cost is None
+    assert strategy.node_history == nodes
+
+
 def admit_estimate(node):
     node.estimated_cost = {"amount": 1.0, "unit": "credits"}
     return True
