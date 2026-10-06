@@ -90,6 +90,8 @@ class IterationEvaluationResult:
     metrics: Mapping[str, float]
     primary_metric: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    baseline_metrics: Mapping[str, float] = field(default_factory=dict)
+    metric_directions: Mapping[str, str] = field(default_factory=dict)
 ```
 
 Metric names must be non-empty strings. Values must be finite numbers; booleans,
@@ -99,6 +101,45 @@ have string keys.
 
 `primary_metric` describes the report. It does not make that metric a search or
 selection signal.
+
+## Baseline comparisons in watch
+
+Optionally return `baseline_metrics` and `metric_directions` with your result:
+
+```python
+return IterationEvaluationResult(
+    metrics={"validation_accuracy": 0.9, "p95_latency_ms": 8.0},
+    baseline_metrics={"validation_accuracy": 0.8, "p95_latency_ms": 10.0},
+    metric_directions={
+        "validation_accuracy": "maximize",
+        "p95_latency_ms": "minimize",
+    },
+    metadata={"suite_version": "v1", "baseline_ref": "reference-commit"},
+)
+```
+
+The caller measures the baseline using the same evaluation suite, dataset,
+configuration, and units as the candidate. Kapso does not run an extra baseline
+evaluation or assume that the previous search node is a valid baseline. Keep
+the baseline fixed across resume, and identify its Git ref and suite version in
+metadata. Baseline values must be finite numbers, just like candidate values. Every
+baseline key must name a returned candidate metric; misspelled or extra baseline
+keys raise `IterationEvaluationValidationError`.
+
+Kapso stores the derived report under
+`external_evaluation_metadata["baseline_comparison"]` alongside the existing
+node, iteration and branch lineage in experiment history and checkpoints. This
+metadata key is reserved when `baseline_metrics` is supplied. The report records
+baseline, candidate, signed delta (`candidate - baseline`), direction, and a
+verdict for each shared metric. A missing direction yields `unclassified`; a
+missing baseline is reported explicitly. `improved`, `regressed`, and
+`unchanged` are exact numeric comparisons, not statistical significance claims.
+
+`kapso watch ./campaign` shows the last candidate's comparison;
+`kapso watch ./campaign --tree` shows comparisons for checkpointed nodes,
+including after a restart. These are observational reports, not promotion
+decisions. Search ranking, stopping, and final selection still use internal
+scores. This keeps holdout measurements out of the optimization loop.
 
 ## Lifecycle and persistence
 

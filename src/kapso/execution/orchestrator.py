@@ -1486,6 +1486,13 @@ class OrchestratorAgent:
                     print(f"  - Knowledge consulted: {knowledge}")
 
                 best_node = self.search_strategy.get_best_experiment()
+                external_status = {}
+                if self.iteration_evaluator is not None:
+                    external_status["external_evaluation"] = {
+                        "node": node.node_id,
+                        "metadata": node.external_evaluation_metadata,
+                        "error": node.external_evaluation_error,
+                    }
                 self.operation_status.note(
                     f"node {node.node_id} completed score={node.score}"
                     + (f"; knowledge: {knowledge}" if knowledge else ""),
@@ -1495,8 +1502,10 @@ class OrchestratorAgent:
                             "score": getattr(best_node, "score", None),
                             "node": getattr(best_node, "node_id", None),
                         }
-                        if best_node is not None else None
+                        if best_node is not None
+                        else None
                     ),
+                    **external_status,
                 )
                 
                 # Store feedback result for return value

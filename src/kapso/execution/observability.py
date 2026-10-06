@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
+from kapso.execution.iteration_evaluator import comparison_summary
+
 # Structural constant, not a knob: how many consecutive heartbeats may be
 # missed before a reader calls the operation stalled.
 STALL_MISSED_HEARTBEATS = 3
@@ -497,10 +499,14 @@ class OperationStatusView:
                 outcome = "waiting"
             knowledge = knowledge_summary(node.get("phase_telemetry") or {})
             connector = "└─" if is_last else "├─"
+            comparison = comparison_summary(
+                node.get("external_evaluation_metadata") or {}
+            )
             tree_lines.append(
                 f"{prefix}{connector} {branch_name} "
                 f"(score={score_text}, {outcome})"
                 + (f" knowledge: {knowledge}" if knowledge else "")
+                + (f" external: {comparison}" if comparison else "")
             )
             child_prefix = prefix + ("  " if is_last else "│ ")
             for index, child_id in enumerate(children[node_id]):
@@ -550,6 +556,14 @@ class OperationStatusView:
                 if last:
                     parts.append(f"last: {last.get('score')}  node {last.get('node')}")
                 lines.append("      ".join(parts))
+            external = d.get("external_evaluation") or {}
+            comparison = comparison_summary(external.get("metadata") or {})
+            if comparison:
+                lines.append(
+                    f"external node {external.get('node')}: {comparison}"
+                )
+            if external.get("error"):
+                lines.append(f"external evaluation error: {external['error']}")
         elif self.operation == "learn":
             chain = []
             reached = True

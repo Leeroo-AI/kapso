@@ -43,12 +43,67 @@ class IterationEvaluationResult:
     metrics: Mapping[str, float]
     primary_metric: Optional[str] = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    baseline_metrics: Mapping[str, float] = field(default_factory=dict)
+    metric_directions: Mapping[str, str] = field(default_factory=dict)
 
 
 IterationEvaluator = Callable[
     [IterationEvaluationContext],
     IterationEvaluationResult,
 ]
+
+
+def compare_metrics(
+    candidate: Mapping[str, float],
+    baseline: Mapping[str, float],
+    directions: Mapping[str, str],
+) -> Dict[str, Any]:
+    """Compare shared metrics, with explicit maximize/minimize semantics.
+
+    Inputs must already be normalized. A missing baseline or direction is not
+    evidence of improvement. Deltas are always candidate minus baseline.
+    """
+    comparisons = {}
+    for name, value in candidate.items():
+        if name not in baseline:
+            continue
+        delta = value - baseline[name]
+        direction = directions.get(name)
+        verdict = "unclassified"
+        if direction is not None:
+            improvement = delta if direction == "maximize" else -delta
+            verdict = (
+                "improved"
+                if improvement > 0
+                else "regressed" if improvement < 0 else "unchanged"
+            )
+        comparisons[name] = {
+            "baseline": baseline[name],
+            "candidate": value,
+            "delta": delta,
+            "direction": direction,
+            "verdict": verdict,
+        }
+    return {
+        "metrics": comparisons,
+        "missing_baseline": sorted(set(candidate) - set(baseline)),
+    }
+
+
+def comparison_summary(metadata: Mapping[str, Any]) -> str:
+    """Render a normalized comparison report; malformed reports raise."""
+    if "baseline_comparison" not in metadata:
+        return ""
+    report = metadata["baseline_comparison"]
+    parts = [
+        f"{name}: {entry['candidate']:.6g} "
+        f"vs {entry['baseline']:.6g} "
+        f"(delta {entry['delta']:+.6g}, {entry['verdict']})"
+        for name, entry in report["metrics"].items()
+    ]
+    if report["missing_baseline"]:
+        parts.append("no baseline: " + ", ".join(report["missing_baseline"]))
+    return "; ".join(parts)
 
 
 def normalize_failure_policy(policy: str) -> str:
@@ -144,8 +199,40 @@ def normalize_result(
         result.primary_metric,
     )
     metadata = normalize_metadata(result.metadata)
+    baseline, _ = normalize_metrics(result.baseline_metrics, None)
+    unknown_baseline = set(baseline) - set(metrics)
+    if unknown_baseline:
+        raise IterationEvaluationValidationError(
+            "baseline_metrics must name returned metrics: "
+            + ", ".join(sorted(unknown_baseline))
+        )
+    directions = result.metric_directions
+    if not isinstance(directions, Mapping) or any(
+        name not in metrics
+        or not isinstance(direction, str)
+        or direction not in {"maximize", "minimize"}
+        for name, direction in directions.items()
+    ):
+        raise IterationEvaluationValidationError(
+            "metric_directions must map returned metrics "
+            "to maximize or minimize"
+        )
+    if baseline:
+        comparison = compare_metrics(metrics, baseline, directions)
+        if (
+            "baseline_comparison" in metadata
+            and metadata["baseline_comparison"] != comparison
+        ):
+            raise IterationEvaluationValidationError(
+                "baseline_comparison is reserved "
+                "when baseline_metrics are supplied"
+            )
+        metadata["baseline_comparison"] = comparison
+        metadata = normalize_metadata(metadata)
     return IterationEvaluationResult(
         metrics=metrics,
         primary_metric=primary_metric,
         metadata=metadata,
+        baseline_metrics=baseline,
+        metric_directions=dict(directions),
     )
