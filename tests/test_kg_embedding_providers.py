@@ -291,7 +291,8 @@ def test_index_build_stops_on_an_embedding_failure(vertex_session, offline_backe
     search = KnowledgeSearchFactory.create("kg_graph_search", params=VERTEX_PARAMS)
     inserted = []
     collection = SimpleNamespace(data=SimpleNamespace(
-        insert=lambda properties, vector: inserted.append(properties["page_id"])))
+        insert=lambda properties, vector: inserted.append(properties["page_id"]),
+        delete_many=lambda where: None))
     search._weaviate_client = SimpleNamespace(collections=SimpleNamespace(get=lambda name: collection))
     monkeypatch.setattr(search, "_ensure_weaviate_collection", lambda: None)
 
