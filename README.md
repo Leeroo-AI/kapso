@@ -47,7 +47,7 @@
 - **[Leeroopedia MCP Integration](https://leeroopedia.com)**: Kapso now connects to **Leeroopedia MCP** — your ML & Data Knowledge Wiki. Learnt by AI, built by AI, for AI. A centralized playbook of best practices and expert-level knowledge for Machine Learning and Data domains. Kapso agents use it during ideation and implementation to search knowledge, build plans, diagnose failures, and more.
 - **[Moltbook Agents 🦞](https://www.moltbook.com/)**: Build AI agents that optimize other agents and debate on Moltbook! [Get started →](moltbook_bot/README.md)
 - **Technical Report**: Our technical report is now available! [Read the paper](https://arxiv.org/abs/2601.21526)
-- **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
+- **50.67% on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO's accepted 24-hour submission, listed as Leeroo, achieved a 50.67% overall medal rate on Kaggle ML competitions. See the [current official leaderboard](https://github.com/openai/mle-bench#leaderboard) for later results.
 
   <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.png" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="820">
 
@@ -319,7 +319,8 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
 [IOAI 2026](https://docs.leeroo.com/docs/benchmarks/ioai-2026) ·
 [MLE-Bench](https://docs.leeroo.com/docs/benchmarks/mle-bench) ·
 [ALE-Bench](https://docs.leeroo.com/docs/benchmarks/ale-bench) ·
-[RelBench](https://docs.leeroo.com/docs/benchmarks/relbench)
+[RelBench](https://docs.leeroo.com/docs/benchmarks/relbench) ·
+[Framework comparison](https://docs.leeroo.com/docs/benchmarks/framework-comparison)
 
 ## 📚 Documentation & Support
 

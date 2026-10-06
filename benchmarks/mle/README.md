@@ -4,7 +4,7 @@ Rendered guide: [docs.leeroo.com/docs/benchmarks/mle-bench](https://docs.leeroo.
 
 This module provides integration with [MLE-Bench](https://github.com/openai/mle-bench), OpenAI's benchmark for evaluating ML agents on Kaggle competitions.
 
-Kapso achieved **#1 among open-source systems** on this benchmark. These results were submitted as an [official submission to MLE-Bench](https://github.com/openai/mle-bench/pull/107).
+Kapso's accepted submission, listed as **Leeroo**, achieved a **50.67% overall medal rate** with a 24-hour budget. These results were submitted as an [official submission to MLE-Bench](https://github.com/openai/mle-bench/pull/107). The chart below records the leaderboard at the time of that December 2025 submission; see the [current official leaderboard](https://github.com/openai/mle-bench#leaderboard) for later results.
 
 ![MLE-Bench Results](../../docs/images/mle-bench.png)
 

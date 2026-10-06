@@ -1,0 +1,210 @@
+---
+title: "Kapso compared with open-source evolution frameworks"
+sidebarTitle: "Framework comparison"
+description: "A source-backed comparison of Kapso, OpenEvolve, ShinkaEvolve, LLM4AD, and LoongFlow, including capabilities, benchmark evidence, and a reproducibility checklist."
+keywords: ["Kapso comparison", "OpenEvolve", "ShinkaEvolve", "LLM4AD", "LoongFlow", "MLE-Bench", "program evolution"]
+---
+
+This page compares Kapso with four open-source systems named in
+[issue #79](https://github.com/Leeroo-AI/kapso/issues/79):
+[OpenEvolve](https://github.com/algorithmicsuperintelligence/openevolve),
+[ShinkaEvolve](https://github.com/SakanaAI/ShinkaEvolve),
+[LLM4AD](https://github.com/Optima-CityU/LLM4AD), and
+[LoongFlow](https://github.com/baidu-baige/LoongFlow).
+
+The systems overlap, but they do not expose the same abstraction. Kapso runs
+long-lived, repository-aware experiment campaigns and carries measured lessons
+between them. OpenEvolve and ShinkaEvolve center population-based program
+evolution. LLM4AD is a research platform for comparing algorithm-design search
+methods. LoongFlow organizes agents around a Plan-Execute-Summarize loop with
+evolutionary memory.
+
+<Note>
+This comparison was verified against the linked primary sources on October 6,
+2026. A dash means that the reviewed public documentation does not describe the
+capability; it does not prove that the capability cannot be added.
+</Note>
+
+## At a glance
+
+| | Kapso | OpenEvolve | ShinkaEvolve | LLM4AD | LoongFlow |
+|---|---|---|---|---|---|
+| Primary abstraction | Goal-driven experiment campaign | Evolving program population | Scientific program evolution | Automatic algorithm-design platform | Thinking and learning agent framework |
+| Search loop | Tree search over git-isolated candidates | MAP-Elites with islands | Population evolution with islands | Pluggable methods including EoH, FunSearch, ReEvo, and MCTS-AHD | Plan-Execute-Summarize with multi-island search and MAP-Elites |
+| Candidate change | Coding agent edits a repository | LLM-generated program diff or rewrite | LLM mutation of a seed program | Method-specific heuristic generation and evolution | Agent executes a plan and records a summary |
+| Evaluation boundary | User evaluator or benchmark handler | User `evaluator.py` | User `evaluate.py` | User problem and evaluator classes | Agent-specific task environment |
+| Run provenance | Git branch and commit per candidate | Program database and checkpoints | SQLite archive and checkpoints | Method-specific population/logs | Checkpoints and evolution records |
+| Knowledge between campaigns | Evidence-priced lesson bank and external knowledge graph | — | Archive transfer between islands in a run | — | Structured evolutionary memory |
+| Existing-repository understanding | Repo memory plus coding-agent access | Evolves designated files | Evolves an initial program | Optimizes algorithm components | General Agent can operate on coding tasks |
+| Parallel execution | Multiple expansion lanes | Async workers and distributed evaluators | Local async evaluation and Slurm | Method-specific multiprocessing | Multi-agent and multi-island execution |
+| Inspection | `kapso watch`, tree view, diffs, scores, and gates | Web visualizer for tree, metrics, diffs, and MAP-Elites grid | WebUI for genealogy, metrics, diffs, archive, and islands | Desktop GUI | Web visualizer for tree, metrics, diffs, and islands |
+| Deployment API | Local, Docker, Modal, BentoML, and LangGraph strategies | — | — | — | — |
+| Packaged benchmark adapters | IOAI 2026, MLE-Bench, ALE-Bench, RelBench | Examples and evaluator templates | Scientific examples and an MLE-Bench agent repository | Optimization and algorithm-design examples | Math, general, and ML agents; MLE-Bench runner |
+
+Sources: [Kapso architecture](/docs/evolve/architecture),
+[Kapso learning](/docs/learning/overview),
+[OpenEvolve README](https://github.com/algorithmicsuperintelligence/openevolve#how-openevolve-works),
+[ShinkaEvolve README](https://github.com/SakanaAI/ShinkaEvolve#shinkaevolve-towards-open-ended-and-sample-efficient-program-evolution-),
+[ShinkaEvolve WebUI](https://github.com/SakanaAI/ShinkaEvolve/blob/main/docs/webui.md),
+[LLM4AD README](https://github.com/Optima-CityU/LLM4AD#llm4ad-large-language-model-for-algorithm-design), and
+[LoongFlow README](https://github.com/baidu-baige/LoongFlow#how-loongflow-works).
+
+## What the architectural differences mean
+
+### Kapso
+
+Kapso treats an experiment as a real repository change. Each candidate lives on
+an isolated git branch, is implemented by a coding agent, and is accepted or
+rejected by an evaluator. Its distinguishing layer is knowledge reuse: completed
+campaigns can be mined into evidence-backed lessons, while repositories and
+research can be ingested into a separate knowledge graph. The public API also
+connects research, evolution, learning, and deployment.
+
+Choose Kapso when the work spans several files, must preserve an auditable
+history, or should compound learning across campaigns. See
+[Execution flow](/docs/evolve/execution-flow) and
+[Trajectory learning](/docs/learning/overview).
+
+### OpenEvolve
+
+OpenEvolve combines LLM mutation with MAP-Elites, multiple islands, migration,
+and an archive. The user supplies a starting program and evaluator; the system
+maintains a diverse population across feature dimensions. Its strategy hooks
+also allow custom admission, replacement, archival, eviction, and migration
+policies.
+
+Choose OpenEvolve when the target is a compact program or algorithm with a fast,
+repeatable evaluator and quality-diversity search is the main requirement. See
+the [OpenEvolve README](https://github.com/algorithmicsuperintelligence/openevolve#how-openevolve-works).
+
+### ShinkaEvolve
+
+ShinkaEvolve uses an ensemble of LLMs as mutation operators over a population of
+programs. A task starts from `initial.py` and is scored by `evaluate.py`.
+Candidate evaluation can run asynchronously on one machine or on Slurm, and
+successful solutions are archived for transfer between evolutionary islands.
+
+Choose ShinkaEvolve for verifier-driven scientific code optimization where
+sample efficiency, parallel evaluation, and cluster execution matter. See the
+[ShinkaEvolve README](https://github.com/SakanaAI/ShinkaEvolve) and
+[WebUI guide](https://github.com/SakanaAI/ShinkaEvolve/blob/main/docs/webui.md).
+
+### LLM4AD
+
+LLM4AD is a platform for automatic algorithm design rather than one prescribed
+search policy. It packages implementations of EoH, MEoH, FunSearch, ReEvo,
+MCTS-AHD, LLaMEA, and other methods behind reusable problem and evaluator
+interfaces.
+
+Choose LLM4AD when the research question is about comparing or extending
+algorithm-design search methods, especially for combinatorial optimization and
+heuristic discovery. See the
+[LLM4AD method catalog](https://github.com/Optima-CityU/LLM4AD#-llm4ad-search-methods).
+
+### LoongFlow
+
+LoongFlow uses a Plan-Execute-Summarize cycle. Planning retrieves relevant
+experience, execution performs experiments, and summarization extracts reusable
+insights. Its evolutionary memory combines multiple islands, MAP-Elites, and
+adaptive selection. The repository provides General, Math, and ML agents.
+
+Choose LoongFlow when structured reflection and memory inside a long-horizon
+agent loop are the main requirements, particularly for its packaged ML and
+mathematical agents. See the
+[LoongFlow README](https://github.com/baidu-baige/LoongFlow) and
+[technical report](https://arxiv.org/abs/2512.24077).
+
+## Benchmark evidence
+
+A framework feature table is not a performance ranking. Scores are comparable
+only when the benchmark version, task set, model, runtime budget, hardware,
+feedback access, and aggregation method match.
+
+### MLE-Bench
+
+The official MLE-Bench leaderboard reports medal rate over Kaggle-style machine
+learning tasks. Its maintainers separate submissions that use test-set feedback
+because those results are not directly comparable with the main table.
+
+| System | Published result | Runtime | Leaderboard treatment | Evidence |
+|---|---:|---:|---|---|
+| Kapso, listed as Leeroo | 50.67% overall medal rate | 24 hours | Main leaderboard | [Official leaderboard](https://github.com/openai/mle-bench#leaderboard), [grading-report submission](https://github.com/openai/mle-bench/pull/107) |
+| LoongFlow | 62.66% overall medal rate | 24 hours | Additional submissions; test-set feedback; not directly comparable with the main table | [Official leaderboard](https://github.com/openai/mle-bench#additional-leaderboard-submissions), [LoongFlow ML agent](https://github.com/baidu-baige/LoongFlow/tree/main/agents/ml_agent) |
+| ShinkaEvolve | No entry under the framework name in the official table | — | No comparable published score identified | [Official leaderboard](https://github.com/openai/mle-bench#leaderboard), [Shinka MLE-Bench agent repository](https://github.com/SakanaAI/mle-bench-shinka-agent) |
+| OpenEvolve | No entry under the framework name in the official table | — | No comparable published score identified | [Official leaderboard](https://github.com/openai/mle-bench#leaderboard) |
+| LLM4AD | No entry under the framework name in the official table | — | No comparable published score identified | [Official leaderboard](https://github.com/openai/mle-bench#leaderboard) |
+
+Kapso's chart on the [MLE-Bench page](/docs/benchmarks/mle-bench) records the
+leaderboard at the time of its December 2025 submission. It should not be read
+as a claim that the submission remains first on the changing leaderboard.
+
+### ALE-Bench
+
+Kapso reports a final rating of **1909 Elo**, compared with **1879** for ALE
+Agent, across ten AtCoder Heuristic Contest problems. The integration uses the
+official ALE-Bench evaluator; reproduction still requires the same instance,
+problem set, time budget, model configuration, and repeated-run policy.
+
+The reviewed primary sources do not provide an equivalent ALE-Bench result for
+ShinkaEvolve, LLM4AD, or LoongFlow. OpenEvolve tracks ALE-Bench evaluation as an
+[open request](https://github.com/algorithmicsuperintelligence/openevolve/issues/78),
+so no OpenEvolve number is placed beside Kapso's result.
+
+See [Kapso's ALE-Bench result and runner](/docs/benchmarks/ale-bench) and the
+[official ALE-Bench evaluation guidance](https://github.com/SakanaAI/ALE-Bench#evaluation).
+
+### Other published evidence
+
+The frameworks also publish results on different problem sets: OpenEvolve on
+examples such as circle packing and hardware kernels, ShinkaEvolve on scientific
+and contest-programming tasks, LLM4AD on algorithm-design benchmarks, LoongFlow
+on AlphaEvolve-style problems, and Kapso on RelBench and IOAI 2026. These results
+answer different questions and are not combined into a single ranking here.
+
+## Reproducing an apples-to-apples comparison
+
+Before publishing a cross-framework result, fix this experiment contract:
+
+| Variable | Required record |
+|---|---|
+| Code | Repository URL and immutable commit for every framework and benchmark |
+| Tasks | Exact benchmark release, split, task IDs, and exclusions |
+| Model | Provider, model identifier, model revision, and sampling settings |
+| Budget | Wall-clock limit, iteration limit, token/API budget, and retry policy |
+| Compute | CPU, GPU, memory, operating system, and concurrency |
+| Feedback | Validation, public test, hidden test, execution errors, and any human input visible to the agent |
+| Starting point | Seed program, starter kit, prompt, knowledge files, and dependencies |
+| Metric | Official evaluator version, aggregation method, number of runs, and uncertainty |
+| Evidence | Per-task logs, final artifacts, grader reports, failures, and total cost |
+
+For MLE-Bench, follow the
+[official aggregation procedure](https://github.com/openai/mle-bench#producing-scores-for-the-leaderboard)
+and report `any_medal_percentage` by difficulty split and overall. Do not place a
+run that used test-set feedback in the same ranking as a run that did not.
+
+For ALE-Bench, use the official evaluator on a fixed machine class and preserve
+the score record for every problem. The benchmark maintainers recommend a
+consistent AWS instance for reproducible comparisons.
+
+## Maintaining this page
+
+When adding a framework or result:
+
+1. Link to its official repository, paper, benchmark leaderboard, or checked-in
+   grader report.
+2. Record the verification date and immutable commit where possible.
+3. Separate framework-authored claims from benchmark-maintainer results.
+4. Mark protocol differences next to the number, not in a distant footnote.
+5. Use “not published” instead of converting missing evidence into a zero.
+
+Related pages: [Evolve architecture](/docs/evolve/architecture) ·
+[Trajectory learning](/docs/learning/overview) ·
+[MLE-Bench](/docs/benchmarks/mle-bench) ·
+[ALE-Bench](/docs/benchmarks/ale-bench) ·
+[RelBench](/docs/benchmarks/relbench)
+
+Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds
+software toward measurable goals through experiment campaigns. Source code:
+[github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install:
+`pip install leeroo-kapso` · Every page as plain text:
+[llms.txt](https://docs.leeroo.com/llms.txt).

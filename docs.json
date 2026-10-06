@@ -101,6 +101,7 @@
           {
             "group": "Benchmarks",
             "pages": [
+              "docs/benchmarks/framework-comparison",
               "docs/benchmarks/ioai-2026",
               "docs/benchmarks/mle-bench",
               "docs/benchmarks/ale-bench",
