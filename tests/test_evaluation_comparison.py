@@ -108,12 +108,23 @@ def test_misnamed_baseline_is_rejected():
         )
 
 
-def test_conflicting_reserved_metadata_is_rejected():
+@pytest.mark.parametrize(
+    "baseline,value",
+    [
+        ({"accuracy": 0.8}, {"forged": True}),
+        # Without a baseline the key is still reserved: watch would otherwise
+        # read the caller's value as a report and crash on the campaign.
+        ({}, "suite-v1"),
+        ({}, None),
+        ({}, {"metrics": {}, "missing_baseline": []}),
+    ],
+)
+def test_conflicting_reserved_metadata_is_rejected(baseline, value):
     with pytest.raises(IterationEvaluationValidationError, match="reserved"):
         normalize_result(
             IterationEvaluationResult(
                 metrics={"accuracy": 0.9},
-                baseline_metrics={"accuracy": 0.8},
-                metadata={"baseline_comparison": {"forged": True}},
+                baseline_metrics=baseline,
+                metadata={"baseline_comparison": value},
             )
         )

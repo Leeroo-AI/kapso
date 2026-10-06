@@ -217,16 +217,20 @@ def normalize_result(
             "metric_directions must map returned metrics "
             "to maximize or minimize"
         )
-    if baseline:
-        comparison = compare_metrics(metrics, baseline, directions)
-        if (
-            "baseline_comparison" in metadata
-            and metadata["baseline_comparison"] != comparison
-        ):
-            raise IterationEvaluationValidationError(
-                "baseline_comparison is reserved "
-                "when baseline_metrics are supplied"
-            )
+    comparison = (
+        compare_metrics(metrics, baseline, directions) if baseline else None
+    )
+    # Reserved even without a baseline: the watch renderer reads this key as
+    # a derived report, so caller metadata may never supply it. A result that
+    # is already normalized carries exactly the report recomputed here.
+    if "baseline_comparison" in metadata and (
+        comparison is None or metadata["baseline_comparison"] != comparison
+    ):
+        raise IterationEvaluationValidationError(
+            "baseline_comparison is reserved for the report Kapso derives "
+            "from baseline_metrics"
+        )
+    if comparison is not None:
         metadata["baseline_comparison"] = comparison
         metadata = normalize_metadata(metadata)
     return IterationEvaluationResult(

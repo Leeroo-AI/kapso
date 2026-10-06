@@ -129,7 +129,7 @@ keys raise `IterationEvaluationValidationError`.
 Kapso stores the derived report under
 `external_evaluation_metadata["baseline_comparison"]` alongside the existing
 node, iteration and branch lineage in experiment history and checkpoints. This
-metadata key is reserved when `baseline_metrics` is supplied. The report records
+metadata key is reserved: an evaluator that sets it in its own metadata is rejected. The report records
 baseline, candidate, signed delta (`candidate - baseline`), direction, and a
 verdict for each shared metric. A missing direction yields `unclassified`; a
 missing baseline is reported explicitly. `improved`, `regressed`, and
