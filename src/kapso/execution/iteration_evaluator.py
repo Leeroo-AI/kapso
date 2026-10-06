@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple, TYPE_CHECKING
 
+from kapso.execution.evaluation_comparison import compare_metrics
+
 if TYPE_CHECKING:
     from kapso.execution.search_strategies.base import SearchNode
 
@@ -43,6 +45,8 @@ class IterationEvaluationResult:
     metrics: Mapping[str, float]
     primary_metric: Optional[str] = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    baseline_metrics: Mapping[str, float] = field(default_factory=dict)
+    metric_directions: Mapping[str, str] = field(default_factory=dict)
 
 
 IterationEvaluator = Callable[
@@ -144,8 +148,34 @@ def normalize_result(
         result.primary_metric,
     )
     metadata = normalize_metadata(result.metadata)
+    baseline, _ = normalize_metrics(result.baseline_metrics, None)
+    directions = result.metric_directions
+    if not isinstance(directions, Mapping) or any(
+        name not in metrics
+        or not isinstance(direction, str)
+        or direction not in {"maximize", "minimize"}
+        for name, direction in directions.items()
+    ):
+        raise IterationEvaluationValidationError(
+            "metric_directions must map returned metrics "
+            "to maximize or minimize"
+        )
+    if baseline:
+        comparison = compare_metrics(metrics, baseline, directions)
+        if (
+            "baseline_comparison" in metadata
+            and metadata["baseline_comparison"] != comparison
+        ):
+            raise IterationEvaluationValidationError(
+                "baseline_comparison is reserved "
+                "when baseline_metrics are supplied"
+            )
+        metadata["baseline_comparison"] = comparison
+        metadata = normalize_metadata(metadata)
     return IterationEvaluationResult(
         metrics=metrics,
         primary_metric=primary_metric,
         metadata=metadata,
+        baseline_metrics=baseline,
+        metric_directions=dict(directions),
     )
