@@ -18,6 +18,7 @@ from kapso.execution.iteration_evaluator import (
 from kapso.execution.memories.experiment_memory import ExperimentRecord
 from kapso.execution.memories.experiment_memory.store import format_experiments
 from kapso.execution.orchestrator import OrchestratorAgent, SolveResult
+from kapso.execution.observability import OperationStatusView
 from kapso.execution.run_checkpoint import (
     RunCheckpointIncompatibleError,
     RunCheckpointStore,
@@ -554,3 +555,97 @@ def test_public_evolve_forwards_evaluator_and_reports_selected_metrics(
     assert solution.metadata["external_primary_metric"] == (
         "holdout_accuracy"
     )
+
+
+def test_comparison_persists_with_lineage_without_changing_selection(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "campaign"
+    _init_workspace(workspace)
+
+    def evaluator(context):
+        return IterationEvaluationResult(
+            metrics={"accuracy": 0.9 - context.node.node_id * 0.8},
+            baseline_metrics={"accuracy": 0.5},
+            metric_directions={"accuracy": "maximize"},
+        )
+
+    orchestrator = _orchestrator(workspace, monkeypatch, evaluator)
+    result = orchestrator.solve(experiment_max_iter=1)
+    # Internal scores still select node 1, despite its external regression.
+    assert result.best_experiment.node_id == 1
+    history = json.loads(
+        (workspace / ".kapso" / "experiment_history.json").read_text()
+    )
+    checkpoint = RunCheckpointStore(str(workspace)).load()
+    nodes = checkpoint.strategy_state["node_history"]
+    for record, node in zip(history, nodes):
+        assert (
+            record["external_evaluation_metadata"]
+            == node["external_evaluation_metadata"]
+        )
+    assert (
+        nodes[1]["external_evaluation_metadata"]["baseline_comparison"][
+            "metrics"
+        ]["accuracy"]["verdict"]
+        == "regressed"
+    )
+    restored = OperationStatusView(workspace)
+    assert "regressed" in restored.explain()
+    assert "external node 1" in restored.explain()
+    assert set(restored.data["external_evaluation"]) == {
+        "node",
+        "metadata",
+        "error",
+    }
+    tree_lines = restored.explain(tree=True).splitlines()
+    candidate_rows = [line for line in tree_lines if "candidate_" in line]
+    assert len(candidate_rows) == 2
+    assert all(" external: " in line for line in candidate_rows)
+    assert "improved" in restored.explain(tree=True)
+    assert "regressed" in restored.explain(tree=True)
+
+
+def test_resume_preserves_baseline_reports(tmp_path, monkeypatch):
+    workspace = tmp_path / "campaign"
+    _init_workspace(workspace)
+    calls = []
+
+    def evaluator(context):
+        calls.append((context.iteration, context.node.node_id))
+        return IterationEvaluationResult(
+            metrics={"accuracy": context.node.node_id / 10},
+            baseline_metrics={"accuracy": 0.2},
+            metric_directions={"accuracy": "maximize"},
+            metadata={"baseline_ref": "fixed-baseline"},
+        )
+
+    _orchestrator(workspace, monkeypatch, evaluator).solve(
+        experiment_max_iter=1
+    )
+    resumed = _orchestrator(workspace, monkeypatch, evaluator, resume=True)
+    resumed.solve(experiment_max_iter=1)
+    assert calls == [(1, 0), (1, 1), (2, 2), (2, 3)]
+    nodes = (
+        RunCheckpointStore(str(workspace))
+        .load()
+        .strategy_state["node_history"]
+    )
+    verdicts = [
+        node["external_evaluation_metadata"]["baseline_comparison"]["metrics"][
+            "accuracy"
+        ]["verdict"]
+        for node in nodes
+    ]
+    assert verdicts == ["regressed", "regressed", "unchanged", "improved"]
+
+
+def test_status_omits_external_payload_without_evaluator(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "campaign"
+    _init_workspace(workspace)
+    orchestrator = _orchestrator(workspace, monkeypatch, None)
+    orchestrator.solve(experiment_max_iter=1)
+    status = OperationStatusView(workspace).data
+    assert "external_evaluation" not in status

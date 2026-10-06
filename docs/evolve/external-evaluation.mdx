@@ -90,6 +90,8 @@ class IterationEvaluationResult:
     metrics: Mapping[str, float]
     primary_metric: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    baseline_metrics: Mapping[str, float] = field(default_factory=dict)
+    metric_directions: Mapping[str, str] = field(default_factory=dict)
 ```
 
 Metric names must be non-empty strings. Values must be finite numbers; booleans,
@@ -120,7 +122,9 @@ The caller measures the baseline using the same evaluation suite, dataset,
 configuration, and units as the candidate. Kapso does not run an extra baseline
 evaluation or assume that the previous search node is a valid baseline. Keep
 the baseline fixed across resume, and identify its Git ref and suite version in
-metadata. Baseline values must be finite numbers, just like candidate values.
+metadata. Baseline values must be finite numbers, just like candidate values. Every
+baseline key must name a returned candidate metric; misspelled or extra baseline
+keys raise `IterationEvaluationValidationError`.
 
 Kapso stores the derived report under
 `external_evaluation_metadata["baseline_comparison"]` alongside the existing
@@ -136,12 +140,6 @@ missing baseline is reported explicitly. `improved`, `regressed`, and
 including after a restart. These are observational reports, not promotion
 decisions. Search ranking, stopping, and final selection still use internal
 scores. This keeps holdout measurements out of the optimization loop.
-
-Run the deterministic example without API keys or coding-agent sessions:
-
-```bash
-python examples/evaluation_baseline_report.py
-```
 
 ## Lifecycle and persistence
 

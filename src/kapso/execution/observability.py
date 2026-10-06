@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
-from kapso.execution.evaluation_comparison import comparison_summary
+from kapso.execution.iteration_evaluator import comparison_summary
 
 # Structural constant, not a knob: how many consecutive heartbeats may be
 # missed before a reader calls the operation stalled.
@@ -499,16 +499,15 @@ class OperationStatusView:
                 outcome = "waiting"
             knowledge = knowledge_summary(node.get("phase_telemetry") or {})
             connector = "└─" if is_last else "├─"
+            comparison = comparison_summary(
+                node.get("external_evaluation_metadata") or {}
+            )
             tree_lines.append(
                 f"{prefix}{connector} {branch_name} "
                 f"(score={score_text}, {outcome})"
                 + (f" knowledge: {knowledge}" if knowledge else "")
+                + (f" external: {comparison}" if comparison else "")
             )
-            comparison = comparison_summary(
-                node.get("external_evaluation_metadata") or {}
-            )
-            if comparison:
-                tree_lines.append(f"{prefix}   external: {comparison}")
             child_prefix = prefix + ("  " if is_last else "│ ")
             for index, child_id in enumerate(children[node_id]):
                 render(child_id, child_prefix, index == len(children[node_id]) - 1)
