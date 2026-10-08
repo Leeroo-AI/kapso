@@ -11,8 +11,9 @@ it serves the health endpoint and records the config it was given.
 import json
 import os
 import stat
-import sys
+import tempfile
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -44,11 +45,23 @@ with open(config + ".env", "w") as handle:
     json.dump({"cwd": os.getcwd(), **{k: v for k, v in os.environ.items() if k.startswith("GOOGLE_")}}, handle)
 
 
+PROBE_STATUS = int(os.environ.get("FAKE_PROBE_STATUS", "200"))
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200 if self.path == "/health/liveliness" else 404)
         self.end_headers()
         self.wfile.write(b"ok")
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        with open(config + ".probe", "w") as handle:
+            handle.write(body.decode())
+        self.send_response(PROBE_STATUS)
+        self.end_headers()
+        self.wfile.write(b'{"type":"error","error":{"message":"Permission denied on resource project"}}'
+                         if PROBE_STATUS != 200 else b'{"type":"message","content":[],"usage":{"input_tokens":1,"output_tokens":1}}')
 
     def log_message(self, *args):
         pass
@@ -69,8 +82,6 @@ def fake_litellm(tmp_path, monkeypatch):
         "kapso.execution.coding_agents.adapters.oss_claude_code_agent.shutil.which",
     ):
         monkeypatch.setattr(target, lambda command: binaries.get(command))
-    monkeypatch.setattr(module, "ADC_PATH", tmp_path / "adc.json")
-    (tmp_path / "adc.json").write_text("{}")
     for name in FIRST_PARTY_ENV_VARS + ("ANTHROPIC_AUTH_TOKEN", BRIDGE_KEY_ENV):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(module, "_BRIDGES", {})
@@ -119,6 +130,9 @@ def test_bridge_serves_the_model_through_litellm_and_the_cli_talks_only_to_it(
     assert bridge_env["cwd"] == str(bridge._dir)
     with urllib.request.urlopen(f"{bridge.base_url}/health/liveliness") as response:
         assert response.status == 200
+    # The bridge counted as up only after one one-token request reached the model.
+    probe = json.loads(next(bridge._dir.glob("*.probe")).read_text())
+    assert probe["model"] == MODEL and probe["max_tokens"] == 1
 
     env = agent._get_env()
     assert env["ANTHROPIC_BASE_URL"] == bridge.base_url
@@ -186,11 +200,12 @@ def test_bad_wiring_fails_loud_before_any_proxy_starts(fake_litellm, overrides, 
     assert module._BRIDGES == {}
 
 
-def test_missing_credentials_fail_loud_before_any_proxy_starts(fake_litellm, tmp_path):
-    (tmp_path / "adc.json").unlink()
-    with pytest.raises(ValueError, match="application-default"):
+def test_a_failed_model_probe_carries_the_reason_and_stops_the_proxy(fake_litellm, monkeypatch):
+    monkeypatch.setenv("FAKE_PROBE_STATUS", "403")
+    with pytest.raises(RuntimeError, match="HTTP 403.*Permission denied"):
         make_agent()
     assert module._BRIDGES == {}
+    assert not list(Path(tempfile.gettempdir()).glob("kapso-vertex-bridge-*/litellm.json.probe"))
 
 
 def test_missing_litellm_fails_loud(fake_litellm, monkeypatch):

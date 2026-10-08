@@ -2,13 +2,17 @@
 served by Vertex AI Model Garden (e.g. ``zai-org/glm-5.2-maas``).
 
 Vertex serves its open models through an OpenAI-compatible endpoint and
-authenticates with Google application-default credentials, so neither of
-the two things the OSS adapter needs (an Anthropic-compatible URL and a
-bearer token) exists. A local LiteLLM proxy supplies both: it accepts the
-CLI's Anthropic requests, calls Vertex through LiteLLM's native ``vertex_ai``
-provider (google-auth reads and refreshes the credential), and guards its
-port with a random key minted for this process. Everything downstream of the
-proxy is the OSS adapter unchanged.
+authenticates with Google credentials, so neither of the two things the OSS
+adapter needs (an Anthropic-compatible URL and a bearer token) exists. A
+local LiteLLM proxy supplies both: it accepts the CLI's Anthropic requests,
+calls Vertex through LiteLLM's native ``vertex_ai`` provider (google-auth
+finds and refreshes the credential: the gcloud application-default login on
+a workstation, the service account on a Compute Engine machine), and guards
+its port with a random key minted for this process. Everything downstream of
+the proxy is the OSS adapter unchanged. A bridge is not "up" until one
+one-token request has gone through it to the model and back: that probe is
+what turns a missing credential, a wrong project or an unknown model into an
+error at start rather than mid-session.
 
 One bridge per process for each (project, location, model): the learner runs
 about ten sessions per repository and a proxy takes seconds to start. The
@@ -52,6 +56,7 @@ from kapso.execution.coding_agents.adapters.oss_claude_code_agent import (
 
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_HEALTH_PATH = "/health/liveliness"
+BRIDGE_PROBE_BODY = {"max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
 BRIDGE_KEY_ENV = "KAPSO_VERTEX_BRIDGE_KEY"
 BRIDGE_LOG_TAIL_BYTES = 4000
 # Claude's effort vocabulary is the config language; Vertex validates GLM's
@@ -60,7 +65,6 @@ BRIDGE_LOG_TAIL_BYTES = 4000
 EFFORT_TRANSLATION = {"xhigh": "max"}
 # Copied next to the proxy config so LiteLLM loads it as a callback module.
 BRIDGE_HOOK_SOURCE = Path(__file__).with_name("vertex_bridge_litellm_hook.py")
-ADC_PATH = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
 
 
 class VertexBridge:
@@ -160,6 +164,28 @@ class VertexBridge:
                     f"litellm health check returned {response.status}:\n"
                     f"{_tail(log_path)}"
                 )
+        self._probe_model(log_path)
+
+    def _probe_model(self, log_path: Path) -> None:
+        """One one-token request through the proxy to the model: proves the
+        credential, the project and the model name before any session."""
+        request = urllib.request.Request(
+            f"{self.base_url}/v1/messages", method="POST",
+            data=json.dumps({"model": self.model, **BRIDGE_PROBE_BODY}).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": self.master_key,
+                "anthropic-version": "2023-06-01",
+            },
+        )
+        response = _PROBE_OPENER.open(request, timeout=120)
+        if response.status != 200:
+            reason = response.read()[:BRIDGE_LOG_TAIL_BYTES].decode(errors="replace")
+            self.stop()
+            raise RuntimeError(
+                f"Vertex probe through the bridge failed with HTTP "
+                f"{response.status}: {reason}\n{_tail(log_path)}"
+            )
 
     def stop(self) -> None:
         if self._process is not None and self._process.poll() is None:
@@ -173,6 +199,19 @@ class VertexBridge:
         if self._dir is not None and self._dir.exists():
             shutil.rmtree(self._dir)
         self._dir = None
+
+
+class _ReturnErrorResponses(urllib.request.HTTPErrorProcessor):
+    """urlopen turns 4xx/5xx into exceptions that drop the body; the probe
+    wants the body (the provider's reason) and raises its own error."""
+
+    def http_response(self, request, response):
+        return response
+
+    https_response = http_response
+
+
+_PROBE_OPENER = urllib.request.build_opener(_ReturnErrorResponses)
 
 
 def _free_port() -> int:
@@ -240,11 +279,6 @@ class VertexClaudeCodeCodingAgent(OssClaudeCodeCodingAgent):
             raise ValueError(
                 "vertex_claude_code: agent_specific.effort must be the open "
                 "model's reasoning effort level (a non-empty string) or null"
-            )
-        if not ADC_PATH.is_file():
-            raise ValueError(
-                f"Google application-default credentials not found at {ADC_PATH}. "
-                "Run: gcloud auth application-default login"
             )
         self._bridge = shared_bridge(
             project=project.strip(), location=location.strip(),

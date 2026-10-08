@@ -367,10 +367,7 @@ def test_preflight_checks_the_bridge_of_a_vertex_learner_instead_of_a_login():
     for role in ("ingestor", "merger"):
         config["modes"][config["default_mode"]]["learner"][role].update(VERTEX_SESSION)
     rows = {item.label: item for item in learn_knowledge_requirements(config)}
-    assert {
-        "litellm", "gcloud application-default credentials",
-        "agent_specific.vertex_project",
-    } <= set(rows)
+    assert {"litellm", "Google credentials", "agent_specific.vertex_project"} <= set(rows)
     assert rows["agent_specific.vertex_project"].ok is True
     assert "codex authenticated" not in rows
     assert "claude authenticated" not in rows

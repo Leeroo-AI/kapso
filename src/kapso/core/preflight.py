@@ -51,9 +51,21 @@ _PACKAGED_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 # Agent types that run as an external CLI binary. Everything else in the
 # manifest is a Python SDK adapter, whose requirement is the package its
 # install_command names — surfaced from the manifest, not invented here.
-# Google application-default credentials, read by google-auth inside the
-# Vertex bridge (never by Kapso); the file is the readiness check.
+# Google credentials are found by google-auth inside the Vertex bridge, never
+# read by Kapso; the doctor only checks that one of its sources is present:
+# the gcloud application-default login, a key file it is pointed at, or the
+# service account of a Compute Engine machine (google-auth's own GCE test).
 ADC_PATH = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+GCE_PRODUCT_NAME_PATH = Path("/sys/class/dmi/id/product_name")
+
+
+def google_credentials_present() -> bool:
+    key_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    on_gce = (
+        GCE_PRODUCT_NAME_PATH.is_file()
+        and GCE_PRODUCT_NAME_PATH.read_text().strip() == "Google Compute Engine"
+    )
+    return ADC_PATH.is_file() or bool(key_file and Path(key_file).is_file()) or on_gce
 
 CLI_BINARIES = {
     "claude_code": "claude",
@@ -428,9 +440,11 @@ def _auth_requirements(
                 origin=origin,
             ),
             Requirement(
-                label="gcloud application-default credentials",
-                ok=ADC_PATH.is_file(),
-                fix="gcloud auth application-default login",
+                label="Google credentials",
+                ok=google_credentials_present(),
+                fix="gcloud auth application-default login   (or run on a "
+                    "Compute Engine machine whose service account may use "
+                    "Vertex AI)",
                 origin=origin,
             ),
             Requirement(
