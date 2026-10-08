@@ -163,7 +163,11 @@ class KnowledgeMerger:
                 called as `index_builder(wiki_dir=..., save_to=...)`;
                 `Kapso.index_kg` is the one learn_knowledge() passes. Without
                 it, a merge into a wiki with no index fails.
-            agent_config: Configuration for Claude Code agent. Supports:
+            agent_config: Configuration of the merge session's agent. Supports:
+                - cli: The coding agent that runs the session (claude_code,
+                  or vertex_claude_code for a Vertex AI open model)
+                - agent_specific: Settings passed to that agent (the Vertex
+                  project, for one)
                 - kg_index_path: Path to .index file for KG backend config
                 - effort: Reasoning effort of the merge session (pinned, never
                   inherited from the machine's own Claude settings)
@@ -494,12 +498,15 @@ class KnowledgeMerger:
             "mcp_servers": mcp_servers,
         }
         
-        # Model from config (should be provided via config.yaml)
+        # Model and agent from config (provided via config.yaml)
         model = self._agent_config["model"]
-        agent_specific["auth_mode"] = self._agent_config["auth_mode"]
+        cli = self._agent_config["cli"]
+        agent_specific.update(self._agent_config["agent_specific"])
+        if cli == "claude_code":
+            agent_specific["auth_mode"] = self._agent_config["auth_mode"]
         
         config = CodingAgentFactory.build_config(
-            agent_type="claude_code",
+            agent_type=cli,
             model=model,
             debug_model=model,
             agent_specific=agent_specific,
@@ -508,9 +515,7 @@ class KnowledgeMerger:
         self._agent = CodingAgentFactory.create(config)
         self._agent.initialize(str(workspace))
         logger.info(
-            "Initialized Claude Code agent (auth=%s, model=%s, mcp=True)",
-            agent_specific.get("auth_mode"),
-            model,
+            "Initialized %s agent (model=%s, mcp=True)", cli, model,
         )
     
     def _build_merge_prompt(

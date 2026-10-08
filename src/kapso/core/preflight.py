@@ -51,9 +51,14 @@ _PACKAGED_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 # Agent types that run as an external CLI binary. Everything else in the
 # manifest is a Python SDK adapter, whose requirement is the package its
 # install_command names — surfaced from the manifest, not invented here.
+# Google application-default credentials, read by google-auth inside the
+# Vertex bridge (never by Kapso); the file is the readiness check.
+ADC_PATH = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+
 CLI_BINARIES = {
     "claude_code": "claude",
     "oss_claude_code": "claude",
+    "vertex_claude_code": "claude",
     "codex": "codex",
     "aider": "aider",
 }
@@ -409,6 +414,33 @@ def _auth_requirements(
             fix="codex login   (or set CODEX_API_KEY in .env)",
             origin=origin,
         )]
+
+    if cli == "vertex_claude_code":
+        projects = {
+            spec.agent_specific.get("vertex_project") for spec in specs
+        }
+        return [
+            Requirement(
+                label="litellm",
+                ok=shutil.which("litellm") is not None,
+                fix="pip install 'litellm[proxy]'   (the local bridge that "
+                    "speaks Anthropic to the CLI and Vertex to Google)",
+                origin=origin,
+            ),
+            Requirement(
+                label="gcloud application-default credentials",
+                ok=ADC_PATH.is_file(),
+                fix="gcloud auth application-default login",
+                origin=origin,
+            ),
+            Requirement(
+                label="agent_specific.vertex_project",
+                ok=all(isinstance(p, str) and p.strip() for p in projects),
+                fix="set agent_specific.vertex_project to the Google Cloud "
+                    "project billed for the model",
+                origin=origin,
+            ),
+        ]
 
     if cli not in ("claude_code", "oss_claude_code"):
         return []
@@ -932,6 +964,10 @@ def live_model_requirements(
     for (cli, model), origins in sorted(probed.items()):
         binary = CLI_BINARIES.get(cli)
         if binary is None or shutil.which(binary) is None:
+            continue
+        if cli == "vertex_claude_code":
+            # A probe would need the bridge up; the static rows (litellm,
+            # the credential file, the project) are its readiness check.
             continue
         ok, detail = probe_model_access(cli, model)
         requirements.append(Requirement(

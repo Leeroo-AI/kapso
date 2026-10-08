@@ -16,11 +16,12 @@ A coding agent is what actually writes the code during an experiment. Kapso driv
 | `gemini` | Google Gemini SDK, code generation with file parsing | `gemini-2.5-flash` | `pip install google-generativeai` |
 | `openhands` | OpenHands agent SDK with a sandboxed execution environment | `gpt-4.1-mini` | `pip install openhands-ai litellm` |
 | `oss_claude_code` | Claude Code CLI driven by an OSS model over an Anthropic-compatible endpoint | `glm-5p2` | `npm install -g @anthropic-ai/claude-code` |
+| `vertex_claude_code` | Claude Code CLI driven by a Vertex AI Model Garden open model through a local LiteLLM bridge | `zai-org/glm-5.2-maas` | `npm install -g @anthropic-ai/claude-code && pip install 'litellm[proxy]'` |
 | `aider` | Git-centric diff-based editing. Legacy, and needs Python 3.12 or older | — | `pip install "leeroo-kapso[aider]"` |
 
 Both shipped config modes, `GENERIC` and `MINIMAL`, set `coding_agent.type: claude_code`, so that is the agent you get unless you override it.
 
-An agent is only registered if its dependencies import, so `aider` is absent from a default install and `kapso --list-agents` shows five. Run that command to see what is actually available on your machine — it prints each registered agent with its description, default model, install command and the environment variables it reads:
+An agent is only registered if its dependencies import, so `aider` is absent from a default install and `kapso --list-agents` shows six. Run that command to see what is actually available on your machine — it prints each registered agent with its description, default model, install command and the environment variables it reads:
 
 ```bash
 kapso --list-agents
@@ -179,6 +180,25 @@ coding_agent:
   type: "oss_claude_code"
   model: "accounts/fireworks/models/glm-5p2"
 ```
+
+## Vertex AI Claude Code
+
+The Claude Code CLI driven by an open model that Vertex AI Model Garden serves as a managed API, such as GLM 5.2. Vertex speaks the OpenAI protocol and authenticates with Google credentials, neither of which the CLI understands, so the adapter starts a local [LiteLLM](https://docs.litellm.ai/docs/simple_proxy) proxy on an ephemeral port: the CLI talks Anthropic to the proxy, the proxy talks Vertex to Google. One proxy serves every session of the process and stops with it. The proxy port is guarded by a random key minted per process, and the CLI's first-party credentials, update checks and telemetry are kept away from it.
+
+```yaml
+coding_agent:
+  type: "vertex_claude_code"
+  model: "zai-org/glm-5.2-maas"
+  agent_specific:
+    vertex_project: "my-gcp-project"   # the project billed for the model
+    vertex_location: "global"          # where Vertex serves the open models
+    bridge_startup_timeout: 60         # seconds to wait for the proxy
+    effort: "high"                     # the model's reasoning effort; omit for its default
+```
+
+Setup, besides the CLI: `pip install 'litellm[proxy]'` and `gcloud auth application-default login`. The proxy reads the stored Google credential; Kapso never does. The same block works for the learning sessions: set `learner.ingestor.cli` and `learner.merger.cli` to `vertex_claude_code` with the model and `agent_specific` beside them. `kapso doctor` checks the proxy binary, the credential file and the project before a run starts.
+
+`effort` means the same thing here as for the other agents, the session's reasoning effort, but it is applied differently: the CLI's `--effort` flag is an Anthropic-only request field that the proxy would drop, so the adapter sets the value as the open model's `reasoning_effort` on the proxy, for every request of the session. Vertex accepts `minimal`, `low`, `medium`, `high` and `max` for GLM 5.2 and rejects anything else; `xhigh`, the shipped default, is sent as `max`, which is how Z.ai defines it. Omitting the key leaves the model's own default (`max` for GLM 5.2); other open models take their own values. The learner's `effort` reaches the model the same way when the learner runs on this agent.
 
 ## OpenAI-compatible API
 

@@ -90,7 +90,7 @@ All major components are created via factories and can be swapped via configurat
 |-----------|---------|------------------|
 | Search Strategy | `SearchStrategyFactory` | `generic` |
 | Knowledge Search | `KnowledgeSearchFactory` | `kg_graph_search`, `kg_llm_navigation` |
-| Coding Agent | `CodingAgentFactory` | `claude_code` (default), `codex`, `gemini`, `openhands`, `oss_claude_code`, plus `aider` as an optional extra |
+| Coding Agent | `CodingAgentFactory` | `claude_code` (default), `codex`, `gemini`, `openhands`, `oss_claude_code`, `vertex_claude_code`, plus `aider` as an optional extra |
 | Feedback Generator | Uses `CodingAgentFactory` | Same as coding agents (default: `claude_code`) |
 
 ### Configuration flow
@@ -168,6 +168,7 @@ src/kapso/
 │   │       ├── gemini_agent.py
 │   │       ├── openhands_agent.py
 │   │       ├── oss_claude_code_agent.py
+│   │       ├── vertex_claude_code_agent.py
 │   │       └── aider_agent.py
 │   │
 │   └── memories/            # Memory systems
