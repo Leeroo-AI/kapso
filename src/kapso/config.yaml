@@ -189,6 +189,11 @@ modes:
       # Claude settings. `timeout: null` means no deadline: a phase runs until
       # it finishes (a number of seconds imposes one).
       ingestor:
+        # The coding agent that runs the sessions: claude_code (first-party
+        # login), or vertex_claude_code for a Vertex AI open model, which
+        # takes its settings from agent_specific (vertex_project, ...).
+        cli: "claude_code"
+        agent_specific: {}
         model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
@@ -203,6 +208,11 @@ modes:
         publish_workflows: false
         github_repo_visibility: "private"
       merger:
+        # The coding agent that runs the sessions: claude_code (first-party
+        # login), or vertex_claude_code for a Vertex AI open model, which
+        # takes its settings from agent_specific (vertex_project, ...).
+        cli: "claude_code"
+        agent_specific: {}
         model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
@@ -254,6 +264,11 @@ modes:
     # Learner configuration for kapso.learn()
     learner:
       ingestor:
+        # The coding agent that runs the sessions: claude_code (first-party
+        # login), or vertex_claude_code for a Vertex AI open model, which
+        # takes its settings from agent_specific (vertex_project, ...).
+        cli: "claude_code"
+        agent_specific: {}
         model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"
@@ -264,6 +279,11 @@ modes:
         publish_workflows: false
         github_repo_visibility: "private"
       merger:
+        # The coding agent that runs the sessions: claude_code (first-party
+        # login), or vertex_claude_code for a Vertex AI open model, which
+        # takes its settings from agent_specific (vertex_project, ...).
+        cli: "claude_code"
+        agent_specific: {}
         model: "claude-opus-5-5"
         auth_mode: "oauth"
         effort: "xhigh"

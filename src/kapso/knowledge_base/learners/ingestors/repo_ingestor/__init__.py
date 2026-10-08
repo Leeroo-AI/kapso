@@ -169,25 +169,29 @@ class RepoIngestor(Ingestor):
         """A Claude Code session on the config's model, auth, effort and
         deadline, holding exactly `builtin_tools` and no MCP server."""
         model = self.params["model"]
+        cli = self.params["cli"]
+        agent_specific = {
+            "allowed_tools": builtin_tools,
+            "builtin_tools": builtin_tools,
+            "strict_mcp_config": True,
+            "timeout": self._timeout,
+            "effort": self._effort,
+            "planning_mode": True,
+            **self.params["agent_specific"],
+        }
+        if cli == "claude_code":
+            agent_specific["auth_mode"] = self.params["auth_mode"]
         config = CodingAgentFactory.build_config(
-            agent_type="claude_code",
+            agent_type=cli,
             model=model,
             debug_model=model,  # Use same model for debug
-            agent_specific={
-                "allowed_tools": builtin_tools,
-                "builtin_tools": builtin_tools,
-                "strict_mcp_config": True,
-                "timeout": self._timeout,
-                "effort": self._effort,
-                "planning_mode": True,
-                "auth_mode": self.params["auth_mode"],
-            },
+            agent_specific=agent_specific,
         )
         agent = CodingAgentFactory.create(config)
         agent.initialize(workspace)
         logger.info(
-            "Initialized Claude Code agent for %s (auth=%s, model=%s, tools=%s)",
-            workspace, self.params["auth_mode"], model, builtin_tools,
+            "Initialized %s agent for %s (model=%s, tools=%s)",
+            cli, workspace, model, builtin_tools,
         )
         return agent
     

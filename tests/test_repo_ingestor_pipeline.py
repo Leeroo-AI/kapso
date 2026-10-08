@@ -12,6 +12,7 @@ it, marks each finished phase, and a run of the same source continues from
 the first unfinished one.
 """
 
+import copy
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +23,8 @@ import pytest
 from kapso.core.config import PLATFORM_CONFIG_PATH, load_config
 from kapso.core.preflight import learn_knowledge_requirements
 from kapso.knowledge_base.learners.ingestors import repo_ingestor as ingestor_module
+from kapso.knowledge_base.learners.merger import knowledge_merger as merger_module
+from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.knowledge_base.learners.ingestors.repo_ingestor.context_builder import (
     orphan_candidate_counts,
 )
@@ -299,6 +302,78 @@ def test_preflight_requires_the_gh_token_only_when_publishing(monkeypatch):
     }
     assert "GH_TOKEN" not in labels(False)
     assert labels(True)["GH_TOKEN"] is True
+
+
+# --------------------------------------------------------------------------
+# Which agent runs the learning sessions: the block's `cli` key
+# --------------------------------------------------------------------------
+
+VERTEX_SESSION = {
+    "cli": "vertex_claude_code",
+    "model": "zai-org/glm-5.2-maas",
+    "agent_specific": {"vertex_project": "example-project"},
+}
+
+
+class CapturedAgent:
+    """Stands in for the factory's create: keeps the config it was handed."""
+
+    built = None
+
+    @classmethod
+    def create(cls, config):
+        cls.built = config
+        return cls()
+
+    def initialize(self, workspace):
+        pass
+
+
+@pytest.fixture
+def captured_agent(monkeypatch):
+    CapturedAgent.built = None
+    monkeypatch.setattr(CodingAgentFactory, "create", CapturedAgent.create)
+    return CapturedAgent
+
+
+def test_the_ingestor_runs_its_sessions_on_the_configured_agent(captured_agent, tmp_path):
+    ingestor_module.RepoIngestor(VERTEX_SESSION)._make_agent(str(tmp_path), ["Read"])
+    built = captured_agent.built
+    assert built.agent_type == "vertex_claude_code"
+    assert built.model == built.debug_model == "zai-org/glm-5.2-maas"
+    assert built.agent_specific["vertex_project"] == "example-project"
+    assert built.agent_specific["vertex_location"] == "global"  # the manifest default
+    assert built.agent_specific["allowed_tools"] == ["Read"]
+    # auth_mode selects a first-party login; it is not handed to other agents.
+    assert "auth_mode" not in built.agent_specific
+
+    ingestor_module.RepoIngestor({"auth_mode": "api_key"})._make_agent(str(tmp_path), ["Read"])
+    assert captured_agent.built.agent_type == "claude_code"
+    assert captured_agent.built.agent_specific["auth_mode"] == "api_key"
+
+
+def test_the_merger_runs_its_session_on_the_configured_agent(captured_agent, tmp_path):
+    merger_module.KnowledgeMerger(agent_config=VERTEX_SESSION)._initialize_agent(tmp_path)
+    built = captured_agent.built
+    assert built.agent_type == "vertex_claude_code"
+    assert built.model == "zai-org/glm-5.2-maas"
+    assert built.agent_specific["vertex_project"] == "example-project"
+    assert "auth_mode" not in built.agent_specific
+    assert "kg-graph-search" in built.agent_specific["mcp_servers"]
+
+
+def test_preflight_checks_the_bridge_of_a_vertex_learner_instead_of_a_login():
+    config = copy.deepcopy(PACKAGED)
+    for role in ("ingestor", "merger"):
+        config["modes"][config["default_mode"]]["learner"][role].update(VERTEX_SESSION)
+    rows = {item.label: item for item in learn_knowledge_requirements(config)}
+    assert {
+        "litellm", "gcloud application-default credentials",
+        "agent_specific.vertex_project",
+    } <= set(rows)
+    assert rows["agent_specific.vertex_project"].ok is True
+    assert "codex authenticated" not in rows
+    assert "claude authenticated" not in rows
 
 
 # --------------------------------------------------------------------------
