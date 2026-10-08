@@ -134,7 +134,11 @@ agents:
     # Authenticates with Google application-default credentials (gcloud auth
     # application-default login); the bridge reads them, Kapso never does.
     env_vars: []
-    install_command: "npm install -g @anthropic-ai/claude-code && pip install 'litellm[proxy]' google-cloud-aiplatform"
+    # The bridge needs litellm >= 1.103 (older releases do not know the
+    # Model Garden open models); Kapso's own environment pins an older
+    # litellm for its utility calls, so install the proxy in its own venv
+    # and put it on PATH.
+    install_command: "npm install -g @anthropic-ai/claude-code && pip install 'litellm[proxy]>=1.103' google-cloud-aiplatform"
     documentation_url: "https://cloud.google.com/vertex-ai/generative-ai/docs/maas/use-open-models"
     agent_specific:
       # The Google Cloud project billed for the model (required).

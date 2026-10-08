@@ -113,8 +113,8 @@ class VertexBridge:
         litellm = shutil.which("litellm")
         if litellm is None:
             raise RuntimeError(
-                "litellm not found. Install the proxy with: "
-                "pip install 'litellm[proxy]' google-cloud-aiplatform"
+                "litellm not found. Install the proxy in its own venv, on PATH: "
+                "pip install 'litellm[proxy]>=1.103' google-cloud-aiplatform"
             )
         self._dir = Path(tempfile.mkdtemp(prefix="kapso-vertex-bridge-"))
         config_path = self._dir / "litellm.json"
@@ -184,7 +184,8 @@ class VertexBridge:
             self.stop()
             raise RuntimeError(
                 f"Vertex probe through the bridge failed with HTTP "
-                f"{response.status}: {reason}\n{_tail(log_path)}"
+                f"{response.status}: {reason}\n(the bridge needs litellm >= 1.103 "
+                f"on PATH, with google-cloud-aiplatform)\n{_tail(log_path)}"
             )
 
     def stop(self) -> None:
