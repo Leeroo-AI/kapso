@@ -435,8 +435,9 @@ def _auth_requirements(
             Requirement(
                 label="litellm",
                 ok=shutil.which("litellm") is not None,
-                fix="pip install 'litellm[proxy]'   (the local bridge that "
-                    "speaks Anthropic to the CLI and Vertex to Google)",
+                fix="pip install 'litellm[proxy]' google-cloud-aiplatform   (the "
+                    "local bridge that speaks Anthropic to the CLI and Vertex to "
+                    "Google, and the Vertex SDK its route imports)",
                 origin=origin,
             ),
             Requirement(

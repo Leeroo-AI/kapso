@@ -114,7 +114,7 @@ class VertexBridge:
         if litellm is None:
             raise RuntimeError(
                 "litellm not found. Install the proxy with: "
-                "pip install 'litellm[proxy]'"
+                "pip install 'litellm[proxy]' google-cloud-aiplatform"
             )
         self._dir = Path(tempfile.mkdtemp(prefix="kapso-vertex-bridge-"))
         config_path = self._dir / "litellm.json"
