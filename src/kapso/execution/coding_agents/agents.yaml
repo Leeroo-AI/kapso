@@ -122,6 +122,37 @@ agents:
       streaming: true
 
   # ============================================================================
+  # Vertex AI Claude Code - Claude Code CLI on a Vertex AI Model Garden open model
+  # ============================================================================
+  vertex_claude_code:
+    description: "Claude Code CLI driven by a Vertex AI Model Garden open model (e.g. GLM 5.2) through a local LiteLLM bridge"
+    adapter_class: "VertexClaudeCodeCodingAgent"
+    adapter_module: "kapso.execution.coding_agents.adapters.vertex_claude_code_agent"
+    supports_native_git: false
+    default_model: "zai-org/glm-5.2-maas"
+    default_debug_model: "zai-org/glm-5.2-maas"
+    # Authenticates with Google application-default credentials (gcloud auth
+    # application-default login); the bridge reads them, Kapso never does.
+    env_vars: []
+    install_command: "npm install -g @anthropic-ai/claude-code && pip install 'litellm[proxy]'"
+    documentation_url: "https://cloud.google.com/vertex-ai/generative-ai/docs/maas/use-open-models"
+    agent_specific:
+      # The Google Cloud project billed for the model (required).
+      vertex_project: null
+      # Where Vertex serves the open models.
+      vertex_location: "global"
+      # Seconds to wait for the local bridge to start serving.
+      bridge_startup_timeout: 60
+      planning_mode: false
+      timeout: 3600
+      allowed_tools:
+        - "Edit"
+        - "Read"
+        - "Write"
+        - "Bash"
+      streaming: true
+
+  # ============================================================================
   # OpenHands - Agent with sandboxed execution
   # ============================================================================
   openhands:
