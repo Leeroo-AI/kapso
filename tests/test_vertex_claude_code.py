@@ -41,7 +41,7 @@ port = int(args[args.index("--port") + 1])
 shutil.copy(config, config + ".seen")
 with open(config + ".env", "w") as handle:
     import os
-    json.dump({k: v for k, v in os.environ.items() if k.startswith("GOOGLE_")}, handle)
+    json.dump({"cwd": os.getcwd(), **{k: v for k, v in os.environ.items() if k.startswith("GOOGLE_")}}, handle)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -113,6 +113,10 @@ def test_bridge_serves_the_model_through_litellm_and_the_cli_talks_only_to_it(
     assert len(bridge.master_key) >= 32
     bridge_env = json.loads(next(bridge._dir.glob("*.env")).read_text())
     assert bridge_env["GOOGLE_CLOUD_QUOTA_PROJECT"] == PROJECT
+    # The parameter-whitelist hook is loaded from the proxy's own directory.
+    assert seen["litellm_settings"]["callbacks"] == ["vertex_bridge_litellm_hook.hook"]
+    assert "VertexAILlama3Config" in (bridge._dir / "vertex_bridge_litellm_hook.py").read_text()
+    assert bridge_env["cwd"] == str(bridge._dir)
     with urllib.request.urlopen(f"{bridge.base_url}/health/liveliness") as response:
         assert response.status == 200
 
@@ -141,6 +145,24 @@ def test_agents_with_the_same_target_share_one_bridge(fake_litellm):
     assert other_model._bridge.port != first._bridge.port
 
 
+def test_effort_becomes_the_bridge_reasoning_effort_not_a_cli_flag(fake_litellm):
+    agent = make_agent(effort="low")
+    seen = json.loads(next(agent._bridge._dir.glob("*.seen")).read_text())
+    assert seen["model_list"][0]["litellm_params"]["reasoning_effort"] == "low"
+    assert "--effort" not in agent._build_command(MODEL)
+    # A different effort is a different deployment, so a different bridge.
+    assert make_agent(effort="max")._bridge is not agent._bridge
+    assert make_agent(effort="low")._bridge is agent._bridge
+
+    plain = make_agent()
+    seen = json.loads(next(plain._bridge._dir.glob("*.seen")).read_text())
+    assert "reasoning_effort" not in seen["model_list"][0]["litellm_params"]
+    # Claude's top level is the config language; Vertex only knows GLM's.
+    xhigh = make_agent(effort="xhigh")
+    seen = json.loads(next(xhigh._bridge._dir.glob("*.seen")).read_text())
+    assert seen["model_list"][0]["litellm_params"]["reasoning_effort"] == "max"
+
+
 def test_stop_ends_the_proxy_and_removes_its_files(fake_litellm):
     bridge = make_agent()._bridge
     process, directory = bridge._process, bridge._dir
@@ -155,6 +177,8 @@ def test_stop_ends_the_proxy_and_removes_its_files(fake_litellm):
     ({"vertex_location": ""}, "vertex_location"),
     ({"bridge_startup_timeout": 0}, "bridge_startup_timeout"),
     ({"bridge_startup_timeout": True}, "bridge_startup_timeout"),
+    ({"effort": ""}, "effort"),
+    ({"effort": 3}, "effort"),
 ])
 def test_bad_wiring_fails_loud_before_any_proxy_starts(fake_litellm, overrides, message):
     with pytest.raises(ValueError, match=message):

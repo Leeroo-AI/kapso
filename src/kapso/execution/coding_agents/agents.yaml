@@ -143,6 +143,10 @@ agents:
       vertex_location: "global"
       # Seconds to wait for the local bridge to start serving.
       bridge_startup_timeout: 60
+      # The open model's reasoning effort, set on the bridge for every
+      # request (GLM: max / xhigh / high / medium / low / minimal / none;
+      # null = the model's own default, max for GLM).
+      effort: null
       planning_mode: false
       timeout: 3600
       allowed_tools:
