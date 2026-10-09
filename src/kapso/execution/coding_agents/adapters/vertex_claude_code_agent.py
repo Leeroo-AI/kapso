@@ -57,6 +57,10 @@ from kapso.execution.coding_agents.adapters.oss_claude_code_agent import (
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_HEALTH_PATH = "/health/liveliness"
 BRIDGE_PROBE_BODY = {"max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]}
+# The first answer out of a cold proxy on a busy project can take minutes
+# (24 bridges starting at once took one past 120 s); a session would wait
+# just the same, so the probe waits generously rather than fail a run.
+BRIDGE_PROBE_TIMEOUT_SECONDS = 600
 BRIDGE_KEY_ENV = "KAPSO_VERTEX_BRIDGE_KEY"
 BRIDGE_LOG_TAIL_BYTES = 4000
 # Claude's effort vocabulary is the config language; Vertex validates GLM's
@@ -178,7 +182,7 @@ class VertexBridge:
                 "anthropic-version": "2023-06-01",
             },
         )
-        response = _PROBE_OPENER.open(request, timeout=120)
+        response = _PROBE_OPENER.open(request, timeout=BRIDGE_PROBE_TIMEOUT_SECONDS)
         if response.status != 200:
             reason = response.read()[:BRIDGE_LOG_TAIL_BYTES].decode(errors="replace")
             self.stop()
