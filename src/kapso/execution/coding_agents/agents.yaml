@@ -148,9 +148,14 @@ agents:
       # Seconds to wait for the local bridge to start serving.
       bridge_startup_timeout: 60
       # The open model's reasoning effort, set on the bridge for every
-      # request (GLM: max / xhigh / high / medium / low / minimal / none;
-      # null = the model's own default, max for GLM).
-      effort: null
+      # request (Vertex accepts minimal / low / medium / high / max for
+      # GLM 5.2; xhigh is sent as max). null would leave the model's default.
+      effort: "xhigh"
+      # Open models write big files in one turn; the CLI's default 32k
+      # output cap killed 1 of 48 fleet runs (Vertex accepts 100k for GLM 5.2).
+      # Set-if-absent in the CLI's environment.
+      env_defaults:
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000"
       planning_mode: false
       timeout: 3600
       allowed_tools:
