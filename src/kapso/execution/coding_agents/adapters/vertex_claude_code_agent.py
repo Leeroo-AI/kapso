@@ -183,7 +183,10 @@ class VertexBridge:
             },
         )
         response = _PROBE_OPENER.open(request, timeout=BRIDGE_PROBE_TIMEOUT_SECONDS)
-        if response.status != 200:
+        # A 429 is Vertex throttling a request that reached the model with a
+        # valid credential, project and model name: the bridge is up; the
+        # CLI retries throttled calls with backoff on its own.
+        if response.status not in (200, 429):
             reason = response.read()[:BRIDGE_LOG_TAIL_BYTES].decode(errors="replace")
             self.stop()
             raise RuntimeError(

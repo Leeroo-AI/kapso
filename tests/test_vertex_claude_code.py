@@ -200,6 +200,11 @@ def test_bad_wiring_fails_loud_before_any_proxy_starts(fake_litellm, overrides, 
     assert module._BRIDGES == {}
 
 
+def test_a_throttled_probe_still_counts_as_up(fake_litellm, monkeypatch):
+    monkeypatch.setenv("FAKE_PROBE_STATUS", "429")
+    assert make_agent()._bridge.port is not None
+
+
 def test_a_failed_model_probe_carries_the_reason_and_stops_the_proxy(fake_litellm, monkeypatch):
     monkeypatch.setenv("FAKE_PROBE_STATUS", "403")
     with pytest.raises(RuntimeError, match="HTTP 403.*Permission denied"):
