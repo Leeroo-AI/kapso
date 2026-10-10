@@ -869,6 +869,9 @@ class KGGraphSearch(KnowledgeSearch):
                 "domains": page.domains,
             }
             
+            # Re-indexing must replace the page, not add a second copy
+            self._delete_weaviate_page(collection, page.id)
+
             # Insert with named vector (Weaviate 1.27+ with vectorizer_config=None
             # creates a named vector "default", so we must use this format)
             collection.data.insert(
@@ -1597,6 +1600,9 @@ Only include pages that would actually help answer the query.
         # Get collection
         collection = self._weaviate_client.collections.get(self.weaviate_collection)
         
+        # Re-indexing must replace the page, not add a second copy
+        self._delete_weaviate_page(collection, page.id)
+
         # Insert with named vector
         collection.data.insert(
             properties=properties,
@@ -1605,6 +1611,13 @@ Only include pages that would actually help answer the query.
         
         logger.debug(f"Indexed page to Weaviate: {page.id}")
         return True
+
+    @staticmethod
+    def _delete_weaviate_page(collection, page_id: str) -> None:
+        """Delete any existing Weaviate objects for this page_id."""
+        collection.data.delete_many(
+            where=wvc.query.Filter.by_property("page_id").equal(page_id)
+        )
     
     def _index_single_page_to_neo4j(self, page: WikiPage) -> bool:
         """
