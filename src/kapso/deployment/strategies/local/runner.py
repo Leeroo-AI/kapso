@@ -11,9 +11,35 @@ import os
 import sys
 import importlib.util
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Set, Union
 
 from kapso.deployment.strategies.base import Runner
+
+# Code paths of every local deployment loaded in this process.
+_LOADED_CODE_PATHS: Set[str] = set()
+
+
+def _is_inside(path: str, folder: str) -> bool:
+    try:
+        return os.path.commonpath([path, folder]) == folder
+    except ValueError:  # different drives on Windows
+        return False
+
+
+def _evict_modules_from_other_deployments(current_path: str) -> None:
+    """Remove cached modules that were imported from another deployment's folder."""
+    others = [p for p in _LOADED_CODE_PATHS if p != current_path and not _is_inside(current_path, p)]
+    if not others:
+        return
+    for name, module in list(sys.modules.items()):
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            continue
+        module_file = os.path.abspath(module_file)
+        if _is_inside(module_file, current_path):
+            continue
+        if any(_is_inside(module_file, p) for p in others):
+            del sys.modules[name]
 
 
 class LocalRunner(Runner):
@@ -59,10 +85,17 @@ class LocalRunner(Runner):
     
     def _load(self) -> None:
         """Import the module and get the callable."""
-        # Add code path to Python path (use absolute path)
         abs_code_path = os.path.abspath(self.code_path)
-        if abs_code_path not in sys.path:
-            sys.path.insert(0, abs_code_path)
+
+        # Modules imported by an earlier local deployment (e.g. a shared
+        # "helper") stay cached in sys.modules, so `import helper` here would
+        # silently reuse the other solution's code. Drop them first, and put
+        # this code path at the front so its own files are found first.
+        _evict_modules_from_other_deployments(abs_code_path)
+        if abs_code_path in sys.path:
+            sys.path.remove(abs_code_path)
+        sys.path.insert(0, abs_code_path)
+        _LOADED_CODE_PATHS.add(abs_code_path)
         
         # Find the module file - try multiple locations
         module_paths = [
