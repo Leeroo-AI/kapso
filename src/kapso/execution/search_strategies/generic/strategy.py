@@ -23,6 +23,12 @@ from kapso.execution.search_strategies.base import (
     SearchNode,
 )
 from kapso.execution.search_strategies.factory import register_strategy
+from kapso.execution.cost_estimator import (
+    DEFAULT_COST_CONFIG,
+    normalize_cost_config,
+    selection_score,
+    validate_cost_value,
+)
 from kapso.execution.fidelity import (
     FULL_PASSTHROUGH,
     PROFILE_VALIDATE,
@@ -42,6 +48,7 @@ from kapso.execution.search_strategies.generic.expansion_lanes import (
 from kapso.execution.search_strategies.generic.feedback_flow import (
     extract_agent_result,
     generate_feedback,
+    measured_cost_from_output,
 )
 from kapso.execution.search_strategies.generic.ideation import (
     ENSEMBLE_CANDIDATES_PER_MEMBER,
@@ -212,6 +219,8 @@ class GenericSearch(SearchStrategy):
         parent_policy = normalize_parent_policy(
             (config.params or {}).get("parent_policy", "best")
         )
+        self.cost_config = normalize_cost_config((config.params or {}).get("cost"))
+        self.before_candidate_evaluation = None
         super().__init__(config, workspace_dir, import_from_checkpoint)
         
         # Config params for ideation
@@ -642,6 +651,12 @@ class GenericSearch(SearchStrategy):
             node.evaluation_output = agent_output
             print(f"{lane_tag}[GenericSearch] Warning: No JSON result from agent, using raw output")
 
+        if self._cost_enabled():
+            node.score = None
+            node.evaluation_output = ""
+            node.measured_cost = None
+            node.evaluation_valid = False
+
         if suspended is not None:
             # The session asked the person and was stopped: nothing to
             # judge, nothing to reconstruct — the node waits for the reply.
@@ -664,7 +679,7 @@ class GenericSearch(SearchStrategy):
         # Step 3c: inject the manifest recovered from the durable run archive
         # (returned by this lane's own _implement) so the score of record
         # survives a session that died before printing it.
-        if recovered and self._manifest_score_of_record(node) is None:
+        if not self._cost_enabled() and recovered and self._manifest_score_of_record(node) is None:
             node.evaluation_output = (
                 (node.evaluation_output or "") + "\n" + recovered
             )
@@ -796,7 +811,8 @@ class GenericSearch(SearchStrategy):
         self._finalize_nodes(nodes, iteration_started_monotonic, append=True)
 
         representative = pick_representative(
-            nodes, self.problem_handler.maximize_scoring
+            nodes, self.problem_handler.maximize_scoring,
+            getattr(self, "cost_config", None),
         )
         if lane_count > 1:
             representative.should_stop = any(n.should_stop for n in nodes)
@@ -818,15 +834,17 @@ class GenericSearch(SearchStrategy):
         that asked the person is stamped and recorded, never judged: it
         is not finished."""
         self._status_phase("feedback")
-        for node in nodes:
+        for lane_index, node in enumerate(nodes):
             if getattr(node, "suspended", False):
                 print(
                     f"[GenericSearch] node {node.node_id} waits for the person "
                     "— not judged until it is continued"
                 )
             elif self.enforce_evaluation_integrity(node):
-                self._generate_feedback(node)
-                self._record_evaluation_attempt(node)
+                admitted = self._evaluate_admitted_candidate(node, lane_index=lane_index)
+                if admitted:
+                    self._generate_feedback(node)
+                    self._record_evaluation_attempt(node)
             else:
                 print(
                     "[GenericSearch] Rejected invalid provided evaluation: "
@@ -848,6 +866,60 @@ class GenericSearch(SearchStrategy):
                     f"[GenericSearch] ✓ Node {node.node_id} completed: "
                     f"score={node.score}, should_stop={node.should_stop}"
                 )
+
+    def _cost_enabled(self) -> bool:
+        return bool(getattr(self, "cost_config", {}).get("enabled"))
+
+    def _evaluate_admitted_candidate(self, node: SearchNode, *, lane_index: int = 0) -> bool:
+        """Estimate a finalized build before its first platform execution."""
+        if not self._cost_enabled():
+            return True
+        if node.had_error:
+            return False
+        if self.before_candidate_evaluation is None:
+            raise ValueError("Cost-enabled search requires before_candidate_evaluation")
+        node.score = None
+        node.evaluation_output = ""
+        node.measured_cost = None
+        if not self.before_candidate_evaluation(node):
+            return False
+        self.evaluate_candidate(node, lane_index=lane_index)
+        return node.evaluation_valid
+
+    def evaluate_candidate(self, node: SearchNode, *, lane_index: int = 0) -> SearchNode:
+        """Execute a finalized candidate after its cost estimate was admitted.
+
+        The caller generates feedback from the captured evaluator output;
+        implementation-session output never becomes evaluation evidence.
+        """
+        if not self._cost_enabled() or node.estimated_cost is None or node.cost_refusal:
+            raise ValueError("Deferred evaluation requires an admitted cost estimate")
+        validate_cost_value(node.estimated_cost, self.cost_config["unit"])
+        self._status_phase("evaluation")
+        started = time.monotonic()
+        decision = self.fidelity_decision
+        execute_registered_evaluation(
+            node, fidelity=node.eval_fidelity,
+            fraction=decision.eval_fraction if decision is not None else 1.0,
+            deadline_seconds=self._clamped_timeout(self.implementation_timeout),
+            registered_evaluator_id=self.registered_evaluator_id,
+            registered_subsample_seed=self.registered_subsample_seed,
+            registered_data_manifest=self.registered_data_manifest,
+            workspace=self.workspace, workspace_dir=self.workspace_dir,
+            record_eval_duration=self.record_eval_duration,
+            candidate_evaluation=True,
+            registered_evaluation_command=self.registered_evaluation_command,
+            env_strip=self.env_strip,
+            env_defaults=self.env_defaults,
+            env_overrides=lane_env_overlay(self.expansion_lane_env, lane_index),
+        )
+        node.phase_telemetry["evaluation"] = {
+            "duration_seconds": time.monotonic() - started,
+        }
+        node.measured_cost = measured_cost_from_output(
+            node.evaluation_output, self.cost_config["unit"],
+        )
+        return node
 
     def _generate_solution(
         self, problem: str, parent_branch: str
@@ -1100,6 +1172,7 @@ class GenericSearch(SearchStrategy):
             node_id=node_id,
             inbox_settings=getattr(self, "inbox_settings", None),
             continuation=continuation,
+            defer_evaluation=self._cost_enabled(),
         )
 
     def _build_implementation_prompt(
@@ -1132,6 +1205,7 @@ class GenericSearch(SearchStrategy):
             lane_brief=lane_brief,
             inbox_section=inbox_section,
             knowledge_tools=knowledge_tools_block("implementation", allowed_tools),
+            defer_evaluation=self._cost_enabled(),
         )
 
     def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:
@@ -1412,6 +1486,7 @@ class GenericSearch(SearchStrategy):
             for node in self.node_history
             if not node.had_error
             and not node.evaluation_integrity_error
+            and not node.cost_refusal
             and not getattr(node, "suspended", False)
             and node.code_diff.strip()
             and node.branch_name
@@ -1432,7 +1507,7 @@ class GenericSearch(SearchStrategy):
                 key=lambda node: (
                     not node.had_error and node.evaluation_valid and node.score is not None,
                     0.0 if node.score is None
-                    else (node.score if self.problem_handler.maximize_scoring else -node.score),
+                    else selection_score(node, self._selection_config()),
                 )
             )
         return self.node_history
@@ -1450,8 +1525,14 @@ class GenericSearch(SearchStrategy):
             return None
         return max(
             valid,
-            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
+            key=lambda node: selection_score(node, self._selection_config())
         )
+
+    def _selection_config(self) -> Dict[str, Any]:
+        return {
+            "cost": getattr(self, "cost_config", DEFAULT_COST_CONFIG),
+            "maximize_scoring": self.problem_handler.maximize_scoring,
+        }
 
     def get_deliverable_experiment(self) -> Optional[SearchNode]:
         """The committed-slot winner: evidence tiers, never raw scores.
@@ -1462,7 +1543,7 @@ class GenericSearch(SearchStrategy):
         full-tier candidate at delivery. Without registered evidence the
         score leader stands.
         """
-        if self.registered_evaluator_id:
+        if self.registered_evaluator_id and not self._cost_enabled():
             committed = select_committed_candidate(
                 self.node_history,
                 evaluator_id=self.registered_evaluator_id,
@@ -1531,6 +1612,7 @@ class GenericSearch(SearchStrategy):
                 lambda manifest, valid:
                 self.problem_handler.finalize_run_selection(manifest, valid)
             ),
+            execution_valid=node.evaluation_valid if self._cost_enabled() else True,
         )
 
     def _extract_agent_result(self, agent_output: str) -> dict:

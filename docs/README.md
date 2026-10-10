@@ -66,6 +66,7 @@ Every published page with its rendered address, grouped as in the sidebar. Kept 
 - [Orchestrator](https://docs.leeroo.com/docs/evolve/orchestrator) — `docs/evolve/orchestrator.mdx`
 - [Search strategies](https://docs.leeroo.com/docs/evolve/search-strategies) — `docs/evolve/search-strategies.mdx`
 - [Parent selection](https://docs.leeroo.com/docs/evolve/parent-selection) — `docs/evolve/parent-selection.mdx`
+- [Cost-aware selection](https://docs.leeroo.com/docs/evolve/cost-aware-selection): `docs/evolve/cost-aware-selection.mdx`
 - [MCP gates](https://docs.leeroo.com/docs/evolve/mcp-gates) — `docs/evolve/mcp-gates.mdx`
 - [Model routing](https://docs.leeroo.com/docs/evolve/model-routing-retries) — `docs/evolve/model-routing-retries.mdx`
 - [Coding agents](https://docs.leeroo.com/docs/evolve/coding-agents) — `docs/evolve/coding-agents.mdx`

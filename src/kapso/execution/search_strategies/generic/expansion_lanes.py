@@ -9,6 +9,7 @@ GenericSearch assembles arguments from its state and delegates here.
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from kapso.execution.search_strategies.base import SearchNode
+from kapso.execution.cost_estimator import DEFAULT_COST_CONFIG, selection_score
 
 MAX_NODE_EXPANSION = 8
 
@@ -109,7 +110,8 @@ def lane_env_overlay(
 
 
 def pick_representative(
-    nodes: List[SearchNode], maximize_scoring: bool
+    nodes: List[SearchNode], maximize_scoring: bool,
+    cost_config: Optional[Mapping[str, Any]] = None,
 ) -> SearchNode:
     """Best-scoring node of the round; scoreless nodes rank last."""
     if len(nodes) == 1:
@@ -120,8 +122,9 @@ def pick_representative(
             return (0, 0.0)
         return (
             1,
-            node.score
-            if maximize_scoring
-            else -node.score,
+            selection_score(node, {
+                "cost": DEFAULT_COST_CONFIG if cost_config is None else cost_config,
+                "maximize_scoring": maximize_scoring,
+            }),
         )
     return max(nodes, key=sort_key)

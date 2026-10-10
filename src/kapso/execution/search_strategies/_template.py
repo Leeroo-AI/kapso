@@ -16,6 +16,7 @@ Your strategy will be auto-discovered when the module loads!
 from typing import Any, Dict, List, Optional
 
 from kapso.execution.types import ContextData
+from kapso.execution.cost_estimator import normalize_cost_config, selection_score
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
     SearchStrategyConfig,
@@ -61,6 +62,7 @@ class MyStrategy(SearchStrategy):
         # IMPORTANT: Call super().__init__() first!
         # This sets up: self.problem_handler, self.llm, self.workspace, self.params
         super().__init__(config)
+        self.cost_config = normalize_cost_config(self.params.get("cost"))
         
         # Extract your parameters with defaults
         self.param1 = self.params.get("param1", 10)
@@ -189,7 +191,12 @@ class MyStrategy(SearchStrategy):
                 self.experiment_history,
                 key=lambda exp: (
                     not exp.had_error,  # Successful experiments first
-                    exp.score if self.problem_handler.maximize_scoring else -exp.score
+                    selection_score(exp, {
+                        "cost": self.cost_config,
+                        "maximize_scoring": self.problem_handler.maximize_scoring,
+                    }) if self.cost_config["enabled"] else (
+                        exp.score if self.problem_handler.maximize_scoring else -exp.score
+                    )
                 )
             )
         return self.experiment_history
@@ -201,14 +208,25 @@ class MyStrategy(SearchStrategy):
         Returns:
             Best ExperimentResult, or None if no successful experiments
         """
-        valid_experiments = [exp for exp in self.experiment_history if not exp.had_error]
+        valid_experiments = [
+            exp for exp in self.experiment_history
+            if not exp.had_error and (
+                not self.cost_config["enabled"]
+                or (exp.evaluation_valid and exp.score is not None)
+            )
+        ]
         
         if not valid_experiments:
             return None
         
         return max(
             valid_experiments,
-            key=lambda x: x.score if self.problem_handler.maximize_scoring else -x.score
+            key=lambda exp: selection_score(exp, {
+                "cost": self.cost_config,
+                "maximize_scoring": self.problem_handler.maximize_scoring,
+            }) if self.cost_config["enabled"] else (
+                exp.score if self.problem_handler.maximize_scoring else -exp.score
+            ),
         )
     
     def checkout_to_best_experiment_branch(self) -> Optional[str]:

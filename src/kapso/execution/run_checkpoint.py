@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from kapso.execution.cost_estimator import normalize_cost_config
+
 
 class RunCheckpointError(RuntimeError):
     """Base class for checkpoint validation and persistence failures."""
@@ -68,6 +70,7 @@ class RunCheckpoint:
     elapsed_seconds: float = 0.0
     cost_by_component: Dict[str, float] = field(default_factory=dict)
     last_stop: Optional[str] = None
+    cost_config: Dict[str, Any] = field(default_factory=normalize_cost_config)
 
     SCHEMA_VERSION = 2
     VALID_STATUSES = {"running", "completed"}
@@ -76,6 +79,7 @@ class RunCheckpoint:
     # session that asked once the reply is in.
     VALID_LAST_STOPS = {
         "time_budget", "cost_budget", "finalization_reserve", "waiting_for_user",
+        "cost_budget_exhausted",
     }
 
     @classmethod
@@ -93,6 +97,7 @@ class RunCheckpoint:
         elapsed_seconds: float = 0.0,
         cost_by_component: Optional[Dict[str, float]] = None,
         last_stop: Optional[str] = None,
+        cost_config: Optional[Dict[str, Any]] = None,
     ) -> "RunCheckpoint":
         checkpoint = cls(
             schema_version=cls.SCHEMA_VERSION,
@@ -108,6 +113,7 @@ class RunCheckpoint:
             elapsed_seconds=elapsed_seconds,
             cost_by_component=dict(cost_by_component or {}),
             last_stop=last_stop,
+            cost_config=normalize_cost_config(cost_config),
         )
         checkpoint.validate_structure()
         return checkpoint
@@ -144,6 +150,7 @@ class RunCheckpoint:
             "elapsed_seconds",
             "cost_by_component",
             "last_stop",
+            "cost_config",
         }
         missing = sorted(required - set(data))
         if missing:
@@ -156,6 +163,8 @@ class RunCheckpoint:
         return checkpoint
 
     def validate_structure(self) -> None:
+        if not isinstance(self.cost_config, dict):
+            raise RunCheckpointCorruptError("Run checkpoint cost_config must be an object")
         if (
             isinstance(self.schema_version, bool)
             or not isinstance(self.schema_version, int)
@@ -261,6 +270,7 @@ class RunCheckpoint:
         goal: str,
         strategy_type: str,
         config_fingerprint: str,
+        cost_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         if self.status == "completed":
             raise RunCheckpointCompletedError(
@@ -275,6 +285,17 @@ class RunCheckpoint:
             raise RunCheckpointIncompatibleError(
                 "Run checkpoint strategy mismatch: expected "
                 f"{self.strategy_type!r}, requested {strategy_type!r}"
+            )
+        if cost_config is not None:
+            cost_config = normalize_cost_config(cost_config)
+        if cost_config is not None and self.cost_config != cost_config:
+            changed = sorted(
+                f"cost.{key}"
+                for key in self.cost_config.keys() | cost_config.keys()
+                if self.cost_config.get(key) != cost_config.get(key)
+            )
+            raise RunCheckpointIncompatibleError(
+                "Run checkpoint cost configuration mismatch: " + ", ".join(changed)
             )
         if self.config_fingerprint != config_fingerprint:
             raise RunCheckpointIncompatibleError(

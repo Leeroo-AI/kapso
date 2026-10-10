@@ -183,6 +183,14 @@ search_strategy:
     gate_failure_policy: warn
     ideation_gates: [research, experiment_history, repo_memory, leeroopedia]
     implementation_gates: [research, repo_memory, leeroopedia]
+    cost:
+      enabled: false
+      estimator: null
+      cap_per_candidate: null
+      campaign_budget: null
+      unit: credits
+      weight: 0.0
+      history_field: estimated_cost
 ```
 
 | Key | What it does |
@@ -194,8 +202,23 @@ search_strategy:
 | `params.gate_failure_policy` | What to do when an MCP gate is unavailable. `warn` continues |
 | `params.ideation_gates` | MCP tools offered while designing a candidate |
 | `params.implementation_gates` | MCP tools offered while implementing it |
+| `params.cost.enabled` | Enable platform-cost estimation, admission checks, and selection; default `false` |
+| `params.cost.estimator` | Module-qualified caller-owned estimator; required when enabled |
+| `params.cost.cap_per_candidate` | Maximum estimate accepted for one candidate, in `unit`; `null` is unlimited |
+| `params.cost.campaign_budget` | Campaign platform budget, using measured cost when available and estimates otherwise; `null` is unlimited |
+| `params.cost.unit` | Shared estimate and measurement label; default `credits`, with no conversion |
+| `params.cost.weight` | Non-negative platform-cost penalty in selection; default `0.0` |
+| `params.cost.history_field` | Cost field shown first in history: `estimated_cost` (default) or `measured_cost`; both are shown when present |
+
+The packaged cost defaults live in `defaults.search_strategy.params.cost` and
+are inherited by every mode. Override individual keys under
+`modes.<mode>.search_strategy.params.cost`. Cost-enabled runs require the generic
+strategy and `budget.fidelity.mode: off`. Platform cost settings are separate
+from model spend in USD controlled by `evolve(cost_budget=...)`.
 
 See [Capability-aware MCP gates](/docs/evolve/mcp-gates).
+See [Cost-aware selection](/docs/evolve/cost-aware-selection) for the estimator
+contract, measured-cost manifest, admission lifecycle, and resume checks.
 
 ### coding_agent and feedback_generator
 

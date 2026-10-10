@@ -111,6 +111,7 @@ def run_implementation(
     node_id: int = 0,
     inbox_settings: Optional[Dict[str, Any]] = None,
     continuation: Optional[Continuation] = None,
+    defer_evaluation: bool = False,
 ) -> Tuple[str, Dict[str, float], Optional[str], Optional[SuspendedSession]]:
     """
     Implementation using Claude Code with MCP gates (code, research).
@@ -267,6 +268,14 @@ def run_implementation(
     
     if continuation is not None:
         prompt = continuation.follow_up
+        if defer_evaluation:
+            prompt += (
+                "\n\nThis is still a build-only session. Do not run the candidate "
+                "or evaluation, train models, submit platform jobs, or perform "
+                "paid platform operations. Complete the implementation and "
+                "return empty evaluation output and a null score. Kapso "
+                "estimates the finalized candidate and grants execution later."
+            )
     else:
         prompt = build_prompt(
             solution=solution,
@@ -400,7 +409,10 @@ def run_implementation(
                     + "\n\nNOTE: a previous session on this lane ended "
                     f"prematurely ({result.error}). Its partial work is in "
                     "the branch; continue from there and finish the "
-                    "implementation and evaluation."
+                    + (
+                        "implementation without executing the candidate or evaluation."
+                        if defer_evaluation else "implementation and evaluation."
+                    )
                 )
                 phase_cost += agent.get_cumulative_cost()
                 if fallback_result.output:
@@ -453,8 +465,8 @@ def run_implementation(
     
     # 8. Registered-evaluation teardown guard: wait for a live grader
     # and stash any durable-archive recovery BEFORE finalize's rmtree.
-    recovered_manifest_line = await_registered_evaluation(
-        agent_output
+    recovered_manifest_line = (
+        None if defer_evaluation else await_registered_evaluation(agent_output)
     )
 
     # 9. Finalize session (commits changes; push serialized by the
@@ -478,12 +490,19 @@ def build_implementation_prompt(
     lane_brief: str = "",
     inbox_section: str = "",
     knowledge_tools: str = "",
+    defer_evaluation: bool = False,
 ) -> str:
     """Build the implementation prompt for Claude Code. With the inbox
     off (empty ``inbox_section``) the render is byte-identical to the
     prompt before the inbox existed. ``knowledge_tools`` is the guidance
-    of the gates this session mounted (empty for a session with none)."""
-    template = load_prompt("execution/search_strategies/generic/prompts/implementation_claude_code.md")
+    of the gates this session mounted (empty for a session with none).
+    ``defer_evaluation`` selects the cost-gated template, which asks the
+    implementer to stop before the evaluation so the estimator runs first."""
+    template_name = (
+        "implementation_cost_gated.md" if defer_evaluation
+        else "implementation_claude_code.md"
+    )
+    template = load_prompt(f"execution/search_strategies/generic/prompts/{template_name}")
     inbox_on = bool(inbox_section)
     return render_prompt(
         template,

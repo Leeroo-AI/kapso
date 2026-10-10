@@ -11,13 +11,15 @@ instructions rendered into implementation prompts. Stateless functions only
 
 import glob
 import os
+import re
 import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from kapso.execution.evaluation_integrity import verify_data_manifest
 from kapso.execution.evaluation_maintainer.maintainer import (
@@ -47,6 +49,31 @@ DEFAULT_EVALUATION_INSTRUCTIONS = """You MUST build and run evaluation in `kapso
 3. **Run the evaluation**: Execute your evaluation script and capture output.
 
 4. **Retry on crash**: If evaluation crashes, fix the issue and retry (max 3 attempts)."""
+
+
+def candidate_environment_command(
+    command: List[str], *, env_strip: List[str], env_defaults: Dict[str, str],
+    env_overrides: Optional[Dict[str, str]],
+) -> List[str]:
+    """Apply configured session environment transport without reading secrets."""
+    overrides = env_overrides or {}
+    for name in [*env_strip, *env_defaults, *overrides]:
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError(f"Invalid candidate environment variable name: {name!r}")
+    if not env_strip and not env_defaults and not overrides:
+        return command
+    strip_args = [argument for name in env_strip for argument in ("-u", name)]
+    default_assignments = [
+        f'if [ "${{{name}+x}}" != x ]; then\n'
+        f"export {name}={shlex.quote(str(value))}\nfi"
+        for name, value in env_defaults.items()
+    ]
+    script = "\n".join([*default_assignments, 'exec "$@"'])
+    return [
+        "/usr/bin/env", *strip_args,
+        *(f"{name}={value}" for name, value in overrides.items()),
+        "/bin/sh", "-c", script, "kapso-evaluation", *command,
+    ]
 
 
 def manifest_of_record(
@@ -171,6 +198,11 @@ def execute_registered_evaluation(
     workspace,
     workspace_dir: str,
     record_eval_duration,
+    candidate_evaluation: bool = False,
+    registered_evaluation_command: Optional[str] = None,
+    env_strip: Optional[List[str]] = None,
+    env_defaults: Optional[Dict[str, str]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
 ) -> Optional[float]:
     """Frame-run the registered evaluation on an existing artifact.
 
@@ -182,14 +214,27 @@ def execute_registered_evaluation(
     is killed and the attempt reports None, exactly like a non-zero
     exit. Timing estimates gate admission; they do not kill campaigns.
     """
-    command = shlex.split(
-        evaluation_command(
+    if candidate_evaluation:
+        target.evaluation_valid = False
+        target.score = None
+        target.should_stop = False
+        target.evaluation_output = ""
+    command = (
+        [sys.executable, "kapso_evaluation/evaluate.py"]
+        if candidate_evaluation and not registered_evaluation_command
+        else shlex.split(registered_evaluation_command or evaluation_command(
             fidelity=fidelity,
             fraction=fraction,
             seed=registered_subsample_seed,
-        )
+        ))
     )
+    if candidate_evaluation:
+        command = candidate_environment_command(
+            command, env_strip=env_strip or [], env_defaults=env_defaults or {},
+            env_overrides=env_overrides,
+        )
     run_started = time.monotonic()
+    overran = False
     with workspace.materialize_ref(target.branch_name) as worktree:
         # The branch's own evaluation tree is whatever version its
         # session ran under — a frame run trusting it would execute a
@@ -197,7 +242,8 @@ def execute_registered_evaluation(
         # id (observed live: a bridge labeled v2 executed the branch's
         # v1 tree). The registered head is the only ruler frame runs
         # execute.
-        sync_registered_evaluation(worktree, workspace_dir)
+        if not candidate_evaluation or registered_evaluation_command:
+            sync_registered_evaluation(worktree, workspace_dir)
         if registered_data_manifest:
             data_problem = verify_data_manifest(
                 worktree, registered_data_manifest
@@ -236,14 +282,7 @@ def execute_registered_evaluation(
                 if process.poll() is None:
                     os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
-                stdout_file.close()
-                stderr_file.close()
-                print(
-                    "[GenericSearch] Registered evaluation exceeded its "
-                    f"{deadline_seconds:.0f}s affordability window; "
-                    "recorded as a failed attempt"
-                )
-                return None
+                break
             time.sleep(0.5)
         process.wait()
         stdout_file.seek(0)
@@ -253,14 +292,37 @@ def execute_registered_evaluation(
         stderr = stderr_file.read()
         stderr_file.close()
     duration = time.monotonic() - run_started
+    if candidate_evaluation:
+        target.evaluation_output = stdout + stderr
+        target.evaluation_script_path = (
+            "kapso_evaluation/kapso_eval.py" if registered_evaluation_command
+            else "kapso_evaluation/evaluate.py"
+        )
+    if overran:
+        print(
+            "[GenericSearch] Registered evaluation exceeded its "
+            f"{deadline_seconds:.0f}s affordability window; "
+            "recorded as a failed attempt"
+        )
+        return None
     if process.returncode != 0:
+        if candidate_evaluation:
+            target.evaluation_valid = False
+            target.score = None
         print(
             "[GenericSearch] Registered evaluation failed "
             f"(exit {process.returncode}): {stderr}"
         )
         return None
+    if candidate_evaluation:
+        target.evaluation_valid = True
+        if not registered_evaluation_command:
+            return None
     manifest = parse_manifest_line(stdout)
     score = float(manifest["score"])
+    if candidate_evaluation:
+        target.score = score
+        return score
     target.evaluation_attempts.append(
         EvaluationAttempt(
             commit_sha=workspace.repo.commit(
