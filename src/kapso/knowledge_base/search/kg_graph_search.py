@@ -88,6 +88,12 @@ _TYPE_TO_SUBDIR = {
     PageType.HEURISTIC.value: "heuristics",
 }
 
+# Weaviate's `equal` filter on the word-tokenized `page_id` property matches
+# every page sharing the request's tokens; this bounds the candidate ids
+# fetched before the exact match is picked client-side (a repository's pages
+# number in the tens to low hundreds).
+_PAGE_ID_TOKEN_MATCH_LIMIT = 1000
+
 
 def parse_wiki_directory(
     wiki_dir: Path,
@@ -1296,7 +1302,7 @@ Only include pages that would actually help answer the query.
         """
         Retrieve a wiki page by its ID.
         
-        Looks up the page in Weaviate by exact page_id match.
+        Looks up the page in Weaviate by its exact page_id.
         
         Args:
             page_id: Exact ID of the page to retrieve (e.g., "Workflow/QLoRA_Finetuning")
@@ -1311,26 +1317,34 @@ Only include pages that would actually help answer the query.
         try:
             collection = self._weaviate_client.collections.get(self.weaviate_collection)
 
-            # Lookup by exact page_id match
-            response = collection.query.fetch_objects(
+            # `equal` on the word-tokenized `page_id` also matches sibling
+            # pages ("<id>_Config", "<id>_Test"), and whichever sorts first
+            # would come back. Fetch the candidates' ids only, keep the one
+            # that equals the request, then read that object.
+            candidates = collection.query.fetch_objects(
                 filters=wvc.query.Filter.by_property("page_id").equal(page_id),
-                limit=1,
+                limit=_PAGE_ID_TOKEN_MATCH_LIMIT,
+                return_properties=["page_id"],
                 include_vector=False,
             )
-            
-            if response.objects:
-                obj = response.objects[0]
-                props = obj.properties
-                return WikiPage(
-                    id=props.get("page_id", ""),
-                    page_type=props.get("page_type", ""),
-                    overview=props.get("overview", ""),
-                    content=props.get("content", ""),
-                    description=props.get("description", ""),
-                    domains=props.get("domains", []),
-                )
-            
-            return None
+            exact = [
+                candidate for candidate in candidates.objects
+                if candidate.properties.get("page_id") == page_id
+            ]
+            if not exact:
+                return None
+            obj = collection.query.fetch_object_by_id(exact[0].uuid, include_vector=False)
+            if obj is None:
+                return None
+            props = obj.properties
+            return WikiPage(
+                id=props.get("page_id", ""),
+                page_type=props.get("page_type", ""),
+                overview=props.get("overview", ""),
+                content=props.get("content", ""),
+                description=props.get("description", ""),
+                domains=props.get("domains", []),
+            )
             
         except Exception as e:
             logger.warning(f"Failed to get page '{page_id}': {e}")
