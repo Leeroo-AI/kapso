@@ -3,6 +3,7 @@
 # with set-semantics dedup, the failed-attempt guard, and the worksheet row
 # (Rule 9: each is a wrong-machine-spins-up regression).
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from kapso.learning.bank import Bank
@@ -261,8 +262,11 @@ def test_code_freshness_rows(tmp_path):
         entry("rel-a--t/20260101T000000_lane-a"),
         entry("rel-b--t/20260102T000000_lane-b"),
     ])
+    # The seeder ages stamps against today's UTC date, so a fixed date for
+    # the fresh card would go stale once the max age passed.
+    today = datetime.now(timezone.utc).date().isoformat()
     for name, stamp in (("unstamped-code", None), ("stale-code", "2026-01-01"),
-                        ("fresh-code", "2026-08-17")):
+                        ("fresh-code", today)):
         path = root / "procedures" / name / "card.md"
         text = path.read_text().replace(
             "representation: text", "representation: code"
