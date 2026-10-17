@@ -440,20 +440,22 @@ def register_campaign(registry_path: str | Path, workspace_dir: str | Path, goal
 
 
 def list_registered_campaigns(registry_path: str | Path) -> List[Dict[str, Any]]:
-    """Registered campaigns whose directory still exists, newest first.
-    Missing registry → none; a malformed line raises."""
+    """Registered campaigns whose directory still exists, newest first,
+    each path once under its latest launch (a campaign deleted and
+    launched again at the same path has two lines). Missing registry →
+    none; a malformed line raises."""
     path = Path(registry_path).expanduser()
     if not path.is_file():
         return []
-    campaigns = []
+    campaigns: Dict[str, Dict[str, Any]] = {}
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         entry = json.loads(line)
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             raise ValueError(f"{path}:{number}: registry line must carry a path")
         if Path(entry["path"]).is_dir():
-            campaigns.append(entry)
-    campaigns.reverse()
-    return campaigns
+            campaigns.pop(entry["path"], None)
+            campaigns[entry["path"]] = entry
+    return list(reversed(campaigns.values()))
 
 
 # =============================================================================

@@ -184,6 +184,22 @@ def test_registry_lists_existing_campaigns_newest_first_and_raises_on_junk(tmp_p
         list_registered_campaigns(registry)
 
 
+def test_registry_lists_a_relaunched_campaign_once(tmp_path):
+    """Deleting a campaign and launching again at the same path adds a
+    second registry line; `kapso inbox` must still show the campaign once,
+    under its newest launch."""
+    registry = tmp_path / "registry.jsonl"
+    campaign = tmp_path / "campaign"
+    other = tmp_path / "other"
+    campaign.mkdir()
+    other.mkdir()
+    register_campaign(registry, campaign, "first try")
+    register_campaign(registry, other, "other goal")
+    register_campaign(registry, campaign, "second try")
+    listed = list_registered_campaigns(registry)
+    assert [entry["goal"] for entry in listed] == ["second try", "other goal"]
+
+
 def test_resume_arguments_fill_only_what_the_caller_left_unset():
     """`kapso evolve --output <dir> --resume` with nothing else must run
     with the launch's arguments; an explicit value (a bigger budget) wins."""

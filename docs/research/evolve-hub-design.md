@@ -231,7 +231,8 @@ script with `resume=True`.
 config key `inbox.registry`: `kapso evolve` adds a line at launch with
 the campaign path and goal, so `kapso inbox` with no campaign can list
 every campaign waiting on you. A line whose directory no longer exists
-is skipped (a missing file is the documented default; a corrupt line
+is skipped, and a path launched more than once is listed once, under
+its latest launch (a missing file is the documented default; a corrupt line
 raises). Deleting the registry loses only the cross-campaign view;
 `kapso inbox <path>` works on any campaign directly.
 
