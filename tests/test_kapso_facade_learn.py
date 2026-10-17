@@ -23,8 +23,12 @@ def facade_config(tmp_path) -> str:
         "default_mode": "GENERIC",
         "defaults": {"models": {"embedding": "e"},
                      "retry": {"request_timeout_seconds": 600}},
-        "modes": {"GENERIC": {"knowledge_search": {
-            "type": "kg_graph_search", "enabled": True, "params": {}}}},
+        "modes": {"GENERIC": {
+            "knowledge_search": {
+                "type": "kg_graph_search", "enabled": True, "params": {}},
+            # evolve() registers every launch; keep it out of ~/.kapso
+            "inbox": {"registry": str(tmp_path / "campaigns.jsonl")},
+        }},
         "learning": {
             "trajectory_store": {"local": str(tmp_path / "store"),
                                  "remote": None},
@@ -376,6 +380,9 @@ def test_evolve_serving_staging_and_disabled_byte_identity(
     # the serving record landed inside the campaign workspace
     record = tmp_path / "out2" / ".kapso" / "serving" / "serving-record.yaml"
     assert record.is_file()
+    # both launches registered in the config's registry, not the user's own
+    registry = (tmp_path / "campaigns.jsonl").read_text().splitlines()
+    assert [json.loads(line)["goal"] for line in registry] == ["test goal"] * 2
 
 
 def test_learn_knowledge_flattens_research_output(tmp_path, monkeypatch):
