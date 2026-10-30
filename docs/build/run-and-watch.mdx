@@ -110,6 +110,23 @@ every attempt with its sessions and runs, the lessons served, what was
 voided and on what evidence, the sessions that failed, the delivered
 candidate. See [Read the record](/docs/build/trace).
 
+## Get told when it stops
+
+A build that waits on your reply waits until you look. The `notify` block
+in your config file has it tell you instead: when it stops in one of the
+events you name, it runs your command with the event as JSON on its stdin,
+or POSTs the event to a webhook.
+
+```yaml
+# kapso-config.yaml
+notify:
+  events: [waiting_for_user, failed, completed]   # and budget_stop
+  command: ["/home/me/bin/kapso-ping.sh"]
+```
+
+A `waiting_for_user` event carries each request with the `kapso inbox
+reply` line that answers it. Every field: [Configuration: notify](/docs/reference/configuration#notify).
+
 ## The summary block
 
 A build ends in one of two blocks:

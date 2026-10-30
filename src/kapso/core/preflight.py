@@ -722,6 +722,15 @@ def build_requirements(
         "the campaign workspace is a git repository"
     ))
     requirements.extend(_gate_requirements(params))
+    # Found at launch, not when the build ends hours later.
+    notify = config["notify"]
+    if notify["events"] and notify["command"] is not None:
+        requirements.append(Requirement(
+            label=f"notify command {notify['command'][0]}",
+            ok=shutil.which(os.path.expanduser(notify["command"][0])) is not None,
+            fix="install it, or name an executable on PATH or by its absolute path in notify.command",
+            origin="notify.command",
+        ))
     # The key is needed exactly when something will embed: the experiment
     # store when `models.embedding` names a model, and knowledge search
     # when an index is served.

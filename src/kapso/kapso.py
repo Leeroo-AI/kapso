@@ -51,6 +51,7 @@ from kapso.execution.observability import (
     platform_cost_summary,
 )
 from kapso.execution.trace import TraceView, failed_runs, read_trace
+from kapso.execution.notify import notify_build_end
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.iteration_evaluator import IterationEvaluator
@@ -1099,6 +1100,8 @@ class Kapso:
             `<output>/.kapso/solution.json`, so `Solution.open(output)`
             reads it from any process.
         """
+        # To the second, as the status file stamps its own start.
+        launched_at = datetime.now(timezone.utc).replace(microsecond=0)
         if isinstance(brief, str):
             brief = Brief(objective=brief)
         elif brief is not None and not isinstance(brief, Brief):
@@ -1406,6 +1409,7 @@ class Kapso:
             in_flight = sys.exc_info()[1]
             if in_flight is not None and output_path is not None:
                 mark_failed(Path(output_path) / ".kapso" / "status.json", in_flight)
+                notify_build_end(self._config["notify"], Path(output_path), brief.objective, launched_at)
 
         # Stage serving now that the workspace exists (see the plan/stage
         # note above): the clones, the record and the intro file the
@@ -1469,6 +1473,9 @@ class Kapso:
                 status = getattr(orchestrator.search_strategy, "operation_status", None)
                 if status is not None and not status.terminal:
                     status.failed(in_flight)
+                notify_build_end(
+                    self._config["notify"], Path(orchestrator.search_strategy.workspace.workspace_dir), brief.objective, launched_at,
+                )
 
         # The status is born, so the launch receipt has told what it had
         # to: a campaign that ran is known by its status from here on, and
@@ -1488,14 +1495,19 @@ class Kapso:
 
         # Run experimentation
         print("Running experiments...")
-        orchestrator.solve(
-            experiment_max_iter=max_iterations,
-            time_budget_minutes=time_budget_minutes,
-            cost_budget=cost_budget,
-            finalization_reserve_minutes=finalization_reserve_minutes,
-            on_status=on_status,
-            finish=finish,
-        )
+        try:
+            orchestrator.solve(
+                experiment_max_iter=max_iterations,
+                time_budget_minutes=time_budget_minutes,
+                cost_budget=cost_budget,
+                finalization_reserve_minutes=finalization_reserve_minutes,
+                on_status=on_status,
+                finish=finish,
+            )
+        finally:
+            notify_build_end(
+                self._config["notify"], Path(orchestrator.search_strategy.workspace.workspace_dir), brief.objective, launched_at,
+            )
         [(solution, solve_result)] = delivered
         strategy = orchestrator.search_strategy
 

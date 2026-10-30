@@ -375,6 +375,17 @@ inbox:
   # can list every campaign waiting on a person.
   registry: "~/.kapso/campaigns.jsonl"
 
+# Notifications: a build sends one JSON event when it stops in one of
+# `events` (waiting_for_user, budget_stop, failed, completed). A stop you
+# made yourself (`kapso build --stop`, Ctrl-C) sends nothing.
+notify:
+  events: []
+  # An argument list run with the event on stdin; a name on PATH or an absolute path.
+  command: null
+  # A URL the event is POSTed to. One carrying a token belongs in your command's script.
+  webhook: null
+  timeout_seconds: 30
+
 # The evaluation maintainer: its own sessions calibrate and register the
 # evaluator a build measures with, and protect it file by file
 # (docs/evolve/evaluation-integrity.mdx). Off by default: `enabled: true`
