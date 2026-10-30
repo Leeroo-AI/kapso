@@ -768,3 +768,17 @@ def test_build_asks_for_the_openai_key_only_when_something_will_embed(packaged, 
     row = rows["OPENAI_API_KEY (embeddings: https://api.openai.com/v1)"]
     assert row.ok is False and row.required is True
     assert "experiment store" in row.origin and "text-embedding-3-small" in row.origin
+
+
+def test_build_finds_a_missing_notify_command_at_launch(packaged, full_machine, monkeypatch):
+    monkeypatch.setattr(
+        preflight.shutil, "which",
+        lambda name, *a, **k: None if name == "/opt/hooks/ping.sh" else f"/usr/bin/{name}",
+    )
+    notifying = copy.deepcopy(packaged)
+    notifying["notify"].update(events=["waiting_for_user"], command=["/opt/hooks/ping.sh"])
+    row = by_label(requirements_for("build", notifying))["notify command /opt/hooks/ping.sh"]
+    assert row.ok is False and row.required is True and row.origin == "notify.command"
+
+    notifying["notify"]["events"] = []
+    assert "notify command /opt/hooks/ping.sh" not in by_label(requirements_for("build", notifying))

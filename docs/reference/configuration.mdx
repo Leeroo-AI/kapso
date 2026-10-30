@@ -59,6 +59,7 @@ A value the packaged file holds as a mapping must be a mapping in yours. The exc
 | [`search_strategy`](#search_strategy) | The build's search: its roles (ideation, implementation, the judge), gates, lanes, cost policy |
 | [`budget`](#budget) | The build's budget when the brief and the call name none, the reserve, the admission floors, fidelity |
 | [`inbox`](#inbox) | Whether a session may ask you and pause the campaign |
+| [`notify`](#notify) | Which stops of a build reach you, through a command or a webhook |
 | [`evaluation_maintainer`](#evaluation_maintainer) | The sessions that register and version the evaluator, off by default |
 | [`inference`](#inference) | The CLI, model and effort behind non-coding model calls |
 | [`preflight`](#preflight) | Whether requirement checks run before a verb |
@@ -263,6 +264,46 @@ inbox:
 | `registry` | One line per launched campaign, so `kapso inbox` outside a campaign can list every one that waits | `~/.kapso/campaigns.jsonl` |
 
 The benchmark override files set `enabled: false`: nobody is at the keyboard. The block is part of the checkpoint's fingerprint, so a resume never flips it silently.
+
+## notify
+
+```yaml
+notify:
+  events: []
+  command: null
+  webhook: null
+  timeout_seconds: 30
+```
+
+| Key | What it does | Shipped value |
+|-----|--------------|---------------|
+| `events` | The stops that reach you: `waiting_for_user` (a session asked through [the inbox](/docs/build/inbox)), `budget_stop` (the time, cost or experiment budget is spent), `failed`, `completed` (the goal is met). Empty sends nothing | `[]` |
+| `command` | An argument list run with the event as JSON on its stdin. Its program is a name on `PATH` or an absolute path, since a resumed campaign runs from any directory | `null` |
+| `webhook` | A URL the event is POSTed to as JSON | `null` |
+| `timeout_seconds` | How long one delivery may take before it is ended and reported | `30` |
+
+Off by default. The build's own process sends one event when it stops and prints `notify: <event> sent to the command`. A failed delivery is printed on stderr, in the campaign log for a detached build, and changes nothing else. A stop you made yourself, `kapso build --stop` or Ctrl-C, sends nothing.
+
+The event carries `event`, `campaign`, `objective`, `stopped_reason`, `stop_detail`, `error`, `best`, `budget`, `started_at`, `finished_at`, and `requests`: each open request as `kapso inbox` shows it, plus `reply`, the command that answers it from any directory. Abridged:
+
+```json
+{
+  "event": "waiting_for_user",
+  "campaign": "/home/me/churn/campaign",
+  "objective": "Raise the churn model's out-of-sample ROC AUC above 0.85",
+  "best": {"score": 0.81, "node": 2},
+  "requests": [
+    {"id": 1, "key": "env:OPENAI_API_KEY", "fix": "add OPENAI_API_KEY=sk-... to /home/me/churn/.env",
+     "reply": "kapso inbox reply /home/me/churn/campaign 1 \"…\""}
+  ]
+}
+```
+
+<Note>
+  A webhook URL that carries a token, as Slack's and Discord's do, is a credential, and credentials stay out of config files. Post it from your command's script instead.
+</Note>
+
+A block that could not deliver is refused before the build runs, and `kapso doctor build` checks that the command is installed. The block is not part of the checkpoint's fingerprint, so a resume sends with the block its config has then.
 
 ## evaluation_maintainer
 

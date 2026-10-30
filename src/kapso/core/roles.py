@@ -12,8 +12,10 @@ otherwise. Design: docs/plans/redesign/wp4-config.md.
 """
 
 import math
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+from urllib.parse import urlsplit
 
 from kapso.core.config import ConfigError
 
@@ -166,15 +168,38 @@ def check_deployment(config: Dict[str, Any]) -> None:
     deployment_role(config)
 
 
+NOTIFY = "notify"
+NOTIFY_EVENTS = ("waiting_for_user", "budget_stop", "failed", "completed")
+
+
+def check_notify(block: Dict[str, Any]) -> None:
+    events, command, webhook, timeout = (block[key] for key in ("events", "command", "webhook", "timeout_seconds"))
+    if not isinstance(events, list) or not all(event in NOTIFY_EVENTS for event in events):
+        raise ConfigError(f"{NOTIFY}.events: {events!r}; the events are {', '.join(NOTIFY_EVENTS)}")
+    if command is not None:
+        if not isinstance(command, list) or not command or not all(isinstance(part, str) and part for part in command):
+            raise ConfigError(f'{NOTIFY}.command must be an argument list, e.g. ["/home/me/bin/ping.sh"]')
+        # A resumed campaign runs from any directory.
+        if os.sep in command[0] and not os.path.isabs(os.path.expanduser(command[0])):
+            raise ConfigError(f"{NOTIFY}.command: {command[0]} is a relative path; name it absolute")
+    if webhook is not None and (not isinstance(webhook, str) or urlsplit(webhook).scheme not in ("http", "https")):
+        raise ConfigError(f"{NOTIFY}.webhook must be an http or https URL")
+    if events and command is None and webhook is None:
+        raise ConfigError(f"{NOTIFY}.events needs {NOTIFY}.command or {NOTIFY}.webhook to send to")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+        raise ConfigError(f"{NOTIFY}.timeout_seconds must be a positive number of seconds")
+
+
 def validate_config(config: Dict[str, Any], manifest: Dict[str, Any]) -> None:
     """What the walk against the packaged file cannot check: the hosts'
     entries against the adapters, the strategy's parameters and roles,
-    the maintainer's block, the deployment's. Called before any launch,
-    by the facade, the doctor and the orchestrator."""
+    the maintainer's block, the deployment's, the notify block's. Called
+    before any launch, by the facade, the doctor and the orchestrator."""
     check_hosts(config["hosts"], manifest)
     check_params(config["search_strategy"]["params"])
     check_maintainer(config["evaluation_maintainer"])
     check_deployment(config)
+    check_notify(config[NOTIFY])
 
 
 def build_hosts(manifest: Dict[str, Any]) -> List[str]:

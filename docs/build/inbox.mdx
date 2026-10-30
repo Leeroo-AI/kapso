@@ -120,6 +120,7 @@ Not kept: files git ignores inside the session folder (`*.log` other than `chang
 | `.kapso/run_state.json` | `last_stop: "waiting_for_user"` on a `running` checkpoint |
 | `.kapso/status.json` | `state: done` with `stopped_reason: "waiting_for_user"` and the requests |
 | `on_status` | Fires once at the pause with the same payload |
+| `notify:` | With `waiting_for_user` in its `events`, your command or webhook receives the requests and the `kapso inbox reply` line for each. See [Configuration: notify](/docs/reference/configuration#notify) |
 | Python | `solution.stopped_reason`, `solution.requests`, `Kapso.inbox(campaign)`, `Kapso.reply(campaign, id, note)` |
 
 A campaign started from Python with an `iteration_evaluator` callback cannot be resumed from the command line, because the callback lives in your script. `kapso inbox reply` records the note and tells you to call `build()` again with `resume=True`.
