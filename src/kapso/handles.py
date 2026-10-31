@@ -29,6 +29,23 @@ class BriefError(ValueError):
 
 
 # =============================================================================
+# LAUNCH
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class Launch:
+    """What a detached `build(detach=True)` or `learn(detach=True)` hands
+    back at once: the session's pid, the log it writes, and the status to
+    follow (`kapso watch <status>`). The work goes on after this process
+    ends; `Solution.open(output)` reads a build's result when it has one."""
+
+    pid: int
+    log: str
+    status: str
+
+
+# =============================================================================
 # BUDGET
 # =============================================================================
 

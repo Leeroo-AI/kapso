@@ -55,7 +55,12 @@ never "versioned".
    measure), each with its evidence, recommend one with a target or "maximise
    within budget", and get the single approval before anything is measured. A
    criterion the data at hand cannot measure is said plainly, with the data that
-   would make it measurable.
+   would make it measurable. Asked what the candidates were, the comparison goes
+   in one fenced block — a table of the criteria, their evidence and their measured
+   figures — and the prose around it is at most three lines: the recommendation and
+   why, ending there. The user asked to see, not to decide again: the one approval
+   question was already asked, and this answer asks nothing. The fence is exempt from
+   the line budget; the prose is not, so the detail lives in the fence.
 
 ## The approval message
 

@@ -83,3 +83,18 @@ def test_staged_output_trips_actually_invoked():
         ["inputs/train.parquet", "outputs/preds.csv"], GATES
     )
     assert any("freshly produced" in f for f in leaked)
+
+
+def test_nan_metric_is_not_a_reproduction(tmp_path):
+    # outcome.yaml is read with yaml.safe_load, which turns `.nan` into
+    # float('nan'); every comparison against NaN is False, so a NaN metric
+    # must not slip through the band check as green.
+    workspace = make_workspace(tmp_path)
+    findings = reproduction_findings(
+        GATES,
+        {"decisions": {"gate_cleared": True},
+         "metrics": {"validation_delta": float("nan")}},
+        workspace, tolerance_z=2,
+    )
+    assert any("validation_delta" in f and "not a reproduction" in f
+               for f in findings)

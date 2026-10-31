@@ -115,6 +115,9 @@ class FakeStrategy:
             return None
         return self.budget_snapshot.room(obligations_seconds, finishing=finishing)
 
+    def continues_an_answered_node(self) -> bool:
+        return False   # the fake has no inbox; a test that needs a continuation patches this
+
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         node_id = len(self.node_history)
         branch_name = f"generic_exp_{node_id}"

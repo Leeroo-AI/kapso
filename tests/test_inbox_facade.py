@@ -141,6 +141,17 @@ def test_the_launch_record_keeps_every_path_absolute(tmp_path, monkeypatch):
     assert record["config_path"] is None
 
 
+def test_the_launch_record_resolves_a_relative_config_path(tmp_path, monkeypatch):
+    """A relative `--config` typed at the launch made the reply fail after
+    it had consumed the request (main, 2026-10-29): the record stores it
+    resolved, as it stores the evaluation and data directories."""
+    monkeypatch.chdir(tmp_path)
+    write_launch_record(tmp_path / "campaign", {"config_path": "my.yaml", "eval_dir": None, "data_dir": "data"})
+    record = read_launch_record(tmp_path / "campaign")
+    assert record["config_path"] == str((tmp_path / "my.yaml").resolve())
+    assert record["data_dir"] == str((tmp_path / "data").resolve()) and record["eval_dir"] is None
+
+
 def test_resume_and_reply_load_the_campaigns_dotenv(tmp_path, monkeypatch):
     workspace = _paused_campaign(tmp_path)
     dotenv = tmp_path / "launch-dir" / ".env"

@@ -15,7 +15,13 @@ the repository allows: discover everything first, in silence, then speak once.
 
 What the user wants to exist at the end, and how they would know it is done. Both
 may be vague ("a better churn model", "a working ingestion pipeline"): you propose
-the measurable form rather than asking for it.
+the measurable form rather than asking for it. A wish that names no task ("build
+something useful here") gets the same one message as any other (section 4): the
+findings, a proposal line that says what will exist and what it does for the user,
+one alternative line, the brief, and the one approval question it ends on — within
+the same ten lines. The evaluation is built as the evaluation skill says: a
+repository with no data gets fixtures the proposal makes and an evaluation that
+scores against them, so the campaign starts the moment the user says go.
 
 ## 2. Discover, in silence, in under a minute
 
@@ -36,7 +42,11 @@ protect. Its three branches: an evaluator found is audited against the contract 
 run once for the baseline; a criterion without an evaluator gets one built from the
 criterion and the data; neither gets candidate criteria proposed from the
 repository with their evidence, one recommended. This happens before the user hears
-anything, except the single approval it needs.
+anything, except the single approval it needs. When the user asks what the
+candidates were, the comparison goes in one fenced block (a table of the criteria,
+their evidence and figures), which the message's line budget exempts, and the prose
+around it is at most three lines — the recommendation and why, ending there with no
+question: the user asked to see, and the one approval was already asked.
 
 ## 4. One message
 
@@ -44,8 +54,16 @@ What was found (data, evaluator, baseline, domain), with the evidence each rests
 ("`evaluate.py` prints macro-F1 on `data/dev.csv`, 1,204 rows"); the brief as the
 file `kapso-brief.md`; the evaluation's protocol for approval when one was built or
 changed; and the single thing the user must confirm or edit. Short: the brief is the
-message, the prose around it is three lines. The brief, one field per line, indented
-lines continuing the field above:
+message, and the prose around its fence is at most ten lines in all — one line for
+each thing found (the data, the evaluator, the baseline, the domain), its evidence in
+that same line; when an evaluation was built or changed, two lines, what it measures
+and how it was checked; and the one line that asks the approval. The four findings
+are the message's worth and are never dropped for brevity: the data with its rows and
+label, the evaluator with what it prints on what, the baseline with the figure it
+measured, the domain with the harness loaded — each a fact the user did not have, with
+its figure or file. No headings, no sub-bullets, no paragraph, and no line about this
+skill's own rules: a line each. The brief, one field per line, indented lines
+continuing the field above:
 
 ```
 Objective    Raise the churn model's out-of-sample AUC above 0.85
@@ -91,20 +109,23 @@ kapso build --brief kapso-brief.md --repo . --evaluation evaluation --data data 
   protected); without one the campaign builds its own from `Measured by`.
 - `--output` is an empty sibling directory, never inside the repository; `--config
   kapso-config.yaml` whenever the project root holds that file.
-- The handoff, in the same reply: the brief you passed, what you assumed and that
-  the user's own criterion can replace it, the harness and its version when one is
-  loaded, `kapso watch ../churn-campaign --follow --config kapso-config.yaml`, and
-  that `WAITING ON YOU` is a pause: `kapso inbox ../churn-campaign` shows the request,
-  and once what its fix line names is in place `kapso inbox reply ../churn-campaign <id>
-  "<note>" --detach` answers it (`/kapso:inbox` does both). The run outlives your
-  tool call; do not poll it.
+- The handoff, in the same reply, at most eight lines and no headings: the brief
+  you passed; what you assumed and that the user's own criterion can replace it; the
+  harness and its version when one is loaded; `kapso watch ../churn-campaign --follow
+  --config kapso-config.yaml`; and that `WAITING ON YOU` is a pause — `kapso inbox
+  ../churn-campaign` shows the request, and once what its fix line names is in place
+  `kapso inbox reply ../churn-campaign <id> "<note>" --detach` answers it
+  (`/kapso:inbox` does both). The run outlives your tool call; do not poll it.
 
 ## Rules
 
 - The criterion comes from the user or the repository, never invented; every
   proposal carries its evidence.
-- Never says it cannot proceed; never asks twice; at most two rounds, one question
-  each, under five minutes including the approval.
+- Never says it cannot proceed; asks one question in all — the approval of the
+  proposal, which states every choice it made (the criterion, the evaluation's split
+  and metric, the target) as a default the user may change in their answer — and
+  never asks twice; a second round only answers what the user changed; the whole
+  exchange under five minutes.
 - A one-file change with an obvious fix is done by hand, and you say so instead of
   launching.
 - Never launch a campaign the user did not ask for, and never from inside a Kapso

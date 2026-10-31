@@ -280,3 +280,88 @@ def test_both_hosts_turns_carry_whether_a_tool_call_succeeded():
     ])
     tools, sid = proof.parse_codex_stream(codex_stream, "")
     assert sid == "th-1" and [(tool["name"], tool["is_error"]) for tool in tools] == [("mcp__kapso__bank_get_card", True), ("mcp__kapso__bank_list", False), ("Bash", True)]
+
+
+def test_the_trigger_probe_runs_after_every_campaign_so_neither_is_measured_under_the_other():
+    # rel-s2-codex, fifth launch: the probe (a hundred minutes of Codex
+    # sessions one at a time) followed build-churn, the churn campaign lived
+    # its hour under that load, and its ideation session passed its deadline
+    # and was killed. The probe now runs last, on an idle machine.
+    order = proof.STEP_NAMES
+    probe = order.index("triggers")
+    for step in ("build-churn", "build-pause", "build-fraud", "harness-probe", "learn-complete", "second-engineer-build", "campaign-session-isolation"):
+        assert order.index(step) < probe, step
+    assert order[-1] == "cold-start" and "codex-rules-probe" in order[probe:]
+
+
+def test_the_setup_step_on_codex_fails_when_the_mcp_server_was_not_registered(tmp_path, monkeypatch):
+    # rel-s2-codex, fifth launch: the setup session read "add it once" beside
+    # a green doctor and ran no `codex mcp add`; the list came back empty and
+    # every later session lacked the plugin's tools. The step now fails on
+    # the missing row, where the cause is, and says so.
+    import types
+
+    class CodexFake(FakeHost):
+        name = "codex"
+
+        @staticmethod
+        def command(name):
+            return f"$kapso-{name} set this machine up"
+
+    def run(listing):
+        user, _ = _persona(monkeypatch, ["DONE"])
+        ctx = _context(tmp_path / listing.strip().replace(" ", "_")[:6], CodexFake([("Setup is done.", False)]), user)
+
+        def shell(command, cwd=None, check=True, timeout=None):
+            out = '{"checks": [{"required": true, "ok": true}]}' if "doctor" in command else listing
+            return types.SimpleNamespace(stdout=out, stderr="", returncode=0)
+        monkeypatch.setattr(ctx, "shell", shell)
+        return proof.step_setup(ctx)
+
+    missing = run("")
+    assert missing["completed"] is False and any("no kapso server" in note for note in missing["notes"])
+    present = run("kapso  kapso-mcp  stdio\n")
+    assert present["completed"] is True and not any("no kapso server" in note for note in present["notes"])
+
+
+def test_the_campaign_tools_step_probes_the_server_and_runs_a_second_session_when_the_first_saw_no_tool(tmp_path, monkeypatch):
+    # rel-s2-codex, eighth launch: the session reported the three tools
+    # unavailable, the session-brief one minutes later read a card through the
+    # same server. The step now records a standalone handshake with the server
+    # and, when the first session used no tool though the server lists them,
+    # runs one more session and says so.
+    import types
+
+    class ToolHost(FakeHost):
+        name = "codex"
+
+        def __init__(self, answers):
+            super().__init__(answers)
+            self.calls = 0
+
+        def turn(self, cwd, prompt, session, transcript):
+            self.calls += 1
+            turn = super().turn(cwd, prompt, session, transcript)
+            tools = [] if self.calls == 1 else [{"name": f"mcp__kapso__{tool}", "input": {}} for tool in proof.CAMPAIGN_TOOLS]
+            return proof.Turn(turn.text, turn.seconds, turn.session, tools, turn.asked)
+
+    monkeypatch.setattr(proof, "mcp_server_probe", lambda project, seconds: {"started": True, "seconds": 2.5, "tools": [f"kapso_{t}" for t in ("build_start", "status", "stop")] + ["bank_index"], "error": "", "stderr_tail": ""})
+    user, _ = _persona(monkeypatch, ["DONE", "DONE"])
+    host = ToolHost([("The tools are unavailable in this session.", False), ("Started, read, stopped: three answers.", False)])
+    ctx = _context(tmp_path, host, user)
+    ctx.state["churn_project"] = str(tmp_path / "work")
+    monkeypatch.setattr(ctx, "shell", lambda command, cwd=None, check=True, timeout=None: types.SimpleNamespace(stdout="", stderr="", returncode=0))
+    step = proof.step_campaign_tools(ctx)
+    assert host.calls == 2 and step["completed"] is True
+    assert any("listed 4 tools in 2.5 s" in note for note in step["notes"]) and any("a second session ran" in note for note in step["notes"])
+    assert "`kapso` MCP server" in host.prompts[0]
+    # The server lists no campaign tool: one session, no retry, and the note says which are missing.
+    monkeypatch.setattr(proof, "mcp_server_probe", lambda project, seconds: {"started": True, "seconds": 1.0, "tools": ["bank_index"], "error": "", "stderr_tail": ""})
+    user2, _ = _persona(monkeypatch, ["DONE"])
+    host2 = ToolHost([("Unavailable.", False)])
+    ctx2 = _context(tmp_path / "two", host2, user2)
+    (tmp_path / "two" / "work").mkdir(parents=True, exist_ok=True)
+    ctx2.state["churn_project"] = str(tmp_path / "two" / "work")
+    monkeypatch.setattr(ctx2, "shell", lambda command, cwd=None, check=True, timeout=None: types.SimpleNamespace(stdout="", stderr="", returncode=0))
+    step2 = proof.step_campaign_tools(ctx2)
+    assert host2.calls == 1 and step2["completed"] is False and any("not among them" in note for note in step2["notes"])

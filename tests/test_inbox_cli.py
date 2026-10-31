@@ -8,6 +8,7 @@ refuses a credential unless --yes, and prints the campaign's summary —
 COMPLETED, or WAITING ON YOU when it asked again.
 """
 
+import shlex
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -100,7 +101,7 @@ def test_inbox_names_a_campaign_from_elsewhere(tmp_path, monkeypatch, capsys):
     _run(monkeypatch, "inbox", str(workspace))
     out = capsys.readouterr().out
     assert "· 2 requests" in out and "#2  data/x.csv" in out
-    assert 'reply with   kapso inbox reply 1 "…"' in out
+    assert f'reply with   kapso inbox reply {shlex.quote(str(workspace.resolve()))} 1 "…"' in out
 
     monkeypatch.setattr(Kapso, "inbox", staticmethod(lambda campaign: []))
     _run(monkeypatch, "inbox", str(workspace))
@@ -124,6 +125,21 @@ def test_inbox_from_elsewhere_reads_the_registry(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert str(waiting) in out and str(quiet) not in out
     assert "#1  env:OPENAI_API_KEY" in out
+    assert f'reply with   kapso inbox reply {shlex.quote(str(waiting.resolve()))} "…"' in out
+
+
+def test_suggested_reply_works_where_it_was_printed(tmp_path, monkeypatch, capsys):
+    workspace = _paused_campaign(tmp_path, "my campaign")
+    calls = _capture_reply(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "inbox", str(workspace))
+    hint = next(
+        line for line in capsys.readouterr().out.splitlines() if "reply with" in line
+    )
+    command = shlex.split(hint.split("reply with", 1)[1].replace("…", "added the key"))
+    assert command[:3] == ["kapso", "inbox", "reply"]
+    _run(monkeypatch, *command[1:])
+    assert calls == [(str(workspace.resolve()), 1, "added the key", False)]
 
 
 def test_reply_resolves_the_campaign_and_the_id(tmp_path, monkeypatch, capsys):

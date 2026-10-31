@@ -35,7 +35,7 @@ are concerned, whatever `claude auth status` says), whether the project has a
 The package, pinned to this plugin's version:
 
 ```bash
-uv tool install "leeroo-kapso==0.8.0.dev1"      # else: pipx install "leeroo-kapso==0.8.0.dev1"; else, in the active venv: pip install "leeroo-kapso==0.8.0.dev1"
+uv tool install "leeroo-kapso==0.8.0"      # else: pipx install "leeroo-kapso==0.8.0"; else, in the active venv: pip install "leeroo-kapso==0.8.0"
 ```
 
 - The index has no such version (a development build, until the release that
@@ -66,10 +66,17 @@ Re-check both statuses before going on.
 
 ## 4. The session's tools
 
-On Codex, add Kapso's MCP server to the user's config once:
+On Codex, add Kapso's MCP server to the user's config in this session, whether or
+not the doctor's rows are green — a green install says nothing about the server,
+and a session without it has no build, status or bank tools and does not say why.
+Run both lines, then `codex mcp list` must show a `kapso` row; a list without one
+is a setup that is not done, said to the user as such. Give the server two minutes to
+start: Codex drops a server that has not answered within ten seconds, and
+`kapso-mcp` imports the package first, which a busy machine can stretch past that.
 
 ```bash
 codex mcp add kapso -- kapso-mcp
+python3 -c 'import os, pathlib; p = pathlib.Path(os.environ.get("CODEX_HOME", pathlib.Path.home() / ".codex")) / "config.toml"; t = p.read_text(); h = "[mcp_servers.kapso]\n"; p.write_text(t.replace(h, h + "startup_timeout_sec = 120\n", 1)) if "startup_timeout_sec" not in t.split(h, 1)[1].split("\n[", 1)[0] else None'
 ```
 
 On Claude Code the plugin's own entry runs `kapso-mcp` and needs nothing. A host

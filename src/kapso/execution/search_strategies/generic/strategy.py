@@ -10,13 +10,16 @@
 # - Read-only access to codebase during ideation
 # - Full RepoMemory access via MCP tools
 
+import math
 import os
+import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from pathlib import Path
+from kapso.core.config import load_config
 from kapso.gated_mcp.presets import HOSTED_GATE, knowledge_tools_block, user_setup_gaps
 from kapso.execution.search_strategies.base import (
     SearchStrategy,
@@ -114,7 +117,10 @@ from kapso.execution.search_strategies.generic.shared_cache import (
 )
 
 
-PARENT_POLICIES = frozenset({"best", "baseline"})
+PARENT_POLICIES = frozenset({"best", "baseline", "weighted"})
+DEFAULT_PARENT_SAMPLING = load_config()["search_strategy"]["params"][
+    "parent_sampling"
+]
 
 
 def normalize_parent_policy(value: Any) -> str:
@@ -125,6 +131,89 @@ def normalize_parent_policy(value: Any) -> str:
             f"parent_policy must be one of: {allowed}"
         )
     return value
+
+
+def normalize_parent_sampling(config: Any) -> Dict[str, Any]:
+    """Resolve the weighted-policy settings over the config defaults."""
+    if config is not None and not isinstance(config, dict):
+        raise ValueError("parent_sampling must be a mapping")
+    values = dict(DEFAULT_PARENT_SAMPLING)
+    if config is not None:
+        unknown = set(config) - values.keys()
+        if unknown:
+            raise ValueError(f"Unknown parent_sampling keys: {sorted(unknown)}")
+        values.update(config)
+    for name in ("temperature", "offspring_penalty"):
+        value = values[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"parent_sampling.{name} must be a number")
+        if not math.isfinite(value):
+            raise ValueError(f"parent_sampling.{name} must be finite")
+    if values["temperature"] <= 0:
+        raise ValueError("parent_sampling.temperature must be positive")
+    if values["offspring_penalty"] < 0:
+        raise ValueError("parent_sampling.offspring_penalty must be non-negative")
+    if isinstance(values["seed"], bool) or not isinstance(values["seed"], int):
+        raise ValueError("parent_sampling.seed must be an integer")
+    return values
+
+
+def parent_weights(
+    children: Sequence[int],
+    temperature: float,
+    offspring_penalty: float,
+) -> List[float]:
+    """Sampling weights for candidates listed best first, with each one's
+    child count. Rank, not raw score, keeps the weight scale-free."""
+    return [
+        math.exp(-rank / temperature) / (1 + offspring_penalty * count)
+        for rank, count in enumerate(children)
+    ]
+
+
+def rank_candidates(
+    nodes: Sequence[SearchNode], selection_config: Dict[str, Any]
+) -> List[SearchNode]:
+    """Scored candidates best first, as the campaign ranks them. A node
+    whose evaluation never completed (score=None) never ranks; on
+    minimize metrics it would otherwise key as 0 and out-rank every real
+    score. A node the judge never read ranks nowhere either."""
+    scored = [
+        node
+        for node in nodes
+        if not node.had_error and node.evaluation_valid and node.score is not None
+        and not node.unjudged
+    ]
+    return sorted(
+        scored,
+        key=lambda node: selection_score(node, selection_config),
+        reverse=True,
+    )
+
+
+def select_deliverable(
+    nodes: Sequence[SearchNode],
+    *,
+    evaluator_id: str,
+    selection_config: Dict[str, Any],
+) -> Optional[SearchNode]:
+    """The committed-slot winner: evidence tiers, never raw scores.
+
+    Parent selection explores on projected scores (the four-bests split);
+    the deliverable follows the tier walk under the registered evaluator,
+    so an unvalidated fast leader cannot displace a full-tier candidate at
+    delivery. Without registered evidence the score leader stands.
+    """
+    if evaluator_id and not selection_config["cost"]["enabled"]:
+        committed = select_committed_candidate(
+            nodes,
+            evaluator_id=evaluator_id,
+            maximize=selection_config["maximize_scoring"],
+        )
+        if committed is not None:
+            return committed
+    ranked = rank_candidates(nodes, selection_config)
+    return ranked[0] if ranked else None
 
 
 @dataclass(frozen=True)
@@ -223,6 +312,7 @@ class GenericSearch(SearchStrategy):
         check_params(params, engine=True)
         parent_policy = normalize_parent_policy(params["parent_policy"])
         self.cost_config = normalize_cost_config(params.get("cost"))
+        self.parent_sampling = normalize_parent_sampling(params["parent_sampling"])
         self.before_candidate_evaluation = None
         # How each node's build session ended, keyed by node id: the lanes
         # of one round run at once and each judge reads only its own node's.
@@ -414,6 +504,8 @@ class GenericSearch(SearchStrategy):
                 f"(missing {', '.join(missing)}): {fix}"
             )
         print(f"  - parent_policy: {self.parent_policy}")
+        if self.parent_policy == "weighted":
+            print(f"  - parent_sampling: {self.parent_sampling}")
         print(f"  - experiment_history_path: {self.experiment_history_path}")
         print(f"  - feedback_generator: {'configured' if self.feedback_generator else 'not configured'}")
         
@@ -670,6 +762,9 @@ class GenericSearch(SearchStrategy):
                 f"{', '.join(f'#{i}' for i in node.request_ids)}"
             )
         return node
+
+    def continues_an_answered_node(self) -> bool:
+        return self._answered_suspended_node() is not None
 
     def _continue_node(self, node: SearchNode, problem: str) -> SearchNode:
         """The inbox continuation: resume the node's stored CLI session with
@@ -1563,19 +1658,26 @@ class GenericSearch(SearchStrategy):
         return self.budget_snapshot.deadline(configured_seconds, self._room())
 
     def _obligations_after(self, stage: str) -> float:
-        """What must still fit after a finishing ``stage``: each later
-        session at the floor — the evaluation run in cost mode, the
-        verification when the harness verifies, the judge — and the
-        delivery's protected slice."""
+        """What must still fit after a finishing ``stage``: the evaluation
+        run in cost mode and the verification when the harness verifies,
+        each at the floor (a verification cut short is unverified, and the
+        judge still speaks); the judge at its reserve — its last observed
+        duration, the config's `judge_reserve_seconds` before one, since a
+        judge takes minutes, and a judge kept at the floor let a
+        verification run the remainder down to 59 s for it, under the
+        floor, the hour's attempt then unjudged (the release gate,
+        2026-10-30); and the delivery's protected slice."""
         snapshot = self.budget_snapshot
         later = self.FINISHING_STAGES[self.FINISHING_STAGES.index(stage) + 1:]
-        runs = {
-            "evaluation": self._cost_enabled(),
-            "verification": self.harness is not None and self.harness.has_content("verification"),
-            "judge": True,
+        reserves = {
+            "evaluation": snapshot.min_agent_timeout_seconds if self._cost_enabled() else 0.0,
+            "verification": (
+                snapshot.min_agent_timeout_seconds
+                if self.harness is not None and self.harness.has_content("verification") else 0.0
+            ),
+            "judge": snapshot.judge_reserve_seconds,
         }
-        sessions = sum(1 for name in later if runs[name])
-        return sessions * snapshot.min_agent_timeout_seconds + snapshot.delivery_seconds
+        return sum(reserves[name] for name in later) + snapshot.delivery_seconds
 
     def _finishing_deadline(
         self, stage: str, configured_seconds: Optional[float],
@@ -1642,11 +1744,15 @@ class GenericSearch(SearchStrategy):
         if self.parent_policy == "baseline":
             return ParentSelection(branch_name="main", node_id=None)
 
-        best = self.get_best_experiment()
-        if best is not None:
+        parent = (
+            self._sample_parent()
+            if self.parent_policy == "weighted"
+            else self.get_best_experiment()
+        )
+        if parent is not None:
             return ParentSelection(
-                branch_name=best.branch_name,
-                node_id=best.node_id,
+                branch_name=parent.branch_name,
+                node_id=parent.node_id,
             )
 
         # No validly evaluated node exists yet. Committed-but-unevaluated
@@ -1675,6 +1781,24 @@ class GenericSearch(SearchStrategy):
             )
         return ParentSelection(branch_name="main", node_id=None)
 
+    def _sample_parent(self) -> Optional[SearchNode]:
+        """Draw one scored candidate, ranked as `best` ranks them. The draw
+        is seeded from the configured seed and the node count, so a resumed
+        campaign repeats the choice it would have made uninterrupted."""
+        ranked = rank_candidates(self.node_history, self._selection_config())
+        if not ranked:
+            return None
+        sampling = self.parent_sampling
+        children = [
+            sum(1 for node in self.node_history if node.parent_node_id == parent.node_id)
+            for parent in ranked
+        ]
+        weights = parent_weights(
+            children, sampling["temperature"], sampling["offspring_penalty"]
+        )
+        rng = random.Random(f"{sampling['seed']}:{len(self.node_history)}")
+        return rng.choices(ranked, weights=weights)[0]
+
     def get_experiment_history(self, best_last: bool = False) -> List[SearchNode]:
         """Return all nodes, optionally sorted by score (unscored sort worst)."""
         if best_last:
@@ -1689,24 +1813,9 @@ class GenericSearch(SearchStrategy):
         return self.node_history
 
     def get_best_experiment(self) -> Optional[SearchNode]:
-        """Return the best successful SCORED node — a node whose evaluation
-        never completed (score=None) can never be best; on minimize metrics
-        it would otherwise key as 0 and out-rank every real score."""
-        return self._best_of(self.node_history)
-
-    def _best_of(self, nodes: List[SearchNode]) -> Optional[SearchNode]:
-        valid = [
-            node
-            for node in nodes
-            if not node.had_error and node.evaluation_valid and node.score is not None
-            and not node.unjudged
-        ]
-        if not valid:
-            return None
-        return max(
-            valid,
-            key=lambda node: selection_score(node, self._selection_config())
-        )
+        """Return the best successful SCORED node."""
+        ranked = rank_candidates(self.node_history, self._selection_config())
+        return ranked[0] if ranked else None
 
     def _selection_config(self) -> Dict[str, Any]:
         return {
@@ -1715,30 +1824,20 @@ class GenericSearch(SearchStrategy):
         }
 
     def get_deliverable_experiment(self) -> Optional[SearchNode]:
-        """The committed-slot winner: evidence tiers, never raw scores.
-
-        Parent selection explores on projected scores (the four-bests
-        split); the deliverable follows the tier walk under the registered
-        evaluator, so an unvalidated fast leader cannot displace a
-        full-tier candidate at delivery. Without registered evidence the
-        score leader stands.
-        """
-        # An attempt the harness could not verify stays a parent but is
-        # never delivered (kapso.harness.verdict); one the judge never read
-        # is neither.
+        """The node the campaign delivers: the committed-slot winner under
+        the registered evaluator (`select_deliverable`), among the attempts
+        the harness could verify and the judge read. An attempt the harness
+        could not verify stays a parent but is never delivered
+        (kapso.harness.verdict); one the judge never read is neither."""
         candidates = [
             node for node in self.node_history
             if is_deliverable(node.verification) and not node.unjudged
         ]
-        if self.registered_evaluator_id and not self._cost_enabled():
-            committed = select_committed_candidate(
-                candidates,
-                evaluator_id=self.registered_evaluator_id,
-                maximize=self.problem_handler.maximize_scoring,
-            )
-            if committed is not None:
-                return committed
-        return self._best_of(candidates)
+        return select_deliverable(
+            candidates,
+            evaluator_id=self.registered_evaluator_id,
+            selection_config=self._selection_config(),
+        )
 
     def get_deliverable_score(self) -> Optional[float]:
         """The deliverable's authoritative measurement.

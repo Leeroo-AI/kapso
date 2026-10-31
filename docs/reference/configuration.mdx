@@ -59,6 +59,7 @@ A value the packaged file holds as a mapping must be a mapping in yours. The exc
 | [`search_strategy`](#search_strategy) | The build's search: its roles (ideation, implementation, the judge), gates, lanes, cost policy |
 | [`budget`](#budget) | The build's budget when the brief and the call name none, the reserve, the admission floors, fidelity |
 | [`inbox`](#inbox) | Whether a session may ask you and pause the campaign |
+| [`report`](#report) | How many candidates `kapso report` lists |
 | [`evaluation_maintainer`](#evaluation_maintainer) | The sessions that register and version the evaluator, off by default |
 | [`inference`](#inference) | The CLI, model and effort behind non-coding model calls |
 | [`preflight`](#preflight) | Whether requirement checks run before a verb |
@@ -133,6 +134,10 @@ search_strategy:
     gate_failure_policy: warn
     honor_agent_stop: true
     parent_policy: best
+    parent_sampling:
+      temperature: 1.0
+      offspring_penalty: 1.0
+      seed: 0
     node_expansion_value: 1
     expansion_lane_env: null
     env_strip: []
@@ -141,6 +146,7 @@ search_strategy:
     registered_evaluation_archive_glob: null
     repo_memory_failure_policy: warn
     repo_memory_max_retries: 1
+    repo_memory_update_payload_max_chars: 400000
     cost:
       enabled: false
       estimator: null
@@ -169,12 +175,16 @@ Three roles name the build's sessions. **Ideation** proposes candidates; **imple
 | `implementation.fallback_model` | A second model tried once when an implementation session crashes (a provider's safety kill). `null` retries nothing |
 | `gate_failure_policy` | A gate the machine cannot serve: `warn` continues and says so, `skip` continues silently, `error` stops |
 | `honor_agent_stop` | Whether the judge's stop vote ends the campaign: `true` for a task with a goal to reach; `false` for open-ended maximisation, where the vote is advisory and the budget is the only clock (the benchmark override files set it) |
-| `parent_policy` | The branch a new attempt starts from: `best` (the champion) or `baseline` (`main`). See [Parent selection](/docs/evolve/parent-selection) |
+| `parent_policy` | The branch a new attempt starts from: `best` (the champion), `baseline` (`main`) or `weighted` (a scored candidate sampled by rank, down-weighted by the children it already has). See [Parent selection](/docs/evolve/parent-selection) |
+| `parent_sampling.temperature` | Positive; lower approaches `best`, higher approaches uniform. Used by `weighted` |
+| `parent_sampling.offspring_penalty` | Non-negative; down-weights parents that already have children. Used by `weighted` |
+| `parent_sampling.seed` | The `weighted` sampler's seed, so a resumed campaign draws the parent it would have drawn uninterrupted |
 | `node_expansion_value`, `expansion_lane_env` | Parallel implementation lanes per iteration (the selector ranks that many candidates), and one `{VAR: value}` mapping per lane pinning its environment. Above one lane the inbox is off for the campaign |
 | `env_strip`, `session_env_defaults` | Variables stripped from every session's environment, and set-if-absent defaults for every session (an open namespace) |
 | `shared_cache_dir` | A cache the sessions share across the campaign; `null` keeps it under the campaign |
 | `registered_evaluation_archive_glob` | Where a registered evaluation's archived runs are recovered from; `null` recovers nothing |
 | `repo_memory_failure_policy`, `repo_memory_max_retries` | The repo memory's failure policy (`warn` or `fail`) and its retries |
+| `repo_memory_update_payload_max_chars` | Characters of line-numbered changed-file text one repo-memory update call carries; past it the update is windowed into several calls of whole files |
 | `cost.*` | Platform cost, separate from model spend: `enabled`, the module-qualified `estimator` (required when enabled), `cap_per_candidate` and `campaign_budget` in `unit` (`null` is unlimited), the selection `weight`. See [Cost-aware selection](/docs/evolve/cost-aware-selection) |
 
 A parameter this block does not name is refused by name: the strategy reads a known set, and a typo never silently keeps a default. The ensemble shape the benchmarks run, as an override:
@@ -216,6 +226,7 @@ budget:
   reserve_minutes: null
   min_iteration_seconds: 60
   min_agent_timeout_seconds: 60
+  judge_reserve_seconds: 300
   checkpoint_heartbeat_seconds: 60
   stop_grace_seconds: 10
   fidelity:
@@ -243,6 +254,7 @@ The first four keys are the `Budget` handle's words: the brief's `Budget` line w
 | `reserve_minutes` | Kept out of the search for finishing: the last attempt's evaluation, verification and judgment run inside it, and the delivery after them. `null` derives it each round from those obligations; a number wins; either is bounded by a quarter of the budget | `null` |
 | `min_iteration_seconds` | The admission floor: a round starts only when the searchable remainder covers the larger of this and the previous round's own duration | `60` |
 | `min_agent_timeout_seconds` | Below this a session cannot do useful work: a session whose deadline would be clamped under it is not launched, and says so | `60` |
+| `judge_reserve_seconds` | What the judge is kept before one has been observed in the campaign: the round's reserve for it and the obligation the evaluation and the verification leave standing, so a first attempt's verification cannot run the remainder down to the floor and lose the attempt unjudged; a judge that has been observed is kept its own last duration | `300` |
 | `stop_grace_seconds` | `kapso build --output <campaign> --stop`: how long the campaign's processes get after SIGTERM before SIGKILL ends them | `10` |
 | `checkpoint_heartbeat_seconds` | How often a run refreshes its durable clock and status file | `60` |
 | `fidelity.*` | Budget-aware fidelity: `mode` (`off` runs every attempt at full fidelity; `on` or `auto` need the maintainer), the fraction escrowed for the committed full-size run, the probe policy, the fast fractions. See [Evaluation integrity](/docs/evolve/evaluation-integrity) | `off` |
@@ -263,6 +275,17 @@ inbox:
 | `registry` | One line per launched campaign, so `kapso inbox` outside a campaign can list every one that waits | `~/.kapso/campaigns.jsonl` |
 
 The benchmark override files set `enabled: false`: nobody is at the keyboard. The block is part of the checkpoint's fingerprint, so a resume never flips it silently.
+
+## report
+
+```yaml
+report:
+  leaderboard_size: 5
+```
+
+| Key | What it does | Shipped value |
+|-----|--------------|---------------|
+| `leaderboard_size` | How many candidates `kapso report` lists in its leaderboard and diff section; `--top` overrides it for one run | `5` |
 
 ## evaluation_maintainer
 

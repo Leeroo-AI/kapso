@@ -16,6 +16,7 @@ import yaml
 from kapso.cli.common import _detach, _without_detach_flags, learning_handoff
 from kapso.kapso import DEFAULT_CONFIG_PATH, Kapso
 from kapso.core.config import load_config
+from kapso.execution.inbox import beside
 from kapso.learning.corpus_import import import_archive, import_subset
 from kapso.learning.behavior import BehaviorRunner
 from kapso.learning.codify_run import CodifyRunDriver
@@ -50,10 +51,10 @@ def cmd_learn(args) -> None:
         if args.detach:
             # Hours of crews: in a session of its own, the log beside the
             # campaign, the status under the learning status directory.
-            campaign = Path(args.campaign).expanduser().resolve()
+            campaign = Path(args.campaign).expanduser()
             _detach(
                 "kapso learn", _without_detach_flags(sys.argv[1:]),
-                log_path=campaign.with_name(campaign.name + ".learn.log"), receipt_path=None,
+                log_path=beside(campaign, ".learn.log"), receipt_path=None,
                 handoff=learning_handoff(load_config(args.config)["learning"]["status_dir"]),
             )
             return

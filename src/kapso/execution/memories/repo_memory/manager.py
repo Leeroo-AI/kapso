@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 import git
 
 from kapso.execution.memories.repo_memory.builders import (
+    UPDATE_PAYLOAD_MAX_CHARS,
     LLMLike,
     build_repo_map,
     infer_repo_model_update,
@@ -121,6 +122,15 @@ class RepoMemoryManager:
         if max_retries < 0:
             raise ValueError("RepoMemory max retries must be a non-negative integer")
         return max_retries
+
+    @classmethod
+    def normalize_update_payload_max_chars(cls, max_chars: int) -> int:
+        """Validate the changed-file text budget of one update call."""
+        if isinstance(max_chars, bool) or not isinstance(max_chars, int) or max_chars < 1:
+            raise ValueError(
+                "RepoMemory update payload max chars must be a positive integer"
+            )
+        return max_chars
 
     @classmethod
     def _memory_abs_path(cls, repo_root: str) -> str:
@@ -464,13 +474,14 @@ GeneratedAt: {doc.get('generated_at')}
         llm: LLMLike,
         initial_repo: Optional[str] = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
+        max_payload_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
     ) -> None:
         """
         Build baseline RepoMemory for an existing repository (seeded workspace).
-        
+
         This runs once at the start so ideation can be grounded in the repo's
         actual architecture/algorithms with evidence links.
-        
+
         Raises:
             ValueError: If configuration is invalid or structured-response
                 repair is exhausted.
@@ -486,6 +497,7 @@ GeneratedAt: {doc.get('generated_at')}
             repo_root=repo_root,
             repo_map=doc["repo_map"],
             max_retries=max_retries,
+            max_payload_chars=max_payload_chars,
         )
         # Note: With line-number-based evidence, validation is no longer needed.
         # The model is trusted as-is.
@@ -515,6 +527,7 @@ GeneratedAt: {doc.get('generated_at')}
         solution_spec: str,
         run_result: Dict[str, Any],
         max_retries: int = DEFAULT_MAX_RETRIES,
+        max_payload_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
     ) -> None:
         """
         Update `.kapso/repo_memory.json` for the current repo state.
@@ -598,6 +611,7 @@ GeneratedAt: {doc.get('generated_at')}
                 repo_root=repo_root,
                 repo_map=doc["repo_map"],
                 max_retries=max_retries,
+                max_payload_chars=max_payload_chars,
             )
         else:
             updated_model = infer_repo_model_update(
@@ -608,6 +622,7 @@ GeneratedAt: {doc.get('generated_at')}
                 diff_summary=diff_summary,
                 changed_files=changed_files,
                 max_retries=max_retries,
+                max_payload_chars=max_payload_chars,
             )
 
         # Note: With line-number-based evidence, validation is no longer needed.

@@ -12,8 +12,8 @@ from typing import Any, Dict, List
 
 import pytest
 
-import kapso.cli.common as cli_common
 import kapso.cli.experience as experience_cli
+import kapso.execution.launch as launch_module
 from kapso.cli import main
 from kapso.execution.inbox import LAUNCH_SCHEMA_VERSION, inbox_path, load_requests, write_launch_record
 from kapso.execution.observability import BuildStatus
@@ -34,7 +34,7 @@ class _Popen:
 @pytest.fixture
 def popen(monkeypatch):
     _Popen.calls = []
-    monkeypatch.setattr(cli_common.subprocess, "Popen", _Popen)
+    monkeypatch.setattr(launch_module.subprocess, "Popen", _Popen)
     return _Popen.calls
 
 

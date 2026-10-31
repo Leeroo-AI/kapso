@@ -165,6 +165,16 @@ is never carried over. A malformed patch, such as removing a `core.*`
 section or omitting such a section, is an invalid response and goes
 through the same repair loop.
 
+When the changed files' line-numbered text passes
+`repo_memory_update_payload_max_chars` (a search-strategy param, 400,000
+characters by default), the update is split into several calls of whole
+files. Each call patches the memory the previous call returned and is
+checked against the files it carried, so a commit of vendored code or
+generated data still gets a memory update instead of a prompt past the
+model's context window. A file is never split: one larger than the budget
+gets a call of its own. A deleted file is listed as deleted in the call
+that carries it, so the sections citing it are dropped there.
+
 ## What happens when it fails?
 
 RepoMemory is optional enrichment; experiment code and evaluation results are

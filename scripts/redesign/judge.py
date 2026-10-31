@@ -64,9 +64,15 @@ def eligible_dimensions(suite: dict, spec: dict, label: str, dimensions: Sequenc
 # ---------------------------------------------------------------- rendering
 def final_texts(rows: Sequence[dict]) -> List[Dict[str, str]]:
     """The conversation a transcript holds: the user's messages (the proof's
-    prompts and the persona's replies) and each turn's final text (the
-    Claude Code `result` row, or the last Codex `agent_message` before the
-    next prompt)."""
+    prompts and the persona's replies) and every message the host printed
+    in a turn, as the user read them — each Codex `agent_message`, each
+    text block of a Claude Code `assistant` row, the `result` row when it
+    adds a text the blocks did not carry. The judge's frame is what the
+    user got for the attention it cost, and the host's earlier messages in
+    a turn cost that attention and carry findings too (the sixth S2 Codex
+    launch's launches named the data, the evaluator and the baseline in
+    the messages before the last, and the judge, reading the last alone,
+    scored them as findings never given)."""
     turns: List[Dict[str, Any]] = []
     pending: Optional[str] = None
     # The persona's reply is written once as `persona_reply` and again as
@@ -99,11 +105,17 @@ def final_texts(rows: Sequence[dict]) -> List[Dict[str, str]]:
             else:
                 turns.append({"role": "user", "text": row["persona_reply"]})
                 awaiting = row["persona_reply"]
+        elif row.get("type") == "assistant":
+            for block in ((row.get("message") or {}).get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "text" and (block.get("text") or "").strip():
+                    turns.append({"role": "assistant", "text": block["text"]})
         elif row.get("type") == "result":
-            turns.append({"role": "assistant", "text": row.get("result") or ""})
+            text = row.get("result") or ""
+            if not (turns and turns[-1]["role"] == "assistant" and turns[-1]["text"].strip() == text.strip()):
+                turns.append({"role": "assistant", "text": text})
             pending = None
         elif row.get("type") == "item.completed" and (row.get("item") or {}).get("type") == "agent_message":
-            pending = row["item"].get("text") or ""
+            turns.append({"role": "assistant", "text": row["item"].get("text") or ""})
     flush()
     if awaiting is not None and turns and turns[-1]["role"] == "user" and turns[-1]["text"] == awaiting:
         turns[-1]["unsent"] = True
@@ -208,25 +220,43 @@ def quote_on(lines: Sequence[str], label: str, quote: str) -> bool:
         text = re.sub(r"^L\d+:\s?", "", text)
         text = re.sub(r"^(?:[-*+>]|\d+\.|#{1,6})\s+", "", text)
         text = re.sub(r"(?<!\w)_|_(?!\w)", "", text)
+        # A line that is a JSON string carries its escapes (`—`, `\"`,
+        # `\n`); a judge quotes the words it reads, so both sides are read
+        # with the escapes resolved (an S4 reading pasted the engine's
+        # feedback as JSON, and the grading died on an em dash).
+        text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), text)
+        text = text.replace('\\"', '"').replace("\\n", " ").replace("\\t", " ").replace("\\\\", "\\")
         return " ".join(re.sub(r"[*`~]", "", text).split())
     wanted = folded(quote)
-    first = folded(lines[number - 1])
     if not wanted:
         # A quote that is nothing but marks (a fence line, cited as the brief
         # the host quoted back) is on its line when the line is that exact
         # mark; an empty quote matches nothing (three re-judges died on it).
         raw = re.sub(r"^L\d+:\s?", "", lines[number - 1]).strip()
         return bool(raw) and quote.strip() == raw
-    window = " ".join([first, *(folded(line) for line in lines[number:])])
-    start = window.find(wanted)
-    return 0 <= start < len(first)   # it begins on the cited line, whatever it runs on to
+    # It begins on the cited line, whatever it runs on to — or on the line
+    # before or after it: a judge counting past a fence or a brace cites
+    # one off (rel-s4-codex: `"branch": "generic_exp_1",` cited at L41, the
+    # line above it `{`, in two of three replies), and a quote one line
+    # from its citation is the material's, never an invention.
+    for index in range(max(1, number - 1), min(len(lines), number + 1) + 1):
+        first = folded(lines[index - 1])
+        window = " ".join([first, *(folded(line) for line in lines[index:])])
+        start = window.find(wanted)
+        if 0 <= start < len(first):
+            return True
+    return False
 
 
 # ------------------------------------------------------------------- calls
 def ask(prompt: str, settings: dict) -> str:
+    # The transport's own retries and a bound on the wait: the S4 Codex
+    # grading of the third wave died on a Vertex connection timeout with
+    # both readings archived, and the readings were judged again by hand.
     response = litellm.completion(
         model=settings["model"], messages=[{"role": "user", "content": prompt}],
         vertex_project=settings["vertex_project"], vertex_location=settings["vertex_location"],
+        num_retries=int(settings["transport_retries"]), timeout=float(settings["timeout_seconds"]),
     )
     return response.choices[0].message.content or ""
 

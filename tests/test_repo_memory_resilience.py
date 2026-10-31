@@ -328,6 +328,7 @@ def test_fail_policy_pushes_and_cleans_up_before_reraising(
         ({"repo_memory_failure_policy": "ignore"}, "warn.*fail"),
         ({"repo_memory_max_retries": -1}, "non-negative integer"),
         ({"repo_memory_max_retries": True}, "non-negative integer"),
+        ({"repo_memory_update_payload_max_chars": 0}, "positive integer"),
     ],
 )
 def test_workspace_rejects_invalid_memory_configuration(

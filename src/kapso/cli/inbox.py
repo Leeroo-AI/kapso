@@ -3,6 +3,7 @@
 
 import argparse
 import re
+import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,6 +78,10 @@ def _render_campaign_inbox(campaign: Path) -> str:
     goal = _campaign_goal(campaign)
     header = f"{campaign}  {goal}{label}" if goal else f"{campaign}{label}"
     target = f" {requests[0].id}" if len(requests) > 1 else ""
+    # The short form resolves the campaign from the current directory, so
+    # anywhere else the suggestion has to name it.
+    if _campaign_here(Path.cwd().resolve()) != campaign.resolve():
+        target = f" {shlex.quote(str(campaign))}{target}"
     return "\n".join([
         header,
         "",

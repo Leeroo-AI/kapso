@@ -54,7 +54,7 @@ from kapso.execution.trace import TraceView, failed_runs, read_trace
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.iteration_evaluator import IterationEvaluator
-from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Solution
+from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution
 from kapso.execution.evaluation_integrity import launch_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory
@@ -99,6 +99,7 @@ from kapso.harness import (
 from kapso.harness import BUNDLED_ROOT
 from kapso.harness.staging import host_for
 from kapso.execution.inbox import (
+    beside,
     launch_receipt_path,
     Request,
     idea_line,
@@ -111,6 +112,7 @@ from kapso.execution.inbox import (
     resume_arguments,
     write_launch_record,
 )
+from kapso.execution.launch import detach as launch_detached
 from kapso.execution.run_checkpoint import (
     RunCheckpointIncompatibleError,
     RunCheckpointStore,
@@ -648,7 +650,8 @@ class Kapso:
         exam: bool = True,
         push: Optional[bool] = None,
         on_status: Optional[Any] = None,
-    ) -> LessonResult:
+        detach: bool = False,
+    ) -> Union[LessonResult, Launch]:
         """Learn from one finished campaign: import it into the trajectory
         store, mine it, grade the bank on it (exam-before-lesson), then run
         the update crew — evidence-priced cards, one tagged bank commit.
@@ -671,10 +674,36 @@ class Kapso:
             on_status: Optional hook called with the status dict after
                 every status write and heartbeat (observability §4b).
                 Exceptions from the hook propagate.
+            detach: Run the learn in a session of its own and return a
+                `Launch` (pid, log, the learning status directory) at once
+                — `kapso learn <campaign> --detach` from Python. Takes the
+                campaign form only: no trajectory id, learner version,
+                exam, push or callback.
 
         Returns:
             LessonResult — what changed in the bank and the paper trail.
         """
+        if detach:
+            # The same launch as `kapso learn <campaign> --detach`, from
+            # Python: hours of crews in a session of its own, a Launch
+            # handed back at once (the release gate's S1 engineers shelled
+            # out to the CLI for this, since learn() blocks).
+            if on_status is not None or trajectory_id is not None or learner_version is not None or not exam or push is not None:
+                raise ValueError(
+                    "learn(detach=True) runs `kapso learn <campaign>` in a session of its own, "
+                    "which takes no on_status, trajectory_id, learner_version, exam or push"
+                )
+            campaign = Path(source.campaign) if isinstance(source, Solution) else Path(source)
+            argv = ["learn", str(campaign)]
+            if self._harness is not None:
+                argv += ["--harness", self._harness.source]
+            config_path = self._launch_config_path()
+            if config_path is not None:
+                argv += ["--config", config_path]
+            log_path = beside(campaign, ".learn.log")
+            pid = launch_detached(argv, log_path=log_path, receipt_path=None)
+            status_dir = Path(self._config["learning"]["status_dir"]).expanduser()
+            return Launch(pid=pid, log=str(log_path), status=str(status_dir))
         started = datetime.now(timezone.utc)
         if self._bank_home is None:
             raise ValueError(
@@ -1058,7 +1087,8 @@ class Kapso:
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
         coding_agent: Optional[str] = None,
-    ) -> Solution:
+        detach: bool = False,
+    ) -> Union[Solution, Launch]:
         """Build software that meets the brief, by experiment: propose a
         candidate, implement it on its own branch, measure it, keep the
         best, repeat until the goal is met or the budget is spent.
@@ -1092,6 +1122,11 @@ class Kapso:
                 candidate in an isolated detached worktree;
                 `iteration_evaluator_failure_policy` is `record` (store
                 the error on the candidate) or `raise` (stop the run).
+            detach: Launch the campaign in a session of its own and return
+                a `Launch` (pid, log, status path) at once — `kapso build
+                --detach` from Python. Needs `output`; takes no in-process
+                callback. The harness and experience loaded on this
+                instance go with it.
 
         Returns:
             The `Solution`: the delivered candidate, its measurement and
@@ -1125,6 +1160,44 @@ class Kapso:
         if initial_repo is not None and not self._is_github_url(initial_repo) \
                 and not Path(initial_repo).is_dir():
             raise FileNotFoundError(f"repo directory not found: {initial_repo}")
+        if detach:
+            # The same launch as `kapso build --detach`, from Python: the
+            # campaign in a session of its own, a Launch handed back at
+            # once. Every engineer of the release gate's S1 reinvented this
+            # with a self-relaunching worker script, since build() blocks.
+            if output_path is None:
+                raise ValueError(
+                    "build(detach=True) needs output: the campaign directory is "
+                    "where its status lives, and its log goes beside it"
+                )
+            if on_status is not None or iteration_evaluator is not None:
+                raise ValueError(
+                    "build(detach=True) runs in a session of its own: on_status and "
+                    "iteration_evaluator are in-process callbacks and cannot follow it"
+                )
+            argv = ["build", "--output", output_path]
+            if resume:
+                argv.append("--resume")
+            else:
+                brief_path = beside(Path(output_path), ".brief.md")
+                brief_path.write_text(brief.render(), encoding="utf-8")
+                argv += ["--brief", str(brief_path)]
+            spend = budget or Budget()
+            for flag, value in (
+                ("--evaluation", eval_dir), ("--data", data_dir), ("--repo", initial_repo),
+                ("--coding-agent", coding_agent), ("--config", self._launch_config_path()),
+                ("--budget-minutes", spend.minutes), ("--budget-experiments", spend.experiments),
+                ("--budget-usd", spend.usd), ("--budget-reserve-minutes", spend.reserve_minutes),
+            ):
+                if value is not None:
+                    argv += [flag, str(value)]
+            if self._harness is not None:
+                argv += ["--harness", self._harness.source]
+            if self._experience:
+                argv += ["--experience", ",".join(source.reference for source in self._experience)]
+            log_path = beside(Path(output_path), ".log")
+            pid = launch_detached(argv, log_path=log_path, receipt_path=launch_receipt_path(Path(output_path)))
+            return Launch(pid=pid, log=str(log_path), status=str(Path(output_path) / ".kapso" / "status.json"))
         checkpoint = None
         record = None
         if resume:
@@ -1163,14 +1236,21 @@ class Kapso:
                 # the process environment keeps precedence.
                 if record.get("dotenv_path"):
                     load_dotenv(record["dotenv_path"])
+                # The budget a resume asks for is the caller's own, a field
+                # left None keeping the launch's (the Budget contract); the
+                # brief-merged figures above would pass the checkpoint
+                # brief's budget off as the caller's and the record's would
+                # never apply (a campaign launched at 40 minutes resumed at
+                # the brief's 45, the release gate's S5, 2026-10-30).
+                requested = budget or Budget()
                 arguments = resume_arguments(record, {
                     "host": coding_agent,
                     "eval_dir": eval_dir,
                     "data_dir": data_dir,
-                    "experiments": max_iterations,
-                    "minutes": time_budget_minutes,
-                    "usd": cost_budget,
-                    "reserve_minutes": finalization_reserve_minutes,
+                    "experiments": requested.experiments,
+                    "minutes": requested.minutes,
+                    "usd": requested.usd,
+                    "reserve_minutes": requested.reserve_minutes,
                 })
                 # The loaded experience is campaign identity: a resume with
                 # nothing loaded takes the record's list and re-pins each

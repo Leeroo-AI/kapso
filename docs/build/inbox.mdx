@@ -73,7 +73,7 @@ kapso inbox ./campaign
 kapso inbox reply ./campaign 1 "added the key"
 ```
 
-The id may be left out when one request is open. An empty note means done.
+The id may be left out when one request is open. An empty note means done. The `reply with` line under each listed campaign follows the same rule: outside that campaign it names the campaign's path, so the line works where it was printed.
 
 Replying records the note and resumes the campaign in the foreground, in your terminal. Add `--detach` to walk away: the note is checked here, the campaign resumes in a session of its own, and the command returns with the log and the `kapso watch` line. Both forms work from any directory, since the launch record keeps the campaign's paths and `.env`. When a node asked for several things, the node waits until every one of its requests is answered, and the command says so:
 

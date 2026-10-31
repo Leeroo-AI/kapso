@@ -46,7 +46,10 @@ def reproduction_findings(
             continue
         produced = float(observed_metrics[name])
         band = tolerance_z * se
-        if abs(produced - value) > band:
+        # Written as "not within" so a NaN anywhere (yaml.safe_load reads
+        # `.nan` as float('nan'), and every NaN comparison is False) fails
+        # the gate instead of passing it.
+        if not abs(produced - value) <= band:
             findings.append(
                 f"metric {name}: {produced} is outside {value} ± "
                 f"{tolerance_z}·{se} — not a reproduction"

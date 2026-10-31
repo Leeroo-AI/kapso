@@ -1,11 +1,11 @@
 ---
 title: "Kapso CLI reference: every command, flag and default"
 sidebarTitle: "CLI"
-description: "The eight kapso commands and their subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
-keywords: ["kapso CLI", "kapso build", "kapso harness", "kapso experience", "kapso learn", "kapso doctor", "command reference", "CLI flags"]
+description: "The ten kapso commands and their subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
+keywords: ["kapso CLI", "kapso build", "kapso harness", "kapso experience", "kapso learn", "kapso report", "kapso doctor", "command reference", "CLI flags"]
 ---
 
-Kapso installs the `kapso` executable with nine commands, and `kapso-mcp`, the MCP server that serves Kapso's experience to the coding-agent session you work in (see [below](#kapso-mcp)).
+Kapso installs the `kapso` executable with ten commands, and `kapso-mcp`, the MCP server that serves Kapso's experience to the coding-agent session you work in (see [below](#kapso-mcp)).
 
 | Command | What it does |
 |---------|--------------|
@@ -17,6 +17,7 @@ Kapso installs the `kapso` executable with nine commands, and `kapso-mcp`, the M
 | [`kapso watch`](#kapso-watch) | Watch a running operation, or list the ones alive |
 | [`kapso trace`](#kapso-trace) | Read a campaign's record after the fact: the attempts, the lessons, what was voided, what was delivered |
 | [`kapso inbox`](#kapso-inbox) | What a paused campaign is waiting on you for, and the reply that resumes it |
+| [`kapso report`](#kapso-report) | Export a campaign as a shareable Markdown summary |
 | [`kapso doctor`](#kapso-doctor) | Check this machine can run what your config asks for |
 
 ## Global options
@@ -312,7 +313,7 @@ Turns the solution a build wrote into running software, and stops, starts, reads
 | `--coding-agent` | The host the deployment session runs on, an entry of the config's `hosts` table | from config (`deployment.cli`, else the build's host) |
 | `--config` | Config path; pass the one the build used | packaged `config.yaml` |
 | `--harness` | The harness whose deployment module the session carries: the build's, from the campaign record, or another version of it | the campaign record's |
-| `--status` | List the campaign's deployments: number, state (health for a running one, the error for a failed one), target (the request until the session chose), endpoint; one of them with `--number` | off |
+| `--status` | List the campaign's deployments: number, state (health for a running one, the error for a failed one), target (the request until the session chose), endpoint; one of them with `--number`; a campaign not yet deployed says so, exit 0 | off |
 | `--stop`, `--start`, `--logs` | Stop a deployment, start a stopped one again, print its logs; each acts on `--number`. One of the four lifecycle flags at a time, and none of the deploy flags beside it | off |
 | `--number` | Which deployment `--status`, `--stop`, `--start` and `--logs` act on; refused on a deploy, which takes the next number | every one for `--status`, the highest otherwise |
 
@@ -418,6 +419,37 @@ kapso inbox ./campaign
 kapso inbox reply 1 "added the key"
 kapso inbox reply ./campaign 1
 kapso inbox reply 1 "added the key" --detach
+```
+
+## kapso report
+
+Renders a finished or running campaign as Markdown that pastes straight into a pull request, an issue or a team thread. It is a pure reader: it uses only the files and git history the campaign already holds, writes nothing into it and makes no model calls.
+
+| Argument | What it does | Default |
+|----------|--------------|---------|
+| `campaign` | Campaign directory. **Required** | — |
+| `-o`, `--output` | Write the report to this file instead of stdout | stdout |
+| `--top` | How many candidates the leaderboard and the diff section list | `report.leaderboard_size` (`5`) |
+| `--config` | Config whose `report.leaderboard_size` sets the default | packaged `config.yaml` |
+
+The report has seven sections:
+
+| Section | Contents |
+|---------|----------|
+| Summary | The brief's objective, the state and stop reason, iterations, elapsed time and model spend against the launch's budgets when they were set, and platform cost when [cost-aware selection](/docs/evolve/cost-aware-selection) is on |
+| Deliverable | The candidate the campaign delivers, its branch, its score and any external evaluator metrics |
+| Leaderboard | The top scored candidates in the campaign's own ranking, so a minimised metric and cost-aware selection order it as the campaign does, with each one's score, platform cost when cost is on, parent, branch and idea |
+| Lineage | The campaign tree, as the status view draws it |
+| What changed | `git diff --stat` of each leaderboard candidate against its parent branch |
+| Human input | Every [inbox](/docs/build/inbox) request, its state and the reply that answered it, with line breaks folded into one table row |
+| Outcomes | How many candidates ran, were scored, failed, were integrity-flagged and were cost-refused |
+
+A directory without a run checkpoint or a status file fails with an explicit error, and a corrupt state file raises.
+
+```bash
+kapso report ./campaign
+kapso report ./campaign -o report.md
+kapso report ./campaign --top 10
 ```
 
 ## kapso doctor

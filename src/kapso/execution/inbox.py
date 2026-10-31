@@ -337,6 +337,20 @@ def record_continued(
             }) + "\n")
 
 
+def continue_answered(path: str | Path, *, node: int, session: str) -> List[int]:
+    """The answered requests of ``node`` not yet continued, recorded as
+    continued by ``session`` — a restarted session that carries the
+    replies (the harness setup session, which the orchestrator runs again
+    rather than resuming). Their ids, in request order."""
+    pending = [
+        request.id for request in load_requests(path).values()
+        if request.node == node and not request.open and not request.continued
+    ]
+    if pending:
+        record_continued(path, pending, node=node, session=session)
+    return pending
+
+
 def new_requests_for_session(
     path: str | Path, session_id: str, seen_bytes: int
 ) -> Tuple[int, List[int]]:
@@ -392,10 +406,15 @@ def launch_record_path(workspace_dir: str | Path) -> Path:
 
 
 def write_launch_record(workspace_dir: str | Path, record: Dict[str, Any]) -> Path:
-    """Written once, on a fresh campaign; a resume never rewrites it."""
+    """Written once, on a fresh campaign; a resume never rewrites it.
+    Paths are stored resolved: `kapso inbox reply` resumes from inside
+    the campaign, not from the directory the launch ran in."""
     path = launch_record_path(workspace_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema_version": LAUNCH_SCHEMA_VERSION, **record}
+    for key in _RECORDED_PATH_KEYS:
+        if payload.get(key):
+            payload[key] = _resolved_path(payload[key])
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
 
@@ -428,6 +447,11 @@ _PATH_LAUNCH_KEYS = ("eval_dir", "config_path")
 # the heads are re-pinned from the record, so a bank that moved since the
 # launch is not a change (docs/plans/redesign/wp3-experience.md).
 _EXPERIENCE_LAUNCH_KEY = "experience"
+_RECORDED_PATH_KEYS = (*_PATH_LAUNCH_KEYS, "data_dir")
+
+
+def _resolved_path(value: Any) -> str:
+    return str(Path(str(value)).expanduser().resolve())
 
 
 def resume_arguments(record: Dict[str, Any], requested: Dict[str, Any]) -> Dict[str, Any]:
@@ -450,7 +474,7 @@ def launch_mismatches(record: Dict[str, Any], requested: Dict[str, Any]) -> Dict
             return [(source["reference"], source["scope"]) for source in (value or [])]
         if value is None or key not in _PATH_LAUNCH_KEYS:
             return value
-        return str(Path(str(value)).expanduser().resolve())
+        return _resolved_path(value)
 
     return {
         key: (record.get(key), requested.get(key))
@@ -474,12 +498,21 @@ def register_campaign(registry_path: str | Path, workspace_dir: str | Path, goal
         fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def beside(campaign: Path, suffix: str) -> Path:
+    """The file that lies beside a campaign directory, named after it: the
+    log, the launch receipt, the learn log. The path is resolved first, so
+    a campaign named `.` or `..` (an empty name, which `with_name`
+    refuses) is the directory it stands for."""
+    resolved = Path(campaign).resolve()
+    return resolved.with_name(resolved.name + suffix)
+
+
 def launch_receipt_path(campaign: Path) -> Path:
     """The detached launch's receipt, beside the log: the child's pid, the
     log's path, the argv and the time, written before the child starts, so
     `kapso watch` can tell a campaign that is starting from one that died
     before writing its status (wp6-observability.md, change 7)."""
-    return campaign.with_name(campaign.name + ".launch.json")
+    return beside(campaign, ".launch.json")
 
 
 def read_launch_receipt(campaign: Path) -> Optional[Dict[str, Any]]:

@@ -252,3 +252,61 @@ def test_the_flows_artifact_carries_each_attempts_script_or_commands_for_the_jud
     written = {}
     step = s1.flow_counts(record, tmp_path, lambda name, body: written.setdefault(name, body) and f"artifacts/{name}")
     assert step["metrics"] == {"python_lines": 2, "cli_commands": 2} and "flows.md" in written and step["artifacts"] == ["artifacts/flow-counts.json", "artifacts/flows.md"]
+
+
+def test_the_splitter_reads_quotes_and_subshells_as_the_shell_does(tmp_path):
+    # A `|` inside a quoted pattern is the pattern's, not a pipe: a search that
+    # mentions the verb is never an execution (rel-s1-codex counted one as a wrong call).
+    search = _codex_stream([("/bin/bash -lc \"rg -n 'config|budget|kapso build' docs/reference/cli.mdx && cat campaign-3.log\"", 0)])
+    assert s1.executions(search, "build", "cli", tmp_path) == []
+    assert s1.command_segments("rg -n 'a|b' x | grep c; (kapso build --output c &)") == ["rg -n 'a|b' x", "grep c", "kapso build --output c"]
+
+
+def test_a_launch_after_a_heredoc_in_the_same_command_is_counted(tmp_path):
+    # rel-s1-codex's second python flow wrote its script by heredoc and ran it
+    # in the same command; the apostrophe in the script's docstring opened a
+    # quote the splitter never closed, and the launch after the terminator was
+    # read as part of the heredoc: no execution counted, the step's first try
+    # lost. A heredoc's body is the command's, whatever quotes it holds.
+    (tmp_path / "s.py").write_text("\"\"\"Kapso's API.\"\"\"\nfrom kapso import Kapso\nKapso().build(brief=1)\n", encoding="utf-8")
+    heredoc = "cat > s.py <<'PY'\n\"\"\"Kapso's API.\"\"\"\nfrom kapso import Kapso\nKapso().build(brief=1)\nPY\n./venv/bin/python s.py && echo done"
+    segments = s1.command_segments(heredoc)
+    assert segments[-2:] == ["./venv/bin/python s.py", "echo done"]
+    assert segments[0].startswith("cat > s.py <<'PY'") and segments[0].rstrip().endswith("PY") and len(segments) == 3
+    rows = _codex_stream([(f"/bin/bash -lc \"{heredoc}\"", 0)])
+    assert [entry["errored"] for entry in s1.executions(rows, "build", "python", tmp_path)] == [False]
+    # Two heredocs on one line, and `<<<` (a here-string) is not a heredoc.
+    assert s1._split_outside_quotes("cat <<A <<B\na\nA\nb\nB\nkapso build") == ["cat <<A <<B\na\nA\nb\nB", "kapso build"]
+    assert s1.command_segments("grep x <<< 'a\nb'; kapso build") == ["grep x <<< 'a b'", "kapso build"]
+
+
+def test_an_execution_errs_by_the_hosts_exit_status_not_by_its_outputs_words(tmp_path):
+    # A deploy streams its agent's session log — probes, tracebacks — and exits 0.
+    rows = _stream([("kapso deploy campaign-prereq --target local", False)])
+    rows[1]["message"]["content"][0]["content"] = "Traceback (most recent call last):\n  ImportError: no sklearn\n...\nDeployed: 1"
+    assert [entry["errored"] for entry in s1.executions(rows, "deploy", "cli", tmp_path)] == [False]
+    codex = _codex_stream([("kapso deploy campaign-prereq --target local", 0)])
+    codex[0]["item"]["aggregated_output"] = "Error: probe failed\nDeployed: 1"
+    assert [entry["errored"] for entry in s1.executions(codex, "deploy", "cli", tmp_path)] == [False]
+    # No exit status at all: the output's words decide.
+    codex[0]["item"]["exit_code"] = None
+    assert [entry["errored"] for entry in s1.executions(codex, "deploy", "cli", tmp_path)] == [True]
+
+
+def test_a_command_still_running_at_the_turns_end_is_counted_with_no_outcome(tmp_path):
+    started = {"type": "item.started", "item": {"id": "i1", "type": "command_execution", "command": "kapso build --output c --resume", "exit_code": None}}
+    found = s1.executions([started], "resume", "cli", tmp_path)
+    assert found == [{"command": "kapso build --output c --resume", "errored": None}], "a foreground resume that outran the turn is an execution, its outcome unknown"
+    assert s1.attempt_metrics(found, evidence=True, started=0.0, evidence_at=30.0)["first_try"] is False
+    completed = {"type": "item.completed", "item": {"id": "i1", "type": "command_execution", "command": "kapso build --output c --resume", "exit_code": 0, "aggregated_output": "ok"}}
+    assert s1.executions([started, completed], "resume", "cli", tmp_path) == [{"command": "kapso build --output c --resume", "errored": False}]
+
+
+def test_a_flows_lines_are_logical_lines():
+    call_across_lines = (
+        "from kapso import Kapso, Brief, Budget\n"
+        "solution = Kapso().build(\n    Brief.read('task/kapso-brief.md'),\n    repo='task/repo',\n    output='campaign-1',\n"
+        "    budget=Budget(minutes=10, experiments=1),\n)\n"
+        "print(solution.explain())\n"
+    )
+    assert s1.logical_lines(call_across_lines) == 3, "a call written across six physical lines is one line of the flow"

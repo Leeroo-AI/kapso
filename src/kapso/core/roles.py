@@ -39,7 +39,8 @@ CONFIG_PARAMS = frozenset({
     "host", *ROLES, "gate_failure_policy", "parent_policy", "node_expansion_value",
     "expansion_lane_env", "env_strip", "session_env_defaults", "shared_cache_dir",
     "registered_evaluation_archive_glob", "repo_memory_failure_policy",
-    "repo_memory_max_retries", "cost", "honor_agent_stop",
+    "repo_memory_max_retries", "repo_memory_update_payload_max_chars", "parent_sampling", "cost",
+    "honor_agent_stop",
 })
 # What the engine threads in at launch, never a file's.
 ENGINE_PARAMS = frozenset({

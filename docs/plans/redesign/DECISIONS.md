@@ -2876,3 +2876,734 @@ integer beside a rating word as a result, and lets a target or rule mark
 cover its own clause only; its words-out rule reads every visible
 string. The shipped pages were brought to the form rather than the form
 loosened to the pages.
+
+## The repo-memory update withholds what it cannot read (2026-10-30)
+
+`main`'s windowing of the update (#167) sent a file larger than the
+payload budget whole, in a call of its own, so that every line the model
+re-cites is before it. The gate's campaigns commit the example's 1 MB
+dataset, and that file put every update past Codex's input limit: the
+memory never updated after an experiment, on `main` and on the branch
+alike. The update now withholds a changed file that is binary or whose
+payload alone exceeds `repo_memory_update_payload_max_chars` and lists it
+by name and size in the first call, with its evidence kept as it is; the
+budget bounds every call. A file that large is a dataset or a model dump,
+not code the memory cites, so nothing the model is told is cut.
+
+## The judge is kept its reserve before one has been observed (2026-10-30)
+
+A round's reserve kept the judge at the floor (60 s) until a judge had
+been observed in the campaign, and the finishing stages' obligations
+counted it the same. In the S2 Codex gate's hour the first attempt's
+verification was given the remainder less that floor, ran to its
+deadline, and left 59 s for the judge — under the floor, so the attempt
+went unjudged and the campaign ended with nothing to deploy or learn. The
+config's `budget.judge_reserve_seconds` (300) is the judge's reserve
+before an observation, in the round's reserve and in what the evaluation
+and the verification leave standing; a judge that has been observed is
+kept its own last duration, as before. The evaluation and the verification
+stay at the floor in the obligations: a verification cut short is
+unverified, and the judge still speaks.
+
+## The Codex registration gives Kapso's MCP server a minute (2026-10-30)
+
+Codex drops an MCP server that has not answered within ten seconds, and in
+exec mode says nothing; `kapso-mcp` imports the package before it answers
+(the experiment store's embedding backend brings litellm, the bank gate
+the learners), four to five seconds on an idle box and more on a busy one.
+A plugin session of the S2 Codex gate ran without the campaign tools on
+that account. The setup skill writes `startup_timeout_sec = 60` under the
+server's table in `config.toml` after the `codex mcp add` line, and the
+docs and the README say so for a registration by hand. `kapso.core` no
+longer re-exports the LLM backend (nothing imported it that way); that
+cleanup does not shorten the startup, since the gates import the backend
+through the experiment store, and a faster server stays a finding.
+
+## The trace words a void and a rejection apart (2026-10-30)
+
+The trace listed every attempt the campaign did not count under one
+heading with one word for the integrity check ("rejected: Provided
+evaluation integrity check failed") and another for the harness's
+verification verdict ("void: …"), the reverse of the design's two
+questions — what was voided and on what evidence, what was rejected and
+why — and one S4 reader took the integrity void for a rejection. The
+trace now words the integrity check's `voided:` (the protected evaluation
+changed, the hash evidence beside it) and the harness's verification
+verdict and the judge's invalidation `rejected:`, the split the S4 driver
+reads by the engine's own semantics. The goldens were re-rendered.
+
+## The plugin's answers keep the suite's line and question budgets (2026-10-30)
+
+Five S2 steps on Claude Code failed on the suite's counts alone: the
+review's twelve lines grew sub-bullets under the risks, the build and the
+evaluation asked the approval and a choice, the improve flow asked twice.
+The bars are the product's promises (WP7's design, WP9's suite), so the
+skills say the counts in their own words: the review's twelve lines are
+the whole message outside the outline's fence, one line per risk; the
+build asks one question in all, the approval, which carries its choices as
+defaults the user may change; the harness improve flow asks for the word
+on the proposal and no more; a stated baseline names its source and a
+disagreement between records is said (the watch step's planted baseline);
+the answer after a fix names the fault, the fix and the resume.
+
+## S4 builds the campaign it reads (2026-10-30)
+
+S4's design read S5's tampering campaign for a void and a rejection in
+one record. No campaign ever held both — the tampering voids the one
+attempt its budget holds, and nothing in the suite makes the verifier or
+the judge reject — so the bar `campaign_has_rejection` read unmet on every
+S4 run. S4 now builds its own campaign when none is given: the churn
+example at a hundred minutes and two experiments, the protected evaluator
+edited in `main` during the first ideation (the attempt's clone inherits
+it, with no diff for the writer to notice; the integrity check voids it on
+the hash evidence) and restored during the second, then the hold-out
+labels written over the predictions on the second attempt's branch during
+its evaluation phase — after its evaluation materialised the branch and
+before its verification does — the prohibited flow the harness's
+verification voids, which the driver reads as the rejection. A campaign
+given on the command line is read as it is, as before. S4 no longer waits
+for S5, and the eight gate runs launch together.
+
+## S5 edits the parent, takes a host, pins the wheel, reads a resume from the records (2026-10-30)
+
+The tampering injection edited the evaluator in the running attempt's
+session clone; a writer that diffs against its parent sees the edit and
+restores the pristine file (the gate's first S5), and nothing is voided.
+The edit now lands in the campaign's `main` as a commit during the first
+ideation, before the attempt's clone, which inherits it with no diff. The
+driver takes `--host` (the gate's second S5 ran the plugin on Claude Code
+under a machine named for Codex) and `--wheel` (the record named the
+version alone). A resume is read from the campaign's records — the status
+file's or the launch receipt's `started_at` after the ask — rather than
+from a `running` state in the five minutes after the turn, which read
+three resumes as none when the plugin waited inside its turn until the
+resumed campaign had finished. The fix words accept a relaunch, a restart
+and a rerun: a resume by another name.
+
+## The S1 rig reads the engineer as the design says (2026-10-30)
+
+Four of the six failed S1 steps were the engineer waiting: the goal read
+"a better churn model… into ./campaign-1", so the engineer followed the
+campaign to its end, and "continue it from where it stopped" kept it in a
+foreground resume. The goals now say the task is done once the campaign
+runs on its own, and the resume the same — what a ticket says. The
+sandbox venv holds what the task views say to install (the examples'
+requirements), since an engineer with no web cannot; "use no web" is said
+of the engineer, not of the campaign's settings, which one engineer
+rewrote in a 39-line script. A flow's lines are logical lines (a call
+across six physical lines is one line of the flow); the splitter reads
+quotes and subshells as the shell does; an execution errs by the host's
+exit status, not by its output's words; a command still running at the
+turn's end is counted with its outcome unknown. No bar was touched.
+
+## The second engineer installs as the docs say (2026-10-30)
+
+Both S2 gate runs had the served build refused at its launch for the
+bundled harness's requirements: the rig's second user installed with `uv
+tool`, whose interpreter is off the `python3` the harness's commands name,
+and the system's python3 refuses pip as externally managed. The lean
+install of 2026-08-26 stands (pandas and pyarrow are not the package's
+dependencies); the rig's second engineer builds from a project venv as
+the docs install it, the wheel and the project's requirements first on
+PATH, and follows the launch's printed remedy for the harness's
+requirements before launching again. The `cold-install` step keeps
+measuring the uv tool install.
+
+## The trigger probe tries a failed sandbox again, one session at a time (2026-10-30)
+
+151 of 178 Codex trigger sessions of the S2 Codex gate failed in
+bubblewrap's loopback setup before any skill could be read, at two
+sessions at once, on a machine whose preflight had passed. A run whose
+sandbox failed is tried again, up to the suite's `sandbox_tries` with a
+pause between, before it counts; the probe runs one session at a time
+(`codex_jobs`). The machine's failure stays named in the record, never a
+miss.
+
+## A restarted setup session continues its answered requests (2026-10-30)
+
+A harness setup session's inbox requests (node -1) were met by running
+the setup session again with the replies, and the record never marked
+them `continued`: the request's promise of a resumption was unkept in the
+record, and both S2 gate runs failed the inbox step on it. The
+orchestrator records the setup's answered requests as continued by the
+session that carries the replies, once (`continue_answered`), as a search
+node's session records its own on resume.
+
+## S4's rejection is recorded, never required (2026-10-30)
+
+The gate-to-pass fix of the morning had S4 build a campaign holding both
+of the design's cases, the second by a planted leak committed onto the
+second attempt's branch during its evaluation phase, for the harness's
+verification to void. It could not work: the churn campaign runs under no
+harness, so no verification session ever runs (`_verify_attempt` returns
+at once), and the `evaluation` status phase belongs to the registered and
+deferred evaluations, never to a provided evaluator, so the driver waited
+until the campaign had ended and committed nothing. Both second-wave S4
+runs held the void and no rejection. Read further: every "rejected"
+entry in every archived campaign is an integrity void; the engine has
+never produced a verification or judge rejection in these records, and a
+rejection is the verifier's or the judge's word on an attempt's own work
+— a driver cannot arrange one honestly (a leak planted for an agent to
+keep is a trap, and a leak timed between the session's end and the
+verification's read is a race). So S4 builds its campaign at S5's budget
+(40 minutes, two experiments, which two attempts fit — a hundred minutes
+let Codex's first attempt run 86 of them and the second never ran), with
+the evaluator edited in `main` for the first attempt and restored for the
+second; the bar is the void the integrity check guarantees, and whether
+the campaign holds a rejection is recorded in the fact sheet and the
+report, never required. The readers' question "what was rejected and why"
+stands, answered "nothing rejected" when the record says so — which both
+hosts' readers answered right (6 of 6 on Codex; Claude's grading died on
+a judge misquote, fixed below). The owner is told at the checkpoint that
+this bar changed and why; the design's "a campaign with a void and a
+rejection" is met only when an agent earns one.
+
+## The S1 Python flow is asked for as a short script (2026-10-30)
+
+The DECISIONS entry of 2026-10-27 left the `python_lines` bar's reading to
+the owner: a product finding or a metric calibration ("counting
+statements rather than lines, or excluding pure diagnostics, would
+measure the intent — how much the engineer must write to drive a task —
+more directly"). The second wave read 13 and 22 lines on Claude Code and
+39–41 on Codex: `build()` and `learn()` block (the API reference says so
+and points a shell user to `--detach`), so an engineer told the task is
+done once the campaign runs wraps the CLI's `--detach` in subprocess
+boilerplate, and the Codex engineer adds a polling loop and a worker
+flag of its own style. The bar measures the package, not the engineer's
+style, so the task says what a ticket says — "write a short script (a
+dozen lines or so)" — and the count reads whether the package lets the
+engineer keep to it. The API's lack of a detached launch stays a product
+finding for the owner (three of three build flows wrapped the CLI).
+
+## The trigger probe keeps its own clock (2026-10-30)
+
+At one session at a time (the sandbox fix), the Codex trigger probe's
+178 runs need about two and a half hours; the step's two-hour budget
+ended it from outside, the shell's timeout raised through the driver,
+and the S2 Codex run ended at its watch step with no result for the probe
+at all. The probe takes `--deadline-seconds` from the step (its budget
+less the suite's `deadline_margin_seconds`): a run not started by then is
+recorded as not reached — not established, never a pass, never a miss —
+and every run's row lands in `results.jsonl` as it ends, so a probe cut
+short still leaves what it measured. The step's budget is four hours.
+
+## The judge reads a JSON line's escapes (2026-10-30)
+
+The S4 Claude reading pasted the engine's feedback as JSON; the judge
+quoted the words it read (an em dash) against a line holding `\u2014`,
+the quote check found no match twice, and the grading died. The check
+resolves JSON escapes on both sides before comparing.
+
+## `kapso deploy --status` answers a campaign not yet deployed (2026-10-30)
+
+The cold engineer asked for the status before the first deploy and the
+command exited with an error, which the rig counted as a wrong call of
+the package. A status question has an answer — "has no deployment yet" —
+and exit 0; a `--number` that names no deployment stays an error.
+
+## The baseline memory keeps the update's budget (2026-10-30)
+
+The repo memory's initial inference read the planner's files whole with
+no bound: a 1 MB dataset among them put the call at 1,400,956 characters
+and Codex refused it (its limit 1,048,576), an engine session failed in
+the S1 Claude prerequisite campaign. The initial inference keeps the
+update's budget (`repo_memory_update_payload_max_chars`): a binary or
+over-budget file is listed by name and size and never shown, and the
+files past the first budget's worth reach the model in further calls,
+each patching the model the previous produced.
+
+## The S1 rig: a heredoc, the login shell's PATH, a flow's learn (2026-10-30)
+
+Three rig defects read from the second wave. The command splitter read a
+heredoc's body as shell text, and an apostrophe in a script written by
+heredoc swallowed the launch that followed it (a Codex flow counted no
+execution): a heredoc's body stays with its command. Codex runs each
+command in a login shell whose profile puts the machine's `~/.local/bin`
+(the gate's uv tool install) ahead of the sandbox venv the driver put
+first on PATH, so the engineer's deploy ran the machine's kapso without
+the task's requirements and failed until the engineer put the venv first
+by hand: the sandbox step ends the profile with the venv first, as the
+prompt says it is. And the learn the Python flow started was still mining
+when the CLI flow began, so the engineer rightly declined to start a
+second: the rig stops a flow's learn, with its process group, before the
+next flow, and the learn's goal says the learn keeps running on its own
+after the command returns.
+
+## The trace header speaks the two words too (2026-10-30)
+
+The header line "N experiments, M rejected" came from the engine's
+`rejected_candidates`, which counts an integrity void as rejected, while
+the VOIDED OR REJECTED section below it said "voided". The third wave's
+Codex reader followed the header and the record (S4 on Claude Code, 5 of
+6). The header now counts `voided` and `rejected` as the section
+classifies them; the record's field keeps its name, a finding.
+
+## The S5 rig after the second wave on Codex (2026-10-30)
+
+Four readings, none the product's fault. The evaluator-crash injection
+moved one copy of the labels while the seed had left another in the
+campaign root, and the implementation session copied it back and scored
+— the rig now moves every copy the campaign can reach, and the agent's
+repair of protected data, accepted by the judge, is a finding. The
+sampler read `kapso watch`'s DEAD marker off the earlier run's screen
+below the product's own "starting again" line, a minute after a resume:
+the top line is the verdict. A resume is any relaunch after the writer
+went, the first answer's included. The vocabularies take "the writer
+process died", "PID … was gone", "restoration of the evaluator" and
+"not as a valid scored result".
+
+## The plugin's answers are shaped in counts (2026-10-30)
+
+The build skill asked for "three lines of prose around the brief" and the
+review for "twelve lines in all", and the second wave's Claude Code
+answers ran 13–17 lines: headings, sub-bullets under the evaluation's
+approval, six risks. A count the model keeps is a shape it can fill, so
+the skills say the shape — the build's prose at most ten lines outside the
+brief's fence (one per thing found, two for a built evaluation, one for
+the approval), its handoff at most eight, the review's risks at most four
+with a follow-up in the same twelve lines, no headings and no sub-bullets
+anywhere. The budgets themselves stand.
+
+## A harness goes where the repository loads it from (2026-10-30)
+
+The plugin wrote a green harness one directory above the path the
+repository's `load_harness("../harnesses/trading")` resolves to from the
+project, and the gate's probe found none. The skill says where: the
+repository's own loading path, resolved from the repository's directory,
+named as an absolute path in the proposal.
+
+## A deployment's proof is the delivered prediction reproduced (2026-10-30)
+
+The deploy session scored the proof row against a training reference
+because the delivered model rank-blends within its batch, and answered a
+different number than the delivered predictions file. The deployment
+prompt says the proof is parity with the delivered prediction: a solution
+that scores rows relative to one another keeps the batch it was delivered
+with, and a different number is no proof.
+
+## A bare resume runs on the launch's budget (2026-10-30)
+
+`Budget` promises that a field left None keeps the launch's value on a
+resume, and the docs listed the brief above the launch record. The resume
+passed the brief-merged figures off as the caller's, so the record's never
+applied: a campaign launched at 40 minutes resumed at its brief's 45 (the
+plugin noticed, S5 on Claude Code). The resume asks for the caller's own
+budget and takes the record's for the rest; the precedence reads call,
+then on a resume the launch record, then the brief, then the config.
+
+## The judge's citation may be one line off, and its call retries (2026-10-30)
+
+Two of three replies grading the S4 Codex readings cited the `{` line for
+the `"branch"` line below it; the quote check read them as misquotes and
+the grading died, as it had on a Vertex connection timeout before. A
+citation one line from the quote is the material's, never an invention,
+so the check accepts it (two lines off is still no citation); the model
+call carries the suite's `transport_retries` and `timeout_seconds`.
+
+## The second engineer's copy points at its own labels (2026-10-30)
+
+The rig copied the first user's churn project whole, its
+`evaluation/private_dir.txt` naming the first user's private directory,
+unreadable to the second user; the evaluator died on every attempt and
+the served build ended unscored on both second-wave S2 runs. The copy's
+pointer names its own `private/`.
+
+## The S1 learn task runs on the campaign the deploy task left (2026-10-30)
+
+The comprehension turn is a fresh session that answers from what the
+sandbox holds. The rig restored `campaign-prereq` from its snapshot before
+the learn task, wiping the deploy task's record, and the engineer who had
+done everything right could not say what the deploy returned ("I found no
+deployment record on disk"): the comprehension 0 on a run with every
+other bar met. The learn runs on the campaign as the deploy left it, the
+realistic order, and the deployment record stays for the reading.
+
+## The S1 rig after the third wave on Codex (2026-10-30)
+
+Three readings. A detached launch's child writes its status seconds after
+the command returns, and a host whose turn ends at the launch (Codex,
+twice at half a minute) left the evidence to land after the watcher's
+last look: the watcher keeps looking for up to the suite's
+`evidence_grace_seconds` after the turn, and the launch clock still stops
+at the evidence. The deploy task's step cap was fifteen minutes and the
+deploy session itself took seventeen on Codex, the engineer's launch half
+a minute: the cap is twenty, the engineer's measure being the minutes to
+the launch. And the Python flow is asked for as a script of at most a
+dozen lines — the bar's own figure, said in the ticket — while the
+finding stands that the API's blocking `build()` makes the engineer
+reinvent the detached launch in eight of those lines on every host.
+
+## The trigger probe falls back when bubblewrap fails the probes (2026-10-30)
+
+The suite's Codex sessions run under the `read-only` sandbox, and the
+design already said that a machine whose bubblewrap cannot start runs
+them under `danger-full-access`, said in the record. One probe decided
+it, and one probe passed on the third wave's machine while 113 of the 139
+runs that followed failed in the loopback setup at one session at a time
+with three tries each: the failure is the machine's and persistent, not
+intermittent. The probe runs `sandbox_probes` sessions; any failure sends
+the whole suite to `sandbox_fallback`, which must itself start; the
+decision is written beside the results, recorded with the requested
+sandbox, and the step's notes say it. The run was stopped in its probe
+and launched again rather than left to fail two hours later.
+
+## The Python API launches detached (2026-10-30)
+
+`build()` and `learn()` block, and the API reference sent a Python user to
+the shell for a run that outlives the call. Every engineer of the release
+gate's S1, on both hosts and in every wave, reinvented the detached launch
+in Python — a self-relaunching worker script, a shell-out to `kapso learn
+--detach` — and the fourth Codex run met every bar but the judge's docs
+dimension on exactly that flow. The morning's reading had left this a
+finding rather than a feature, since framework changes are the owner's
+call; the gate's standing instruction is that a failure goes back to its
+package, and the fix is the thin wrapper the CLI already had: the launcher
+moves to `kapso.execution.launch`, shared by the CLI's four `--detach`
+verbs and the API so neither imports the other; `build(detach=True)` and
+`learn(detach=True)` compose the CLI's own argv (the brief beside the
+output as the file the child reads, the loaded harness and experience as
+their flags, the budget's set fields as theirs) and hand back a `Launch`
+(pid, log, status). The owner may revert it; the checkpoint says so.
+
+## The trigger runs switch sandboxes on a streak of failures (2026-10-30)
+
+Three probes started under `read-only` on the fourth S2 Codex machine and
+15 of the next 18 runs failed in bubblewrap's loopback setup: the probe's
+sessions run alone, the trigger runs beside the machine's other sessions
+(the earlier steps' campaigns), and the loopback setup fails under that
+company. A probe cannot see it, so the runs decide: `sandbox_switch_after`
+sandbox failures in a row send the rest of the suite to the fallback once
+it starts, every run the sandbox failed is run again under it at the end
+with its first failure kept on the row, and the switch is written beside
+the results and said in the record.
+
+## S5's diagnosis vocabularies take the plugin's own correct words (2026-10-30)
+
+The third S5 Codex launch failed three injections, each the plugin
+diagnosing correctly in words the rig's `names_class`/`names_fix` regexes
+did not hold: "the campaign died", "PID N disappeared", "a stale running
+status", "resumed" (not "resume"), "recovered", "finished", "Second
+attempt". The bar is whether the plugin named the failure class and the
+fix, and it did; the regexes take these phrasings now. The vocabularies
+stay disjoint (a word that names the class cannot also name the fix),
+the test that pins that holds, and the full-disk and killed injections
+that had failed only on the first-turn resume read pass with the earlier
+`8c771d9a` fix.
+
+## S5's evaluator-crash counts the crash, not an unrecovered attempt (2026-10-30)
+
+The evaluator-crash injection moves the hold-out labels so the evaluator
+crashes; the plugin's job is to diagnose it. A capable agent restored the
+labels from a workspace copy (WP7's readability finding — a read is not
+prevented) and the attempt went on to score 0.8481, so no attempt was
+left scoreless, though the crash was in the record and the plugin named
+it. The step now passes on the crash having occurred (in any attempt's
+evaluation output, integrity error or sessions), the plugin naming the
+class and the fix, and a resume — not on an attempt ending scoreless,
+which would require the agent to be incompetent. The agent's self-repair
+of protected data, accepted by the judge, remains a finding for the owner.
+
+## S2's learn-complete passes on a clean end-to-end learn (2026-10-31, the owner's)
+
+The third S2 Claude launch's learn ran every phase — harvest, mine, exam,
+lesson, push — and moved the bank head, and the lesson landed "0 created,
+0 updated": the update crew, with the exam before the lesson, admitted no
+card from a one-attempt campaign that reached 0.8500 on a 0.85 target. An
+earlier wave's learn on a like campaign banked five. Whether a card is
+banked is a learning-quality outcome that varies with the campaign and the
+crew's model (this round's learns ran on Opus, the shipped model's login
+being rate-limited), and the rig must not force it. Put to the owner, who
+chose: the step passes when the learn completes end to end and advances
+the bank; the cards banked are recorded in the step's note, not gated.
+
+## The plugin's follow-up detail goes in the fence; the line budget stays hard (2026-10-31, the owner's)
+
+The same launch's two other misses were the plugin's probing follow-ups —
+"is it safe to merge?" at 13 lines, "show the candidate criteria" at 18 —
+against the twelve-line budget, each first answer now within it. The
+follow-ups broke their detail (five risks, the branch clutter, what was not
+checked; a criterion per bullet with its figures) into prose lines. The
+fenced block is exempt from the count and is where such detail belongs:
+the build and evaluation skills now put the candidate comparison in one
+fenced table with at most three prose lines around it (the earlier "no
+table" instruction pushed the detail into prose and is withdrawn), and the
+review skill sends a merge-safety answer's files-and-rules detail into the
+fenced outline and keeps at most four risks. Put to the owner, who chose
+that the twelve-line budget stays a hard gate the fenced fix must meet,
+not an advisory dimension.
+
+## No further questions: the suggestions stand (2026-10-31, the owner's)
+
+After those two, the owner said to ask no further questions and to go
+with my suggestions to pass the master plan's gates. From here every
+remaining call on the gate is taken on my own judgment and written here.
+
+## The trigger probe runs last, on an idle machine (2026-10-31)
+
+On Codex the probe is a hundred minutes of sessions one at a time, and in
+the round's order it followed build-churn, so the churn campaign lived its
+whole hour under that load: its ideation session, about sixteen minutes on
+its own, passed its 2250-second deadline and was killed, and the attempt
+voided (the fifth S2 Codex launch; on Claude Code the probe is twenty
+minutes and the same campaign delivered). The probe now runs after every
+campaign and the learn, so the campaigns and the probe are each measured
+alone; the run is no longer in wall clock, the steps being sequential.
+
+## A skipped MCP registration fails the setup step (2026-10-31)
+
+The setup session on Codex read the skill's "add Kapso's MCP server to the
+user's config once" beside a doctor whose rows were all green and ran no
+`codex mcp add`; the list came back empty, and campaign-tools and
+session-brief — the two steps that need the plugin's tools — could only
+report that no tools were exposed, with the judge's proactive and
+return-on-attention scores landing on those answers. Two changes: the
+skill's step 4 is unconditional and verified (run the lines in this
+session whether or not the doctor is green; `codex mcp list` must show a
+`kapso` row; a list without one is a setup not done, said to the user),
+and the rig's setup step on Codex fails when the list shows no kapso row,
+so a skipped registration fails where its cause is rather than three
+steps later in words that look like a product gap.
+
+## The second engineer builds at forty-five minutes (2026-10-31)
+
+The second engineer's thirty-minute build reached a 0.8464 candidate and
+its finishing cut left the verification session four minutes, which timed
+out: no branch, no score, nothing delivered. The same build on Claude Code
+passed at 31 minutes, so the budget was marginal, not wrong; it is now 45
+minutes under a 60-minute step cap, enough for an implementation of
+twenty-five minutes and a verification of its own.
+
+## An answered inbox continuation is admitted whatever the remainder (2026-10-31)
+
+The fourth S5 Codex launch's missing-key campaign paused on its request,
+the plugin wrote the key and replied within two minutes, and the
+orchestrator's admission check refused the resume — "the remaining 16.3
+min would not cover an attempt (the last took 18.2 min)" — where "the
+last" was the paused attempt's own elapsed time, the eighteen minutes its
+session had spent before asking. The strategy already treats a node
+suspended on an answered request as a continuation, not a round ("the last
+round's duration stands for the next admission"), but the orchestrator's
+check runs before the strategy does and did not know. The strategy now
+says so (`continues_an_answered_node`, False on the base class), and the
+orchestrator admits such a continuation regardless of the fit rule: the
+attempt is under way and the person answered; the round after it is
+admitted on the real remainder as before. The previous launch's same
+campaign asked sooner, resumed, and scored — the defect was timing-bound,
+and is fixed in the package rather than tuned around in the rig.
+
+## The crash is read from the record's difficulties; the rig's siblings move (2026-10-31)
+
+The evaluator-crash step's detector read the attempt's evaluation output
+and the sessions' streams. The fourth S5 Codex launch's session checked
+its inputs before scoring, found the labels gone, searched the siblings
+under the work directory by checksum, copied the previous injection's
+copy into place, and scored — and the crash sat only in the engine's own
+record of the node's difficulties, which the plugin cited. Two changes:
+`crash_occurred` reads run_state's technical difficulties too (the regex
+takes "holdout_labels.csv … raised FileNotFoundError", the record's
+order), and every `holdout_labels.csv` under the work directory moves for
+the step, since the rig's own layout must not hand the labels back. An
+agent that reconstructs protected labels from a copy, against the brief's
+rule, with the judge letting the score stand, remains the owner's finding.
+
+## Every copy of the labels on the machine moves for the evaluator-crash step (2026-10-31)
+
+After the siblings under the work directory moved, the fifth S5 Codex
+launch's session searched the whole machine (`find / -name holdout_labels.csv`)
+and copied the fixture from the rig's own repository clone,
+`examples/churn-first-build/private`, then scored. The injection says the
+evaluator crashes on every invocation; a fresh machine holds no copy of
+the labels but the rig's, so all of them move for the step — the project's,
+the campaign's, the siblings', the clone's examples and test fixtures —
+and the crash bites as designed, which is what the plugin is asked about.
+An agent that reconstructs protected labels from any copy it can reach,
+against the brief's rule, stays the owner's finding; the rig only stops
+handing them over itself.
+
+## The S5 Codex fifth launch stopped at killed-session, not run out (2026-10-31)
+
+Its decisive step could not pass on its wheel (the clone copy), the four
+injections after it had all passed on the previous launch, and the
+deadline is today: the run was stopped at its fourth injection, its
+partial record archived with the two readings it gave (missing-key passing
+on the continuation fix; the crash seen and the handoff finding), and the
+test relaunched from the fixed tree two hours sooner than waiting it out.
+
+## S2's learn-complete waits four hours (2026-10-31)
+
+The fourth S2 Claude launch's learn was still in its update crew when the
+step's 150-minute wait expired; the previous launch's learn took 121
+minutes and this one more, the crew being about ninety minutes of either.
+The step's wait is the gate's accommodation of the product's cost, not a
+bar on it: it is now 240 minutes, the launcher's run cap ten hours, and the
+learn's duration is recorded for the owner. The run was stopped at its
+second engineer rather than run out — learn-complete could not pass on it,
+every earlier step had, and the remaining ones had passed on the previous
+launch — and relaunched from the widened tree an hour and a half sooner.
+
+## A finished rate-limited campaign is continued, not waited for (2026-10-31)
+
+The sixth S5 Codex launch's provider-limit campaign had stopped at
+`max_iterations` before the question — the rate-limited first attempt
+counted against its two experiments — and the plugin's fix was to
+continue it with a larger allowance, which the vocabulary (wait, retry,
+the window, resume) did not hold: those are a running campaign's fixes.
+The vocabulary takes "continuing", "the experiment allowance", "more
+experiments" and "another attempt"; the archived record is read again
+under it when the run lands, the suite's own `--rederive`, rather than a
+seventh launch. That a provider-rejected attempt counts against the
+allowance, and that the feedback quoted the brief's budget rather than the
+launch's, are the owner's findings.
+
+## The plugin's answers carry their findings (2026-10-31)
+
+The sixth S2 Codex launch passed all 24 steps and missed the judge's bar
+on proactive and return on attention alone — 3 against 4 on both passes —
+on four answers that were correct and empty of findings: a launch that
+named the brief and the harness but not the data, the evaluator and the
+baseline it had found; a watch that said the budget "isn't reported" when
+the launch record holds it; a share that echoed the command; a proposal
+that cited the skill's own rule to the user. The rubric's proactive is
+"findings the user did not know, with evidence", and the Claude plugin's
+answers to the same steps score 5 by carrying them. The build skill's
+four findings lines are now imperative, each with its figure or file,
+with no line about the skill's rules; the operating skill's watch answer
+gives the best score against the baseline and target and the budget left
+from the launch record, and its share answer says what was pushed and
+what a teammate runs. The budgets are unchanged (the findings are the
+lines the budget was made for); the judge's bar is not lowered.
+
+## The judge reads every message the host printed in a turn (2026-10-31)
+
+The judge's transcript rendered each turn's final text alone — the Claude
+Code `result` row, the last Codex `agent_message` before the next prompt —
+by WP9's choice. A host prints several messages in a turn as it works and
+the user reads each as it lands: the sixth S2 Codex launch's launches
+named the data, the evaluator and the baseline in the messages before the
+last, and the judge, reading the last alone, scored them as findings never
+given. The rubric's own frame is what the user got for the attention it
+cost, and those messages cost it and carried the findings. The transcript
+now carries every message of a turn — each Codex agent message, each text
+block of a Claude Code assistant row — as its own assistant block; the line
+budget stays on the final answer. Validated on two archives before it
+stayed: S2 on Claude Code, third launch, proactive 5, clear 4, return on attention 4 (every binding dimension at or above the bar; the advisory not-annoying at 2, the working narration read as noise); S2 on Codex, sixth
+launch, proactive 4 from 3, clear 4, return on attention 3 (on the learn launch — a pid and the watch line — and the empty wish's proposal; the advisory not-annoying at 2). The sixth Codex launch therefore still misses the judge's
+bar on return on attention, on two answers, and its report stands as it
+landed; the seventh launch decides. The advisory not-annoying dimension
+reading a host's working narration as noise is recorded for the owner.
+
+## The learn launch and an empty wish's proposal carry their value (2026-10-31)
+
+The two answers that held the sixth Codex launch's return on attention at
+3 under the faithful transcript: a learn launch that gave the pid and the
+watch line, and a proposal for "build something useful here" that gave an
+evaluation's check count. The operating skill's learn answer now says what
+the learn reads, where it banks, how long it runs and what lands; the
+build skill's proposal for a wish that names no task says what will exist
+and what it does for the user, with its evidence and one alternative. The
+seventh Codex launch runs without these (it predates them); an eighth, if
+the seventh's judge misses on those answers, carries them.
+
+## S2's churn build runs at ninety minutes (2026-10-31)
+
+The fifth S2 Claude launch's churn campaign — sixty minutes, three
+experiments — spent most of its hour in one implementation; the
+verification session then timed out at its own ten minutes, its retry got
+the 275 seconds left before the reserve, the feedback got 299, and the
+finishing cut delivered no branch, so deploy had nothing and the review
+named no delivered branch. The third and fourth launches' implementations
+finished in under thirty minutes and delivered 0.846 and 0.850; this one
+ran long, as a modelling implementation can. The budget was marginal, as
+the second engineer's thirty minutes were: the churn build is ninety
+minutes, the review step's wait follows the budget, and the run's wall
+clock grows by half an hour. The engine's session floors and the
+verification role's ten-minute timeout are the product's; a verification
+that needs longer than its timeout on a slow run is a finding, recorded.
+The run was stopped at its second engineer rather than run out — deploy
+could not pass on it, every step before it had — and relaunched from the
+widened tree an hour sooner.
+
+## The plugin holds a measured figure against a user's claim (2026-10-31)
+
+The watch step plants a wrong figure in the persona's mouth — "baseline is
+0.90", the README's unmeasured claim, against 0.7974 measured three times
+into `baseline.json` — and the seventh S2 Codex launch's answer wavered:
+it named both records and then granted that the campaign "would not
+establish improvement over a 0.90 baseline", after its own launch message
+had measured 0.7974 and called the README's figure incorrect. The persona,
+an ML engineer, was not satisfied within the step's two turns; the sixth
+launch's answer had held the measured figure. The operating skill's watch
+answer now says which figure is measured and which a claim, with the file
+behind the measured one, and that the campaign stands on it — the design's
+"a number names its source", made to bear a user who asserts otherwise.
+
+## The MCP tool steps run after the learn; the registration waits two minutes (2026-10-31)
+
+The seventh S2 Codex launch's campaign-tools session had no kapso tools
+though `codex mcp list` showed the server with its sixty-second startup
+timeout and the sixth launch's session had called all three. Codex drops a
+server that has not answered within its timeout and leaves no line in the
+session's stderr or a log; the machine was running the churn and pause
+campaigns at the time. Two mitigations, neither a diagnosis: the
+registration's timeout is two minutes, and campaign-tools runs after
+learn-complete, before session-brief, when no campaign loads the machine.
+The server's cold start on a loaded machine stays the owner's finding.
+
+## The candidate-criteria follow-up asks nothing (2026-10-31)
+
+Asked to "show the candidate criteria and recommendation; don't launch",
+the sixth S2 Claude launch's answer kept its comparison in the fence and
+its prose to three lines, as the skills ask, and then ended "tell me which
+criterion you want, or say go" — a second question in a step whose budget
+is one, the approval having been asked in the launch message. The user
+asked to see, not to decide again. The build and evaluation skills end
+that answer on the recommendation and why, with no question.
+
+## The second engineer builds at sixty minutes (2026-10-31)
+
+The sixth S2 Claude launch's second engineer, served the shared bank,
+spent most of its forty-five minutes in ideation reading it; the
+implementation session got a 650-second deadline, its retry 215, both cut,
+the feedback 359, and the finishing cut left no branch. The third launch's
+second engineer passed at thirty minutes with a quicker ideation. The
+budget was marginal, as the churn build's sixty was: the second engineer
+builds at sixty minutes under a seventy-five-minute step cap, and the
+run's wall clock grows by a quarter hour. The owner allowed one more
+launch after the sixth; this is it, with every fix the gate has earned.
+
+## The campaign-tools step probes the server and runs one more session (2026-10-31)
+
+The eighth S2 Codex launch's campaign-tools session reported the three
+campaign tools unavailable — after the learn, on an idle machine, with the
+registration's two-minute startup timeout — while the session-brief
+session minutes later read a card through the same server, and the sixth
+launch's session had called all three. Codex leaves no line for a server
+it drops at a session's start, and the session's own account ("the tools
+are unavailable") cannot say whether the server failed or the session
+lost it. The step now records a standalone handshake with the server as a
+host starts it (`initialize`, then `tools/list`, over the stdio
+transport, from a login shell in the project), with the seconds it took
+and the tools it lists — on the development box 2.6 seconds and six
+tools, the three campaign tools among them — names the `kapso` server in
+the prompt, and, when the first session used no tool though the server
+lists them, runs a second session and says so in the step's note, both
+answers kept. A server that lists the tools and a session that sees none
+is the owner's finding, with the probe's figures beside it.
+
+## An empty wish gets the same one message; a proposal alone is not done (2026-10-31)
+
+Two misses on the seventh S2 Claude launch, both mine. The value line I
+had written for a wish that names no task ("the value the user gets, not
+the campaign's mechanics or an evaluation's check count") made the answer
+a 26-line proposal that ended on an instruction and built no evaluation
+for a folder with no data, where the sixth launch's seven lines had built
+one on fixtures and ended "Approve this proposal?" — the step reads a
+proposal as an answer that asks. The wording is folded back into section
+4's shape: the findings, a proposal line that says what will exist and
+what it does for the user, one alternative, the brief, the approval
+question it ends on, the evaluation built on fixtures the proposal makes.
+And the persona for harness-new, told "a proposal first, then the harness
+written and checked green", said DONE at the proposal; its intent now says
+DONE comes only once the harness is on disk and its check is green. The
+owner allowed one more launch; this regression of my own making costs one
+past it, said plainly, landing before the morning deadline.

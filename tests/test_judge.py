@@ -37,12 +37,13 @@ def test_the_rubrics_carry_the_designs_dimensions_by_name():
     assert "a loader that ingests" in (judge.RUBRICS / "s1.md").read_text()
 
 
-def test_a_step_is_rendered_as_the_users_messages_and_each_turns_final_text_on_both_hosts():
+def test_a_step_is_rendered_as_the_users_messages_and_every_message_the_host_printed_on_both_hosts():
     claude = judge.final_texts(judge.transcript_rows(FIXTURES / "claude_code-watch.jsonl"))
     assert [turn["role"] for turn in claude] == ["user", "assistant", "user"]
     assert claude[0]["text"] == "/kapso:watch ../churn-campaign" and claude[1]["text"].startswith("**Running**") and claude[2]["text"].startswith("thanks")
     codex = judge.final_texts(judge.transcript_rows(FIXTURES / "codex-watch.jsonl"))
-    assert [turn["role"] for turn in codex] == ["user", "assistant"] * 4, "the last agent message before the next prompt is the turn's final text"
+    assert [turn["role"] for turn in codex] == ["user", "assistant", "assistant"] * 4, "every agent message of a turn is rendered, as the user read them, not the last alone"
+    assert codex[1]["text"] != codex[2]["text"], "two messages, two blocks"
     rendered = judge.render_step("watch", judge.transcript_rows(FIXTURES / "claude_code-watch.jsonl"))
     assert rendered.startswith("L1: # step watch\n") and "L3: [user]\nL4: /kapso:watch ../churn-campaign\n" in rendered
 
@@ -193,7 +194,19 @@ def test_a_quote_keeps_a_tokens_own_underscore_and_may_run_on_over_many_lines():
     assert not judge.quote_on(lines, "1", "the key keepme is read"), "an underscore inside a token is not markdown"
     assert judge.quote_on(["L1: _emphasised_ words"], "1", "emphasised words")
     assert judge.quote_on(lines, "2", "one two three four five"), "a quotation that starts on the cited line may run on"
-    assert not judge.quote_on(lines, "3", "one two three"), "it must start on the cited line"
+    # It must start on the cited line, or the one before or after it: a judge
+    # counting past a fence or a brace cites one off (rel-s4-codex cited the
+    # `{` line for the `"branch"` line below it, twice); two lines off is not
+    # the citation.
+    assert judge.quote_on(lines, "3", "one two three"), "one line before the citation is the material's"
+    assert judge.quote_on(lines, "1", "one two"), "one line after the citation is the material's"
+    assert not judge.quote_on(lines, "4", "one two three"), "two lines off is not the citation"
+    assert not judge.quote_on(lines, "6", "three four"), "nor two lines the other way"
+    # A line that is a JSON string carries its escapes; the judge quotes the
+    # words it reads (rel-s4-claude's grading died on `—` against an em dash).
+    escaped = ['L1:     "feedback": "## Verdict: 0.8471 vs target 0.85 \\u2014 gap 0.0029. \\"Not achieved.\\"\\nNext line",']
+    assert judge.quote_on(escaped, "1", "Verdict: 0.8471 vs target 0.85 — gap 0.0029. \"Not achieved.\" Next line")
+    assert judge.quote_on(escaped, "1", "0.85 \\u2014 gap"), "a quote carrying the escape itself reads the same"
 
 
 def test_a_test_whose_rubric_rules_on_several_inputs_at_once_gets_them_as_one_item(tmp_path):

@@ -21,6 +21,7 @@ from kapso.execution.coding_agents.base import CodingAgentConfig, CodingResult
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.coding_agents.commit_message_generator import CommitMessageGenerator
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.memories.repo_memory.builders import UPDATE_PAYLOAD_MAX_CHARS
 from kapso.gated_mcp import get_mcp_config
 
 
@@ -56,6 +57,7 @@ class ExperimentSession:
         repo_memory_llm: Any = None,
         repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
         repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
+        repo_memory_update_payload_max_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
         llm_backend: Any = None,
         continue_branch: bool = False,
     ):
@@ -73,6 +75,8 @@ class ExperimentSession:
                 errors; push and cleanup run under either policy
             repo_memory_max_retries: Structured-response repair attempts after
                 the first RepoMemory response
+            repo_memory_update_payload_max_chars: Changed-file text one
+                RepoMemory update call carries before it is windowed
             llm_backend: Shared configured backend for utility completions
             continue_branch: The inbox continuation — the branch already
                 holds a stopped session's commits; check it out as it is
@@ -97,6 +101,9 @@ class ExperimentSession:
             RepoMemoryManager.normalize_max_retries(
                 repo_memory_max_retries
             )
+        )
+        self._repo_memory_update_payload_max_chars = (
+            repo_memory_update_payload_max_chars
         )
         
         # === GIT SETUP ===
@@ -380,6 +387,7 @@ class ExperimentSession:
                     solution_spec=self._repo_memory_solution_spec,
                     run_result=self._repo_memory_run_result,
                     max_retries=self._repo_memory_max_retries,
+                    max_payload_chars=self._repo_memory_update_payload_max_chars,
                 )
 
                 # Commit the memory update so child experiments inherit it.

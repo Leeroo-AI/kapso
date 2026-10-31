@@ -214,6 +214,14 @@ search_strategy:
     honor_agent_stop: true
     # The branch a new attempt starts from: best (the champion) or baseline.
     parent_policy: "best"
+    # Behind `parent_policy: weighted`: lower temperature moves toward
+    # `best`, higher toward uniform; the offspring penalty down-weights
+    # parents that were already expanded; the seed makes a resume draw
+    # the parent it would have drawn uninterrupted.
+    parent_sampling:
+      temperature: 1.0
+      offspring_penalty: 1.0
+      seed: 0
     # Parallel implementation lanes per iteration (the selector ranks that
     # many candidates); expansion_lane_env pins each lane's environment,
     # one {VAR: value} mapping per lane.
@@ -231,6 +239,11 @@ search_strategy:
     # The repo memory's failure policy (warn or fail) and its retries.
     repo_memory_failure_policy: "warn"
     repo_memory_max_retries: 1
+    # Characters of line-numbered changed-file text one repo-memory update
+    # call carries; past it the update is windowed into several calls of
+    # whole files, so an experiment that commits large files still gets a
+    # memory update instead of a prompt past the model's context window.
+    repo_memory_update_payload_max_chars: 400000
     # Platform execution cost, separate from model spend in USD.
     cost:
       enabled: false
@@ -326,6 +339,13 @@ budget:
   # Below this an agent session cannot do useful work: a session whose
   # deadline would be clamped to it is not launched.
   min_agent_timeout_seconds: 60
+  # What the judge is kept, in seconds, before one has been observed in
+  # the campaign (a judge takes minutes): the round's reserve for it and
+  # the obligation the evaluation and the verification leave standing, so
+  # a first attempt's verification cannot run the remainder down to the
+  # floor and lose the attempt unjudged. A judge that has been observed
+  # is kept its own last duration.
+  judge_reserve_seconds: 300
   # Durable-clock + status heartbeat interval. Feeds the orchestrator's
   # checkpoint heartbeat daemon (elapsed_seconds stays fresh between
   # boundary checkpoints) and the observability layer's liveness signal:
@@ -374,6 +394,11 @@ inbox:
   # One line per launched campaign, so `kapso inbox` with no campaign
   # can list every campaign waiting on a person.
   registry: "~/.kapso/campaigns.jsonl"
+
+# `kapso report`: how many top candidates the leaderboard and its diff
+# section list; --top overrides it for one run.
+report:
+  leaderboard_size: 5
 
 # The evaluation maintainer: its own sessions calibrate and register the
 # evaluator a build measures with, and protect it file by file

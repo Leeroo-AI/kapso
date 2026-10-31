@@ -28,6 +28,7 @@ from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.harness.staging import engine_session_record
+from kapso.execution.memories.repo_memory.builders import UPDATE_PAYLOAD_MAX_CHARS
 from kapso.execution.fidelity import (
     FIDELITIES,
     EvaluationAttempt,
@@ -576,6 +577,9 @@ class SearchStrategy(ABC):
                 )
             )
         )
+        self.repo_memory_update_payload_max_chars = self.params.get(
+            "repo_memory_update_payload_max_chars", UPDATE_PAYLOAD_MAX_CHARS
+        )
         
         # Feedback generator and goal for generating feedback after experiments
         self.feedback_generator = config.feedback_generator
@@ -592,6 +596,9 @@ class SearchStrategy(ABC):
             initial_repo=config.initial_repo,
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
+            repo_memory_update_payload_max_chars=(
+                self.repo_memory_update_payload_max_chars
+            ),
             llm_backend=self.llm,
         )
         # The engine's own inference sessions (the repo-memory bootstrap
@@ -650,6 +657,7 @@ class SearchStrategy(ABC):
                     llm=self.llm,
                     initial_repo=self.workspace.initial_repo,
                     max_retries=self.repo_memory_max_retries,
+                    max_payload_chars=self.repo_memory_update_payload_max_chars,
                 )
             else:
                 RepoMemoryManager.ensure_exists_in_worktree(
@@ -762,6 +770,14 @@ class SearchStrategy(ABC):
     def observe_fidelity(self, decision: "FidelityDecision") -> None:
         """Store the executive's granted profile for this iteration."""
         self.fidelity_decision = decision
+
+    def continues_an_answered_node(self) -> bool:
+        """Whether the next run() continues a node suspended on a request
+        the person has since answered, rather than starting a round. The
+        orchestrator admits such a continuation regardless of the
+        attempt-fit rule: the attempt is already under way and the person
+        answered. A strategy without an inbox never continues one."""
+        return False
 
     def _status_phase(self, phase: str) -> None:
         """Record the live phase on the campaign status file when the

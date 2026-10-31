@@ -31,11 +31,11 @@ def status_file(orchestrator) -> dict:
     return json.loads(Path(orchestrator.operation_status.path).read_text())
 
 
-def snapshot(*, elapsed, budget=600.0, reserve=60.0, floor=30.0, delivery=10.0):
+def snapshot(*, elapsed, budget=600.0, reserve=60.0, floor=30.0, delivery=10.0, judge=30.0):
     return BudgetSnapshot(
         iteration_index=0, max_iterations=5, elapsed_seconds=elapsed, cost_usd=0.0,
         time_budget_seconds=budget, finalization_reserve_seconds=reserve,
-        min_agent_timeout_seconds=floor, delivery_seconds=delivery,
+        min_agent_timeout_seconds=floor, judge_reserve_seconds=judge, delivery_seconds=delivery,
     )
 
 
@@ -51,8 +51,9 @@ def strategy_with(view, *, verifies=False, cost=False):
 
 def test_search_and_finishing_rooms():
     """A search session gets the searchable remainder; a finishing one the
-    whole remainder less what follows it, each later session at the
-    floor and the delivery's slice last."""
+    whole remainder less what follows it — the evaluation and the
+    verification at the floor, the judge at its reserve (here equal to
+    the floor) — and the delivery's slice last."""
     s = strategy_with(snapshot(elapsed=500), verifies=True)
     # remaining 100, reserve 60: the search room is 40
     assert s._clamped_timeout(900) == 40
@@ -69,6 +70,13 @@ def test_search_and_finishing_rooms():
     # in cost mode the evaluation run is one
     costed = strategy_with(snapshot(elapsed=500), cost=True)
     assert costed._finishing_deadline("reconstruction", None) == (30, None)
+    # The judge is kept its reserve, not the floor: a verification's room
+    # ends where the judge's minutes begin (the release gate's hour: a
+    # judge kept at the floor got 59 s and the attempt went unjudged).
+    kept = strategy_with(snapshot(elapsed=500, judge=50), verifies=True)
+    assert kept._finishing_deadline("verification", 900) == (40, None)
+    assert kept._finishing_deadline("judge", 900) == (90, None)
+    assert kept._finishing_deadline("reconstruction", None) == (None, "the budget left 10s for the reconstruction, under the 30s floor")
 
 
 def test_a_session_under_the_floor_is_not_launched_and_says_why():
@@ -157,6 +165,37 @@ def test_admission_covers_the_last_round(tmp_path, monkeypatch):
     assert RunCheckpointStore(str(workspace)).load().last_stop == ATTEMPT_WOULD_NOT_FIT
 
 
+def test_an_answered_continuation_is_admitted_whatever_the_remainder(tmp_path, monkeypatch):
+    """The release gate's S5 (missing-key, the fourth Codex launch): the
+    campaign paused on a request, the person answered within two minutes,
+    and the resume was refused — "the remaining 16.3 min would not cover an
+    attempt (the last took 18.2 min)", the last being the paused attempt's
+    own elapsed time — so the reply never reached the session. A node the
+    person has answered continues whatever the remainder; a new round after
+    it is admitted on the real remainder as before."""
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    monkeypatch.setattr(orchestrator_module, "load_config", lambda config_path=None: fake_config(budget={"reserve_minutes": 2}))
+    orchestrator = _orchestrator(workspace)
+    strategy = orchestrator.search_strategy
+    strategy.last_round_seconds = 14 * 60.0
+    orchestrator._save_run_checkpoint(status="running")
+    answered = {"pending": True}
+    monkeypatch.setattr(strategy, "continues_an_answered_node", lambda: answered["pending"])
+    original_run = strategy.run
+
+    def run_then_settle(*args, **kwargs):
+        answered["pending"] = False   # the continuation ran; the next admission is an ordinary round's
+        return original_run(*args, **kwargs)
+    monkeypatch.setattr(strategy, "run", run_then_settle)
+    result = orchestrator.solve(experiment_max_iter=3, time_budget_minutes=10)
+    assert result.iterations_run == 1, "the continuation ran although 8 searchable minutes could not cover a 14-minute round"
+    assert result.stopped_reason == "budget_exhausted" and result.stop_detail == ATTEMPT_WOULD_NOT_FIT, "the round after it met the rule"
+    recent = status_file(orchestrator)["recent"]
+    assert any("would not cover an attempt (the last took 14.0 min)" in line for line in recent)
+
+
 def test_a_finishing_cut_stops_the_campaign_by_name(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     _init_git_workspace(workspace)
@@ -184,12 +223,17 @@ def test_the_reserve_is_derived_from_the_obligations_or_bounded_when_set(tmp_pat
     _patch_orchestrator(monkeypatch)
     orchestrator = _orchestrator(workspace)
     strategy = orchestrator.search_strategy
-    # Nothing set: a cold judge at the floor plus the delivery's slice.
+    # Nothing set: a cold judge at the config's reserve (minutes, never the
+    # floor: a judge kept at the floor got 59 s in the release gate's hour
+    # and the attempt went unjudged) plus the delivery's slice; the
+    # snapshot carries the same figure for the finishing stages' obligations.
     orchestrator.solve(experiment_max_iter=1, time_budget_minutes=60)
     spec = orchestrator.budget_spec
-    assert strategy.budget_snapshot.finalization_reserve_seconds == spec.min_agent_timeout_seconds + DELIVERY_SECONDS
+    assert spec.judge_reserve_seconds == 300 > spec.min_agent_timeout_seconds
+    assert strategy.budget_snapshot.finalization_reserve_seconds == spec.judge_reserve_seconds + DELIVERY_SECONDS
+    assert strategy.budget_snapshot.judge_reserve_seconds == spec.judge_reserve_seconds
     assert strategy.budget_snapshot.delivery_seconds == DELIVERY_SECONDS
-    # The judge's observed duration replaces the floor; a verifying
+    # The judge's observed duration replaces the reserve; a verifying
     # harness adds its minutes.
     strategy.node_history[-1].phase_telemetry["feedback"] = {"cost_usd": 0.0, "duration_seconds": 95.0}
     identity = {"name": "h", "version": "0.1", "hash": "0" * 64, "source": "/h"}

@@ -16,6 +16,9 @@ CRITICAL - Handling changed files:
 - Look up the correct line number from CHANGED FILE CONTENTS (format: "N| content").
 - If the code referenced by a claim was deleted or no longer exists, REMOVE the claim entirely.
 - If the code moved to a different line, update the line number to the new location.
+- A file shown as `=== FILE: <path> (deleted) ===` no longer exists: REMOVE every claim that cites it.
+- A file shown as `=== FILE: <path> (<N> bytes, not shown) ===` is binary or larger than the memory reads (a dataset, a model dump): its lines are never cited; keep any evidence that cites it as it is.
+- A large change is sent across several calls, so the DIFF SUMMARY may list changed files that are not in CHANGED FILE CONTENTS. Another call handles each of those: keep their evidence as it is.
 
 Evidence format: Use LINE NUMBERS to reference code.
 - Each evidence item needs: `path` (file path) and `line` (line number)

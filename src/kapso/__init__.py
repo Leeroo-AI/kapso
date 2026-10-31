@@ -41,6 +41,7 @@ _LAZY_IMPORTS = {
     "Brief":            ("kapso.handles",            "Brief"),
     "Budget":           ("kapso.handles",            "Budget"),
     "Solution":         ("kapso.handles",            "Solution"),
+    "Launch":           ("kapso.handles",            "Launch"),
     "EvaluatorRef":     ("kapso.handles",            "EvaluatorRef"),
     "HarnessRef":       ("kapso.handles",            "HarnessRef"),
     "ExperienceRef":    ("kapso.handles",            "ExperienceRef"),
@@ -112,6 +113,7 @@ __all__ = [
     "Brief",
     "Budget",
     "Solution",
+    "Launch",
     "EvaluatorRef",
     "HarnessRef",
     "ExperienceRef",
@@ -138,4 +140,4 @@ __all__ = [
 
 # Kept in lockstep with pyproject.toml's version — tests/test_version.py
 # fails the suite if the two ever drift (Rule 1: one release number).
-__version__ = "0.8.0.dev1"
+__version__ = "0.8.0"

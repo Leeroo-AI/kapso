@@ -7,7 +7,7 @@
 # another: its exit code is this script's, its stderr the host's MCP log.
 # The pin is the plugin's version, the one the skills' facts are written
 # for; the version test keeps it equal to the package's.
-KAPSO_VERSION="0.8.0.dev1"
+KAPSO_VERSION="0.8.0"
 if command -v kapso-mcp > /dev/null 2>&1; then
   exec kapso-mcp "$@"
 fi

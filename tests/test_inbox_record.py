@@ -19,6 +19,7 @@ import pytest
 from kapso.execution.inbox import (
     LAUNCH_SCHEMA_VERSION,
     all_answered,
+    continue_answered,
     file_requests,
     inbox_path,
     launch_mismatches,
@@ -250,3 +251,20 @@ def test_launch_mismatches_name_fingerprinted_changes_and_ignore_respelled_paths
     lifted = [{**mine, "scope": "all"}]
     assert launch_mismatches(served, {**served, "experience": lifted}) == {"experience": ([mine], lifted)}
     assert launch_mismatches(served, {**served, "experience": []}) == {"experience": ([mine], [])}
+
+
+def test_a_restarted_session_continues_the_answered_requests_of_its_node(tmp_path):
+    # The harness setup session (node -1) is run again with the replies rather than
+    # resumed: its answered requests are recorded continued by the session that
+    # carries them, once; an open one stays open, another node's are not its own.
+    path = inbox_path(tmp_path)
+    file_requests(path, node=-1, session="setup-1", entries=[ENTRY, DATA_ENTRY])
+    file_requests(path, node=0, session="s-0", entries=[{**ENTRY, "key": "env:OTHER"}])
+    record_reply(path, 1, "the key is in .env now")
+    record_reply(path, 3, "the other key is in .env now")
+    assert continue_answered(path, node=-1, session="setup-2") == [1]
+    requests = load_requests(path)
+    assert (requests[1].state, requests[2].state, requests[3].state) == ("continued", "open", "answered")
+    last = json.loads(path.read_text().splitlines()[-1])
+    assert {key: last[key] for key in ("event", "id", "node", "session")} == {"event": "continued", "id": 1, "node": -1, "session": "setup-2"}
+    assert continue_answered(path, node=-1, session="setup-3") == [], "recorded once; a third run has nothing to continue"

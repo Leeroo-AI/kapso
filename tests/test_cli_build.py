@@ -285,3 +285,14 @@ def test_stop_refuses_a_dead_writer_and_names_the_resume(monkeypatch, tmp_path, 
     with pytest.raises(SystemExit) as refusal:
         _run(monkeypatch, "--stop")
     assert refusal.value.code == 1 and "--stop needs --output" in capsys.readouterr().err
+
+
+def test_the_files_beside_a_campaign_follow_a_bare_dot_to_the_directory_it_stands_for(tmp_path, monkeypatch):
+    # `kapso watch .` crashed on the receipt's path: `.` has an empty name (found by the plugin in the full-disk record).
+    from pathlib import Path
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    monkeypatch.chdir(campaign)
+    assert launch_receipt_path(Path(".")) == tmp_path / "campaign.launch.json"
+    assert build_cli._default_log(Path(".")) == tmp_path / "campaign.log"
+    assert launch_receipt_path(campaign) == tmp_path / "campaign.launch.json"
