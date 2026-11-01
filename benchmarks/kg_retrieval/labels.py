@@ -2,7 +2,7 @@
 
 One JSON object per line: {"id": ..., "query": ..., "relevant": [page ids]},
 plus an optional "stress": true marking queries whose target page has a long
-overview (the ones the reranker prompt cap can clip).
+overview.
 A bad file is an error, never a skipped line: a silently dropped query would
 shift every metric without a trace.
 """

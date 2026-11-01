@@ -44,15 +44,14 @@ class StandInRetriever:
         overviews = [10, 400, 500]
         return [item(i, "x" * n) for i, n in zip("ABC", overviews)]
 
-    def rerank(self, query, pool, top_k, overview_cap):
+    def rerank(self, query, pool, top_k):
         order = next(self.orders) if self.orders else [2, 0]
         return [pool[i] for i in order][:top_k]
 
 
 ARMS = [
     {"name": "off", "rerank": False},
-    {"name": "capped", "rerank": True, "reranker_overview_max_chars": 300},
-    {"name": "nocap", "rerank": True, "reranker_overview_max_chars": None},
+    {"name": "on", "rerank": True},
 ]
 
 
@@ -77,13 +76,9 @@ def test_each_arm_is_scored_overall_and_on_the_stress_subset():
     assert mean["off", "overall"]["mrr"] == pytest.approx(0.25)
     assert mean["off", "stress"]["mrr"] == pytest.approx(0.5)
     # reranked order is C,A: q1 hits at rank 1, q2 at rank 2
-    assert mean["capped", "overall"]["recall@1"] == 0.5
-    assert mean["capped", "overall"]["mrr"] == pytest.approx(0.75)
-    assert mean["capped", "stress"]["recall@1"] == 0.0
-    # a 300 cap cuts 2 of 3 overviews per query; no cap cuts none; off none
-    assert mean["capped", "overall"]["clipped_share"] == pytest.approx(2 / 3)
-    assert mean["nocap", "overall"]["clipped_share"] == 0.0
-    assert "clipped_share" not in mean["off", "overall"]
+    assert mean["on", "overall"]["recall@1"] == 0.5
+    assert mean["on", "overall"]["mrr"] == pytest.approx(0.75)
+    assert mean["on", "stress"]["recall@1"] == 0.0
     # the pool holds every target, so the ceiling is 1.0
     assert report["pool_ceiling"]["overall"]["recall@3"] == 1.0
 
@@ -91,19 +86,17 @@ def test_each_arm_is_scored_overall_and_on_the_stress_subset():
 def test_reranker_runs_report_a_range_and_the_queries_that_moved():
     queries = [LabeledQuery("q1", "first", ("C",), stress=True)]
     arms = ARMS[1:]
-    # capped: run 1 puts C first, run 2 puts it second; nocap is steady
-    orders = [[2, 0], [0, 2], [2, 0], [2, 0]]
+    # run 1 puts C first, run 2 puts it second
+    orders = [[2, 0], [0, 2]]
 
     retriever = StandInRetriever(orders)
     report = evaluate(queries, arms, retriever, [1], 2, 3, rerank_runs=2)
 
-    capped = report["arms"]["capped"]["overall"]
-    assert [run["recall@1"] for run in capped["runs"]] == [1.0, 0.0]
-    assert capped["mean"]["recall@1"] == 0.5
-    assert (capped["min"]["recall@1"], capped["max"]["recall@1"]) == (0.0, 1.0)
-    nocap = report["arms"]["nocap"]["overall"]
-    assert nocap["min"]["mrr"] == nocap["max"]["mrr"] == 1.0
-    assert report["target_ranks"]["capped"] == {"q1": [1, 2]}
+    reranked = report["arms"]["on"]["overall"]
+    assert [run["recall@1"] for run in reranked["runs"]] == [1.0, 0.0]
+    assert reranked["mean"]["recall@1"] == 0.5
+    assert (reranked["min"]["recall@1"], reranked["max"]["recall@1"]) == (0.0, 1.0)
+    assert report["target_ranks"]["on"] == {"q1": [1, 2]}
     assert report["unstable"] == ["q1"]
 
 
@@ -115,7 +108,6 @@ class RaisingBackend:
 def reranking_search(backend):
     search = KGGraphSearch.__new__(KGGraphSearch)
     search._llm_backend = backend
-    search.reranker_overview_max_chars = None
     search._neo4j_driver = search._weaviate_client = search._embedder = None
     return search
 
@@ -130,7 +122,24 @@ def test_a_swallowed_rerank_error_aborts_the_run():
     # ... and the retriever turns it into an error.
     retriever = KGRetriever(reranking_search(RaisingBackend()))
     with pytest.raises(RerankFailed):
-        retriever.rerank("q", pool, 2, 300)
+        retriever.rerank("q", pool, 2)
+
+
+class RecordingBackend:
+    def llm_completion_with_system_prompt(self, **kwargs):
+        self.user_message = kwargs["user_message"]
+        return "<output_order>0</output_order>"
+
+
+def test_the_rerank_prompt_carries_each_overview_whole():
+    # The detail that tells near neighbours apart often sits late in the
+    # overview, and text bound for a model goes in full (CLAUDE.md Rule 6).
+    overview = "a generic opening " * 100 + "the distinguishing option"
+    backend = RecordingBackend()
+
+    reranking_search(backend)._rerank_results("q", [item("A", overview)], 1)
+
+    assert f"Overview: {overview}\n" in backend.user_message + "\n"
 
 
 def test_the_eval_refuses_the_shipped_stores():
