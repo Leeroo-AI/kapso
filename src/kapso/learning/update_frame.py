@@ -72,8 +72,18 @@ def init_bank(home_path: str) -> None:
     if home.exists():
         raise FileExistsError(f"bank home {home_path} already exists")
     home.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "--bare", "-b", "main", str(home)], check=True)
     seed = home.parent / f".seed-{home.name}"
+    try:
+        _init_bank(home, seed)
+    except BaseException:
+        shutil.rmtree(home, ignore_errors=True)
+        raise
+    finally:
+        shutil.rmtree(seed, ignore_errors=True)
+
+
+def _init_bank(home: Path, seed: Path) -> None:
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(home)], check=True)
     if seed.exists():
         shutil.rmtree(seed)
     subprocess.run(["git", "clone", str(home), str(seed)], check=True)
@@ -89,11 +99,11 @@ def init_bank(home_path: str) -> None:
     (seed / "procedures" / "index.md").write_text("# Procedures\n")
     subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
     subprocess.run(
-        ["git", "-C", str(seed), "commit", "-m", "bank founding skeleton"],
+        ["git", "-C", str(seed), "-c", "user.name=kapso", "-c", "user.email=kapso@localhost",
+         "commit", "-m", "bank founding skeleton"],
         check=True,
     )
     subprocess.run(["git", "-C", str(seed), "push", "origin", "main"], check=True)
-    shutil.rmtree(seed)
 
 
 def _tokens(text: str) -> set:
