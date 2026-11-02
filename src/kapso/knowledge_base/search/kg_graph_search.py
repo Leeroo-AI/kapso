@@ -559,7 +559,14 @@ class KGGraphSearch(KnowledgeSearch):
     # Graph edge types from wiki structure (non-configurable)
     # Note: STEP removed - Workflows now link to GitHub repos instead of Principles
     EDGE_TYPES = ["IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
-    
+
+    # The clients close() releases. Class-level defaults so close() and
+    # __del__ also work on an instance __init__ never ran for (built with
+    # __new__ in tests).
+    _neo4j_driver = None
+    _weaviate_client = None
+    _embedder = None
+
     def __init__(
         self,
         params: Optional[Dict[str, Any]] = None,
