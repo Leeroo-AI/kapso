@@ -88,9 +88,8 @@ Example queries:
             return None
         
         try:
-            search = get_kg_search_backend()
+            search = get_kg_search_backend(self.get_param("config_path"))
             top_k = min(arguments.get("top_k", self.get_param("top_k", 5)), 20)
-            use_llm_reranker = self.get_param("use_llm_reranker", True)
             include_content = self.get_param("include_content", True)
             
             filters = KGSearchFilters(
@@ -103,7 +102,7 @@ Example queries:
             query = arguments["query"]
             logger.info(f"Idea search: '{query}'")
             
-            result = await self._run_sync(search.search, query=query, filters=filters, use_llm_reranker=use_llm_reranker)
+            result = await self._run_sync(search.search, query=query, filters=filters)
             
             return [TextContent(type="text", text=self._format_results(query, result, include_content))]
         except Exception as e:

@@ -5,11 +5,12 @@ from pathlib import Path
 import pytest
 
 from kapso.core.config import load_config
-from kapso.experience.ingest import search_for
+from kapso.experience.ingest import search_for, search_from_refs
 from kapso.experience.store import IndexRecord
 from kapso.knowledge_base.search import kg_graph_search as module
 from kapso.knowledge_base.search.base import KGResultItem, KGSearchFilters
 from kapso.knowledge_base.search.factory import KnowledgeSearchFactory
+from kapso.gated_mcp.presets import get_mcp_config
 from kapso.knowledge_base.search.workflow_search import WorkflowRepoSearch
 
 pytest.importorskip("weaviate")
@@ -70,3 +71,30 @@ def test_the_workflow_search_follows_its_backends_reranker(rerank_calls):
     full = KnowledgeSearchFactory.create("kg_graph_search", params=INDEX_REFS)
     WorkflowRepoSearch(kg_search=full).search("goal")
     assert len(rerank_calls) == 1
+
+
+def test_the_gates_backend_is_built_from_the_campaigns_config(rerank_calls):
+    config = load_config(None)
+    config["inference"]["default"]["cli"] = "claude_code"
+    backend = search_from_refs("kg_graph_search", INDEX_REFS, config)
+    assert backend._llm_backend._inference == config["inference"]
+
+    config["knowledge_search"]["preset"] = "FAST"
+    assert search_from_refs("kg_graph_search", INDEX_REFS, config)._llm_backend is None
+
+
+def test_a_campaign_sessions_gate_server_is_launched_with_the_campaigns_config(tmp_path):
+    servers, _tools = get_mcp_config(gates=["idea"], kg_index_path=str(tmp_path / "index.json"), config_path="/c/kapso.yaml")
+    assert servers["gated-knowledge"]["args"][-2:] == ["--config", "/c/kapso.yaml"]
+
+
+def test_a_failed_rerank_raises_instead_of_returning_the_original_order():
+    class Down:
+        def llm_completion_with_system_prompt(self, **kwargs):
+            raise RuntimeError("provider down")
+
+    search = module.KGGraphSearch.__new__(module.KGGraphSearch)
+    search._llm_backend = Down()
+    pool = [KGResultItem(id="a", score=0.9, page_type="Workflow", overview="o")]
+    with pytest.raises(RuntimeError, match="provider down"):
+        search._rerank_results("q", pool, 1)

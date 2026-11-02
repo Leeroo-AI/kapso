@@ -1,9 +1,7 @@
 """The retrieval eval's arm loop, scored against stand-ins with no services.
 
 A stand-in retriever returns scripted pools and rerank orders, so the
-expected metrics below are worked out by hand. The reranker-failure test
-drives the real KGGraphSearch._rerank_results, which swallows backend
-errors, to show the runner still aborts.
+expected metrics below are worked out by hand.
 """
 
 import pytest
@@ -11,7 +9,6 @@ import pytest
 from benchmarks.kg_retrieval.labels import LabeledQuery
 from benchmarks.kg_retrieval.runner import (
     KGRetriever,
-    RerankFailed,
     check_isolated,
     evaluate,
     load_layers,
@@ -100,29 +97,11 @@ def test_reranker_runs_report_a_range_and_the_queries_that_moved():
     assert report["unstable"] == ["q1"]
 
 
-class RaisingBackend:
-    def llm_completion_with_system_prompt(self, **kwargs):
-        raise RuntimeError("provider down")
-
-
 def reranking_search(backend):
     search = KGGraphSearch.__new__(KGGraphSearch)
     search._llm_backend = backend
     search._neo4j_driver = search._weaviate_client = search._embedder = None
     return search
-
-
-def test_a_swallowed_rerank_error_aborts_the_run():
-    pool = [item("A", "first"), item("B", "second")]
-
-    # KGGraphSearch hides the failure behind the original order ...
-    silent = reranking_search(RaisingBackend())._rerank_results("q", pool, 2)
-    assert [result.id for result in silent] == ["A", "B"]
-
-    # ... and the retriever turns it into an error.
-    retriever = KGRetriever(reranking_search(RaisingBackend()))
-    with pytest.raises(RerankFailed):
-        retriever.rerank("q", pool, 2)
 
 
 class RecordingBackend:

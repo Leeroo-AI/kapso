@@ -220,7 +220,7 @@ the correct structure.""",
     async def _handle_search(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle search_knowledge tool call."""
         try:
-            search = get_kg_search_backend()
+            search = get_kg_search_backend(self.get_param("config_path"))
             
             top_k = min(arguments.get("top_k", 3), 3)  # cap at 3 for agentic search perf
             include_content = self.get_param("include_content", True)
@@ -254,7 +254,7 @@ the correct structure.""",
     async def _handle_get_page(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle get_wiki_page tool call."""
         try:
-            search = get_kg_search_backend()
+            search = get_kg_search_backend(self.get_param("config_path"))
             page_id = arguments["page_id"]
             
             logger.info(f"Getting page: '{page_id}'")
@@ -282,7 +282,7 @@ the correct structure.""",
     async def _handle_index(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle kg_index tool call."""
         try:
-            search = get_kg_search_backend()
+            search = get_kg_search_backend(self.get_param("config_path"))
             
             wiki_dir = arguments.get("wiki_dir")
             page_data = arguments.get("page_data")
@@ -404,7 +404,7 @@ the correct structure.""",
     async def _handle_edit(self, arguments: Dict[str, Any]) -> List[TextContent]:
         """Handle kg_edit tool call."""
         try:
-            search = get_kg_search_backend()
+            search = get_kg_search_backend(self.get_param("config_path"))
             
             page_id = arguments.get("page_id")
             updates = arguments.get("updates", {})

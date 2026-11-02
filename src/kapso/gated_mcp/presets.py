@@ -166,7 +166,6 @@ GATES: Dict[str, GateDefinition] = {
         guidance=_guidance("idea", "ideation"),
         default_params={
             "top_k": 5,
-            "use_llm_reranker": True,
             "include_content": True,
         },
         required_env=["KG_INDEX_PATH"],
@@ -177,7 +176,6 @@ GATES: Dict[str, GateDefinition] = {
         guidance=_guidance("code", "ideation", "implementation"),
         default_params={
             "top_k": 5,
-            "use_llm_reranker": True,
             "include_content": True,
         },
         required_env=["KG_INDEX_PATH"],
@@ -502,6 +500,7 @@ def get_mcp_config(
     inbox: Optional[Dict[str, str]] = None,
     hosted: Optional[Dict[str, Any]] = None,
     session: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Get MCP server config and allowed tools for the given gates.
@@ -512,6 +511,9 @@ def get_mcp_config(
                 name under `.kapso/sessions`), stamped on every pull event
                 the bank gate writes so a read is attributed to the session
                 that made it; the ideation phase's members share one.
+        config_path: The config the wiki-search gates build their backend
+                from (preset, models, retry, inference); None is the
+                packaged defaults.
         hosted: The hosted gate as a campaign loaded it: `url` (the key's
                 placeholder in it) and `tool_timeout_seconds`, from the
                 config the source was loaded with. None mounts the
@@ -621,7 +623,7 @@ def get_mcp_config(
     if internal_gates:
         mcp_servers[server_name] = {
             "command": sys.executable,
-            "args": ["-m", "kapso.gated_mcp.server"],
+            "args": ["-m", "kapso.gated_mcp.server", *(["--config", str(config_path)] if config_path else [])],
             "cwd": str(project_root),
             "env": mcp_env,
         }

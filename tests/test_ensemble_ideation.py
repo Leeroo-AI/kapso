@@ -177,6 +177,7 @@ def make_ensemble_strategy(tmp_path, monkeypatch, *, ensemble, selector,
     strategy.gate_failure_policy = "skip"
     strategy.bank_serving = None
     strategy.kg_index_path = None
+    strategy.kg_config_path = None
     strategy.experience_intro_path = None
     strategy.hosted = None
     params = generic_params(ideation={"timeout": 600, "web": web})

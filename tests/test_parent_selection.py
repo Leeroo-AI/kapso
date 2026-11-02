@@ -229,6 +229,7 @@ def test_ideation_reads_from_a_detached_view_of_the_selected_ref(
     strategy.gate_failure_policy = "warn"
     strategy.bank_serving = None
     strategy.kg_index_path = None
+    strategy.kg_config_path = None
     strategy.experience_intro_path = None
     strategy.hosted = None
     strategy.hosts = packaged_hosts()

@@ -190,7 +190,7 @@ def _git_has_commit(workspace: Path, commit: str) -> bool:
     ).returncode == 0
 
 
-def _memory_overrides(serving_plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _memory_overrides(serving_plan: Optional[Dict[str, Any]], config_path: Optional[str]) -> Optional[Dict[str, Any]]:
     """Per-campaign strategy params carrying what the loaded sources
     mount: a staged bank pulls in the `bank` gate, an index the
     wiki-search gates over its record, the hosted source the
@@ -212,6 +212,7 @@ def _memory_overrides(serving_plan: Optional[Dict[str, Any]]) -> Optional[Dict[s
         overrides["hosted"] = serving_plan["hosted"]
     if serving_plan["kg_index_path"]:
         overrides["kg_index_path"] = serving_plan["kg_index_path"]
+        overrides["kg_config_path"] = config_path
     return overrides
 
 def _deliver(orchestrator, solve_result, *, brief: Brief, harness: Optional[Harness], experience) -> Solution:
@@ -1498,7 +1499,7 @@ class Kapso:
                 eval_dir=eval_dir,
                 data_dir=data_dir,
                 goal=goal_text,
-                strategy_params_overrides=_memory_overrides(serving_plan),
+                strategy_params_overrides=_memory_overrides(serving_plan, self._launch_config_path()),
             )
         finally:
             in_flight = sys.exc_info()[1]

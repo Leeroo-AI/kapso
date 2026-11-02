@@ -302,7 +302,10 @@ def test_main_serves_what_it_can_and_connects_with_every_other_gate_off(tmp_path
 
     host_module.main([])
     assert served["gates"] == "research,campaign" and served["policy"] == "error"
-    assert served["gate_params"] == {"campaign": {"config_path": None, "cwd": str(tmp_path)}}
+    assert served["gate_params"] == {
+        "campaign": {"config_path": None, "cwd": str(tmp_path)},
+        "idea": {"config_path": None}, "code": {"config_path": None},
+    }
     assert served["instructions"].startswith(f"## Kapso tools in this session (kapso-mcp {host_module.__version__})\n- on: research, campaign\n")
     assert "- bank: off (no bank loaded: `kapso experience add mine` makes yours" in served["instructions"]
     err = capsys.readouterr().err
