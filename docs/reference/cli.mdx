@@ -307,6 +307,7 @@ Turns the solution a build wrote into running software, and stops, starts, reads
 | Flag | What it does | Default |
 |------|--------------|---------|
 | `campaign` | The campaign directory a build wrote; its `.kapso/solution.json` is the solution, and it must be checked out at the delivered candidate. **Required**, positional | — |
+| `--branch` | Deploy this attempt of the campaign, the branch [`kapso trace`](#kapso-trace) shows, instead of what the engine delivered. No checkout is needed and the campaign does not move. Its score, evaluation validity and verification verdict are printed, and the deployment is recorded as your choice. An unknown branch and an attempt with no commit are refused in one line. See [Deploying an attempt the engine did not deliver](/docs/deploy/targets#deploying-an-attempt-the-engine-did-not-deliver) | what the engine delivered |
 | `--target` | Where to deploy: `auto` (the session chooses), a bundled target (`local`, `docker`, `modal`, `bentoml`, `langgraph`) or a target the build's harness ships (`paper-trading` in the trading example). An unknown name is refused naming the targets | from config (`deployment.target`, `auto` as packaged) |
 | `--env` | A variable the software needs at runtime, `KEY=VALUE`; repeat for more than one. Written to `.env` in the deployment's workspace, named (never valued) in the session's prompt, set on every runtime the engine manages | — |
 | `--option` | An option for the target's workflow, `KEY=VALUE`; repeat for more than one. Exported to the target's scripts as `KAPSO_OPTION_<KEY>`; a harness target's skill says which it takes | — |
@@ -320,12 +321,13 @@ Turns the solution a build wrote into running software, and stops, starts, reads
 ```bash
 kapso deploy ../churn-build
 kapso deploy ../churn-build --target docker --env API_KEY=xxx
+kapso deploy ../churn-build --branch generic_exp_3 --target local
 kapso deploy ../churn-build --target paper-trading --option schedule="*/5 * * * *"
 kapso deploy ../churn-build --status
 kapso deploy ../churn-build --stop --number 2
 ```
 
-The summary after a deployment names its number and state, the target (and the session's reasoning when it chose), how `run()` calls it, the call the session proved and what the engine's own call of it answered, the endpoint, the interpreter, the workspace and the record under `<campaign>/.kapso/deployments/<n>/`, and the next actions pinned to that number, copy-pastable as printed: the Python line (`from kapso import Software; Software.open(…).run(…)`, the proof's inputs as Python literals) and the three lifecycle lines (with `--config` when one was passed). A deploy that fails prints the record's path and the `--stop` line, since what its deploy script started may be running.
+The summary after a deployment names its number and state, the attempt with its verdict when you chose one, the target (and the session's reasoning when it chose), how `run()` calls it, the call the session proved and what the engine's own call of it answered, the endpoint, the interpreter, the workspace and the record under `<campaign>/.kapso/deployments/<n>/`, and the next actions pinned to that number, copy-pastable as printed: the Python line (`from kapso import Software; Software.open(…).run(…)`, the proof's inputs as Python literals) and the three lifecycle lines (with `--config` when one was passed). A deploy that fails prints the record's path and the `--stop` line, since what its deploy script started may be running.
 
 ## kapso watch
 

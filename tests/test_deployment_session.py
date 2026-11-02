@@ -3,26 +3,30 @@ with the session's agent faked and everything else real: the workspace
 as its own repository, the env file, the staging with the target skills,
 the prompt, the record before and after, the engine's acceptance with
 its one resume, the failures and what a failed deployment still lets a
-person do."""
+person do. Then an attempt a person chose: deployed from its own commit,
+with the campaign left where it was."""
 
 import json
 import os
 import shutil
 import stat
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import kapso.deployment.session as session_module
+import kapso.kapso as kapso_module
 from kapso.core.config import load_config
 from kapso.deployment.errors import DeployError
 from kapso.deployment.handle import Software
 from kapso.deployment.record import DEPLOYING, FAILED, RUNNING, STOPPED, open_record, records
-from kapso.deployment.session import run_deployment
+from kapso.deployment.session import place_commit, run_deployment
 from kapso.execution.coding_agents.base import CodingResult
+from kapso.handles import Solution
 from kapso.harness import HarnessError, load_harness
-from tests.handles_support import candidate_branch, git, git_workspace, make_solution
+from tests.handles_support import candidate_branch, deployable, facade, git, git_workspace, make_solution, recorded_campaign
 from tests.test_target_scripts import RUN_PAPER
 
 OBJECTIVE = "Raise the churn model's AUC above 0.85.\n\nRules: never touch dq/; keep retention above 0.98."
@@ -406,3 +410,126 @@ def test_a_harness_target_deploys_through_its_skill_and_runs_one_cycle_on_demand
     assert software.is_healthy() and '"bar": "latest"' in software.logs()
     assert software.stop()[0].startswith("stop.sh: the paper runner (pid ")
     assert not software.is_healthy() and not (software.workspace / "deploy" / "paper.pid").exists()
+
+
+def test_deploy_runs_the_attempt_on_a_campaign_that_delivered_nothing_without_moving_it(tmp_path, agent):
+    campaign, commit = deployable(tmp_path)
+    head = git(campaign, "rev-parse", "HEAD")
+    solution = Solution.open(campaign, branch="generic_exp_0")
+
+    software = run_deployment(
+        solution, config=config_with(), target="local", env=None, options=None, coding_agent=None, harness=None,
+    )
+    software.close()
+
+    # The attempt's tree, not the checked-out one, with the campaign's
+    # untracked data and without the directories no workspace carries.
+    workspace = software.workspace
+    assert (workspace / "model.py").read_text() == "improved = True\n"
+    assert not (workspace / "old.py").exists()
+    assert (workspace / "kapso_datasets" / "train.csv").is_file()
+    assert not (workspace / ".claude" / "skills" / "from_the_attempt").exists() and not (workspace / ".kapso").exists()
+    # The campaign is where it was: the head, the branch, the tracked files.
+    assert git(campaign, "rev-parse", "HEAD") == head and git(campaign, "branch", "--show-current") == "main"
+    assert git(campaign, "status", "--porcelain", "--untracked-files=no") == ""
+    assert (campaign / "old.py").is_file() and not (campaign / "model.py").exists()
+
+    record = json.loads(software.record.read_text(encoding="utf-8"))
+    assert (record["commit"], record["branch"]) == (commit, "generic_exp_0")
+    assert record["chosen_attempt"] == solution.chosen_attempt
+    prompt = agent.calls[0]["prompt"]
+    assert f"Chosen by the person, not delivered by the engine: branch `generic_exp_0` at commit `{commit}`, score 0.8454." in prompt
+    assert "Delivered: branch" not in prompt
+    # The engine's record still says nothing was delivered.
+    assert Solution.open(campaign).commit is None
+
+
+def test_a_dirty_campaign_does_not_leak_into_a_chosen_attempts_workspace(tmp_path, agent):
+    """The attempt's tracked files come from its commit, so an edit in the
+    campaign has nothing to do with what is deployed."""
+    campaign, _commit = deployable(tmp_path)
+    (campaign / "README.md").write_text("edited by hand\n")
+    software = run_deployment(
+        Solution.open(campaign, branch="generic_exp_0"), config=config_with(), target="local", env=None,
+        options=None, coding_agent=None, harness=None,
+    )
+    software.close()
+    assert (software.workspace / "README.md").read_text() == "# seed\n"
+    assert (campaign / "README.md").read_text() == "edited by hand\n"
+
+
+@pytest.mark.parametrize("attempt_has", ["a file", "a symlink", "nothing"])
+def test_a_tracked_directory_the_attempt_replaced_leaves_nothing_behind(tmp_path, attempt_has):
+    campaign = tmp_path / "campaign"
+    git_workspace(campaign)
+    (campaign / "model").mkdir()
+    (campaign / "model" / "weights.py").write_text("old = True\n")
+    git(campaign, "add", "model")
+    git(campaign, "commit", "-q", "-m", "a package")
+    git(campaign, "checkout", "-q", "-b", "attempt")
+    git(campaign, "rm", "-rq", "model")
+    if attempt_has == "a file":
+        (campaign / "model").write_text("flat = True\n")
+    if attempt_has == "a symlink":
+        (campaign / "model").symlink_to("README.md")
+    git(campaign, "add", "--all")
+    git(campaign, "commit", "-q", "--allow-empty", "-m", "the attempt")
+    commit = git(campaign, "rev-parse", "HEAD")
+    git(campaign, "checkout", "-q", "-")
+    workspace = tmp_path / "workspace"
+    shutil.copytree(campaign, workspace, ignore=shutil.ignore_patterns(".git"), symlinks=True)
+    place_commit(campaign, commit, workspace)
+    model = workspace / "model"
+    assert model.is_symlink() == (attempt_has == "a symlink")
+    assert model.is_file() == (attempt_has != "nothing")
+    assert model.exists() == (attempt_has != "nothing")
+
+
+def test_an_untracked_symlink_is_not_written_through_for_a_chosen_attempt(tmp_path):
+    campaign = tmp_path / "campaign"
+    git_workspace(campaign)
+    git(campaign, "checkout", "-q", "-b", "attempt")
+    (campaign / "cfg.yaml").write_text("from_the_attempt: true\n")
+    git(campaign, "add", "cfg.yaml")
+    git(campaign, "commit", "-q", "-m", "the attempt")
+    commit = git(campaign, "rev-parse", "HEAD")
+    git(campaign, "checkout", "-q", "-")
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("mine: true\n")
+    workspace = tmp_path / "workspace"
+    shutil.copytree(campaign, workspace, ignore=shutil.ignore_patterns(".git"), symlinks=True)
+    (workspace / "cfg.yaml").symlink_to(outside)
+    with pytest.raises(DeployError, match="cfg.yaml stands where commit"):
+        place_commit(campaign, commit, workspace)
+    assert outside.read_text() == "mine: true\n"
+
+
+def test_the_engines_deliverable_deploys_with_no_chosen_attempt_on_its_record(solution, agent):
+    software = run_deployment(
+        solution, config=config_with(), target="local", env=None, options=None, coding_agent=None, harness=None,
+    )
+    software.close()
+    assert json.loads(software.record.read_text(encoding="utf-8"))["chosen_attempt"] is None
+    assert f"Delivered: branch `generic_exp_0` at commit `{solution.commit}`" in agent.calls[0]["prompt"]
+
+
+def test_the_facade_does_not_ask_for_a_checkout_of_a_chosen_attempt_and_prints_its_verdict(tmp_path, monkeypatch, capsys):
+    campaign, commit = deployable(tmp_path, "trading-void")
+    seen = {}
+    monkeypatch.setattr(kapso_module, "run_preflight", lambda *args, **kwargs: None)
+    monkeypatch.setattr(kapso_module, "run_deployment", lambda solution, **kwargs: seen.update(solution=solution) or "software")
+    kapso = facade()
+    monkeypatch.setattr(kapso, "_harness_for", lambda solution, verb: None)
+
+    assert kapso.deploy(Solution.open(campaign, branch="generic_exp_0"), target="local") == "software"
+    assert seen["solution"].commit == commit
+    out = capsys.readouterr().out
+    assert "chosen by you (the engine delivered nothing)" in out and "verification void: " in out
+
+
+def test_a_chosen_attempt_whose_commit_left_the_repository_is_refused(tmp_path, monkeypatch):
+    campaign, _commit = recorded_campaign(tmp_path, "churn-unjudged")
+    solution = Solution.open(campaign, branch="generic_exp_0")
+    gone = replace(solution, commit="f" * 40)
+    with pytest.raises(DeployError, match=f"commit {'f' * 12} of the attempt on generic_exp_0 is not in {campaign}"):
+        facade().deploy(gone)

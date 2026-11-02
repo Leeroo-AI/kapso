@@ -56,7 +56,7 @@ from kapso.execution.notify import notify_build_end
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.iteration_evaluator import IterationEvaluator
-from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution
+from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution, SolutionError, chosen_attempt_line
 from kapso.execution.evaluation_integrity import launch_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory
@@ -181,6 +181,13 @@ def _git_rev(workspace: Path, ref: str) -> str:
         ["git", "-C", str(workspace), "rev-parse", ref],
         check=True, capture_output=True, text=True,
     ).stdout.strip()
+
+
+def _git_has_commit(workspace: Path, commit: str) -> bool:
+    return subprocess.run(
+        ["git", "-C", str(workspace), "cat-file", "-e", f"{commit}^{{commit}}"],
+        capture_output=True,
+    ).returncode == 0
 
 
 def _memory_overrides(serving_plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -775,6 +782,8 @@ class Kapso:
         # into the crews' sessions; the trajectory records which harness learned.
         # A campaign directory with a record is the same case as its Solution.
         record = source if isinstance(source, Solution) else None
+        if record is not None and record.chosen_attempt is not None:
+            raise SolutionError(f"the attempt on {record.branch} was chosen by hand; learn from the campaign's own record")
         if record is None and isinstance(source, str) and (Path(source) / ".kapso" / "solution.json").is_file():
             record = Solution.open(source)
         if record is not None:
@@ -1820,7 +1829,10 @@ class Kapso:
         Args:
             solution: The Solution from build(), or Solution.open(path); the
                 campaign must be checked out at the delivered candidate, its
-                tracked files unchanged
+                tracked files unchanged. An attempt from Solution.open(path,
+                branch=...) deploys from its own commit, wherever the
+                campaign is checked out, whatever its verification says
+                (the verdict is printed)
             target: Where to deploy: `auto` (the session chooses), a bundled
                 target (`local`, `docker`, `modal`, `bentoml`, `langgraph`)
                 or a target the build's harness ships; the config's
@@ -1848,14 +1860,21 @@ class Kapso:
         if solution.commit is None:
             raise DeployError(
                 f"nothing to deploy: the build in {solution.campaign} delivered no "
-                f"candidate (stopped: {solution.stopped_reason})"
+                f"candidate (stopped: {solution.stopped_reason}); `kapso trace "
+                f"{solution.campaign}` lists its attempts, and `kapso deploy --branch` takes one"
             )
-        checked_out = _git_rev(solution.campaign, "HEAD")
-        if checked_out != solution.commit:
+        if solution.chosen_attempt is None:
+            checked_out = _git_rev(solution.campaign, "HEAD")
+            if checked_out != solution.commit:
+                raise DeployError(
+                    f"{solution.campaign} is checked out at {checked_out[:12]}, not at "
+                    f"the delivered candidate {solution.commit[:12]} ({solution.branch}); "
+                    f"run `git -C {solution.campaign} checkout {solution.branch}` first"
+                )
+        elif not _git_has_commit(solution.campaign, solution.commit):
             raise DeployError(
-                f"{solution.campaign} is checked out at {checked_out[:12]}, not at "
-                f"the delivered candidate {solution.commit[:12]} ({solution.branch}); "
-                f"run `git -C {solution.campaign} checkout {solution.branch}` first"
+                f"commit {solution.commit[:12]} of the attempt on {solution.branch} is not in "
+                f"{solution.campaign}'s repository any more; there is nothing left to deploy from"
             )
         # The harness: the loaded one (the build's name, any version), else
         # the record's; its deployment module rides into the session.
@@ -1869,6 +1888,8 @@ class Kapso:
         print(f"{'='*60}")
         print(f"  Target: {AUTO if chosen is None else chosen.name}")
         print(f"  Campaign: {solution.campaign}")
+        if solution.chosen_attempt is not None:
+            print(f"  Attempt: {solution.branch} @ {solution.commit[:12]}, {chosen_attempt_line(solution.chosen_attempt)}")
         print()
         return run_deployment(
             solution, config=self._config, target=target, env=env, options=options,

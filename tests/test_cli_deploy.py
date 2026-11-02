@@ -1,8 +1,11 @@
 """`kapso deploy` (docs/plans/redesign/wp5-deploy.md, "The verb"): the
 flags to the call, the summary a person reads, the lifecycle through the
-record, a bare key refused by name, flags that contradict each other."""
+record, a bare key refused by name, flags that contradict each other, and an
+attempt named with `--branch`."""
 
 import argparse
+import json
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -11,7 +14,10 @@ import pytest
 import kapso.cli.deploy as deploy_module
 from kapso.cli.deploy import add_parser, cmd_deploy, lifecycle, pairs, summary
 from kapso.deployment.errors import DeployError
+from kapso.deployment.handle import Software
 from kapso.deployment.record import FAILED, RUNNING, STOPPED, open_record, start_record
+from kapso.handles import Solution
+from tests.handles_support import deployable, recorded_campaign
 from tests.test_software import PORTS, deployed
 
 
@@ -23,7 +29,7 @@ def parser():
 
 def arguments(campaign, **overrides):
     fields = dict(
-        campaign=str(campaign), target=None, env=None, option=None, coding_agent=None, config=None, harness=None,
+        campaign=str(campaign), branch=None, target=None, env=None, option=None, coding_agent=None, config=None, harness=None,
         status=False, stop=False, start=False, logs=False, number=None,
     )
     fields.update(overrides)
@@ -74,7 +80,7 @@ def test_the_flags_reach_the_call_and_the_summary_pins_the_number(tmp_path, monk
             return software
 
     monkeypatch.setattr(deploy_module, "Kapso", FakeKapso)
-    monkeypatch.setattr(deploy_module.Solution, "open", staticmethod(lambda path: f"solution at {path}"))
+    monkeypatch.setattr(deploy_module.Solution, "open", staticmethod(lambda path, branch=None: f"solution at {path}"))
     cmd_deploy(arguments(
         software.campaign, target="docker", env=["API_KEY=x"], option=["schedule=daily"], coding_agent="codex",
         config="kapso config.yaml", harness="./trading",
@@ -134,7 +140,7 @@ def test_the_lifecycle_flags_act_through_the_record(tmp_path, capsys):
 def test_the_status_rows_say_what_a_person_needs_while_deploying_and_after_a_failure(tmp_path, capsys):
     campaign = tmp_path / "campaign"
     campaign.mkdir()
-    fields = dict(host="claude_code:m", interpreter=sys.executable, env_names=[], options={}, commit="abc", branch=None,
+    fields = dict(host="claude_code:m", interpreter=sys.executable, env_names=[], options={}, commit="abc", branch=None, chosen_attempt=None,
                   harness_built=None, harness=None, harness_root=None, **PORTS)
     start_record(campaign, target_requested="docker", **fields)
     failed = start_record(campaign, target_requested="auto", **fields)
@@ -147,3 +153,77 @@ def test_the_status_rows_say_what_a_person_needs_while_deploying_and_after_a_fai
     assert rows[0].startswith("  1  deploying  docker (requested)  no endpoint  ")
     assert rows[1].startswith("  2  failed (the session was cut at its deadline)  auto (requested)  no endpoint  ")
     assert rows[2].startswith("  3  running (its files are gone)  t  ")
+
+
+def test_the_status_row_reads_a_record_from_before_chosen_attempts(tmp_path, capsys):
+    software = deployed(tmp_path, run={"kind": "script"})
+    written = json.loads(software.record.read_text(encoding="utf-8"))
+    del written["chosen_attempt"]
+    software.record.write_text(json.dumps(written), encoding="utf-8")
+    capsys.readouterr()
+    lifecycle(arguments(software.campaign, status=True))
+    assert "chosen attempt" not in capsys.readouterr().out
+
+
+def test_the_branch_flag_reaches_open_and_the_summary_and_status_say_it_was_chosen(tmp_path, monkeypatch, capsys):
+    campaign, commit = deployable(tmp_path, "trading-void")
+    solution = Solution.open(campaign, branch="generic_exp_0")
+    record = start_record(
+        campaign, target_requested="local", host="claude_code:m", interpreter=sys.executable, env_names=[], options={},
+        commit=commit, branch="generic_exp_0", chosen_attempt=solution.chosen_attempt, harness_built=None, harness=None,
+        harness_root=None, **PORTS,
+    )
+    record.update(
+        target="t", endpoint=None, values={}, observed={"y": 2},
+        result={"target": "t", "reasoning": None, "endpoint": None, "run": {"kind": "script"}, "values": {},
+                "proof": {"inputs": {"x": 1}, "output": {"y": 2}}, "artifacts": [], "summary": "ok"},
+    )
+    record.workspace.mkdir()
+    record.set_state(STOPPED)
+    software = Software(record, call_timeout=5, script_timeout=5)
+    seen = {}
+
+    class FakeKapso:
+        def __init__(self, config=None):
+            pass
+
+        def deploy(self, solution, **kwargs):
+            seen["solution"] = solution
+            return software
+
+    monkeypatch.setattr(deploy_module, "Kapso", FakeKapso)
+    cmd_deploy(arguments(campaign, branch="generic_exp_0"))
+    assert seen["solution"] == solution
+    out = capsys.readouterr().out
+    assert f"  Attempt:   generic_exp_0 @ {commit[:12]}, chosen by you (the engine delivered nothing)" in out
+    assert "verification void: " in out
+
+    cmd_deploy(arguments(campaign, status=True))
+    assert "chosen attempt generic_exp_0" in capsys.readouterr().out
+
+
+def test_the_engines_deployment_shows_no_attempt_line_and_no_chosen_mark(tmp_path, capsys):
+    software = deployed(tmp_path, run={"kind": "script"})
+    assert not any("Attempt:" in line for line in summary(software, str(software.campaign)))
+    lifecycle(arguments(software.campaign, status=True))
+    assert "chosen attempt" not in capsys.readouterr().out
+
+
+def test_the_branch_flag_goes_with_a_deploy_and_parses(tmp_path):
+    assert parser().parse_args(["deploy", "campaign", "--branch", "generic_exp_3"]).branch == "generic_exp_3"
+    with pytest.raises(DeployError, match="--branch goes with a deploy, not with --stop"):
+        cmd_deploy(arguments(tmp_path, stop=True, branch="generic_exp_3"))
+
+
+def test_the_cli_prints_the_refusals_as_the_engines_own_one_line_errors(tmp_path):
+    campaign, _commit = recorded_campaign(tmp_path, "trading", plant_commit=False)
+    for branch, expected in (
+        ("generic_exp_9", "no attempt on branch generic_exp_9"),
+        ("generic_exp_1", "the attempt on generic_exp_1 has no commit: generic_exp_1 ended timeout"),
+    ):
+        ended = subprocess.run(
+            [sys.executable, "-m", "kapso.cli", "deploy", str(campaign), "--branch", branch],
+            capture_output=True, text=True,
+        )
+        assert ended.returncode != 0 and "Traceback" not in ended.stderr
+        assert expected in ended.stderr

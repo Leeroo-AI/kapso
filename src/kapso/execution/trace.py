@@ -26,7 +26,7 @@ from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.inbox import read_launch_record
 from kapso.execution.observability import OperationStatusView, source_line
 from kapso.execution.run_checkpoint import RunCheckpointStore
-from kapso.handles import SOLUTION_RECORD, Solution
+from kapso.handles import SOLUTION_RECORD, Solution, SolutionError
 from kapso.harness.staging import SESSION_RECORD_FILE, SESSIONS_DIR
 from kapso.harness.verdict import VOID
 from kapso.learning.bank_invariants import INDEXED_ONLY
@@ -40,6 +40,8 @@ PARTIAL = "partial"
 COVERAGE_ALL = "all"
 COVERAGE_CLAUDE = "claude_code"
 FAILED_EXITS = (EXIT_ERROR, EXIT_TIMEOUT, EXIT_REFUSED)
+# What a `Solution` keeps of a failed run.
+FAILURE_FIELDS = ("label", "module", "host", "exit", "error")
 # The session labels' grammar (kapso.harness.staging): an attempt's
 # implementation session is its branch; its verification and feedback
 # sessions prefix the branch; ideation sessions name the iteration.
@@ -132,9 +134,42 @@ def failed_runs(campaign) -> List[Dict[str, Any]]:
     `timeout` or `refused`, each `{label, module, host, exit, error}`:
     what `Solution.session_failures` carries."""
     return [
-        {key: failure[key] for key in ("label", "module", "host", "exit", "error")}
+        {key: failure[key] for key in FAILURE_FIELDS}
         for failure in _failures(read_sessions(Path(campaign)))
     ]
+
+
+def attempt_on(campaign, branch: str) -> Dict[str, Any]:
+    """The attempt on `branch` as the trace shows it, with `failures`, its
+    own sessions' failed runs: what `Solution.open(path, branch=...)` builds
+    from. An unknown branch and an attempt with no commit are refused in
+    one line, naming the attempts and the reason."""
+    attempts = read_trace(campaign).attempts
+    attempt = next((attempt for attempt in attempts if attempt["branch"] == branch), None)
+    if attempt is None:
+        names = ", ".join(attempt["branch"] for attempt in attempts) or "none"
+        raise SolutionError(f"no attempt on branch {branch} in {campaign}; the attempts are: {names}")
+    failures = _failures(attempt["sessions"])
+    if attempt["commit"] is None:
+        raise SolutionError(f"the attempt on {branch} has no commit: {_why_no_commit(attempt, failures)}")
+    return {**attempt, "failures": [{key: failure[key] for key in FAILURE_FIELDS} for failure in failures]}
+
+
+def _why_no_commit(attempt: Dict[str, Any], failures: List[Dict[str, Any]]) -> str:
+    """The trace's own account of an attempt never evaluated, as one line:
+    what rejected it, else the failed run it ended on, the implementation
+    session's before any later session's that only inherited the failure."""
+    evaluation, verification = attempt["evaluation"], attempt["verification"]
+    if evaluation["integrity_error"]:
+        return f"voided: {_headline(evaluation['integrity_error'])}"
+    if verification is not None and verification["verdict"] == VOID:
+        return f"rejected: the verification found {_headline(verification['summary'])}"
+    if failures:
+        last = ([failure for failure in failures if failure["label"] == attempt["branch"]] or failures)[-1]
+        return f"{last['label']} ended {last['exit']}: {_headline(last['error']) or '(no error text)'}"
+    if attempt["unjudged"]:
+        return _headline(attempt["unjudged"])
+    return "it was never evaluated, and its sessions record no failure"
 
 
 def _status(campaign: Path) -> Optional[Dict[str, Any]]:
@@ -342,6 +377,8 @@ def _attempts(nodes, sessions, pulls) -> Tuple[List[Dict[str, Any]], Set[str]]:
                 "output": node["evaluation_output"],
             },
             "commit": node["commit"],
+            "metrics": node["metrics"],
+            "primary_metric": node["primary_metric"],
             "verification": node["verification"],
             "unjudged": node["unjudged"],
             "judge": {"stop": node["should_stop"], "valid": node["evaluation_valid"], "feedback": node["feedback"]},
