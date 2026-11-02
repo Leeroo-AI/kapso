@@ -1008,6 +1008,8 @@ class KGGraphSearch(KnowledgeSearch):
         
         # Resolve use_llm_reranker: parameter override > instance setting
         should_rerank = use_llm_reranker if use_llm_reranker is not None else self.use_llm_reranker
+        if should_rerank and self._llm_backend is None:
+            raise ValueError("a rerank was requested but this backend was built with use_llm_reranker=False")
         
         # Semantic search in Weaviate (get more results for reranking)
         search_top_k = filters.top_k * 2 if should_rerank else filters.top_k
@@ -1021,7 +1023,7 @@ class KGGraphSearch(KnowledgeSearch):
         results = self._semantic_search(query, search_filters)
         
         # LLM reranking if enabled (check resolved should_rerank value)
-        if should_rerank and self._llm_backend and len(results) > 0:
+        if should_rerank and len(results) > 0:
             results = self._rerank_results(query, results, filters.top_k)
         
         # Enrich with Neo4j connections if enabled

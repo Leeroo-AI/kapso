@@ -57,7 +57,9 @@ def search_for(record: IndexRecord, config: Dict[str, Any]):
     was built."""
     params = search_params(config, record.name, record.id)
     params.update(record.backend_refs)
-    return KnowledgeSearchFactory.create(search_type=record.search_backend, params=params)
+    return KnowledgeSearchFactory.create(
+        search_type=record.search_backend, params=params, preset=config["knowledge_search"]["preset"]
+    )
 
 
 def check_name(name: Optional[str], store: ExperienceStore) -> str:

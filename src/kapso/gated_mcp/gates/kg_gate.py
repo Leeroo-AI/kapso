@@ -236,7 +236,7 @@ the correct structure.""",
             query = arguments["query"]
             logger.info(f"KG search: '{query}' with filters: {filters}")
             
-            result = await self._run_sync(search.search, query=query, filters=filters)
+            result = await self._run_sync(search.search, query=query, filters=filters, use_llm_reranker=False)
             
             return [TextContent(
                 type="text",
