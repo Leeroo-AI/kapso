@@ -308,3 +308,6 @@ examples/*/campaign/
 
 # The semantic suite's reports are committed under immutable run ids (docs/plans/redesign/wp9-semantic-suite.md).
 !tests/semantic/reports/
+
+# Retrieval-eval results (benchmarks/kg_retrieval/README.md)
+benchmarks/kg_retrieval/results/

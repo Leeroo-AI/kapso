@@ -102,6 +102,9 @@ class TwoCandidateStrategy:
         self.finishing_cut = None
         self.node_history: List[SearchNode] = []
 
+    def continues_an_answered_node(self) -> bool:
+        return False   # the fake has no inbox continuation; the orchestrator's admission asks every strategy
+
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         repo = git.Repo(self.workspace_dir)
         start = len(self.node_history)

@@ -45,7 +45,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]' numpy pandas
+          pip install -e '.[dev]'
 
       # Tests commit into throwaway repositories; a bare runner has no identity
       - name: Git identity for the tests

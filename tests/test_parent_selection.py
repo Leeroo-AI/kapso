@@ -16,10 +16,14 @@ import kapso.execution.search_strategies.generic.ideation as ideation_module
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.base import SearchStrategy
+from kapso.execution.cost_estimator import DEFAULT_COST_CONFIG
 from kapso.execution.search_strategies.generic.strategy import (
+    DEFAULT_PARENT_SAMPLING,
     GenericSearch,
     ParentSelection,
     normalize_parent_policy,
+    normalize_parent_sampling,
+    parent_weights,
 )
 
 
@@ -395,3 +399,138 @@ def test_valid_node_still_beats_later_committed_unevaluated_work():
     assert strategy._select_parent() == ParentSelection(
         branch_name="scored", node_id=0
     )
+
+
+def weighted_strategy(**sampling):
+    strategy = strategy_with_history("weighted")
+    strategy.parent_sampling = normalize_parent_sampling(sampling)
+    return strategy
+
+
+def test_parent_sampling_defaults_come_from_config_and_bad_values_raise():
+    assert normalize_parent_sampling(None) == DEFAULT_PARENT_SAMPLING
+    assert normalize_parent_sampling({"seed": 7})["seed"] == 7
+    for bad in (
+        {"temperature": 0},
+        {"temperature": float("inf")},
+        {"offspring_penalty": -1},
+        {"seed": 1.5},
+        {"seed": True},
+        {"unknown": 1},
+    ):
+        with pytest.raises(ValueError, match="parent_sampling"):
+            normalize_parent_sampling(bad)
+    with pytest.raises(ValueError, match="parent_sampling"):
+        normalize_parent_sampling([])
+
+
+def test_weighted_policy_is_accepted():
+    assert normalize_parent_policy("weighted") == "weighted"
+
+
+def test_expanded_candidates_weigh_less_than_unexpanded_ones():
+    assert parent_weights([0, 0], 1.0, 1.0)[0] > parent_weights([0, 0], 1.0, 1.0)[1]
+    unexpanded, expanded = parent_weights([0], 1.0, 1.0)[0], parent_weights([3], 1.0, 1.0)[0]
+    assert expanded == unexpanded / 4
+    assert parent_weights([5], 1.0, 0.0) == parent_weights([0], 1.0, 0.0)
+
+
+@pytest.mark.parametrize("maximize", [True, False])
+def test_near_zero_temperature_without_penalty_matches_best(maximize):
+    strategy = weighted_strategy(temperature=1e-9, offspring_penalty=0.0)
+    strategy.problem_handler.maximize_scoring = maximize
+    for seed in range(20):
+        strategy.parent_sampling["seed"] = seed
+        assert strategy._select_parent() == ParentSelection(
+            branch_name="candidate-1" if maximize else "candidate-0",
+            node_id=1 if maximize else 0,
+        )
+
+
+def test_weighted_never_picks_ineligible_candidates():
+    strategy = weighted_strategy(temperature=100.0, offspring_penalty=0.0)
+    strategy.node_history += [
+        SearchNode(node_id=4, branch_name="unscored", score=None),
+        SearchNode(
+            node_id=5,
+            branch_name="tampered",
+            score=9.0,
+            evaluation_valid=False,
+            evaluation_integrity_error="evaluator modified",
+        ),
+        SearchNode(
+            node_id=6,
+            branch_name="refused",
+            score=None,
+            evaluation_valid=False,
+            cost_refusal={"reason": "cap"},
+        ),
+    ]
+    chosen = set()
+    for seed in range(200):
+        strategy.parent_sampling["seed"] = seed
+        chosen.add(strategy._select_parent().branch_name)
+    assert chosen == {"candidate-0", "candidate-1"}
+
+
+def test_weighted_penalty_shifts_choice_away_from_expanded_parent():
+    strategy = weighted_strategy(temperature=1.0, offspring_penalty=5.0)
+    strategy.node_history += [
+        SearchNode(
+            node_id=4 + i,
+            branch_name=f"child-{i}",
+            parent_node_id=1,
+            parent_branch_name="candidate-1",
+            had_error=True,
+        )
+        for i in range(6)
+    ]
+    picks = []
+    for seed in range(400):
+        strategy.parent_sampling["seed"] = seed
+        picks.append(strategy._select_parent().node_id)
+    assert picks.count(0) > picks.count(1)
+
+
+def test_weighted_choice_is_deterministic_and_varies_with_node_count():
+    first = weighted_strategy(temperature=50.0, offspring_penalty=0.0, seed=3)
+    second = weighted_strategy(temperature=50.0, offspring_penalty=0.0, seed=3)
+    assert first._select_parent() == second._select_parent()
+
+    seen = set()
+    for extra in range(40):
+        first.node_history.append(
+            SearchNode(node_id=10 + extra, branch_name=f"x{extra}", had_error=True)
+        )
+        seen.add(first._select_parent().node_id)
+    assert seen == {0, 1}
+
+
+def test_weighted_before_any_scored_candidate_matches_best_fallback():
+    strategy = weighted_strategy()
+    strategy.node_history = [
+        SearchNode(
+            node_id=0,
+            branch_name="wip",
+            evaluation_valid=False,
+            code_diff="+x",
+        )
+    ]
+    assert strategy._select_parent() == ParentSelection(
+        branch_name="wip", node_id=0
+    )
+    strategy.node_history = []
+    assert strategy._select_parent() == ParentSelection(
+        branch_name="main", node_id=None
+    )
+
+
+def test_weighted_ranks_with_cost_aware_selection():
+    strategy = weighted_strategy(temperature=1e-9, offspring_penalty=0.0)
+    strategy.cost_config = {**DEFAULT_COST_CONFIG, "enabled": True, "weight": 1.0}
+    strategy.node_history = [
+        SearchNode(node_id=0, branch_name="cheap", score=0.5, estimated_cost={"amount": 0.0, "unit": "credits"}),
+        SearchNode(node_id=1, branch_name="costly", score=0.9, estimated_cost={"amount": 10.0, "unit": "credits"}),
+    ]
+    assert strategy._select_parent().branch_name == "cheap"
+    assert strategy.get_best_experiment().branch_name == "cheap"

@@ -1,0 +1,50 @@
+# Retrieval-quality eval for kg_graph_search (see README.md).
+#
+# Run from the repository root:
+#   python -m benchmarks.kg_retrieval.runner --config benchmarks/kg_retrieval/config.yaml
+#
+# A kapso override file: the engine's blocks (models, retry, inference) are
+# the packaged config's unless named here or in a layered file such as
+# config.local.yaml; the rerank model is the `inference:` role kg_rerank.
+# The eval's own settings sit under `benchmark`, the runners' key.
+benchmark:
+  corpus_dir: benchmarks/kg_retrieval/corpus
+  labels_path: benchmarks/kg_retrieval/labels/queries.jsonl
+  # Gitignored. results.json holds every number, results.md the tables.
+  results_dir: benchmarks/kg_retrieval/results
+  # Index the corpus before scoring. Re-indexing replaces pages, so it is
+  # safe to leave on; turn it off to reuse an index you already built.
+  index_corpus: true
+
+  # How many times each reranking arm is sampled on the same candidate pool.
+  # An LLM rerank varies from call to call; the range shows by how much.
+  rerank_runs: 3
+
+  ks: [1, 3, 5, 10]
+  top_k: 10
+  # How many candidates the reranker is shown. kg_graph_search asks Weaviate
+  # for twice top_k when the reranker is on; keep this at 2 x top_k so the
+  # eval's pool matches the product's.
+  candidate_pool_size: 20
+
+  # The stores the eval writes to. The runner refuses to start if the
+  # collection or the Neo4j address is the shipped default, because the
+  # eval must never share a real graph. Neo4j has no namespace option, so
+  # it needs its own instance (README, "Running it").
+  search:
+    weaviate_url: "http://localhost:8080"
+    weaviate_grpc_port: 50051
+    weaviate_collection: "KapsoRetrievalEval"
+    neo4j_uri: "bolt://localhost:7688"
+    neo4j_user: "neo4j"
+
+  # Names are quoted: an unquoted `off` is read as the boolean false.
+  arms:
+    - name: "off"
+      rerank: false
+    - name: "on_cap300"
+      rerank: true
+      reranker_overview_max_chars: 300
+    - name: "on_nocap"
+      rerank: true
+      reranker_overview_max_chars: null

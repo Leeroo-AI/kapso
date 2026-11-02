@@ -39,8 +39,8 @@ Kapso(
 | [`update_experience()`](#update-experience-and-remove-experience) | `None` | Pull your bank from its remote and re-fetch the banks you read at moving references |
 | [`remove_experience()`](#update-experience-and-remove-experience) | `None` | Delete a bank you read or an index, with its backend namespace |
 | [`share_experience()`](#load-experience) | `None` | Attach a git remote to your bank and push it |
-| [`build()`](#build) | `Solution` | Run an experiment campaign that meets a brief |
-| [`learn()`](#learn) | `LessonResult` | Mine one finished campaign into the lesson bank |
+| [`build()`](#build) | `Solution` (a `Launch` with `detach=True`) | Run an experiment campaign that meets a brief |
+| [`learn()`](#learn) | `LessonResult` (a `Launch` with `detach=True`) | Mine one finished campaign into the lesson bank |
 | [`deploy()`](#deploy) | `Software` | Turn a solution into running software |
 | [`memory`](#memory) | `MemoryStatus` | Your own bank right now |
 | [`Kapso.status()`](#status) | `OperationStatusView` | Read any operation's status file |
@@ -156,7 +156,8 @@ build(
     iteration_evaluator: IterationEvaluator | None = None,
     iteration_evaluator_failure_policy: str = "record",
     coding_agent: str | None = None,
-) -> Solution
+    detach: bool = False,
+) -> Solution | Launch
 ```
 
 | Argument | What it does | Default |
@@ -172,6 +173,7 @@ build(
 | `iteration_evaluator` | Score every finalized candidate with your own evaluator, in an isolated worktree | `None` |
 | `iteration_evaluator_failure_policy` | `record` stores your evaluator's error on the candidate; `raise` stops the run | `"record"` |
 | `coding_agent` | The host every role without a `cli` of its own runs on, with that host's model: an entry of the config's `hosts` table. Recorded and fingerprinted, so a resume runs on the launch's host | `search_strategy.params.host` |
+| `detach` | Launch the campaign in a session of its own and return a [`Launch`](#launch) at once: `kapso build --detach` from Python. Needs `output`; takes no in-process callback; the harness and experience loaded on this instance go with it | `False` |
 
 ```python
 solution = kapso.build(
@@ -184,8 +186,28 @@ print(solution.explain())
 
 `build()` blocks for the whole campaign and writes the solution to
 `<output>/.kapso/solution.json` when it returns, so
-[`Solution.open`](#solution) reads it from any process. From a shell, prefer
-`kapso build --detach` and `kapso watch`.
+[`Solution.open`](#solution) reads it from any process. To leave it running,
+pass `detach=True`: the campaign starts in a session of its own and a
+[`Launch`](#launch) comes back at once, the same launch as `kapso build
+--detach`.
+
+```python
+launch = kapso.build(Brief.read("kapso-brief.md"), repo=".", output="../churn-build", detach=True)
+print(launch.pid, launch.log)      # follow it: kapso watch ../churn-build --follow
+```
+
+### Launch
+
+What `build(detach=True)` and `learn(detach=True)` hand back at once.
+
+| Field | What it is |
+|---|---|
+| `pid` | The session's process id |
+| `log` | The log the session writes, beside the campaign (`<output>.log`, `<campaign>.learn.log`) |
+| `status` | What to follow: a build's `<output>/.kapso/status.json`, a learn's status directory (`kapso watch <status> --follow`) |
+
+The work goes on after your process ends; `Solution.open(output)` reads a
+build's result once it has one.
 
 ### Brief
 
@@ -264,16 +286,17 @@ solution.diff() -> str            # git diff from the seed to the delivered comm
 ### inbox and reply
 
 A campaign pauses when a session needs something only you can provide; see
-[the inbox](/docs/build/inbox). Two static methods act on a paused campaign
+[the inbox](/docs/build/inbox). Four methods act on a paused campaign
 directory.
 
 ```python
 Kapso.inbox(campaign: str) -> list[Request]
+Kapso.awaiting_resume(campaign: str) -> list[Request]
 Kapso.inbox_ideas(campaign: str) -> dict[int, str]
 Kapso.reply(campaign: str, request_id: int, note: str = "", *, allow_secret: bool = False) -> Solution | None
 ```
 
-`inbox` returns the open requests, oldest first, each with `id`, `key`, `hit`, `tried`, `fix` and `next_steps`. `inbox_ideas` returns one line per node of the campaign, the idea a request was made for, keyed by node id; `kapso inbox` prints it as the `for` row. `reply` records the note and, once every request of the node that asked is answered, resumes the campaign in this process and returns its result. It returns `None` when another request of that node is still open, or when the campaign was started with an `iteration_evaluator`: the callback lives in your script, so call `build()` again there with `resume=True`. It raises while a live process holds the campaign, and raises on a note shaped like a credential unless `allow_secret=True`: replies are plain text handed to the coder, so a value belongs in the `.env` the request's `fix` names.
+`inbox` returns the open requests, oldest first, each with `id`, `key`, `hit`, `tried`, `fix` and `next_steps`. `awaiting_resume` returns the answered requests a resume has not delivered, because the last one failed or was killed, and is empty while a live process holds the campaign. `inbox_ideas` returns one line per node of the campaign, the idea a request was made for, keyed by node id; `kapso inbox` prints it as the `for` row. `reply` records the note and, once every request of the node that asked is answered, resumes the campaign in this process and returns its result. It returns `None` when another request of that node is still open, or when the campaign was started with an `iteration_evaluator`: the callback lives in your script, so call `build()` again there with `resume=True`. It raises while a live process holds the campaign, and raises on a note shaped like a credential unless `allow_secret=True`: replies are plain text handed to the coder, so a value belongs in the `.env` the request's `fix` names. A resume that fails raises with the answer kept: call `reply` again to retry, with a note to replace the answer or an empty one to keep it.
 
 ## learn
 
@@ -288,7 +311,8 @@ learn(
     exam: bool = True,
     push: bool | None = None,
     on_status = None,
-) -> LessonResult
+    detach: bool = False,
+) -> LessonResult | Launch
 ```
 
 | Argument | What it does | Default |
@@ -299,6 +323,7 @@ learn(
 | `exam` | Run the hindcast exam against the pinned pre-lesson bank head first. `False` is for development replays only | `True` |
 | `push` | Push the bank commit to the bank's `origin` remote | auto: pushes when the bank has an `origin` remote |
 | `on_status` | Callback fired on each status heartbeat | `None` |
+| `detach` | Run the learn in a session of its own and return a [`Launch`](#launch) at once: `kapso learn <campaign> --detach` from Python. The campaign form only: no trajectory id, learner version, exam, push or callback | `False` |
 
 ```python
 lesson = kapso.learn(solution)

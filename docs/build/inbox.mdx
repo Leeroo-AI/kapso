@@ -73,7 +73,7 @@ kapso inbox ./campaign
 kapso inbox reply ./campaign 1 "added the key"
 ```
 
-The id may be left out when one request is open. An empty note means done.
+The id may be left out when one request is open. An empty note means done. The `reply with` line under each listed campaign follows the same rule: outside that campaign it names the campaign's path, so the line works where it was printed.
 
 Replying records the note and resumes the campaign in the foreground, in your terminal. Add `--detach` to walk away: the note is checked here, the campaign resumes in a session of its own, and the command returns with the log and the `kapso watch` line. Both forms work from any directory, since the launch record keeps the campaign's paths and `.env`. When a node asked for several things, the node waits until every one of its requests is answered, and the command says so:
 
@@ -81,7 +81,19 @@ Replying records the note and resumes the campaign in the foreground, in your te
 #1 answered. #2 still open, so node 3 waits; nothing else to run.
 ```
 
-The command refuses to run while a live process holds the campaign, so nothing runs twice.
+The command refuses to run while a live process holds the campaign, so nothing runs twice. Two replies that start at the same moment run one resume: the second waits for the first, then has nothing to do unless the first failed.
+
+Your reply is on disk before the resume starts. If the resume then fails or is killed, the reply stays, and `kapso inbox` shows it instead of saying nothing is waiting:
+
+```text
+  #1  env:OPENAI_API_KEY   answered, campaign not resumed
+      for    node 3 · re-rank candidates with text-embedding-3-large
+      reply  'added the key'
+
+  retry with   kapso inbox reply        # keeps your reply; a note replaces it
+```
+
+Fix what the error named and run the line it shows. A note replaces your earlier answer until a session has been given it. Once a session has been given it, a retry resends that answer and a different note is refused.
 
 <Warning>
   Replies are stored in plain text in `.kapso/inbox.jsonl` and handed to the
@@ -151,8 +163,9 @@ With the inbox off, sessions do not get the tool, the prompt is unchanged, no ca
 
 ## What can go wrong?
 
+- **The resume cannot start.** A moved config or evaluation directory, a missing coding agent CLI or a changed configuration raises from `kapso inbox reply`. The reply is kept and the node stays suspended. Fix the cause and retry with `kapso inbox reply`.
 - **The transcript is gone.** Claude Code keeps transcripts for 30 days. If the transcript has been deleted, the reply fails with the coding agent's own error, the node stays suspended and nothing else runs. The code is still on the branch, but the context is lost: start a new campaign.
-- **Kapso is killed during the continuation.** The checkpoint still marks the node suspended. `kapso build --resume` continues the same session. Work the continuation had not pushed before the kill is lost; the coding agent redoes the work.
+- **Kapso is killed during the continuation.** The checkpoint still marks the node suspended. `kapso inbox reply` or `kapso build --resume` continues the same session. Work the continuation had not pushed before the kill is lost; the coding agent redoes the work.
 - **You supplied a wrong value.** The coding agent verifies, asks again, and the new request quotes your previous reply. Reply again after fixing the value.
 - **The session asked for two things.** Answer each request; the node resumes after the last one, and every reply before that prints which requests are still open.
 

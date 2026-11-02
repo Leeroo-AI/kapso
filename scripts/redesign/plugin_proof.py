@@ -25,6 +25,7 @@ import os
 import re
 import shlex
 import shutil
+import select
 import subprocess
 import sys
 import time
@@ -131,12 +132,23 @@ FRAUD_WISH = (
     "build a fraud scorer on data/transactions.csv that beats the rule-based one in score.py, and prove it; "
     f"the campaign goes to ../fraud-campaign with a budget of {_FRAUD_B['minutes']} minutes and {_FRAUD_B['experiments']} experiment"
 )
-# The order the round runs in; the budgets file bounds every name.
+# The order the round runs in; the budgets file bounds every name. The
+# trigger probe runs last, on an otherwise idle machine: on Codex it is a
+# hundred minutes of sessions one at a time, and when it followed
+# build-churn the churn campaign lived its whole hour under that load — its
+# ideation session, sixteen minutes alone, passed its 2250-second deadline
+# and was killed, and the attempt voided (rel-s2-codex, fifth launch). The
+# campaigns and the probe are each measured on their own. The MCP tool steps
+# (campaign-tools, then session-brief) run after the learn, when no campaign
+# loads the machine: the seventh Codex launch's campaign-tools session had no
+# kapso tools though the server was registered, the sixth's had them, and a
+# server Codex drops at startup leaves no diagnostic — an idle machine is the
+# one lever the rig has.
 STEP_NAMES = [
-    "install", "setup", "cold-install", "build-churn", "build-pause", "watch", "triggers", "harness-export", "campaign-tools",
+    "install", "setup", "cold-install", "build-churn", "build-pause", "watch", "harness-export",
     "inbox", "build-fraud", "build-data-only", "build-empty-wish", "harness-new", "harness-probe", "review",
-    "deploy", "learn", "learn-complete", "session-brief", "experience-share", "second-engineer-build", "harness-improve",
-    "campaign-session-isolation", "codex-rules-probe", "cold-start",
+    "deploy", "learn", "learn-complete", "campaign-tools", "session-brief", "experience-share", "second-engineer-build", "harness-improve",
+    "campaign-session-isolation", "triggers", "codex-rules-probe", "cold-start",
 ]
 # Codex's explicit skill for each Claude Code command.
 CODEX_SKILL = {"setup": "kapso-setup", "build": "kapso-build", "review": "kapso-review", "harness": "kapso-harness"}
@@ -170,8 +182,8 @@ STEP_INTENTS = {
     "inbox-reply": "answer every open request of the campaign: the key is now in both .env files; there is no enrichment service, endpoint or table; the campaign must reach 0.85 without it; nothing left waiting",
     "build-fraud": "a fraud scorer that beats the rule-based one, with an evaluator proposed from the protocol and approved by you, then launched",
     "build-data-only": "see the candidate criteria and the recommended one; take the first; do not launch anything",
-    "build-empty-wish": "see what could be built here and the candidate criteria; take the first; do not launch anything",
-    "harness-new": "a proposal first, then the harness written and checked green; answer every numbered question in one reply, in order",
+    "build-empty-wish": "see what could be built here and the candidate criteria; take the first; do not launch anything — never say go, never approve a launch, whatever is proposed; the reply to a proposal is 'take the first; do not launch anything'",
+    "harness-new": "a proposal first, then say go so the harness is written and checked green — a proposal alone is not done, and DONE comes only once the harness is on disk and its check is green; answer every numbered question in one reply, in order",
     "review": "the review of the finished churn campaign, then whether its branch is safe to merge",
     "review-2": "whether the delivered branch is safe to merge",
     "deploy": "deploy the delivered churn campaign to the local target and call it once with the inputs its proof used",
@@ -202,13 +214,20 @@ def question_asked(text: str, tools: Sequence[Dict[str, Any]]) -> bool:
         return True
     # A fence line is nothing once its backticks are stripped; it is dropped
     # so the closing lines are the closing prose and commands.
-    lines = [line for line in (raw.strip().rstrip("*_`)\"' ") for raw in text.splitlines()) if line]
+    pairs = [(raw.strip().rstrip("*_`)\"' "), raw.strip()) for raw in text.splitlines()]
+    pairs = [(line, raw) for line, raw in pairs if line]
     # The command the ask refers to, shown after it (a fenced block, a
     # backtick-wrapped line, a `kapso ...` line), is not the ask's last
     # word: three steps on the Claude host ended "Say go and I'll run:"
-    # and the command, and read as never asking (2026-10-28).
-    while lines and (lines[-1].startswith("`") or lines[-1].startswith("kapso ") or lines[-1].startswith("$ ")):
-        lines.pop()
+    # and the command, and read as never asking (2026-10-28). A wrapped
+    # command is wrapped whole: a prose line that opens with a quoted path
+    # ("`../fraud-campaign` already holds … Approve the brief … say go")
+    # carries the ask and stays (the eighth S2 Claude launch, 2026-10-31).
+    def command_line(line: str, raw: str) -> bool:
+        return (raw.startswith("`") and raw.endswith("`")) or line.startswith("kapso ") or line.startswith("$ ")
+    while pairs and command_line(*pairs[-1]):
+        pairs.pop()
+    lines = [line for line, raw in pairs]
     if not lines:
         return False
     # A question mark or an approval request in the closing lines: the
@@ -682,9 +701,17 @@ def step_setup(ctx: Context) -> Dict[str, Any]:
     required_ok = all(row.get("ok") for row in checks if isinstance(row, dict) and row.get("required")) if isinstance(checks, list) else doctor.returncode == 0
     notes = ["link clicks: judged by hand from the transcript (the logins were present, so none were needed)"]
     if ctx.host.name == "codex":
+        # The registration is the setup skill's step 4, and every later
+        # step's tools hang on it: a setup session that skipped the line
+        # beside a green doctor (rel-s2-codex, fifth launch: no `codex mcp
+        # add` ran, the list came back empty, and campaign-tools and
+        # session-brief had no tools to use) is a setup not done, failed
+        # here where it belongs rather than three steps later.
         servers = ctx.shell("codex mcp list", check=False)
         artifacts.append(ctx.artifact("codex-mcp-list.txt", servers.stdout))
-        notes.append("the `codex mcp add kapso -- kapso-mcp` line's effect is the mcp list artifact")
+        registered = "kapso" in servers.stdout
+        required_ok = required_ok and registered
+        notes.append("the `codex mcp add kapso -- kapso-mcp` line's effect is the mcp list artifact" + ("" if registered else "; the list shows no kapso server: the setup session did not register it, and no later session has the tools"))
     return record_step("setup", turns, required_ok, artifacts, notes)
 
 
@@ -896,6 +923,11 @@ def trigger_verdict(ctx: Context) -> Dict[str, Any]:
             verdict = trigger_bar(out_dir, ctx.host.name)
             verdicts.append(verdict["met"])
             notes.append(f"{label}: {verdict['per_skill']}; cross-skill false positives: {verdict['false_positives'] or 'none'}; runs whose sandbox never started (not established): {verdict['environment']}")
+            # The probe's own decision: a machine whose bubblewrap fails the
+            # probes runs the suite under the fallback sandbox, said here.
+            document = json.loads(result_file.read_text(encoding="utf-8")) if ctx.host.name == "codex" else {}
+            if document.get("sandbox") and document.get("sandbox") != document.get("sandbox_requested"):
+                notes.append(f"{label}: the Codex sessions ran under --sandbox {document['sandbox']}; the suite's {document['sandbox_requested']} failed the probe on this machine (the probe's decision, in sandbox.json beside the results)")
         else:
             verdicts.append(False)
             notes.append(f"{label}: the suite wrote no result file")
@@ -911,11 +943,18 @@ def step_triggers(ctx: Context) -> Dict[str, Any]:
     # notes it, so a verdict on an unsandboxed session is read as such.
     sandbox = f" --sandbox {ctx.triggers_sandbox}" if ctx.host.name == "codex" and ctx.triggers_sandbox else ""
     # The two suites share the step's own budget: the main cases take most
-    # of it, the ten held-out cases a quarter (a run past it reads as the
-    # step's failure on minutes, never an unbounded subprocess).
+    # of it, the ten held-out cases a quarter. The Codex probe keeps that
+    # clock itself (a run not started by the deadline is recorded as not
+    # reached, and the result is written all the same); the shell's own
+    # timeout stands above it as the last resort. The release gate's S2 on
+    # Codex ran the probe one session at a time past the step's two hours,
+    # and the shell timeout alone ended the driver with no result at all.
     budget = step_seconds("triggers")
-    main = ctx.shell(f"bash scripts/redesign/plugin_round.sh {which} --tag main{sandbox}", cwd=ctx.clone, timeout=budget, check=False)
-    holdout = ctx.shell(f"bash scripts/redesign/plugin_round.sh {which} --tag holdout --runs 1{sandbox}", cwd=ctx.clone, timeout=budget // 4, check=False)
+    margin = int(SUITE["triggers"]["deadline_margin_seconds"])
+    main_seconds, holdout_seconds = budget - margin, budget // 4 - margin
+    deadline = (lambda seconds: f" --deadline-seconds {seconds}") if ctx.host.name == "codex" else (lambda seconds: "")
+    main = ctx.shell(f"bash scripts/redesign/plugin_round.sh {which} --tag main{sandbox}{deadline(main_seconds)}", cwd=ctx.clone, timeout=budget, check=False)
+    holdout = ctx.shell(f"bash scripts/redesign/plugin_round.sh {which} --tag holdout --runs 1{sandbox}{deadline(holdout_seconds)}", cwd=ctx.clone, timeout=budget // 4, check=False)
     artifacts = []
     for label, run in (("main", main), ("holdout", holdout)):
         out_dir = run.stdout.strip().splitlines()[-1] if run.stdout.strip() else ""
@@ -958,22 +997,93 @@ def step_harness_export(ctx: Context) -> Dict[str, Any]:
     return step
 
 
+CAMPAIGN_TOOLS = ("kapso_build_start", "kapso_status", "kapso_stop")
+
+
+def mcp_server_probe(project: Path, seconds: float) -> Dict[str, Any]:
+    """A standalone handshake with the plugin's MCP server as a host would
+    make it: `kapso-mcp` started from the project (a login shell, the PATH
+    a tool install uses), `initialize`, the initialized notification, then
+    `tools/list`, over the stdio transport's newline-delimited JSON-RPC.
+    What it returns is the one fact the session's own account cannot give:
+    whether the server starts on this machine, in how many seconds, and
+    which tools it lists (the eighth S2 Codex launch's campaign-tools
+    session reported the three tools unavailable, the session-brief one
+    minutes later read a card through the same server, and Codex leaves no
+    line for a server it drops at startup)."""
+    started = time.monotonic()
+    child = subprocess.Popen(["bash", "-lc", "exec kapso-mcp"], cwd=str(project), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    messages = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "kapso-gate-probe", "version": "0"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ]
+    assert child.stdin is not None and child.stdout is not None
+    for message in messages:
+        child.stdin.write(json.dumps(message) + "\n")
+    child.stdin.flush()
+    tools: List[str] = []
+    error = ""
+    listed = False
+    deadline = started + seconds
+    while time.monotonic() < deadline and not listed:
+        if select.select([child.stdout], [], [], 0.5)[0] == []:
+            if child.poll() is not None:
+                error = f"the server exited with {child.returncode}"
+                break
+            continue
+        line = child.stdout.readline()
+        if not line:
+            error = "the server closed its output"
+            break
+        if not line.startswith("{"):
+            continue
+        reply = json.loads(line)
+        if reply.get("id") == 2:
+            tools = [tool["name"] for tool in (reply.get("result") or {}).get("tools", [])]
+            listed = True
+        elif reply.get("id") == 1 and "error" in reply:
+            error = json.dumps(reply["error"])
+            break
+    elapsed = time.monotonic() - started
+    if not listed and not error:
+        error = f"no tools/list reply within {seconds:.0f} s"
+    child.kill()
+    stderr = child.stderr.read() if child.stderr is not None else ""
+    return {"started": listed, "seconds": round(elapsed, 1), "tools": tools, "error": error, "stderr_tail": stderr[-600:]}
+
+
 def step_campaign_tools(ctx: Context) -> Dict[str, Any]:
     project = Path(ctx.state["churn_project"])
     prompt = (
-        "Use the kapso_build_start tool (not the shell) to start a campaign of this repository: brief kapso-brief.md, repo ., "
-        "output ../tools-campaign, evaluation evaluation, data data, budget 10 minutes and 1 experiment. Then read it with "
-        "kapso_status, then end it with kapso_stop, and report the three answers verbatim."
+        "Use the `kapso` MCP server's kapso_build_start tool (not the shell) to start a campaign of this repository: brief kapso-brief.md, repo ., "
+        "output ../tools-campaign, evaluation evaluation, data data, budget 10 minutes and 1 experiment. Then read it with the server's "
+        "kapso_status, then end it with its kapso_stop, and report the three answers verbatim."
     )
+    # The server probed as a host would start it, before the session: the
+    # fact the session's own account cannot give.
+    probe = mcp_server_probe(project, float(SUITE["waits"]["mcp_probe_seconds"]))
+    artifacts = [ctx.artifact("campaign-tools-server-probe.json", json.dumps(probe, indent=1))]
+    serves = all(any(name.endswith(tool) for name in probe["tools"]) for tool in CAMPAIGN_TOOLS)
+    notes = [f"the server, started as a host starts it: {'listed ' + str(len(probe['tools'])) + ' tools in ' + str(probe['seconds']) + ' s' if probe['started'] else 'did not answer (' + probe['error'] + ')'}"
+             + ("" if serves or not probe["started"] else "; the three campaign tools are not among them")]
     turns = ctx.converse("campaign-tools", project, prompt, lambda text, index: None, max_turns=1)
     names = [tool["name"] for turn in turns for tool in turn.tools]
-    used = {tool for tool in ("kapso_build_start", "kapso_status", "kapso_stop") if any(name.endswith(tool) for name in names)}
-    artifacts = [ctx.artifact("campaign-tools.txt", "\n".join(names) + "\n\n" + "\n".join(turn.text for turn in turns))]
+    used = {tool for tool in CAMPAIGN_TOOLS if any(name.endswith(tool) for name in names)}
+    if not used and serves:
+        # The server lists the tools and the session saw none: a server
+        # Codex dropped at that session's start, which a fresh session
+        # starts again. Said here, and in both answers kept.
+        notes.append("the first session used no kapso tool though the server lists them; a second session ran")
+        turns = [*turns, *ctx.converse("campaign-tools-2", project, prompt, lambda text, index: None, max_turns=1)]
+        names = [tool["name"] for turn in turns for tool in turn.tools]
+        used = {tool for tool in CAMPAIGN_TOOLS if any(name.endswith(tool) for name in names)}
+    artifacts.append(ctx.artifact("campaign-tools.txt", "\n".join(names) + "\n\n" + "\n\n---\n\n".join(turn.text for turn in turns)))
     receipt = ctx.work / "tools-campaign.launch.json"
     if receipt.is_file():
         artifacts.append(ctx.copy_artifact(receipt, "tools-campaign.launch.json"))
     ctx.shell(f"kapso build --output {ctx.work / 'tools-campaign'} --stop", check=False)
-    return record_step("campaign-tools", turns, used == {"kapso_build_start", "kapso_status", "kapso_stop"}, artifacts)
+    return record_step("campaign-tools", turns, used == set(CAMPAIGN_TOOLS), artifacts, notes)
 
 
 def step_inbox(ctx: Context) -> Dict[str, Any]:
@@ -1070,8 +1180,33 @@ def _criteria_step(ctx: Context, name: str, project: Path, wish: str) -> Dict[st
     turns = ctx.converse(name, project, ctx.host.command("build", wish), stop_here_policy, max_turns=3)
     launched = bool({str(path) for path in ctx.work.rglob(".kapso/status.json")} - before)
     proposed = turns and turns[0].asked
+    # "Do not launch anything" catches a plugin that launches unasked. A
+    # persona that says go itself (the ninth S2 Codex launch: "Validator,
+    # not modelling: go") asked for the launch, and the plugin that obeyed
+    # did right by its user: the miss is a launch nobody asked for.
+    approved = persona_approved(ctx.out / "transcripts" / f"{name}.jsonl")
+    unasked = launched and not approved
     artifacts = [ctx.artifact(f"{name}-answers.txt", "\n\n---\n\n".join(turn.text for turn in turns))]
-    return record_step(name, turns, ctx.user.ended_well(name, bool(proposed) and not launched), artifacts, [f"candidate criteria judged by hand from the answers artifact; a campaign was launched: {launched} (the step forbids it)"])
+    return record_step(name, turns, ctx.user.ended_well(name, bool(proposed) and not unasked), artifacts,
+                       [f"candidate criteria judged by hand from the answers artifact; a campaign was launched: {launched}{' on the persona' + chr(39) + 's own go' if launched and approved else ''} (the step forbids a launch nobody asked for)"])
+
+
+PERSONA_APPROVES = re.compile(r"\bgo\b|\bgo ahead\b|\blaunch (it|now|the campaign)\b|\bapproved?\b|\bproceed\b", re.I)
+
+
+def persona_approved(transcript: Path) -> bool:
+    """Whether the persona, in this step's transcript, asked for the launch
+    in so many words (a reply of go, launch it, approved, proceed) — read
+    from the `persona_reply` rows the exchange wrote."""
+    if not transcript.is_file():
+        return False
+    for line in transcript.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("{"):
+            continue
+        row = json.loads(line)
+        if "persona_reply" in row and not row.get("done") and PERSONA_APPROVES.search(row["persona_reply"] or ""):
+            return True
+    return False
 
 
 def step_build_data_only(ctx: Context) -> Dict[str, Any]:
@@ -1080,6 +1215,68 @@ def step_build_data_only(ctx: Context) -> Dict[str, Any]:
     readme = project / "README.md"
     readme.write_text("# Fraud scoring\n\nLabelled transactions in data/transactions.csv and a rule-based scorer in repo/score.py.\n", encoding="utf-8")
     return _criteria_step(ctx, "build-data-only", project, "make the fraud scorer in this repository better")
+
+
+PROPOSAL_STEPS = ("build-data-only", "build-empty-wish")
+
+
+def first_answer(rows: Sequence[Dict[str, Any]]) -> Optional[str]:
+    """The host's first turn as the step recorded it: the Claude Code
+    `result` row, or on Codex the last agent message before the persona's
+    first reply — the text `Turn.text` held live (the `-o` file is the
+    turn's last message), so the re-read asks `question_asked` what the
+    step asked it."""
+    last: Optional[str] = None
+    for row in rows:
+        if row.get("type") == "result" and isinstance(row.get("result"), str):
+            return row["result"]
+        if "persona_reply" in row and last is not None:
+            return last
+        if row.get("type") == "item.completed" and (row.get("item") or {}).get("type") == "agent_message":
+            last = row["item"].get("text") or ""
+    return last
+
+
+def rederive(record: Dict[str, Any], out: Path) -> Dict[str, Any]:
+    """An archived run read again under the current rules where the archive
+    allows: the proposal steps' completion from the first host answer in
+    the step's transcript, through the current `question_asked`, and the
+    launch fact the step recorded in its note. The judge's block, every
+    other step and the persona's events stay as recorded (the eighth S2
+    Claude launch's data-only proposal asked in a closing line that opened
+    with a quoted path, which the detector of its day dropped as a command;
+    a changed suite changes the verdict, never the record)."""
+    for step in record["steps"]:
+        if step.get("name") not in PROPOSAL_STEPS:
+            continue
+        transcript = out / "transcripts" / f"{step['name']}.jsonl"
+        if not transcript.is_file():
+            continue
+        first = first_answer([json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.startswith("{")])
+        if first is None:
+            continue
+        launched = any("a campaign was launched: True" in note for note in step.get("notes", []))
+        approved = persona_approved(transcript)
+        ended_well = any(event.startswith(f"{step['name']}: the persona said DONE") for event in (record.get("user") or {}).get("events", []))
+        asked = question_asked(first, [])
+        step["completed"] = asked and not (launched and not approved) and ended_well
+        step["notes"] = [*[note for note in step.get("notes", []) if not note.startswith("re-read")],
+                         f"re-read {datetime.now(timezone.utc).date().isoformat()} from the archive: the first answer {'asked' if asked else 'did not ask'} under the current ask detector; a campaign was launched: {launched}{' on the persona' + chr(39) + 's own go' if launched and approved else ''}; the persona {'said DONE' if ended_well else 'did not end the exchange'}"]
+    # The deploy step's parity, from the deployment record the step copied
+    # and the campaign the archive carries (the eighth S2 Claude launch's
+    # observed answer was a batch, which the reader of its day took for no
+    # row).
+    deploy_record = out / "artifacts" / "deploy-deployment.json"
+    campaign = out / "work" / "churn-campaign"
+    for step in record["steps"]:
+        if step.get("name") == "deploy" and deploy_record.is_file() and (campaign / "predictions.csv").is_file():
+            parity = parity_from_record(deploy_record, campaign)
+            step["completed"] = parity == "same"
+            step["notes"] = [*[note for note in step.get("notes", []) if not note.startswith("re-read")],
+                             f"re-read {datetime.now(timezone.utc).date().isoformat()} from the archive: the deployed call against the delivered predictions: {parity}"]
+    record["notes"] = [*[note for note in record.get("notes", []) if not note.startswith("re-derived")],
+                       f"re-derived {datetime.now(timezone.utc).date().isoformat()} under the current rules where the archive allows (the proposal steps' ask, the deploy step's parity; each says so)"]
+    return record
 
 
 def step_build_empty_wish(ctx: Context) -> Dict[str, Any]:
@@ -1205,9 +1402,31 @@ def deploy_parity(deployment: Path, campaign: Path) -> str:
     record = deployment / "deployment.json"
     if not record.is_file():
         return "not established: no deployment record"
-    observed = json.loads(record.read_text(encoding="utf-8")).get("observed") or {}
+    return parity_from_record(record, campaign)
+
+
+def observed_row(observed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The proof call's answer as one row with an id and a churn
+    probability: the top level when the deployment answers one row, or the
+    row of the proof's id in a `predictions` list when it answers the batch
+    it was delivered with (a blend that scores rows relative to one
+    another keeps its batch, as the deployment prompt says; the eighth S2
+    Claude launch's observed answer was that list and the reader took it
+    for no row)."""
+    if "id" in observed and "churn_probability" in observed:
+        return observed
+    rows = [row for row in (observed.get("predictions") or []) if isinstance(row, dict) and "id" in row and "churn_probability" in row]
+    wanted = [str(item) for item in (observed.get("in_reference_batch") or [])]
+    chosen = [row for row in rows if str(row["id"]) in wanted] if wanted else rows
+    return chosen[0] if len(chosen) == 1 else (rows[0] if len(rows) == 1 else None)
+
+
+def parity_from_record(record: Path, campaign: Path) -> str:
+    """Deployment parity from a deployment record and the campaign holding
+    the delivered branch's predictions.csv."""
+    observed = observed_row(json.loads(record.read_text(encoding="utf-8")).get("observed") or {})
     predictions = campaign / "predictions.csv"
-    if "id" not in observed or not predictions.is_file():
+    if observed is None or not predictions.is_file():
         return "not established: no observed row or no predictions.csv on the delivered branch"
     for line in predictions.read_text(encoding="utf-8").splitlines()[1:]:
         row_id, _, value = line.partition(",")
@@ -1250,7 +1469,20 @@ def step_learn_complete(ctx: Context) -> Dict[str, Any]:
     listing = ctx.shell("kapso experience list", cwd=Path(ctx.state["churn_project"]), check=False)
     artifacts = [ctx.artifact("learn-status.json", json.dumps(final, indent=1)), ctx.artifact("experience-list.txt", listing.stdout + listing.stderr)]
     cards = re.search(r"(\d+) cards", listing.stdout)
-    return shell_step("learn-complete", done and final.get("state") == "done" and bool(cards) and int(cards.group(1)) > 0, artifacts, (time.monotonic() - started) / 60, [f"state {final.get('state')}, cards {cards.group(1) if cards else '?'}"])
+    # The learn ran end to end: every phase, and a bank commit (the head
+    # advanced, whether or not the exam admitted a card). Whether a card is
+    # banked is a learning-quality outcome that varies with the campaign and
+    # the crew's model — the owner's call (2026-10-31): the step passes on a
+    # clean end-to-end learn, the cards banked a recorded fact, not a gate.
+    ran: set = set()
+    for line in final.get("recent") or []:
+        ran |= {phase for phase in ("harvest", "harvested", "mine", "mined", "exam", "lesson", "push", "pushed") if phase in line}
+    advanced = bool(final.get("bank_head_after")) and final.get("bank_head_after") != final.get("bank_head_before")
+    banked = int(cards.group(1)) if cards else None
+    created = len((final.get("cards") or {}).get("created") or [])
+    updated = len((final.get("cards") or {}).get("updated") or [])
+    note = f"state {final.get('state')}, bank {str(final.get('bank_head_before'))[:8]} -> {str(final.get('bank_head_after'))[:8]}; lesson landed {created} created, {updated} updated; the bank lists {banked if banked is not None else '?'} cards (a quality outcome, not a bar)"
+    return shell_step("learn-complete", done and final.get("state") == "done" and {"harvested", "mined", "lesson"} <= ran and advanced, artifacts, (time.monotonic() - started) / 60, [note])
 
 
 def step_session_brief(ctx: Context) -> Dict[str, Any]:
@@ -1303,13 +1535,37 @@ def step_second_engineer_build(ctx: Context) -> Dict[str, Any]:
     project = Path(ctx.state["churn_project"])
     budget = SUITE["builds"]["second_engineer"]
     ensure_second_user(ctx)
-    ctx.shell(f"sudo rm -rf /home/proof2/churn-second /home/proof2/second-campaign /home/proof2/second-campaign.log; sudo cp -r {project} /home/proof2/churn-second; sudo chown -R proof2:proof2 /home/proof2/churn-second")
-    launch = ctx.shell(
-        "sudo -u proof2 -H bash -lc 'cd ~/churn-second; export PATH=$HOME/.local/bin:$PATH; "
+    ctx.shell(f"sudo rm -rf /home/proof2/churn-second /home/proof2/second-campaign /home/proof2/second-campaign.log /home/proof2/env; sudo cp -r {project} /home/proof2/churn-second; sudo chown -R proof2:proof2 /home/proof2/churn-second")
+    # The copied project's evaluator reads the labels through the absolute
+    # path in evaluation/private_dir.txt, which the first user's view wrote
+    # into its own home — unreadable to the second user (rel-s2-claude: the
+    # evaluator died at line 53 on every attempt, `drwxr-x--- ubuntu`, and
+    # the build ended unscored). The second engineer's copy points at its own.
+    ctx.shell("sudo -u proof2 -H bash -lc 'printf %s /home/proof2/churn-second/private > ~/churn-second/evaluation/private_dir.txt'")
+    # The second engineer's project environment, as the docs install it: a
+    # venv holding the wheel and the project's requirements, first on PATH,
+    # so `python3` — the interpreter the harness's commands name — is it
+    # (the uv tool install above keeps the tool's interpreter off PATH, and
+    # the system's python3 refuses pip as externally managed). A launch the
+    # harness refuses for its requirements prints the remedy, `python3 -m
+    # pip install -r <the harness's requirements>`; the engineer follows
+    # it as printed and launches again (the bundled harness's requirements
+    # are not the package's, by the lean-install decision of 2026-08-26).
+    wheel = stage_wheel_for_second_user(ctx)
+    ctx.shell(f"sudo -u proof2 -H bash -lc 'cd ~; python3 -m venv ~/env && ~/env/bin/pip install -q /tmp/{wheel.name} -r ~/churn-second/requirements.txt'", timeout=1200)
+    build_line = (
+        "cd ~/churn-second; export PATH=$HOME/env/bin:$PATH; "
         "kapso build --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output ~/second-campaign "
-        f"--experience file:///tmp/bank-remote.git --budget-minutes {budget['minutes']} --budget-experiments {budget['experiments']} --detach'",
-        check=False, timeout=600,
+        f"--experience file:///tmp/bank-remote.git --budget-minutes {budget['minutes']} --budget-experiments {budget['experiments']} --detach"
     )
+    launch = ctx.shell(f"sudo -u proof2 -H bash -lc {shlex.quote(build_line)}", check=False, timeout=600)
+    remedies = sorted(set(re.findall(r"python3 -m pip install -r (\S+)", launch.stdout + launch.stderr)))
+    launches = [launch.stdout + launch.stderr]
+    if launch.returncode != 0 and remedies:
+        for requirements in remedies:
+            ctx.shell(f"sudo -u proof2 -H bash -lc 'export PATH=$HOME/env/bin:$PATH; python3 -m pip install -q -r {requirements}'", timeout=1200)
+        launch = ctx.shell(f"sudo -u proof2 -H bash -lc {shlex.quote(build_line)}", check=False, timeout=600)
+        launches.append(f"--- after the printed remedy ({', '.join(remedies)}) ---\n" + launch.stdout + launch.stderr)
     campaign = Path("/home/proof2/second-campaign")
     read_status = lambda: json.loads(ctx.shell(f"sudo cat {campaign}/.kapso/status.json", check=False).stdout or "null")
     done = wait_for(lambda: (read_status() or {}).get("state") in ("done", "failed"), budget["minutes"] * 60 + 600, every=30)
@@ -1323,7 +1579,7 @@ def step_second_engineer_build(ctx: Context) -> Dict[str, Any]:
     # the campaign names the shared bank).
     scored = solution.get("score") is not None
     read_bank = "bank-remote" in ctx.shell(f"sudo cat {campaign}/.kapso/experiment_history.json 2>/dev/null; sudo cat {campaign}/.kapso/solution.json", check=False).stdout
-    artifacts = [ctx.artifact("second-engineer-launch.txt", launch.stdout + launch.stderr)]
+    artifacts = [ctx.artifact("second-engineer-launch.txt", "\n".join(launches))]
     if solution_text.strip():
         artifacts.append(ctx.artifact("second-engineer-solution.json", solution_text))
     # The second user's campaign log and status, so a failure has an
@@ -1331,7 +1587,11 @@ def step_second_engineer_build(ctx: Context) -> Dict[str, Any]:
     # had none).
     artifacts.append(ctx.artifact("second-engineer-campaign.log", ctx.shell("sudo cat /home/proof2/second-campaign.log", check=False).stdout))
     artifacts.append(ctx.artifact("second-engineer-status.json", ctx.shell(f"sudo cat {campaign}/.kapso/status.json", check=False).stdout))
-    ctx.user.interventions.append("second-engineer-build: the churn fixture copied to the second user's home; the build run as that user with the bank by reference")
+    ctx.user.interventions.append(
+        "second-engineer-build: the churn fixture copied to the second user's home; a venv with the wheel and the project's requirements first on its PATH; "
+        + (f"the launch refused for the harness's requirements and the printed remedy followed ({', '.join(remedies)}); " if remedies else "")
+        + "the build run as that user with the bank by reference"
+    )
     return shell_step("second-engineer-build", launch.returncode == 0 and done and final_state == "done" and served and scored, artifacts, (time.monotonic() - started) / 60,
                       [f"served the shared bank: {served}; a scored delivery: {scored}; the bank in the build's records: {read_bank}; final state: {final_state}"], kind="build")
 
@@ -1465,13 +1725,14 @@ def step_cold_start(ctx: Context) -> Dict[str, Any]:
 STEPS: Dict[str, Callable[[Context], Dict[str, Any]]] = {
     "install": step_install, "setup": step_setup, "cold-install": step_cold_install, "build-churn": step_build_churn,
     "build-pause": step_build_pause,
-    "watch": step_watch, "triggers": step_triggers, "harness-export": step_harness_export, "campaign-tools": step_campaign_tools,
+    "watch": step_watch, "harness-export": step_harness_export,
     "inbox": step_inbox, "build-fraud": step_build_fraud, "build-data-only": step_build_data_only,
     "build-empty-wish": step_build_empty_wish, "harness-new": step_harness_new, "harness-probe": step_harness_probe,
     "review": step_review, "deploy": step_deploy, "learn": step_learn, "learn-complete": step_learn_complete,
-    "session-brief": step_session_brief, "experience-share": step_experience_share, "second-engineer-build": step_second_engineer_build,
+    "campaign-tools": step_campaign_tools, "session-brief": step_session_brief, "experience-share": step_experience_share, "second-engineer-build": step_second_engineer_build,
     "harness-improve": step_harness_improve,
-    "campaign-session-isolation": step_campaign_session_isolation, "codex-rules-probe": step_codex_rules_probe, "cold-start": step_cold_start,
+    "campaign-session-isolation": step_campaign_session_isolation, "triggers": step_triggers,
+    "codex-rules-probe": step_codex_rules_probe, "cold-start": step_cold_start,
 }
 assert list(STEPS) == STEP_NAMES
 
@@ -1489,10 +1750,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--learn-model", default=None, help="run the learning crews on this model instead of the shipped one (said in the record)")
     parser.add_argument("--pause-minutes", type=int, default=_PAUSE_B["minutes"], help="the injected pause campaign's budget (the suite's builds.pause.minutes); a slow box needs more than the default for its session to reach the ask")
     parser.add_argument("--recompute-triggers", action="store_true", help="read the trigger step's verdict again from its artifacts, run nothing")
+    parser.add_argument("--rederive", action="store_true", help="read an archived run's proposal steps again under the current ask detector (on the development box); runs nothing")
     parser.add_argument("--triggers-sandbox", default=None, help="codex's sandbox for the trigger sessions on a machine whose own cannot start (the runner's word; default: the suite's triggers.codex_sandbox)")
     parser.add_argument("--advisory", default=None, help="the reason this arm runs on the development box; the record is marked and never a fresh-machine acceptance")
     parser.add_argument("--user", default="scripted", help="who answers the host: scripted (the mechanical round) or persona:<card> (a card under tests/semantic/personas through the other vendor's CLI)")
     args = parser.parse_args(argv)
+    if args.rederive:
+        out = Path(args.out).resolve()
+        record = rederive(json.loads((out / "record.json").read_text(encoding="utf-8")), out)
+        (out / "record.json").write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+        print(json.dumps({step["name"]: step.get("completed") for step in record["steps"] if step.get("name") in PROPOSAL_STEPS}))
+        return 0
     host = ClaudeHost() if args.host == "claude_code" else CodexHost()
     out = Path(args.out).resolve()
     work = Path(args.work).resolve() if args.work else out / "work"

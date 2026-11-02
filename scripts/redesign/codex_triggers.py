@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -42,7 +43,8 @@ PLUGIN = ROOT / "plugin"
 EVALS = PLUGIN / "evals"
 ROLLOUTS = Path.home() / ".codex" / "sessions"
 SUITE_PATH = ROOT / "tests" / "semantic" / "suite.json"
-DEFAULT_SANDBOX = json.loads(SUITE_PATH.read_text(encoding="utf-8"))["triggers"]["codex_sandbox"]
+SUITE = json.loads(SUITE_PATH.read_text(encoding="utf-8"))
+DEFAULT_SANDBOX = SUITE["triggers"]["codex_sandbox"]
 SKILL_FILE = re.compile(r"skills/([\w-]+)/SKILL\.md")
 SKILL_TAG = re.compile(r"<skill>\s*<name>([\w-]+)</name>")
 SKIPPED_KIND = "explicit"
@@ -66,17 +68,35 @@ def sandbox_failure(stream_file: Path) -> Optional[str]:
     return None
 
 
-def probe_sandbox(sandbox: str, out: Path) -> None:
-    """One session under the chosen sandbox before the suite runs: a
-    sandbox that cannot start fails every run the same way, so the suite
-    stops here with the fix named rather than grading a hundred broken runs."""
-    project = out / "work" / "sandbox-probe"
-    project.mkdir(parents=True, exist_ok=True)
+def _probe_once(sandbox: str, project: Path) -> Optional[str]:
     probe = subprocess.run(["timeout", "180", "codex", "exec", "--json", "--skip-git-repo-check", "--sandbox", sandbox, "-C", str(project), "reply with the word ok"],
                            capture_output=True, text=True, cwd=str(project))
     failure = SANDBOX_FAILURE.search(probe.stderr + probe.stdout)
-    if failure:
-        raise RuntimeError(f"codex's {sandbox} sandbox does not start on this machine ({failure.group(0).strip()}); run with --sandbox danger-full-access and say so in the record")
+    return failure.group(0).strip() if failure else None
+
+
+def probe_sandbox(sandbox: str, out: Path) -> str:
+    """The sandbox the suite runs under, decided before the runs: the
+    chosen one when `sandbox_probes` sessions start under it; the suite's
+    `sandbox_fallback` when any probe fails on bubblewrap, since a machine
+    whose loopback setup fails intermittently fails most runs the same way
+    (one probe passed on the release gate's machine, then 113 of 139 runs
+    failed at one session at a time with three tries each). The decision
+    is written beside the results and said in the record; a fallback that
+    does not start either stops the suite with the fix named."""
+    project = out / "work" / "sandbox-probe"
+    project.mkdir(parents=True, exist_ok=True)
+    probes = [_probe_once(sandbox, project) for _ in range(int(SUITE["triggers"]["sandbox_probes"]))]
+    used = sandbox
+    if any(probes):
+        used = SUITE["triggers"]["sandbox_fallback"]
+        fallback = _probe_once(used, project)
+        if fallback:
+            raise RuntimeError(f"codex's {sandbox} sandbox fails on this machine ({next(p for p in probes if p)}) and so does {used} ({fallback}); no sandbox starts")
+    (out / "sandbox.json").write_text(json.dumps({"requested": sandbox, "used": used, "probes": probes}, indent=1) + "\n", encoding="utf-8")
+    if used != sandbox:
+        print(f"the {sandbox} sandbox failed {sum(1 for p in probes if p)} of {len(probes)} probes ({next(p for p in probes if p)}); the suite runs under {used}, said in the record")
+    return used
 
 
 def cases(evals: Path = EVALS, tag: Optional[str] = None, pattern: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -180,6 +200,21 @@ def rollout_lines(thread: str, wait_seconds: float = 10.0) -> List[str]:
 
 
 def run_case(case: Dict[str, Any], run: int, out: Path, model: str, effort: str, timeout: int, sandbox: str) -> Dict[str, Any]:
+    """One case's run, tried again when the host's sandbox failed to start
+    (bubblewrap's loopback setup on a fresh machine, intermittent even at
+    two parallel sessions: 151 of 178 runs in the release gate's S2 on
+    Codex — the machine's failure, never a miss), up to the suite's
+    `sandbox_tries`; the last try's outcome is the run's, with the count."""
+    tries = int(SUITE["triggers"]["sandbox_tries"])
+    for attempt in range(1, tries + 1):
+        result = _run_case_once(case, run, out, model, effort, timeout, sandbox)
+        if result["environment"] is None or attempt == tries:
+            return {**result, "tries": attempt}
+        time.sleep(float(SUITE["triggers"]["sandbox_retry_seconds"]))
+    raise AssertionError("unreachable: the last try returns")
+
+
+def _run_case_once(case: Dict[str, Any], run: int, out: Path, model: str, effort: str, timeout: int, sandbox: str) -> Dict[str, Any]:
     project = out / "work" / f"{case['name']}-{run}"
     if project.exists():
         shutil.rmtree(project)
@@ -207,6 +242,18 @@ def run_case(case: Dict[str, Any], run: int, out: Path, model: str, effort: str,
     }
 
 
+def not_reached(case: Dict[str, Any], run: int, deadline_seconds: float) -> Dict[str, Any]:
+    """A run the probe's deadline passed before it could start: never a
+    pass, never a miss — not established, said in the row and the report
+    (the release gate's S2 on Codex ran one session at a time and its step's
+    two hours ended with the probe's result unwritten)."""
+    return {
+        "case": case["name"], "run": run, "exit": None, "seconds": 0.0, "started": False, "loaded": [],
+        "graders": grade(case["graders"], [], False), "environment": None, "passed": False,
+        "not_reached": f"the probe's deadline of {deadline_seconds:.0f} s passed before this run started",
+    }
+
+
 def report(results: List[Dict[str, Any]], skipped: List[str]) -> str:
     by_case: Dict[str, List[Dict[str, Any]]] = {}
     for result in results:
@@ -223,10 +270,12 @@ def report(results: List[Dict[str, Any]], skipped: List[str]) -> str:
         broken = sum(1 for r in runs if r.get("environment"))
         environment += broken
         lines.append(f"| {name} | {len(runs)} | {passed}/{len(runs)} | {', '.join(first) or '(none)'} | {', '.join(loaded) or '(none)'} | {later} | {broken} |")
+    unreached = sum(1 for r in results if r.get("not_reached"))
     lines.append("")
     lines.append(f"{len(by_case) - failed} of {len(by_case)} cases passed every run; "
                  f"{read_after} case(s) read a forbidden skill after the expected one (a pass under the host's rule, a first read would have failed); "
                  f"{environment} run(s) failed in the sandbox before any skill could be read (the machine's failure, not established, never a miss); "
+                 f"{unreached} run(s) not reached before the probe's deadline (not established, never a miss); "
                  f"{len(skipped)} explicit case(s) skipped (Codex's explicit form is `$kapso-<skill>`).")
     return "\n".join(lines)
 
@@ -238,13 +287,20 @@ def regrade(out: Path) -> int:
     graders = {case["name"]: case["graders"] for case in cases(tag=document["tag"])}
     for result in document["results"]:
         result["graders"] = grade(graders[result["case"]], result["loaded"], result.get("started", True))
-        result["environment"] = sandbox_failure(out / "streams" / f"{result['case']}-{result['run']}.jsonl")
-        result["passed"] = result["environment"] is None and all(g["passed"] for g in result["graders"])
+        # A run the deadline passed has no stream to read: not established stands.
+        if not result.get("not_reached"):
+            result["environment"] = sandbox_failure(out / "streams" / f"{result['case']}-{result['run']}.jsonl")
+        result["passed"] = result["environment"] is None and not result.get("not_reached") and all(g["passed"] for g in result["graders"])
     (out / "results.json").write_text(json.dumps(document, indent=1) + "\n", encoding="utf-8")
     text = report(document["results"], document["skipped"])
     (out / "REPORT.md").write_text(text + "\n", encoding="utf-8")
     print(text)
     return 0 if all(r["passed"] for r in document["results"]) else 1
+
+
+def row_case(selected: Sequence[Dict[str, Any]], row: Dict[str, Any]) -> Dict[str, Any]:
+    """The case a result row belongs to, by name."""
+    return next(case for case in selected if case["name"] == row["case"])
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -256,8 +312,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--effort", default="medium")
     parser.add_argument("--timeout", type=int, default=600, help="seconds per run; a run that overstays ends with exit 124 and counts as it stands")
     parser.add_argument("--sandbox", default=DEFAULT_SANDBOX, help="codex's sandbox for the sessions (the suite's triggers.codex_sandbox); a machine whose bwrap cannot start needs danger-full-access, said in the record")
-    parser.add_argument("-j", "--jobs", type=int, default=2)
+    parser.add_argument("-j", "--jobs", type=int, default=int(SUITE["triggers"]["codex_jobs"]),
+                        help="sessions at once (the suite's triggers.codex_jobs: one, since the sandbox failed under two on a fresh machine)")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--deadline-seconds", type=float, default=None,
+                        help="the probe's own wall clock: a run not started by then is recorded as not reached, and the result is written all the same")
     parser.add_argument("--regrade", default=None, help="a run's output directory: grade its results again, run nothing")
     args = parser.parse_args(argv)
     if args.regrade:
@@ -268,12 +327,63 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     skipped = [case["name"] for case in selected if SKIPPED_KIND in case["tags"]]
     selected = [case for case in selected if SKIPPED_KIND not in case["tags"]]
     jobs = [(case, run) for case in selected for run in range(1, args.runs + 1)]
-    probe_sandbox(args.sandbox, out)
+    deadline = time.monotonic() + args.deadline_seconds if args.deadline_seconds is not None else None
+    # Each run's row is appended as it ends, so a probe cut short from
+    # outside still leaves what it measured; a run the deadline passed is
+    # recorded as not reached rather than started.
+    ledger, lock = out / "results.jsonl", threading.Lock()
+    ledger.write_text("", encoding="utf-8")
+    # The sandbox is the probe's decision, and then the runs' own: three
+    # probes started under `read-only` on the fourth launch of the release
+    # gate's S2 on Codex and 15 of the next 18 runs failed in bubblewrap's
+    # loopback setup — the failure comes and goes with the machine's other
+    # sessions, which no probe sees. `sandbox_switch_after` failures in a
+    # row send the rest of the suite to the fallback (once it starts), and
+    # every run that failed in the sandbox is run again under it at the end;
+    # the switch is written beside the results and said in the record.
+    fallback, switch_after = SUITE["triggers"]["sandbox_fallback"], int(SUITE["triggers"]["sandbox_switch_after"])
+    state: Dict[str, Any] = {"sandbox": probe_sandbox(args.sandbox, out), "streak": 0, "switched_after_runs": None, "runs": 0}
+
+    def append(row: Dict[str, Any]) -> None:
+        with open(ledger, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+
+    def one(job: Any) -> Dict[str, Any]:
+        case, run = job
+        if deadline is not None and time.monotonic() >= deadline:
+            row = not_reached(case, run, args.deadline_seconds)
+        else:
+            with lock:
+                sandbox_now = state["sandbox"]
+            row = {**run_case(case, run, out, args.model, args.effort, args.timeout, sandbox_now), "sandbox": sandbox_now}
+        with lock:
+            state["runs"] += 1
+            state["streak"] = state["streak"] + 1 if row.get("environment") else 0
+            if state["sandbox"] != fallback and state["streak"] >= switch_after and _probe_once(fallback, out / "work" / "sandbox-probe") is None:
+                state["sandbox"], state["switched_after_runs"] = fallback, state["runs"]
+                print(f"the {args.sandbox} sandbox failed {state['streak']} runs in a row after {state['runs']} runs; the rest run under {fallback}, said in the record")
+            append(row)
+        return row
+
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        results = list(pool.map(lambda job: run_case(job[0], job[1], out, args.model, args.effort, args.timeout, args.sandbox), jobs))
+        results = list(pool.map(one, jobs))
+    if state["switched_after_runs"] is not None:
+        # The runs the sandbox failed, run again under the fallback: their
+        # first failure is kept on the row, so the record says what the
+        # machine did before it says what the skill did.
+        for index, row in enumerate(results):
+            if row.get("environment") and not row.get("not_reached") and (deadline is None or time.monotonic() < deadline):
+                again = {**run_case(row_case(selected, row), row["run"], out, args.model, args.effort, args.timeout, fallback), "sandbox": fallback, "first_sandbox_failure": row["environment"]}
+                results[index] = again
+                append(again)
+    decision = out / "sandbox.json"
+    probes = json.loads(decision.read_text(encoding="utf-8"))["probes"] if decision.is_file() else []
+    decision.write_text(json.dumps({
+        "requested": args.sandbox, "used": state["sandbox"], "switched_after_runs": state["switched_after_runs"], "probes": probes,
+    }, indent=1) + "\n", encoding="utf-8")
     (out / "results.json").write_text(json.dumps({
-        "model": args.model, "effort": args.effort, "runs": args.runs, "tag": args.tag, "sandbox": args.sandbox,
-        "skipped": skipped, "results": results,
+        "model": args.model, "effort": args.effort, "runs": args.runs, "tag": args.tag, "sandbox": state["sandbox"], "sandbox_requested": args.sandbox,
+        "switched_after_runs": state["switched_after_runs"], "skipped": skipped, "results": results,
     }, indent=1) + "\n", encoding="utf-8")
     text = report(results, skipped)
     print(text)

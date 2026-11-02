@@ -1,5 +1,6 @@
 """`Kapso.build()`: the brief is the engine's goal, whole; budgets resolve
-call over brief over launch record over config; a resume reads the brief
+call over brief over config, and on a resume call over launch record over
+brief over config; a resume reads the brief
 back from the checkpoint; every path reaches the engine absolute; the
 record a build writes has one pinned shape and `Solution.open` reads it
 back."""
@@ -209,7 +210,12 @@ def _launch_record(workspace, **values):
 def test_a_resume_reads_the_brief_from_the_checkpoint_and_the_budget_from_the_record(tmp_path, monkeypatch):
     workspace = tmp_path / "ws"
     git_workspace(workspace)
-    brief = Brief(objective="Raise accuracy above 0.85", rules=["no peeking at the test set"])
+    # The brief carries its own budget: a bare resume must still run on the
+    # launch's (the record's 60 minutes and 3 experiments), not the brief's
+    # 45 and 5 — a campaign launched at 40 minutes resumed at its brief's 45
+    # when the brief-merged figures were passed off as the caller's (the
+    # release gate's S5 on Claude Code, 2026-10-30).
+    brief = Brief(objective="Raise accuracy above 0.85", rules=["no peeking at the test set"], budget=Budget(minutes=45, experiments=5))
     RunCheckpointStore(str(workspace)).save(_checkpoint(brief.render()))
     _launch_record(workspace)
     captured = fake_orchestrator(monkeypatch, workspace, solve_result(cumulative_iterations=3))
@@ -272,3 +278,42 @@ def test_the_feedback_is_the_judges_words_on_the_delivered_candidate(tmp_path, m
 
     assert solution.feedback == delivered.feedback
     assert "Feedback:\nA solid gain" in solution.explain()
+
+
+def test_build_detach_launches_the_cli_in_a_session_of_its_own_and_hands_back_a_launch(tmp_path, monkeypatch):
+    # Every engineer of the release gate's S1 wrapped `kapso build --detach`
+    # in a self-relaunching worker because build() blocks: the API offers the
+    # same launch. The brief goes beside the output as a file the CLI reads,
+    # the loaded harness and experience go as their flags, the budget's set
+    # fields as theirs; the Launch names the pid, the log and the status.
+    import kapso.kapso as facade_module
+    calls = []
+    monkeypatch.setattr(facade_module, "launch_detached",lambda argv, *, log_path, receipt_path: calls.append((list(argv), log_path, receipt_path)) or 4242)
+    output = tmp_path / "campaign"
+    brief = Brief(objective="Raise AUC above 0.85", rules=["no peeking"])
+    launch = facade().build(brief, repo=str(tmp_path), output=str(output), budget=Budget(minutes=40, experiments=2), detach=True)
+    [(argv, log_path, receipt_path)] = calls
+    assert launch.pid == 4242 and launch.log == str(tmp_path / "campaign.log") and launch.status == str(output / ".kapso" / "status.json")
+    assert log_path == tmp_path / "campaign.log" and receipt_path == tmp_path / "campaign.launch.json"
+    brief_file = tmp_path / "campaign.brief.md"
+    assert argv == ["build", "--output", str(output), "--brief", str(brief_file), "--repo", str(tmp_path), "--budget-minutes", "40", "--budget-experiments", "2"]
+    assert Brief.read(brief_file) == brief, "the brief the child reads is the one given, whole"
+    launch = facade().build(output=str(output), resume=True, detach=True)
+    assert calls[-1][0] == ["build", "--output", str(output), "--resume"] and launch.pid == 4242
+    with pytest.raises(ValueError, match="needs output"):
+        facade().build("g", detach=True)
+    with pytest.raises(ValueError, match="in-process callbacks"):
+        facade().build("g", output=str(output), on_status=lambda status: None, detach=True)
+
+
+def test_learn_detach_launches_the_cli_campaign_form_and_hands_back_a_launch(tmp_path, monkeypatch):
+    import kapso.kapso as facade_module
+    calls = []
+    monkeypatch.setattr(facade_module, "launch_detached",lambda argv, *, log_path, receipt_path: calls.append((list(argv), log_path, receipt_path)) or 777)
+    campaign = tmp_path / "campaign-prereq"
+    launch = facade().learn(str(campaign), detach=True)
+    [(argv, log_path, receipt_path)] = calls
+    assert argv == ["learn", str(campaign)] and receipt_path is None and log_path == tmp_path / "campaign-prereq.learn.log"
+    assert launch.pid == 777 and launch.log == str(log_path) and launch.status.endswith("status")
+    with pytest.raises(ValueError, match="takes no on_status"):
+        facade().learn(str(campaign), exam=False, detach=True)

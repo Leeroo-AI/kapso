@@ -57,7 +57,9 @@ silently, and `error` stops configuration. Unknown gate names always fail. See
 [Capability-Aware MCP Gates](/docs/evolve/mcp-gates).
 
 `parent_policy` controls experiment lineage. `best` (the default) refines the
-best valid candidate; `baseline` starts every candidate from `main`. Ideation
+best valid candidate; `baseline` starts every candidate from `main`;
+`weighted` samples a valid candidate by rank, down-weighted by how often it was
+already expanded. Ideation
 reads from a detached worktree of that same selected ref, so its code and
 RepoMemory context match the implementation base. See
 [Parent Selection](/docs/evolve/parent-selection) for lineage and resume

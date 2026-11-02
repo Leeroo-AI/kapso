@@ -156,6 +156,28 @@ def test_an_answered_request_continues_the_same_node(tmp_path):
     assert node.duration_seconds is not None and node.cost_usd == pytest.approx(1.1)
 
 
+def test_a_continuation_that_dies_is_continued_again_with_the_reply(tmp_path):
+    harness = Harness(tmp_path)
+    strategy = harness.strategy
+    implement = strategy._implement
+    first = strategy.run("problem")
+    record_reply(harness.inbox, 1, "added the key")
+
+    def killed(**kwargs):
+        raise KeyboardInterrupt
+
+    strategy._implement = killed
+    with pytest.raises(KeyboardInterrupt):
+        strategy.run("problem")
+    assert first.suspended is True
+    assert load_requests(harness.inbox)[1].state == "continued"
+
+    strategy._implement = implement
+    node = strategy.run("problem")
+    assert node is first and node.suspended is False
+    assert 'their reply: "added the key"' in harness.implement_kwargs[-1]["continuation"].follow_up
+
+
 def test_asking_again_after_a_reply_suspends_again(tmp_path):
     harness = Harness(tmp_path)
     harness.ask_again_on_continue = True

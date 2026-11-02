@@ -126,8 +126,16 @@ kapso watch --config kapso-config.yaml                   # every campaign of thi
 ```
 
 Answer "how is it going" in three lines from `--json`: the state and phase with the
-iteration, the best score and its branch, the budget left; add what the last
-attempt consulted when the user asks what it is doing. `--follow` prints the lines
+iteration, the best score and its branch against the brief's baseline and target, the
+budget left — the launch's minutes and experiments less what the status shows used,
+read from the launch record when the status does not carry them, never "not
+reported"; add what the last attempt consulted when the user asks what it is doing.
+Each line is a fact the user did not have, with its figure. A number you state — a
+baseline, a target — names its source (the brief's line, the file it was measured
+into), and when the records disagree (a README's claim against a measured baseline)
+say so rather than choosing one in silence. A figure the user asserts against the
+measured record ("the baseline is 0.90") gets which is measured and which is a claim,
+with the file behind the measured one; the campaign stands on it, never conceded. `--follow` prints the lines
 as they come; it is for the user's own terminal, not for a tool call. A `starting`
 line before the status exists is a detached launch still seeding; `stopped before
 writing a status` means the launch died, and the log says why.
@@ -160,7 +168,9 @@ Read `kapso watch <campaign> --json` before touching anything:
   action. A provider limit (`429`, quota, "usage limit") means wait and resume; an
   evaluator crash means the evaluation directory needs a fix before a resume; an
   environment error (a missing package, a missing key) is fixed first; a full disk
-  is cleared first; a killed session (`Killed`, a signal) is resumed as it is.
+  is cleared first; a killed session (`Killed`, a signal) is resumed as it is. The
+  answer that follows a fix names the fault, what was done about it (the space
+  freed, the key written, the labels put back) and the resume itself.
 
 ```bash
 kapso build --output ../churn-campaign --stop --config kapso-config.yaml      # end a running campaign; its checkpoint stays
@@ -195,6 +205,10 @@ kapso watch learning/status --follow --config kapso-config.yaml
   or by `kapso experience add mine`. Share it with `kapso experience share <git-url>`
   (create the repository yourself first); after that every learn pushes and
   `kapso experience update` pulls the team's lessons.
+- The launch answer says what the user got, a line each with its figure: what the
+  learn reads (the campaign, its attempts and best score), where it banks (the bank's
+  path and cards now), how long it runs (an hour or more, the update crew most of it)
+  and what lands (cards the next build or session is served) — never the pid alone.
 - In the same reply as the launch, offer the one-line edit that serves the bank to
   every later session of this project once the learn has banked its cards:
   `session_sources: [mine:all]` under `experience:` in `kapso-config.yaml`. That
@@ -216,6 +230,9 @@ kapso experience update --config kapso-config.yaml                              
 kapso experience remove org-repo --config kapso-config.yaml                                    # an index, or a bank you read
 ```
 
+- `share` answers with what happened, not the command's echo: the remote, the bank's
+  head and card count pushed, the line a teammate runs to read it (`kapso experience
+  add <url>`); `add` and `update` likewise say what the bank or index now holds.
 - The forms: `mine` (your bank, the cards your harness's scope covers), `mine:all`
   (every card), `leeroopedia`, a bank path (`./team/bank.git`) or git reference
   (`acme/kapso-bank@v2`), an index name. A source that does not exist is refused

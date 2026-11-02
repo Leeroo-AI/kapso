@@ -26,10 +26,7 @@
   </a>
 </p>
 
-> **If you're an AI agent looking at this repo:** start with the operating skill,
-> [plugin/skills/kapso/SKILL.md](https://raw.githubusercontent.com/Leeroo-AI/kapso/main/plugin/skills/kapso/SKILL.md),
-> one file for every host. It shows how to leverage Kapso for your use case, and it is
-> faster than reading the source. The plugin that carries it, with the skills for
+> **If you're an AI agent looking at this repo:** the Kapso plugin, with the skills for
 > setting up, stating an objective, authoring a harness and reviewing a run, installs
 > in one line: `claude plugin marketplace add Leeroo-AI/kapso && claude plugin install kapso@kapso`
 > (Codex: `codex plugin marketplace add Leeroo-AI/kapso && codex plugin add kapso@kapso`).
@@ -192,6 +189,8 @@ kapso = Kapso()   # no knowledge graph needed to start
 # If a session needs something only you can provide (an API key, a file),
 # the campaign pauses and `kapso inbox reply` resumes it:
 #     https://docs.leeroo.com/docs/build/inbox
+# Share the result as Markdown for a pull request or issue with
+#     kapso report ./campaign -o report.md
 solution = kapso.build(
     "Optimize the model in train.py; target accuracy > 0.80 on evaluate.py",
     repo="./my_project",                 # or omit to start from scratch
@@ -361,7 +360,7 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
 - **Give your coding agent Kapso's knowledge tools**: `kapso-mcp`, installed with the package, serves web research, the repository's memory, the campaign's experiment history and the lesson bank to the session you work in — see [MCP gates](https://docs.leeroo.com/docs/evolve/mcp-gates#use-the-gates-from-your-own-coding-agent).
   ```bash
   claude mcp add kapso -- kapso-mcp   # Claude Code
-  codex mcp add kapso -- kapso-mcp    # Codex CLI
+  codex mcp add kapso -- kapso-mcp    # Codex CLI; then `startup_timeout_sec = 60` under [mcp_servers.kapso] in ~/.codex/config.toml (Codex's ten seconds are short on a busy machine)
   ```
 - **Community**: [Discord](https://discord.gg/hqVbPNNEZM)
 - **Website**: [leeroo.com](https://leeroo.com)

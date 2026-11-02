@@ -28,7 +28,8 @@ def test_a_quote_on_the_wrong_line_is_asked_once_more_then_fails_loud(tmp_path, 
     rendered = tmp_path / "judge" / "watch.rendered.md"
     rendered.parent.mkdir()
     rendered.write_text("L1: # step watch\nL2: \nL3: [assistant]\nL4: Running, iteration 1 in ideation; no score yet.\n")
-    slipped, right = _reply("L3"), _reply("L4")
+    # Two lines off: one line off is read as the citation (rel-s4-codex).
+    slipped, right = _reply("L2"), _reply("L4")
     replies = iter([slipped, right])
     monkeypatch.setattr(judge, "ask", lambda prompt, settings: next(replies))
     scores = judge.judge_material("material", "rubric", DIMENSIONS, [1, 5], {}, tmp_path, rendered.parent, "watch-pass1", [WATCH])
@@ -43,7 +44,7 @@ def test_a_quote_on_the_wrong_line_is_asked_once_more_then_fails_loud(tmp_path, 
     lines = rendered.read_text().splitlines()
     assert judge.quote_on(lines, "4", "Running, iteration 1 in ideation; no score yet.")
     assert judge.quote_on(lines, "4", "iteration 1 in ideation;")
-    assert not judge.quote_on(lines, "5", "Running, iteration 1 in ideation; no score yet.")
+    assert not judge.quote_on(lines, "2", "Running, iteration 1 in ideation; no score yet."), "two lines off is not the citation"
     assert not judge.quote_on(lines, "4", "the best score is 0.9")
     # The words, not the markdown around them: a bullet and emphasis folded on both sides.
     marked = ["L10: - **Data:** `data/transactions.csv` has 20,000 labelled rows, `fraud_probability` in input order."]

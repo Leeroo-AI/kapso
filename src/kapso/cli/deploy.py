@@ -113,8 +113,12 @@ def lifecycle(args) -> None:
     campaign = args.campaign
     if args.status:
         found = records(Path(campaign)) if args.number is None else [open_record(Path(campaign), args.number)]
+        # A campaign not yet deployed is a plain answer to a status question,
+        # not an error: the release gate's cold engineer asked before the
+        # first deploy and read the exit code as a wrong call.
         if not found:
-            raise DeployError(f"{campaign} has no deployment")
+            print(f"{campaign} has no deployment yet")
+            return
         for record in found:
             print(status_line(record, args.config))
         return

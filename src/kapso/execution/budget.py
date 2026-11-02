@@ -31,8 +31,10 @@ _BUDGET_BLOCK_KEYS = {
     "reserve_minutes",
     "min_iteration_seconds",
     "min_agent_timeout_seconds",
+    "judge_reserve_seconds",
     # Durable-clock heartbeat interval (consumed by the orchestrator, not
-    # BudgetSpec): keeps elapsed_seconds fresh between boundary checkpoints.
+    # BudgetSpec): keeps elapsed_seconds and the spend fresh between boundary
+    # checkpoints.
     "checkpoint_heartbeat_seconds",
     # How long `kapso build --stop` waits after SIGTERM before SIGKILL
     # (consumed by the verb, not BudgetSpec).
@@ -97,6 +99,10 @@ class BudgetSpec:
     # construction.
     min_iteration_seconds: float = PACKAGED_BUDGET["min_iteration_seconds"]
     min_agent_timeout_seconds: float = PACKAGED_BUDGET["min_agent_timeout_seconds"]
+    # What the judge is kept before one has been observed in this campaign
+    # (`budget.judge_reserve_seconds`): the reserve a round keeps for it and
+    # the obligation the finishing stages before it leave standing.
+    judge_reserve_seconds: float = PACKAGED_BUDGET["judge_reserve_seconds"]
 
     def __post_init__(self) -> None:
         if self.time_budget_seconds is not None:
@@ -116,6 +122,9 @@ class BudgetSpec:
         )
         _require_finite_non_negative(
             "min_agent_timeout_seconds", self.min_agent_timeout_seconds
+        )
+        _require_finite_non_negative(
+            "judge_reserve_seconds", self.judge_reserve_seconds
         )
 
     @property
@@ -156,6 +165,8 @@ class BudgetSpec:
             kwargs["min_agent_timeout_seconds"] = block[
                 "min_agent_timeout_seconds"
             ]
+        if "judge_reserve_seconds" in block:
+            kwargs["judge_reserve_seconds"] = block["judge_reserve_seconds"]
 
         return cls(
             time_budget_seconds=(
@@ -197,6 +208,7 @@ class BudgetSpec:
             "finalization_reserve_seconds": self.finalization_reserve_seconds,
             "min_iteration_seconds": self.min_iteration_seconds,
             "min_agent_timeout_seconds": self.min_agent_timeout_seconds,
+            "judge_reserve_seconds": self.judge_reserve_seconds,
         }
 
 
@@ -300,6 +312,7 @@ class BudgetSnapshot:
     # Sourced from BudgetSpec at construction; the default (the packaged
     # config's) only serves direct construction in tests.
     min_agent_timeout_seconds: float = PACKAGED_BUDGET["min_agent_timeout_seconds"]
+    judge_reserve_seconds: float = PACKAGED_BUDGET["judge_reserve_seconds"]
     # The delivery's protected slice this round: the fidelity measurement
     # when a maintainer measures the delivered artifact, the checkout else.
     delivery_seconds: float = DELIVERY_SECONDS

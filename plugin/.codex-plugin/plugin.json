@@ -1,6 +1,6 @@
 {
   "name": "kapso",
-  "version": "0.8.0.dev1",
+  "version": "0.8.0",
   "description": "Turn coding-agent output into verified outcomes against a measurable objective with Kapso, from this session: set up, state the objective, launch and follow the campaign, review and deploy the result, author a harness for your domain.",
   "author": {
     "name": "Leeroo",

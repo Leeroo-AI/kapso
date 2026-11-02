@@ -153,6 +153,8 @@ self.knowledge_search = (
 
 Every component reports into one `BudgetLedger`: the inference meter, the coding-agent sessions, and per-node phase telemetry all record against it, and `get_cumulative_cost()` returns `self.budget_ledger.total_cost()`. There is no per-component summing to drift out of agreement.
 
+The run checkpoint carries the totals across a restart. A heartbeat (`budget.checkpoint_heartbeat_seconds`) and a run that raises both write the clock and the spend without touching the search state, so a round that dies midway is redone and what its finished sessions paid still counts against `cost_budget`. A coding-agent session reports its cost when it ends, so the cost of a session still running when the process is killed is not on the ledger.
+
 ## What gets cleaned up?
 
 The orchestrator cleans up resources in a `finally` block:

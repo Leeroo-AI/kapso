@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import plugin_proof  # noqa: E402
 import judge as judge_module  # noqa: E402
-from plugin_proof import SUITE, ClaudeHost, CodexHost, codex_session_note, record_step, shell_step  # noqa: E402
+from plugin_proof import CAMPAIGN_GRACE_SECONDS, SUITE, ClaudeHost, CodexHost, Context, UserMode, codex_session_note, record_step, shell_step, status_of, wait_for  # noqa: E402
 from s1_cold_engineer import CLAUDE_COLD, CODEX_COLD, plugin_proof_rows, session_init, is_cold  # noqa: E402
 
 QUESTIONS = [
@@ -49,7 +49,7 @@ PROMPT = (
     "questions below, each in a short paragraph that names the file or line the answer rests on. Where the record does not settle a question, say "
     "\"not established\" and why. Use no web.\n\n" + "\n".join(f"{number}. {text}" for number, (_, text) in enumerate(QUESTIONS, 1))
 )
-STEP_NAMES = ["fact-sheet", "reading-claude_code", "reading-codex"]
+STEP_NAMES = ["campaign", "fact-sheet", "reading-claude_code", "reading-codex"]
 
 
 # ------------------------------------------------------------ the sheet
@@ -80,15 +80,18 @@ def fact_sheet(trace: Dict[str, Any], labels: Optional[bool]) -> Dict[str, Any]:
     attempts = {attempt["branch"]: attempt for attempt in trace["attempts"]}
     winner = attempts.get(delivered.get("branch")) if delivered else None
     voided = trace.get("voided") or []
-    # The trace's `voided` holds both: an integrity/harness void and a
-    # judge rejection, each with its reason. Split them by the engine's own
-    # semantics, not by the reason's words: the entry's attempt carries
+    # The trace's `voided` holds both: an integrity void and a rejection
+    # (the harness's verification verdict or the judge's invalidation),
+    # each with its reason. Split them by the engine's own semantics, not
+    # by the reason's words: the entry's attempt carries
     # `evaluation.integrity_error` when the integrity check voided it (the
-    # design's "voided on the hash evidence"), and none when the judge
-    # rejected it. The engine words an integrity void "rejected: Provided
-    # evaluation integrity check failed (changed: evaluate.py)" (s4-claude-1),
-    # which a classification by words had to know. An entry whose attempt
-    # the trace does not hold is read by its reason's first word.
+    # design's "voided on the hash evidence"), and none when the verifier
+    # or the judge rejected it. Since the release gate the trace's words
+    # agree ("voided: …" for the integrity check, "rejected: …" for the
+    # rest); a run from an older wheel worded an integrity void "rejected:
+    # Provided evaluation integrity check failed" (s4-claude-1), which a
+    # classification by words had to know. An entry whose attempt the
+    # trace does not hold is read by its reason's first word.
     by_node = {attempt.get("node"): attempt for attempt in trace["attempts"]}
 
     def is_void(entry: Dict[str, Any]) -> bool:
@@ -150,14 +153,90 @@ class S4:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.out = Path(args.out).resolve()
-        (self.out / "transcripts").mkdir(parents=True, exist_ok=True)
-        (self.out / "artifacts").mkdir(parents=True, exist_ok=True)
-        (self.out / "judge").mkdir(parents=True, exist_ok=True)
+        self.work = self.out / "work"
+        for name in ("transcripts", "artifacts", "judge", "work"):
+            (self.out / name).mkdir(parents=True, exist_ok=True)
         self.campaign = Path(args.campaign).resolve() if args.campaign else None
+        # The context that builds the campaign when none is given: the clone's
+        # churn example as the project, the wheel pinned in the record.
+        self.ctx = None
+        if args.clone:
+            host = CodexHost() if args.host == "codex" else ClaudeHost()
+            wheel = Path(args.wheel).resolve() if args.wheel else None
+            self.ctx = Context(host, Path(args.clone).resolve(), self.work, self.out, wheel, args.machine, user=UserMode("scripted", args.host))
 
     def artifact(self, name: str, text: str) -> str:
         (self.out / "artifacts" / name).write_text(text, encoding="utf-8")
         return f"artifacts/{name}"
+
+    # -- the campaign S4 reads, built here --
+    def _wait_round_phase(self, campaign: Path, iteration: int, phase: str, seconds: float, every: float = 5.0) -> bool:
+        """Until the campaign's status shows the round at the phase (or the campaign ended)."""
+        def there() -> bool:
+            status = status_of(campaign) or {}
+            return (status.get("iteration") == iteration and status.get("phase") == phase) or status.get("state") in ("done", "failed")
+        return wait_for(there, seconds, every=every)
+
+    def _commit_main(self, campaign: Path, path: str, message: str) -> None:
+        self.ctx.shell(f"git -C {campaign} add {path} && git -C {campaign} -c user.name=S4 -c user.email=s4@kapso.invalid commit -q -m {json.dumps(message)}")
+
+    def step_campaign(self) -> Dict[str, Any]:
+        """The campaign S4 reads, built here: the churn example at the
+        suite's budget (S5's, which fits two attempts), with one
+        intervention from outside the engine — the protected evaluator
+        edited in `main` during the first ideation (the attempt's clone
+        inherits it with no diff for the writer to notice, and the
+        integrity check voids it on the hash evidence) and restored during
+        the second, so the record holds a void and a delivered attempt.
+        A rejection — the verifier's or the judge's word on an attempt's
+        own work — is nothing a driver can arrange honestly (an earlier
+        version timed a planted leak to a verification the harness-less
+        campaign never runs); whether the campaign holds one is recorded,
+        never required, and the readers' "nothing rejected" is read as
+        right when the record says so."""
+        started = time.monotonic()
+        budget = SUITE["builds"]["s4"]
+        seconds = budget["minutes"] * 60
+        project = self.ctx.fixture("churn-first-build", "s4-project")
+        (project / "generate.py").unlink()   # as S5: a real repository has no generator for its hold-out
+        campaign = self.work / "s4-campaign"
+        log = self.out / "artifacts" / "campaign-launch.log"
+        self.ctx.shell(
+            f"kapso build --brief kapso-brief.md --repo . --evaluation evaluation --data data --output {campaign} --log {log} "
+            f"--budget-minutes {budget['minutes']} --budget-experiments {budget['experiments']} --detach", cwd=project,
+        )
+        wait_for(lambda: status_of(campaign) is not None, 300, every=5)
+        evaluator = campaign / "kapso_evaluation" / "evaluate.py"
+        events: List[str] = []
+        self._wait_round_phase(campaign, 1, "ideation", seconds)
+        pristine = evaluator.read_bytes()
+        evaluator.write_bytes(pristine + b"\n# S4: an edit to the protected evaluator in the campaign's main branch, before the attempt's clone\n")
+        self._commit_main(campaign, "kapso_evaluation/evaluate.py", "S4: the protected evaluator edited in main")
+        events.append(f"{datetime.now(timezone.utc).isoformat(timespec='seconds')} the evaluator edited in main during the first ideation")
+        self._wait_round_phase(campaign, 2, "ideation", seconds)
+        evaluator.write_bytes(pristine)
+        self._commit_main(campaign, "kapso_evaluation/evaluate.py", "S4: the protected evaluator restored in main")
+        second = (status_of(campaign) or {}).get("state") not in ("done", "failed")
+        events.append(f"{datetime.now(timezone.utc).isoformat(timespec='seconds')} the evaluator restored in main " + ("during the second ideation" if second else "after the campaign ended without a second attempt"))
+        wait_for(lambda: (status_of(campaign) or {}).get("state") in ("done", "failed"), seconds + CAMPAIGN_GRACE_SECONDS, every=20)
+        status = status_of(campaign) or {}
+        data = self.ctx.shell(f"kapso trace {campaign} --json", check=False)
+        trace = json.loads(data.stdout) if data.returncode == 0 and data.stdout.strip() else {}
+        holds = fact_sheet(trace, None)["campaign_holds"] if trace else {"void": False, "rejection": False}
+        self.campaign = campaign
+        artifacts = [
+            self.artifact("campaign-interventions.txt", "\n".join(events) + "\n"),
+            self.artifact("campaign-status.json", json.dumps(status, indent=2)),
+            self.artifact("campaign-trace.json", json.dumps(trace, indent=2)),
+        ]
+        if log.is_file():
+            artifacts.append("artifacts/campaign-launch.log")
+        completed = status.get("state") == "done" and holds["void"]
+        step = shell_step("campaign", completed, artifacts, (time.monotonic() - started) / 60,
+                          [f"the churn example at {budget['minutes']} minutes and {budget['experiments']} experiments; the evaluator edited in main for the first attempt and restored for the second",
+                           f"the campaign ended {status.get('state')} ({status.get('stopped_reason')}); it holds a void: {holds['void']}; a rejection: {holds['rejection']} (recorded, not required: a rejection is the verifier's or the judge's word on an attempt's own work)"], kind="build")
+        step["metrics"] = {"campaign_has_void": int(holds["void"]), "campaign_has_rejection": int(holds["rejection"])}
+        return step
 
     def step_fact_sheet(self) -> Dict[str, Any]:
         started = time.monotonic()
@@ -235,9 +314,11 @@ def grade(record: Dict[str, Any]) -> Dict[str, Any]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--campaign", default=None, help="the campaign read (S5's tampering campaign: a void, a rejection)")
+    parser.add_argument("--campaign", default=None, help="a campaign to read as it is; given none, the driver builds its own from the clone's churn example (the integrity check's void on the first attempt, the second delivered)")
     parser.add_argument("--out", required=True)
     parser.add_argument("--clone", default=None)
+    parser.add_argument("--host", choices=["claude_code", "codex"], default="claude_code", help="the host named in the record (the readers are both hosts' either way)")
+    parser.add_argument("--wheel", default=None, help="the wheel the machine installed, pinned in the record by its sha256")
     parser.add_argument("--readers", default="claude_code,codex")
     parser.add_argument("--machine", default=os.uname().nodename)
     parser.add_argument("--advisory", default=None)
@@ -248,10 +329,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     driver = S4(args)
     record_file = driver.out / "record.json"
     started = datetime.now(timezone.utc)
+    wheel_sha256 = hashlib.sha256(driver.ctx.wheel.read_bytes()).hexdigest() if driver.ctx is not None and driver.ctx.wheel else "-"
     record = json.loads(record_file.read_text()) if record_file.exists() else {
-        "test": "S4", "host": "claude_code", "machine": args.machine, "run_id": f"S4-{'+'.join(args.readers.split(','))}-{started.strftime('%Y%m%dT%H%M%SZ')}", "advisory": args.advisory,
-        "package": {"version": subprocess.run(["kapso", "--version"], capture_output=True, text=True).stdout.strip().split()[-1] if shutil.which("kapso") else "-", "wheel_sha256": "-"},
-        "pins": {"suite_sha256": hashlib.sha256(plugin_proof.SUITE_PATH.read_bytes()).hexdigest(), "campaign": str(driver.campaign)},
+        "test": "S4", "host": args.host, "machine": args.machine, "run_id": f"S4-{'+'.join(args.readers.split(','))}-{started.strftime('%Y%m%dT%H%M%SZ')}", "advisory": args.advisory,
+        "package": {"version": subprocess.run(["kapso", "--version"], capture_output=True, text=True).stdout.strip().split()[-1] if shutil.which("kapso") else "-", "wheel_sha256": wheel_sha256},
+        "pins": {"wheel_sha256": wheel_sha256, "suite_sha256": hashlib.sha256(plugin_proof.SUITE_PATH.read_bytes()).hexdigest(), "campaign": str(driver.campaign) if driver.campaign else "built by the campaign step"},
         "user": {"kind": "scripted", "card": None, "interventions": ["the fact sheet extracted by the driver and checked by hand; the readers see the trace and the campaign only"], "events": [], "pushback": None},
         "started": started.isoformat(timespec="seconds"), "finished": None, "steps": [], "metrics": {}, "notes": [note for note in [codex_session_note()] if note], "transcripts": [],
     }
@@ -279,14 +361,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         record_file.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
         print(json.dumps(record["metrics"]))
         return 0
-    if not args.campaign:
-        parser.error("--campaign, or --grade")
-    selected = args.steps.split(",") if args.steps else ["fact-sheet", *[f"reading-{reader}" for reader in args.readers.split(",")]]
+    if not args.campaign and not args.clone:
+        parser.error("--campaign (a campaign to read), --clone (the checkout to build one from), or --grade")
+    built = [] if args.campaign else ["campaign"]
+    selected = args.steps.split(",") if args.steps else [*built, "fact-sheet", *[f"reading-{reader}" for reader in args.readers.split(",")]]
     for name in selected:
         print(f"== {name}", flush=True)
-        step = driver.step_fact_sheet() if name == "fact-sheet" else driver.step_reading(name.split("-", 1)[1])
+        if name == "campaign":
+            step = driver.step_campaign()
+            record["pins"]["campaign"] = str(driver.campaign)
+        elif name == "fact-sheet":
+            step = driver.step_fact_sheet()
+        else:
+            step = driver.step_reading(name.split("-", 1)[1])
         record["steps"] = [existing for existing in record["steps"] if existing["name"] != name] + [step]
-        if name == "fact-sheet":
+        if name in ("campaign", "fact-sheet"):
             record["metrics"] = {**record.get("metrics", {}), **step.get("metrics", {})}
         record["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         record["transcripts"] = sorted(f"transcripts/{path.name}" for path in (driver.out / "transcripts").glob("*.jsonl"))

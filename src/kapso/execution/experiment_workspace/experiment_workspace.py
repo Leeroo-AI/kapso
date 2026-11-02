@@ -20,6 +20,7 @@ from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.experiment_workspace.experiment_session import ExperimentSession
 from kapso.execution.memories.repo_memory import RepoMemoryManager
+from kapso.execution.memories.repo_memory.builders import UPDATE_PAYLOAD_MAX_CHARS
 
 
 class WorkspaceCheckoutError(RuntimeError):
@@ -66,6 +67,7 @@ class ExperimentWorkspace:
         initial_repo: Optional[str] = None,
         repo_memory_failure_policy: str = RepoMemoryManager.DEFAULT_FAILURE_POLICY,
         repo_memory_max_retries: int = RepoMemoryManager.DEFAULT_MAX_RETRIES,
+        repo_memory_update_payload_max_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
         llm_backend=None,
     ):
         """
@@ -80,6 +82,8 @@ class ExperimentWorkspace:
                 RepoMemory enrichment failures
             repo_memory_max_retries: Structured-response repair attempts after
                 the first RepoMemory response
+            repo_memory_update_payload_max_chars: Changed-file text one
+                RepoMemory update call carries before it is windowed
             llm_backend: Shared configured backend for utility completions
         """
         
@@ -98,6 +102,11 @@ class ExperimentWorkspace:
         self.repo_memory_max_retries = (
             RepoMemoryManager.normalize_max_retries(
                 repo_memory_max_retries
+            )
+        )
+        self.repo_memory_update_payload_max_chars = (
+            RepoMemoryManager.normalize_update_payload_max_chars(
+                repo_memory_update_payload_max_chars
             )
         )
         self.llm_backend = llm_backend
@@ -440,6 +449,9 @@ class ExperimentWorkspace:
             ),
             repo_memory_failure_policy=self.repo_memory_failure_policy,
             repo_memory_max_retries=self.repo_memory_max_retries,
+            repo_memory_update_payload_max_chars=(
+                self.repo_memory_update_payload_max_chars
+            ),
             llm_backend=self.llm_backend,
             continue_branch=continue_branch,
         )

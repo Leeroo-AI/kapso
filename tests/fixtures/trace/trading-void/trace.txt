@@ -30,7 +30,7 @@ LESSONS
   nothing served
 
 VOIDED OR REJECTED
-node 0  generic_exp_0  void: The prescribed final-diff look-ahead scan returned no findings; the independent lookahead auditor passed the strategy as causal and leakage-free; all three contract tests passed; and the saved 262-day artifacts reproduce the reported Sharpe and drawdown with ample trades and losing periods. Nevertheless, the attempt is void because it added a hand-authored file inside the task's explicitly protected kapso_evaluation directory, which the task says a candidate may not modify; evaluate.py itself was unchanged and the evaluator-generated result.json is not the basis for this finding.
+node 0  generic_exp_0  rejected: the verification found The prescribed final-diff look-ahead scan returned no findings; the independent lookahead auditor passed the strategy as causal and leakage-free; all three contract tests passed; and the saved 262-day artifacts reproduce the reported Sharpe and drawdown with ample trades and losing periods. Nevertheless, the attempt is void because it added a hand-authored file inside the task's explicitly protected kapso_evaluation directory, which the task says a candidate may not modify; evaluate.py itself was unchanged and the evaluator-generated result.json is not the basis for this finding.
     - The candidate must not modify the protected kapso_evaluation/ directory.: /tmp/kapso_candidate_wpmof1ky/kapso_task.md:32 says a candidate that modifies kapso_evaluation/ is rejected; /campaign/.kapso/verification/generic_exp_0/diff.patch:75-80 shows the attempt adding kapso_evaluation/eval_profile.md, and git history identifies commit f0b29ad as 'docs: profile trading evaluation'.
 
 SESSIONS FAILED

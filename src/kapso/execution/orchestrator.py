@@ -36,6 +36,7 @@ from kapso.execution.search_strategies.generic.implementation import render_inbo
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.execution.inbox import (
     idea_line,
+    continue_answered,
     load_requests,
     open_requests,
     render_pause_block,
@@ -311,7 +312,9 @@ class OrchestratorAgent:
         self._prior_cost = 0.0
         self._prior_elapsed_seconds = 0.0
         self._prior_cost_by_component: Dict[str, float] = {}
-        self._restored_node_count = 0
+        # {node id: {phase: USD}}: what the resume checkpoint's cumulative_cost
+        # already carries for each restored node.
+        self._restored_phase_costs: Dict[int, Dict[str, float]] = {}
 
         if workspace_dir is not None:
             self.checkpoint_store = RunCheckpointStore(workspace_dir)
@@ -382,12 +385,16 @@ class OrchestratorAgent:
                     "Could not restore search strategy state from the run "
                     "checkpoint"
                 ) from exc
-            # Nodes restored from the checkpoint already carried their agent
-            # spend into cumulative_cost; only nodes created after this point
-            # contribute live phase costs.
-            self._restored_node_count = len(
-                self.search_strategy.get_experiment_history()
-            )
+            # The checkpoint's cumulative_cost already carries what restored
+            # nodes had spent. Only what they spend from here on is live: a
+            # node the inbox continues is restored and still paying.
+            self._restored_phase_costs = {
+                node.node_id: {
+                    phase_name: phase_values.get("cost_usd", 0.0)
+                    for phase_name, phase_values in node.phase_telemetry.items()
+                }
+                for node in self.search_strategy.get_experiment_history()
+            }
 
         if self.checkpoint_store is None:
             self.checkpoint_store = RunCheckpointStore(
@@ -510,16 +517,20 @@ class OrchestratorAgent:
         return search_config["type"], params
 
     def _live_phase_costs(self) -> Dict[str, float]:
-        """Attributed agent spend from nodes created in this process slice."""
+        """Attributed agent spend the resume checkpoint does not carry yet,
+        the running round's included. The heartbeat thread reads this while
+        the phases write, hence the copies."""
         live: Dict[str, float] = {}
-        history = self.search_strategy.get_experiment_history()
-        for node in history[self._restored_node_count:]:
-            for phase_name, phase_values in getattr(
-                node, "phase_telemetry", {}
-            ).items():
+        for node in [
+            *self.search_strategy.get_experiment_history(),
+            *getattr(self.search_strategy, "in_flight_nodes", ()),
+        ]:
+            carried = self._restored_phase_costs.get(node.node_id, {})
+            for phase_name, phase_values in list(node.phase_telemetry.items()):
                 live[phase_name] = (
                     live.get(phase_name, 0.0)
                     + phase_values.get("cost_usd", 0.0)
+                    - carried.get(phase_name, 0.0)
                 )
         return live
 
@@ -682,6 +693,13 @@ class OrchestratorAgent:
             render_inbox_section(load_requests(inbox["path"]), dotenv_path=inbox.get("dotenv_path", ""))
             if inbox_on else ""
         )
+        if inbox_on:
+            # A restarted setup session carries the person's replies: the
+            # setup's answered requests are continued by it, and the record
+            # says so — a search node's session records its own on resume,
+            # and the setup's were left `answered`, the request's promise
+            # of a resumption unkept in the record (the S2 gate, 2026-10-30).
+            continue_answered(inbox["path"], node=HARNESS_SETUP_NODE, session=inbox_session_id)
         prompt = render_prompt(load_prompt(HARNESS_SETUP_PROMPT), {
             "task_statement_path": str(campaign / TASK_STATEMENT_FILE),
             "statement_path": setup_statement_path(campaign).relative_to(campaign).as_posix(),
@@ -1111,8 +1129,11 @@ class OrchestratorAgent:
         """The reserve this round keeps out of the search: the set one,
         else derived from the obligations — the harness's verification
         minutes when it verifies, the judge's last observed duration (the
-        floor before one), the delivery's slice; either bounded by a
-        quarter of the budget."""
+        config's judge reserve before one: a judge takes minutes, and a
+        reserve at the floor let the first attempt's verification run the
+        remainder down to 59 s for it, under the floor, the hour's attempt
+        then unjudged — the release gate, 2026-10-30), the delivery's
+        slice; either bounded by a quarter of the budget."""
         bounded = budget_spec.bounded_reserve_seconds()
         if bounded is not None:
             return bounded
@@ -1121,13 +1142,19 @@ class OrchestratorAgent:
             if self.harness is not None and self.harness.has_content("verification")
             else 0.0
         )
+        return budget_spec.bound_reserve(verification + self._judge_reserve_seconds(budget_spec) + self._delivery_seconds())
+
+    def _judge_reserve_seconds(self, budget_spec: BudgetSpec) -> float:
+        """What this round keeps for the judge: the last judge's observed
+        duration in the campaign, the config's reserve before one. The
+        round's reserve holds it back from the search, and the strategy's
+        finishing stages leave it standing (the snapshot carries it)."""
         observed = [
             node.phase_telemetry["feedback"]["duration_seconds"]
             for node in self.search_strategy.get_experiment_history()
             if "feedback" in node.phase_telemetry
         ]
-        judge = observed[-1] if observed else budget_spec.min_agent_timeout_seconds
-        return budget_spec.bound_reserve(verification + judge + self._delivery_seconds())
+        return observed[-1] if observed else budget_spec.judge_reserve_seconds
 
     def _platform_budget_view(self) -> Optional[Dict[str, Any]]:
         """The campaign's platform spend against its budget, in the
@@ -1147,9 +1174,20 @@ class OrchestratorAgent:
         view = self._platform_budget_view()
         return {} if view is None else {"platform_budget": view}
 
+    def _persist_budget_totals(self) -> None:
+        """Put the clock and the spend on disk between boundary checkpoints."""
+        if self.checkpoint_store is None:
+            return
+        with self._checkpoint_lock:
+            self.checkpoint_store.patch_budget_totals(
+                elapsed_seconds=self.get_elapsed_seconds(),
+                cumulative_cost=self.get_cumulative_cost(),
+                cost_by_component=self.budget_ledger.cost_by_component(),
+            )
+
     def _run_checkpoint_heartbeat(self, interval_seconds: float) -> None:
-        """Daemon loop: keep the durable clock fresh between boundary
-        checkpoints so a preemption cannot rewind the budget on resume.
+        """Daemon loop: keep the durable clock and spend fresh between
+        boundary checkpoints so a preemption cannot rewind the budget on resume.
         The same beat refreshes the observability status file — a build's
         liveness signal rides this existing daemon (observability §2)."""
         while not self._heartbeat_stop.wait(interval_seconds):
@@ -1157,12 +1195,7 @@ class OrchestratorAgent:
                 self.operation_status.heartbeat(
                     budget=self._status_budget_view()
                 )
-            if self.checkpoint_store is None:
-                continue
-            with self._checkpoint_lock:
-                self.checkpoint_store.heartbeat_elapsed(
-                    self.get_elapsed_seconds()
-                )
+            self._persist_budget_totals()
 
     def _validate_restored_branch_refs(self) -> None:
         """Ensure successful checkpoint nodes still point to Git refs."""
@@ -1479,6 +1512,7 @@ class OrchestratorAgent:
                     cost_budget_usd=budget_spec.cost_budget_usd,
                     finalization_reserve_seconds=self._round_reserve_seconds(budget_spec),
                     min_agent_timeout_seconds=budget_spec.min_agent_timeout_seconds,
+                    judge_reserve_seconds=self._judge_reserve_seconds(budget_spec),
                     delivery_seconds=self._delivery_seconds(),
                 ))
             self._run_harness_setup()
@@ -1634,6 +1668,7 @@ class OrchestratorAgent:
                     min_agent_timeout_seconds=(
                         budget_spec.min_agent_timeout_seconds
                     ),
+                    judge_reserve_seconds=self._judge_reserve_seconds(budget_spec),
                     delivery_seconds=self._delivery_seconds(),
                 )
                 self.search_strategy.observe_budget(snapshot)
@@ -1668,7 +1703,22 @@ class OrchestratorAgent:
                 last_round = self.search_strategy.last_round_seconds
                 if last_round is not None:
                     needed_seconds = max(needed_seconds, last_round)
-                if remaining_after_reserve is not None and remaining_after_reserve < needed_seconds:
+                # A continuation is not a round: a node suspended on a
+                # request the person has answered resumes its own session
+                # whatever the remainder, since the attempt is under way and
+                # the person answered (the release gate's S5 saw a resume
+                # refused on the paused attempt's own elapsed time — "the
+                # last took 18.2 min" — and the reply never reach the
+                # session). The continuation's result is judged like any
+                # finished node; the next admission sees the real remainder.
+                continuation = self.search_strategy.continues_an_answered_node()
+                if continuation and remaining_after_reserve is not None and remaining_after_reserve < needed_seconds:
+                    print(
+                        "[Orchestrator] Continuing the node that waited on the inbox: "
+                        f"the remaining {max(remaining_after_reserve, 0.0) / 60:.1f} min would not admit a new attempt, "
+                        "and a continuation is not one"
+                    )
+                if not continuation and remaining_after_reserve is not None and remaining_after_reserve < needed_seconds:
                     champion = (
                         fidelity_policy.full_champion(
                             self.search_strategy.get_experiment_history()
@@ -1710,6 +1760,7 @@ class OrchestratorAgent:
                             min_agent_timeout_seconds=(
                                 budget_spec.min_agent_timeout_seconds
                             ),
+                            judge_reserve_seconds=self._judge_reserve_seconds(budget_spec),
                             delivery_seconds=self._delivery_seconds(),
                         )
                         self.search_strategy.observe_budget(snapshot)
@@ -2062,5 +2113,10 @@ class OrchestratorAgent:
                     self.knowledge_search.close()
                 except Exception:
                     pass
+            # A round that raised has no boundary checkpoint coming, and it
+            # is redone on resume: what it paid goes on disk now. Last, so a
+            # checkpoint that cannot be read does not skip the cleanup above.
+            if in_flight is not None:
+                self._persist_budget_totals()
 
         return result

@@ -91,6 +91,9 @@ class ScoringFakeStrategy:
         # contract itself, not a copy of it.
         return GenericSearch.stage_harness_for(self, module, session_dir, label, agent_type)
 
+    def continues_an_answered_node(self) -> bool:
+        return False   # the fake has no inbox continuation; the orchestrator's admission asks every strategy
+
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         node_id = len(self.node_history)
         branch = f"generic_exp_{node_id}"

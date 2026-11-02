@@ -1,13 +1,14 @@
 ---
-title: "Parent selection: build on the best candidate or baseline"
+title: "Parent selection: best, baseline or weighted"
 sidebarTitle: "Parent selection"
-description: "Choose whether each generic experiment refines the best valid candidate so far or restarts from the baseline, and what that does to lineage and resume."
-keywords: ["parent selection", "search policy", "baseline", "lineage", "generic search"]
+description: "Choose whether each generic experiment refines the best valid candidate so far, restarts from the baseline, or samples a parent that balances both, and what that does to lineage and resume."
+keywords: ["parent selection", "search policy", "baseline", "weighted", "lineage", "generic search"]
 ---
 
-Generic search can either refine the best valid candidate found so far or run
-every experiment independently from the campaign baseline. The choice is an
-explicit strategy parameter and is fixed for the campaign.
+Generic search can refine the best valid candidate found so far, run every
+experiment independently from the campaign baseline, or sample a parent from
+the valid candidates so strong alternatives keep getting explored. The choice
+is an explicit strategy parameter and is fixed for the campaign.
 
 ## Configuration
 
@@ -17,17 +18,57 @@ search_strategy:
     parent_policy: best
 ```
 
-`parent_policy` accepts exactly two values:
+`parent_policy` accepts exactly three values:
 
 | Policy | Selected branch | Recorded `parent_node_id` | Use case |
 |--------|-----------------|---------------------------|----------|
 | `best` | Best valid candidate; before one exists, the latest committed non-error node (deadline-killed work continues in place); `main` only when nothing is committed | Selected candidate's node ID, or `null` for `main` | Iterative refinement and exploitation |
 | `baseline` | Always `main` | Always `null` | Independent experiments and broader exploration |
+| `weighted` | One eligible candidate sampled by rank; same fallback as `best` before one exists | Sampled candidate's node ID, or `null` for `main` | Long campaigns that should keep exploring runner-ups while most effort goes to the best branches |
 
 The default is `best`, preserving the behavior of existing generic-search
 campaigns. Unknown values fail during strategy initialization. There is no
 environment-variable override, so the run configuration and its checkpoint
 fully describe the behavior.
+
+## Weighted sampling
+
+`weighted` draws the parent from the same candidates `best` considers: not
+errored, valid evaluation, scored. Integrity-flagged and cost-refused
+candidates stay ineligible. Candidates are ranked best first with the same
+score `best` uses, so minimize metrics and cost-aware selection rank exactly as
+they do under `best`. Each candidate's sampling weight is
+
+```text
+weight = exp(-rank / temperature) / (1 + offspring_penalty * children)
+```
+
+where `rank` is 0 for the best candidate and `children` counts the nodes
+already built on it. Rank, not raw score, keeps the policy independent of the
+metric's scale and direction.
+
+```yaml
+search_strategy:
+  params:
+    parent_policy: "weighted"
+    parent_sampling:
+      temperature: 1.0
+      offspring_penalty: 1.0
+      seed: 0
+```
+
+| Key | Effect |
+|-----|--------|
+| `temperature` | Must be positive. Lower values approach `best`; higher values approach uniform sampling |
+| `offspring_penalty` | Must be non-negative. Down-weights parents that were already expanded; `0` turns it off |
+| `seed` | Integer seeding the sampler |
+
+The packaged values live in `defaults.search_strategy.params.parent_sampling`
+and are inherited by every mode. The sampler is seeded from `seed` and the
+current node count, so a given campaign state always yields the same parent and
+a resumed campaign makes the choice it would have made without the interruption.
+Before any scored candidate exists, `weighted` behaves like `best`: the latest
+committed node, else `main`. The final deliverable is still the best candidate.
 
 ## One iteration
 
@@ -76,7 +117,9 @@ Each node records both:
 
 Checkpoint state includes `parent_policy`. Resume rejects a state whose saved
 policy differs from the configured policy. It also rejects parent node IDs that
-do not reference an earlier node and branch/node pairs that disagree.
+do not reference an earlier node and branch/node pairs that disagree. The
+`parent_sampling` settings are part of the mode configuration, so the campaign's
+config fingerprint covers them and a resume with different settings is refused.
 
 The campaign-level configuration fingerprint guards against changing strategy parameters during a resume.
 
@@ -86,7 +129,10 @@ Use `best` when improvements are expected to compose and each iteration should
 start from the strongest known implementation. Use `baseline` when candidates
 should be directly comparable as independent changes, when early local optima
 are a concern, or when modifications from different ideas are likely to
-interfere with one another.
+interfere with one another. Use `weighted` for long campaigns where `best`
+keeps refining one branch after it stops improving but `baseline` would discard
+accumulated progress: a runner-up with a different approach still gets
+expanded, and heavily expanded branches are chosen less often.
 
 ## Related
 

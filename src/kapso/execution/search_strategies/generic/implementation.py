@@ -107,6 +107,7 @@ def run_implementation(
     lane_brief: str,
     note_session_started: Callable[[], None],
     note_session_end_facts: Callable[[str], None],
+    note_session_spend: Callable[[Dict[str, float]], None],
     await_registered_evaluation: Callable[[str], Optional[str]],
     stage_harness_for: Callable[..., StagedHarness],
     node_id: int = 0,
@@ -404,6 +405,8 @@ def run_implementation(
         **gate_usage(meta["tool_calls"]),
     }
     
+    note_session_spend(telemetry)
+
     # 7. Update RepoMemory for this experiment branch — not for a session
     # that asked and stopped: its work is unfinished, the continuation's
     # close records it.

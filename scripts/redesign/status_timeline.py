@@ -52,8 +52,16 @@ def shown_state(watch_text: str) -> Optional[str]:
     not a re-derivation. The single-campaign screen keeps the stored word
     and appends the verdict as a marker ("RUNNING ♥ 289s ago   ⚠ DEAD (pid
     5554 is gone)"), so the marker wins over the word (s5-claude-5 read
-    RUNNING through a writer the screen called dead). None when nothing
-    was printed."""
+    RUNNING through a writer the screen called dead). A detached resume
+    whose child has not yet written its status prints "starting again
+    (pid …); the status below is the earlier run's" above that earlier
+    run's screen, DEAD marker and all: the product's verdict is the top
+    line, and the sample reads it STARTING (rel-s5-codex read DEAD off
+    the earlier run's marker a minute after a resume, and the run's
+    truthfulness bar fell on the sampler's own misreading). None when
+    nothing was printed."""
+    if watch_text.lstrip().startswith("starting"):
+        return "STARTING"
     if "⚠ DEAD" in watch_text:
         return "DEAD"
     if "⚠ STALLED" in watch_text:

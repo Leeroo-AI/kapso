@@ -78,7 +78,7 @@ def test_the_turn_cap_ends_the_step_as_an_event_never_a_pass(tmp_path, monkeypat
     # per call site; a follow-up exchange (watch-2) is capped by its parent's
     # budget and its cap makes the parent step incomplete.
     turns = ctx.converse("watch", tmp_path / "work", "/kapso:watch", lambda t, i: None, max_turns=8)
-    assert len(turns) == proof.SUITE["steps"]["watch"]["messages"] == 2 and user.events[-1].endswith("the step is incomplete") and "watch" in user.capped
+    assert len(turns) == proof.SUITE["steps"]["watch"]["messages"] and user.events[-1].endswith("the step is incomplete") and "watch" in user.capped, "the turn cap is the step's message budget"
     # The cap makes even a satisfied-looking predicate incomplete.
     assert user.ended_well("watch", True) is False and user.ended_well("other", True) is True
     user.capped.clear()
@@ -280,3 +280,169 @@ def test_both_hosts_turns_carry_whether_a_tool_call_succeeded():
     ])
     tools, sid = proof.parse_codex_stream(codex_stream, "")
     assert sid == "th-1" and [(tool["name"], tool["is_error"]) for tool in tools] == [("mcp__kapso__bank_get_card", True), ("mcp__kapso__bank_list", False), ("Bash", True)]
+
+
+def test_the_trigger_probe_runs_after_every_campaign_so_neither_is_measured_under_the_other():
+    # rel-s2-codex, fifth launch: the probe (a hundred minutes of Codex
+    # sessions one at a time) followed build-churn, the churn campaign lived
+    # its hour under that load, and its ideation session passed its deadline
+    # and was killed. The probe now runs last, on an idle machine.
+    order = proof.STEP_NAMES
+    probe = order.index("triggers")
+    for step in ("build-churn", "build-pause", "build-fraud", "harness-probe", "learn-complete", "second-engineer-build", "campaign-session-isolation"):
+        assert order.index(step) < probe, step
+    assert order[-1] == "cold-start" and "codex-rules-probe" in order[probe:]
+
+
+def test_the_setup_step_on_codex_fails_when_the_mcp_server_was_not_registered(tmp_path, monkeypatch):
+    # rel-s2-codex, fifth launch: the setup session read "add it once" beside
+    # a green doctor and ran no `codex mcp add`; the list came back empty and
+    # every later session lacked the plugin's tools. The step now fails on
+    # the missing row, where the cause is, and says so.
+    import types
+
+    class CodexFake(FakeHost):
+        name = "codex"
+
+        @staticmethod
+        def command(name):
+            return f"$kapso-{name} set this machine up"
+
+    def run(listing):
+        user, _ = _persona(monkeypatch, ["DONE"])
+        ctx = _context(tmp_path / listing.strip().replace(" ", "_")[:6], CodexFake([("Setup is done.", False)]), user)
+
+        def shell(command, cwd=None, check=True, timeout=None):
+            out = '{"checks": [{"required": true, "ok": true}]}' if "doctor" in command else listing
+            return types.SimpleNamespace(stdout=out, stderr="", returncode=0)
+        monkeypatch.setattr(ctx, "shell", shell)
+        return proof.step_setup(ctx)
+
+    missing = run("")
+    assert missing["completed"] is False and any("no kapso server" in note for note in missing["notes"])
+    present = run("kapso  kapso-mcp  stdio\n")
+    assert present["completed"] is True and not any("no kapso server" in note for note in present["notes"])
+
+
+def test_the_campaign_tools_step_probes_the_server_and_runs_a_second_session_when_the_first_saw_no_tool(tmp_path, monkeypatch):
+    # rel-s2-codex, eighth launch: the session reported the three tools
+    # unavailable, the session-brief one minutes later read a card through the
+    # same server. The step now records a standalone handshake with the server
+    # and, when the first session used no tool though the server lists them,
+    # runs one more session and says so.
+    import types
+
+    class ToolHost(FakeHost):
+        name = "codex"
+
+        def __init__(self, answers):
+            super().__init__(answers)
+            self.calls = 0
+
+        def turn(self, cwd, prompt, session, transcript):
+            self.calls += 1
+            turn = super().turn(cwd, prompt, session, transcript)
+            tools = [] if self.calls == 1 else [{"name": f"mcp__kapso__{tool}", "input": {}} for tool in proof.CAMPAIGN_TOOLS]
+            return proof.Turn(turn.text, turn.seconds, turn.session, tools, turn.asked)
+
+    monkeypatch.setattr(proof, "mcp_server_probe", lambda project, seconds: {"started": True, "seconds": 2.5, "tools": [f"kapso_{t}" for t in ("build_start", "status", "stop")] + ["bank_index"], "error": "", "stderr_tail": ""})
+    user, _ = _persona(monkeypatch, ["DONE", "DONE"])
+    host = ToolHost([("The tools are unavailable in this session.", False), ("Started, read, stopped: three answers.", False)])
+    ctx = _context(tmp_path, host, user)
+    ctx.state["churn_project"] = str(tmp_path / "work")
+    monkeypatch.setattr(ctx, "shell", lambda command, cwd=None, check=True, timeout=None: types.SimpleNamespace(stdout="", stderr="", returncode=0))
+    step = proof.step_campaign_tools(ctx)
+    assert host.calls == 2 and step["completed"] is True
+    assert any("listed 4 tools in 2.5 s" in note for note in step["notes"]) and any("a second session ran" in note for note in step["notes"])
+    assert "`kapso` MCP server" in host.prompts[0]
+    # The server lists no campaign tool: one session, no retry, and the note says which are missing.
+    monkeypatch.setattr(proof, "mcp_server_probe", lambda project, seconds: {"started": True, "seconds": 1.0, "tools": ["bank_index"], "error": "", "stderr_tail": ""})
+    user2, _ = _persona(monkeypatch, ["DONE"])
+    host2 = ToolHost([("Unavailable.", False)])
+    ctx2 = _context(tmp_path / "two", host2, user2)
+    (tmp_path / "two" / "work").mkdir(parents=True, exist_ok=True)
+    ctx2.state["churn_project"] = str(tmp_path / "two" / "work")
+    monkeypatch.setattr(ctx2, "shell", lambda command, cwd=None, check=True, timeout=None: types.SimpleNamespace(stdout="", stderr="", returncode=0))
+    step2 = proof.step_campaign_tools(ctx2)
+    assert host2.calls == 1 and step2["completed"] is False and any("not among them" in note for note in step2["notes"])
+
+
+def test_a_closing_line_that_opens_with_a_quoted_path_keeps_its_ask():
+    # rel-s2-claude, eighth launch: the proposal closed "`../fraud-campaign`
+    # already holds an earlier campaign … Approve the brief and evaluation,
+    # or edit a line; say "go" to launch", and the detector dropped the line
+    # as the command shown after an ask, reading no ask at all.
+    prose = ('The baseline is 0.08.\n\n`../fraud-campaign` already holds an earlier campaign, so this one will write to '
+             '`../fraud-scorer-campaign`. Approve the brief and evaluation, or edit a line (PR-AUC, the 25% split or the 0.54 target); say "go" to launch')
+    assert proof.question_asked(prose, []) is True
+    # A command wrapped whole after the ask is still dropped, the ask above it read.
+    assert proof.question_asked('Say go and I\'ll run:\n`kapso build --brief kapso-brief.md --detach`', []) is True
+    # A prose line opening with a quoted path and asking nothing asks nothing.
+    assert proof.question_asked('`../churn-campaign` is running; the status is fresh.', []) is False
+
+
+def test_an_archived_runs_proposal_steps_are_re_read_under_the_current_ask_detector(tmp_path):
+    # The eighth S2 Claude launch's data-only step read no proposal under the
+    # detector of its day; the archive holds the answer, the launch fact and
+    # the persona's DONE, and a re-read under the current detector says so.
+    (tmp_path / "transcripts").mkdir()
+    closing = '`../fraud-campaign` already holds an earlier campaign. Approve the brief and evaluation, or edit a line; say "go" to launch'
+    (tmp_path / "transcripts" / "build-data-only.jsonl").write_text(json.dumps({"proof_prompt": "/kapso:build …"}) + "\n" + json.dumps({"type": "result", "result": closing}) + "\n", encoding="utf-8")
+    (tmp_path / "transcripts" / "build-empty-wish.jsonl").write_text(json.dumps({"proof_prompt": "/kapso:build …"}) + "\n" + json.dumps({"type": "result", "result": "I launched it; follow with kapso watch."}) + "\n", encoding="utf-8")
+    record = {"steps": [
+        {"name": "build-data-only", "kind": "conversation", "completed": False, "notes": ["candidate criteria judged by hand from the answers artifact; a campaign was launched: False (the step forbids it)"]},
+        {"name": "build-empty-wish", "kind": "conversation", "completed": True, "notes": ["candidate criteria judged by hand from the answers artifact; a campaign was launched: True (the step forbids it)"]},
+        {"name": "watch", "kind": "conversation", "completed": True, "notes": []},
+    ], "user": {"events": ["build-data-only: the persona said DONE after 2 turn(s)", "build-empty-wish: the persona said DONE after 1 turn(s)"]}, "notes": []}
+    out = proof.rederive(record, tmp_path)
+    by_name = {step["name"]: step for step in out["steps"]}
+    assert by_name["build-data-only"]["completed"] is True and "the first answer asked" in by_name["build-data-only"]["notes"][-1]
+    assert by_name["build-empty-wish"]["completed"] is False and "a campaign was launched: True" in by_name["build-empty-wish"]["notes"][-1], "a launch the step forbids stays a miss"
+    assert by_name["watch"]["completed"] is True and by_name["watch"]["notes"] == [], "other steps stay as recorded"
+    assert out["notes"][-1].startswith("re-derived ")
+    # A launch the persona itself asked for (the ninth S2 Codex launch:
+    # "Validator, not modelling: go") is no miss of "do not launch anything".
+    (tmp_path / "transcripts" / "build-empty-wish.jsonl").write_text(
+        json.dumps({"proof_prompt": "/kapso:build …"}) + "\n" + json.dumps({"type": "result", "result": "Here is the proposal. Approve it?"}) + "\n"
+        + json.dumps({"persona_reply": "Wrong repo — validator, not modelling: go.", "done": False}) + "\n" + json.dumps({"type": "result", "result": "Launched."}) + "\n", encoding="utf-8")
+    again = proof.rederive(json.loads(json.dumps(record)), tmp_path)
+    wish = {step["name"]: step for step in again["steps"]}["build-empty-wish"]
+    assert wish["completed"] is True and "on the persona's own go" in wish["notes"][-1]
+    # A Codex transcript carries agent messages, not a result row: the first
+    # answer is the last agent message before the persona's first reply (the
+    # ninth S2 Codex launch's empty wish, skipped by a re-read that looked
+    # for the Claude row).
+    codex_rows = [json.dumps({"proof_prompt": "$kapso-build build something useful here"}),
+                  json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "I'm reading the repository."}}),
+                  json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "Here is the proposal. Approve it, or edit a line?"}}),
+                  json.dumps({"persona_reply": "Validator, not modelling: go.", "done": False}),
+                  json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "Launched."}})]
+    (tmp_path / "transcripts" / "build-empty-wish.jsonl").write_text("\n".join(codex_rows) + "\n", encoding="utf-8")
+    assert proof.first_answer([json.loads(row) for row in codex_rows]) == "Here is the proposal. Approve it, or edit a line?"
+    codex = proof.rederive(json.loads(json.dumps(record)), tmp_path)
+    assert {step["name"]: step for step in codex["steps"]}["build-empty-wish"]["completed"] is True
+    assert proof.persona_approved(tmp_path / "transcripts" / "build-empty-wish.jsonl") is True
+    assert proof.persona_approved(tmp_path / "transcripts" / "build-data-only.jsonl") is False, "no persona reply approved there"
+
+
+def test_deployment_parity_reads_a_row_nested_in_the_batch_the_deployment_answered(tmp_path):
+    # rel-s2-claude, eighth launch: a blend that keeps its batch answered
+    # {"predictions": [{"id": "C010001", "churn_probability": 0.978…}], …}
+    # and the reader took it for no row; the re-read covers the deploy step.
+    campaign = tmp_path / "work" / "churn-campaign"
+    campaign.mkdir(parents=True)
+    (campaign / "predictions.csv").write_text("id,churn_probability\nC010001,0.9783405531489503\nC010002,0.1\n", encoding="utf-8")
+    nested = {"observed": {"predictions": [{"id": "C010001", "churn_probability": 0.9783405531489503}], "batch_size": 3000, "in_reference_batch": ["C010001"]}}
+    deployment = tmp_path / "deployments" / "1"
+    deployment.mkdir(parents=True)
+    (deployment / "deployment.json").write_text(json.dumps(nested), encoding="utf-8")
+    assert proof.deploy_parity(deployment, campaign) == "same"
+    (deployment / "deployment.json").write_text(json.dumps({"observed": {"id": "C010002", "churn_probability": 0.2}}), encoding="utf-8")
+    assert proof.deploy_parity(deployment, campaign).startswith("differs"), "a top-level row still compares"
+    (deployment / "deployment.json").write_text(json.dumps({"observed": {"predictions": [{"id": "C010001", "churn_probability": 0.9}, {"id": "C010002", "churn_probability": 0.1}]}}), encoding="utf-8")
+    assert proof.deploy_parity(deployment, campaign).startswith("not established"), "two rows and no proof id name no row"
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts" / "deploy-deployment.json").write_text(json.dumps(nested), encoding="utf-8")
+    record = {"steps": [{"name": "deploy", "kind": "conversation", "completed": False, "notes": ["the deployed call against the delivered predictions: not established: no observed row or no predictions.csv on the delivered branch"]}], "user": {"events": []}, "notes": []}
+    out = proof.rederive(record, tmp_path)
+    assert out["steps"][0]["completed"] is True and out["steps"][0]["notes"][-1].endswith(": same")

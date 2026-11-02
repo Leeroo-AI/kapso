@@ -50,6 +50,11 @@ the harness: say where it is, not what it is.
 kapso harness new churn --config kapso-config.yaml      # harness.yaml + instructions/guardrails.md, valid as written
 ```
 
+The harness goes where the repository loads it from (`load_harness("../harnesses/trading")`,
+the brief's `Harness` line, a README line), resolved from the repository's own
+directory — the proposal names that absolute path, and the files land there and
+nowhere else (a harness written one directory up is one the repository cannot find).
+
 Then the proposal's files: the module pages (`instructions/<module>.md` for
 `setup`, `ideation`, `implementation`, `verification`, `feedback`, `learning`,
 `deployment`, only where the domain has a say), `skills/<name>/SKILL.md` with its
@@ -115,9 +120,10 @@ opened. Each is one edit:
   run is no evidence.
 
 Propose the smallest edit in the cheapest form, with the attempt that shows the
-failure (its node and branch). On a word, apply it, bump `version` in
-`harness.yaml`, run `kapso harness check` again. A resume refuses a changed
-harness; the next campaign carries the new version.
+failure (its node and branch), and ask one question in all — the word on the
+proposal; a choice of form is made and stated, not asked. On the word, apply it,
+bump `version` in `harness.yaml`, run `kapso harness check` again. A resume refuses
+a changed harness; the next campaign carries the new version.
 
 ## Export: the harness in an ordinary session
 

@@ -71,7 +71,8 @@ def test_implementation_follows_its_switch(tmp_path, monkeypatch, host, web):
         env_strip=[], env_defaults={}, lane_env=None, clamped_timeout=lambda seconds: seconds,
         session_stream_path=lambda branch: str(tmp_path / f"{branch}.jsonl"), build_prompt=lambda **kw: "the prompt",
         previous_errors_text="", lane_brief="", note_session_started=lambda: None,
-        note_session_end_facts=lambda facts: None, await_registered_evaluation=lambda output: None,
+        note_session_end_facts=lambda facts: None, note_session_spend=lambda telemetry: None,
+        await_registered_evaluation=lambda output: None,
     )
     (config,) = configs
     assert config.agent_type == host

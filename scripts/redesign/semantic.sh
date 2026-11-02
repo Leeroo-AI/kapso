@@ -79,10 +79,10 @@ driver_cmd() {
             case " ${DRIVER_FLAGS[*]:-} " in *" released "*) wheel_flag="" ;; esac
             echo "python3 scripts/redesign/s1_cold_engineer.py --clone \$PWD --out ~/out --host $HOST $wheel_flag" ;;
     s2)     echo "python3 scripts/redesign/plugin_proof.py --clone \$PWD --out ~/out --host $HOST --user persona:ml-engineer $wheel_flag" ;;
-    s5)     echo "python3 scripts/redesign/s5_injections.py --clone \$PWD --out ~/out" ;;
+    s5)     echo "python3 scripts/redesign/s5_injections.py --clone \$PWD --out ~/out --host $HOST $wheel_flag" ;;
     s6)     echo "python3 scripts/redesign/s6_experience.py --clone \$PWD --out ~/out --host $HOST" ;;
     author) echo "python3 scripts/redesign/author_test.py --clone \$PWD --out ~/out --host $HOST" ;;
-    s4)     echo "python3 scripts/redesign/s4_reading.py --clone \$PWD --out ~/out --campaign ~/tampering-campaign" ;;
+    s4)     echo "python3 scripts/redesign/s4_reading.py --clone \$PWD --out ~/out --host $HOST $wheel_flag ${S4_CAMPAIGN_FLAG:-}" ;;
   esac
 }
 RUBRIC=""   # the tests whose record a judge settles
@@ -230,14 +230,16 @@ gcloud compute scp "$HARNESS" "ubuntu@kapso-fresh-$RUN_ID:/tmp/harness.tgz" --pr
 "$FRESH" run "$RUN_ID" "mkdir -p ~/kapso-clone ~/out && tar -C ~/kapso-clone -xzf /tmp/harness.tgz"
 "$FRESH" run "$RUN_ID" "$(venv_command)"
 provision_plugin
-if [ "$TEST" = s4 ]; then
-  # S4 reads S5's tampering campaign: an archived campaign directory passed
-  # as the first driver flag, staged onto the machine before the run.
-  CAMPAIGN="${DRIVER_FLAGS[0]:-}"
-  [ -d "$CAMPAIGN" ] || { echo "s4 needs an S5 tampering campaign directory: semantic.sh s4 <host> -- <campaign-dir>" >&2; exit 2; }
+S4_CAMPAIGN_FLAG=""
+if [ "$TEST" = s4 ] && [ -d "${DRIVER_FLAGS[0]:-}" ]; then
+  # S4 reads a given campaign (an archived directory passed as the first
+  # driver flag, staged onto the machine before the run); given none, the
+  # driver builds its own — a void and a rejection in one campaign.
+  CAMPAIGN="${DRIVER_FLAGS[0]}"
   tar -C "$(dirname "$CAMPAIGN")" -czf "$RUN_DIR/campaign.tgz" "$(basename "$CAMPAIGN")"
   gcloud compute scp "$RUN_DIR/campaign.tgz" "ubuntu@kapso-fresh-$RUN_ID:/tmp/campaign.tgz" --project "$PROJECT" --zone "$ZONE" --quiet
   "$FRESH" run "$RUN_ID" "mkdir -p ~/tampering-campaign && tar -C ~/tampering-campaign --strip-components=1 -xzf /tmp/campaign.tgz"
+  S4_CAMPAIGN_FLAG="--campaign ~/tampering-campaign"
   DRIVER_FLAGS=()
 fi
 # The driver's exit is captured, never fatal here: whatever it wrote is

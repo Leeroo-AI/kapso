@@ -21,7 +21,15 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
 
+from kapso.core.config import load_config
 from kapso.core.prompt_loader import load_prompt, render_prompt
+
+# Changed-file text one update call may carry; a run's own config
+# overrides it through the strategy params.
+UPDATE_PAYLOAD_MAX_CHARS = load_config()["search_strategy"]["params"][
+    "repo_memory_update_payload_max_chars"
+]
+_FILE_SEPARATOR = "\n\n"
 
 
 class LLMLike(Protocol):
@@ -242,7 +250,25 @@ def _build_toc_from_sections(sections: Dict[str, Any]) -> List[Dict[str, str]]:
     return toc
 
 
-def _format_file_payload(file_blobs: List[Tuple[str, str]]) -> str:
+# The NUL heuristic version control uses: a NUL byte in the first 8 KiB marks
+# a binary file.
+_BINARY_PROBE_BYTES = 8192
+
+
+def _is_text_file(path: str) -> bool:
+    with open(path, "rb") as f:
+        return b"\0" not in f.read(_BINARY_PROBE_BYTES)
+
+
+def _format_withheld(withheld: List[Tuple[str, int]]) -> str:
+    """The changed files the update does not show, each by name and size, so
+    the model knows they changed and that their lines are never cited."""
+    return _FILE_SEPARATOR.join(
+        f"=== FILE: {path} ({size} bytes, not shown) ===" for path, size in withheld
+    )
+
+
+def _format_file_payload(file_blobs: List[Tuple[str, Optional[str]]]) -> str:
     """
     Format line-numbered file blobs (see `_read_numbered_text`) into a payload.
 
@@ -251,12 +277,39 @@ def _format_file_payload(file_blobs: List[Tuple[str, str]]) -> str:
           1| first line
           2| second line
           ...
+
+    A deleted file (content None) is listed as `=== FILE: path (deleted) ===`.
     """
     parts = []
     for path, content in file_blobs:
-        if content:
+        if content is None:
+            parts.append(f"=== FILE: {path} (deleted) ===")
+        elif content:
             parts.append(f"=== FILE: {path} ===\n{content}")
-    return "\n\n".join(parts)
+    return _FILE_SEPARATOR.join(parts)
+
+
+def _window_file_blobs(
+    file_blobs: List[Tuple[str, Optional[str]]],
+    max_payload_chars: int,
+) -> List[List[Tuple[str, Optional[str]]]]:
+    """
+    Group file blobs into batches whose formatted payload fits the budget.
+
+    A file is never split: the model must see every line it re-cites. The
+    update withholds a file larger than the budget before windowing, so a
+    batch holds at most the budget's worth of whole files.
+    """
+    batches: List[List[Tuple[str, Optional[str]]]] = [[]]
+    batch_chars = 0
+    for blob in file_blobs:
+        blob_chars = len(_format_file_payload([blob])) + len(_FILE_SEPARATOR)
+        if batches[-1] and batch_chars + blob_chars > max_payload_chars:
+            batches.append([])
+            batch_chars = 0
+        batches[-1].append(blob)
+        batch_chars += blob_chars
+    return batches
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -479,29 +532,99 @@ def plan_files_to_read(
     return must_include[:max_files_to_read]
 
 
+def _blobs_within_budget(
+    repo_root: str,
+    files: List[str],
+    max_payload_chars: int,
+) -> Tuple[List[Tuple[str, Optional[str]]], List[Tuple[str, int]]]:
+    """The files as line-numbered text, each within the budget on its own,
+    and the ones withheld by name and size: a binary file has no lines to
+    cite, and a file whose payload alone exceeds the budget is a dataset or
+    a model dump, not code (a campaign commits its datasets, and a CLI
+    refuses a prompt past its input limit — the baseline inference of the
+    release gate's S1 sent a 1 MB csv whole and Codex refused the call).
+    A file no longer on disk is carried as `None`: the call that carries a
+    deleted file has to say it is gone."""
+    blobs: List[Tuple[str, Optional[str]]] = []
+    withheld: List[Tuple[str, int]] = []
+    for rel in files:
+        abs_path = os.path.join(repo_root, rel)
+        if not os.path.exists(abs_path):
+            blobs.append((rel, None))
+            continue
+        blob = (rel, _read_numbered_text(abs_path)) if _is_text_file(abs_path) else None
+        if blob is None or len(_format_file_payload([blob])) > max_payload_chars:
+            withheld.append((rel, os.path.getsize(abs_path)))
+            continue
+        blobs.append(blob)
+    return blobs, withheld
+
+
+def _patch_model_over_windows(
+    llm: LLMLike,
+    model: Dict[str, Any],
+    batches: List[List[Tuple[str, Optional[str]]]],
+    diff_summary: str,
+    max_retries: int,
+    withheld: List[Tuple[str, int]],
+) -> Dict[str, Any]:
+    """One update call per batch of whole files, each patching the model the
+    previous call produced and validated against that batch's files; the
+    withheld files are listed in the first call, so nothing is cut from
+    what the model is told and their evidence is kept as it is."""
+    template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_update.md")
+    for index, batch in enumerate(batches):
+        batch_files = [rel for rel, _ in batch]
+        payload = _format_file_payload(batch)
+        if index == 0 and withheld:
+            payload = _FILE_SEPARATOR.join(part for part in (_format_withheld(withheld), payload) if part)
+        prompt = render_prompt(
+            template,
+            {
+                "diff_summary": diff_summary,
+                "previous_model_json": json.dumps(model, indent=2),
+                "changed_payload": payload,
+            },
+        )
+        model = _complete_repo_model(
+            llm=llm,
+            prompt=prompt,
+            max_retries=max_retries,
+            validate=lambda update, model=model, batch_files=batch_files: (
+                _merge_repo_model_update(model, update, batch_files)
+            ),
+        )
+    return model
+
+
 def infer_repo_model_initial(
     llm: LLMLike,
     repo_root: str,
     repo_map: Dict[str, Any],
     max_files_to_read: int = 20,
     max_retries: int = 0,
+    max_payload_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
 ) -> Dict[str, Any]:
     """
     Build a semantic repo model from scratch using agentic file selection.
-    
+
     Output is JSON with evidence-backed claims.
+
+    The files the planner chose are read whole, within the same budget the
+    update keeps: a binary or over-budget file is listed by name and size,
+    never shown, and files past the first budget's worth reach the model in
+    further calls, each patching the model the previous call produced.
     """
     files_to_read = plan_files_to_read(
         llm,
         repo_map=repo_map,
         max_files_to_read=max_files_to_read,
     )
-    file_blobs: List[Tuple[str, str]] = []
-    for rel in files_to_read:
-        abs_path = os.path.join(repo_root, rel)
-        file_blobs.append((rel, _read_numbered_text(abs_path)))
-
-    files_payload = _format_file_payload(file_blobs)
+    file_blobs, withheld = _blobs_within_budget(repo_root, files_to_read, max_payload_chars)
+    first, *rest = _window_file_blobs(file_blobs, max_payload_chars)
+    files_payload = _format_file_payload(first)
+    if withheld:
+        files_payload = _FILE_SEPARATOR.join(part for part in (_format_withheld(withheld), files_payload) if part)
 
     template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_initial.md")
     prompt = render_prompt(
@@ -512,11 +635,14 @@ def infer_repo_model_initial(
             "files_payload": files_payload,
         },
     )
-    return _complete_repo_model(
+    model = _complete_repo_model(
         llm=llm,
         prompt=prompt,
         max_retries=max_retries,
         validate=_validate_repo_model,
+    )
+    return _patch_model_over_windows(
+        llm, model, rest, "the repository's remaining files, read after the first call's budget was spent", max_retries, [],
     )
 
 
@@ -526,6 +652,7 @@ def infer_repo_model_with_retry(
     repo_map: Dict[str, Any],
     max_files_to_read: int = 20,
     max_retries: int = 4,
+    max_payload_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
 ) -> Dict[str, Any]:
     """
     Build a semantic repo model with bounded structured-response repair.
@@ -539,6 +666,7 @@ def infer_repo_model_with_retry(
         repo_map=repo_map,
         max_files_to_read=max_files_to_read,
         max_retries=max_retries,
+        max_payload_chars=max_payload_chars,
     )
 
 
@@ -550,6 +678,7 @@ def infer_repo_model_update(
     diff_summary: str,
     changed_files: List[str],
     max_retries: int = 0,
+    max_payload_chars: int = UPDATE_PAYLOAD_MAX_CHARS,
 ) -> Dict[str, Any]:
     """
     Incrementally update RepoModel using the previous model + diffs + changed files.
@@ -558,28 +687,18 @@ def infer_repo_model_update(
     sections + `removed_sections`); this returns that patch merged onto the
     previous model, so untouched sections are never lost.
     The updated model uses line-number-based evidence references.
-    """
-    changed_blobs: List[Tuple[str, str]] = []
-    for rel in changed_files:
-        abs_path = os.path.join(repo_root, rel)
-        if os.path.exists(abs_path):
-            changed_blobs.append((rel, _read_numbered_text(abs_path)))
-    changed_payload = _format_file_payload(changed_blobs)
 
-    template = load_prompt("execution/memories/repo_memory/prompts/infer_repo_model_update.md")
-    prompt = render_prompt(
-        template,
-        {
-            "diff_summary": diff_summary,
-            "previous_model_json": json.dumps(previous_model, indent=2),
-            "changed_payload": changed_payload,
-        },
-    )
-    return _complete_repo_model(
-        llm=llm,
-        prompt=prompt,
-        max_retries=max_retries,
-        validate=lambda update: _merge_repo_model_update(
-            previous_model, update, changed_files
-        ),
-    )
+    When the changed files do not fit in `max_payload_chars`, they are
+    windowed: one call per batch of whole files, each patching the model the
+    previous call produced and validated against that batch's files.
+
+    The memory cites lines of code. A binary file has none, and a file whose
+    payload alone exceeds the budget is a dataset or a model dump, not code
+    (a campaign commits its datasets, and a CLI refuses a prompt past its
+    input limit): neither is shown. The first call lists them by name and
+    size instead, so nothing is cut from what the model is told, and their
+    evidence is kept as it is.
+    """
+    changed_blobs, withheld = _blobs_within_budget(repo_root, changed_files, max_payload_chars)
+    batches = _window_file_blobs(changed_blobs, max_payload_chars)
+    return _patch_model_over_windows(llm, previous_model, batches, diff_summary, max_retries, withheld)

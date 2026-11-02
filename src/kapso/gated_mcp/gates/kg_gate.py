@@ -542,13 +542,11 @@ No relevant knowledge found.
         # Skip past the marker line
         desc_start = desc_idx + len(desc_marker)
         
-        # Find the next section header (any == X == pattern)
+        # Find the next heading of any level: the == X == section or the
+        # === Usage === subsection that follows Description on every page
         remaining = content[desc_start:]
-        next_section_idx = remaining.find("\n== ")
-        if next_section_idx == -1:
-            # Also check for === (sub-section)
-            next_section_idx = remaining.find("\n=== ")
-        
+        next_section_idx = remaining.find("\n==")
+
         if next_section_idx != -1:
             description = remaining[:next_section_idx].strip()
         else:

@@ -91,6 +91,9 @@ class InboxFakeStrategy:
         self.evaluator_transition = None
         self.registered_evaluator_id = ""
 
+    def continues_an_answered_node(self) -> bool:
+        return False   # the fake has no inbox continuation; the orchestrator's admission asks every strategy
+
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         self.runs += 1
         waiting = [node for node in self.node_history if node.suspended]

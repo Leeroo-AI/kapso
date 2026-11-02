@@ -51,6 +51,20 @@ def test_normalize_node_expansion():
         )
 
 
+def test_lane_env_needs_one_entry_per_lane():
+    # A lane past the end of the list would run with no pin and no lane
+    # brief, free to take the GPUs its siblings were pinned to.
+    pins = [{"CUDA_VISIBLE_DEVICES": "0"}, {"CUDA_VISIBLE_DEVICES": "1"}]
+    for lanes in (1, 3):
+        with pytest.raises(ValueError, match="one per lane"):
+            normalize_node_expansion(
+                {"node_expansion_value": lanes, "expansion_lane_env": pins}
+            )
+    assert normalize_node_expansion(
+        {"node_expansion_value": 2, "expansion_lane_env": pins}
+    ) == (2, pins)
+
+
 def test_expansion_requires_ensemble_and_selector():
     validate_node_expansion_config(1, None, None)
     validate_node_expansion_config(2, MEMBERS, SELECTOR)

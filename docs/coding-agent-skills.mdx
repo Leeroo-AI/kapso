@@ -20,6 +20,8 @@ codex plugin add kapso@kapso
 codex mcp add kapso -- kapso-mcp          # the server, once: Codex does not expose a plugin's MCP tools to a session
 ```
 
+Codex drops a server that has not answered within ten seconds, and `kapso-mcp` imports the package before it answers, which a busy machine can stretch past that; `/kapso:setup` gives the server a minute (`startup_timeout_sec = 60` under `[mcp_servers.kapso]` in `~/.codex/config.toml`), and a registration by hand should too.
+
 The repository is the marketplace: `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json` at its root name the one plugin at `./plugin`. The plugin's version is the package's, so install the package at the same version (`/kapso:setup` does, pinned). Cursor reads the same directory through `.cursor-plugin/plugin.json`; point Cursor's plugin installer at the repository. Cursor was not part of this release's proof: the skills and the MCP entry are the files the other two hosts ran.
 
 To try the plugin from a clone without installing it, Claude Code takes `claude --plugin-dir ./plugin` for one session.

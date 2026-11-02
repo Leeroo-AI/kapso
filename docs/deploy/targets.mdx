@@ -151,7 +151,8 @@ kapso deploy campaign --start --number 2
 `--stop`, `--start` and `--logs` act on `--number`, the highest by
 default; `--status` lists every deployment (a failed row carries its
 error, a deploying row the target requested), or the one `--number`
-names. `--stop` and `--start` print the script's own lines under theirs.
+names, and says so when the campaign has none yet. `--stop` and
+`--start` print the script's own lines under theirs.
 One of the four at a time, and none of the deploy flags beside it. The
 summary after a deployment prints these lines pinned to the new number
 (with `--config` when one was passed), with the Python line, the proof

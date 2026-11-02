@@ -20,6 +20,7 @@
 import atexit
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -55,7 +56,7 @@ from kapso.execution.notify import notify_build_end
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.iteration_evaluator import IterationEvaluator
-from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Solution
+from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution
 from kapso.execution.evaluation_integrity import launch_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory
@@ -100,6 +101,7 @@ from kapso.harness import (
 from kapso.harness import BUNDLED_ROOT
 from kapso.harness.staging import host_for
 from kapso.execution.inbox import (
+    beside,
     launch_receipt_path,
     Request,
     idea_line,
@@ -107,11 +109,14 @@ from kapso.execution.inbox import (
     launch_mismatches,
     load_requests,
     read_launch_record,
+    awaiting_resume,
     record_reply,
     register_campaign,
     resume_arguments,
+    resume_lock,
     write_launch_record,
 )
+from kapso.execution.launch import detach as launch_detached
 from kapso.execution.run_checkpoint import (
     RunCheckpointIncompatibleError,
     RunCheckpointStore,
@@ -649,7 +654,8 @@ class Kapso:
         exam: bool = True,
         push: Optional[bool] = None,
         on_status: Optional[Any] = None,
-    ) -> LessonResult:
+        detach: bool = False,
+    ) -> Union[LessonResult, Launch]:
         """Learn from one finished campaign: import it into the trajectory
         store, mine it, grade the bank on it (exam-before-lesson), then run
         the update crew — evidence-priced cards, one tagged bank commit.
@@ -672,10 +678,36 @@ class Kapso:
             on_status: Optional hook called with the status dict after
                 every status write and heartbeat (observability §4b).
                 Exceptions from the hook propagate.
+            detach: Run the learn in a session of its own and return a
+                `Launch` (pid, log, the learning status directory) at once
+                — `kapso learn <campaign> --detach` from Python. Takes the
+                campaign form only: no trajectory id, learner version,
+                exam, push or callback.
 
         Returns:
             LessonResult — what changed in the bank and the paper trail.
         """
+        if detach:
+            # The same launch as `kapso learn <campaign> --detach`, from
+            # Python: hours of crews in a session of its own, a Launch
+            # handed back at once (the release gate's S1 engineers shelled
+            # out to the CLI for this, since learn() blocks).
+            if on_status is not None or trajectory_id is not None or learner_version is not None or not exam or push is not None:
+                raise ValueError(
+                    "learn(detach=True) runs `kapso learn <campaign>` in a session of its own, "
+                    "which takes no on_status, trajectory_id, learner_version, exam or push"
+                )
+            campaign = Path(source.campaign) if isinstance(source, Solution) else Path(source)
+            argv = ["learn", str(campaign)]
+            if self._harness is not None:
+                argv += ["--harness", self._harness.source]
+            config_path = self._launch_config_path()
+            if config_path is not None:
+                argv += ["--config", config_path]
+            log_path = beside(campaign, ".learn.log")
+            pid = launch_detached(argv, log_path=log_path, receipt_path=None)
+            status_dir = Path(self._config["learning"]["status_dir"]).expanduser()
+            return Launch(pid=pid, log=str(log_path), status=str(status_dir))
         started = datetime.now(timezone.utc)
         if self._bank_home is None:
             raise ValueError(
@@ -1059,7 +1091,8 @@ class Kapso:
         iteration_evaluator: Optional[IterationEvaluator] = None,
         iteration_evaluator_failure_policy: str = "record",
         coding_agent: Optional[str] = None,
-    ) -> Solution:
+        detach: bool = False,
+    ) -> Union[Solution, Launch]:
         """Build software that meets the brief, by experiment: propose a
         candidate, implement it on its own branch, measure it, keep the
         best, repeat until the goal is met or the budget is spent.
@@ -1093,6 +1126,11 @@ class Kapso:
                 candidate in an isolated detached worktree;
                 `iteration_evaluator_failure_policy` is `record` (store
                 the error on the candidate) or `raise` (stop the run).
+            detach: Launch the campaign in a session of its own and return
+                a `Launch` (pid, log, status path) at once — `kapso build
+                --detach` from Python. Needs `output`; takes no in-process
+                callback. The harness and experience loaded on this
+                instance go with it.
 
         Returns:
             The `Solution`: the delivered candidate, its measurement and
@@ -1128,6 +1166,44 @@ class Kapso:
         if initial_repo is not None and not self._is_github_url(initial_repo) \
                 and not Path(initial_repo).is_dir():
             raise FileNotFoundError(f"repo directory not found: {initial_repo}")
+        if detach:
+            # The same launch as `kapso build --detach`, from Python: the
+            # campaign in a session of its own, a Launch handed back at
+            # once. Every engineer of the release gate's S1 reinvented this
+            # with a self-relaunching worker script, since build() blocks.
+            if output_path is None:
+                raise ValueError(
+                    "build(detach=True) needs output: the campaign directory is "
+                    "where its status lives, and its log goes beside it"
+                )
+            if on_status is not None or iteration_evaluator is not None:
+                raise ValueError(
+                    "build(detach=True) runs in a session of its own: on_status and "
+                    "iteration_evaluator are in-process callbacks and cannot follow it"
+                )
+            argv = ["build", "--output", output_path]
+            if resume:
+                argv.append("--resume")
+            else:
+                brief_path = beside(Path(output_path), ".brief.md")
+                brief_path.write_text(brief.render(), encoding="utf-8")
+                argv += ["--brief", str(brief_path)]
+            spend = budget or Budget()
+            for flag, value in (
+                ("--evaluation", eval_dir), ("--data", data_dir), ("--repo", initial_repo),
+                ("--coding-agent", coding_agent), ("--config", self._launch_config_path()),
+                ("--budget-minutes", spend.minutes), ("--budget-experiments", spend.experiments),
+                ("--budget-usd", spend.usd), ("--budget-reserve-minutes", spend.reserve_minutes),
+            ):
+                if value is not None:
+                    argv += [flag, str(value)]
+            if self._harness is not None:
+                argv += ["--harness", self._harness.source]
+            if self._experience:
+                argv += ["--experience", ",".join(source.reference for source in self._experience)]
+            log_path = beside(Path(output_path), ".log")
+            pid = launch_detached(argv, log_path=log_path, receipt_path=launch_receipt_path(Path(output_path)))
+            return Launch(pid=pid, log=str(log_path), status=str(Path(output_path) / ".kapso" / "status.json"))
         checkpoint = None
         record = None
         if resume:
@@ -1166,14 +1242,21 @@ class Kapso:
                 # the process environment keeps precedence.
                 if record.get("dotenv_path"):
                     load_dotenv(record["dotenv_path"])
+                # The budget a resume asks for is the caller's own, a field
+                # left None keeping the launch's (the Budget contract); the
+                # brief-merged figures above would pass the checkpoint
+                # brief's budget off as the caller's and the record's would
+                # never apply (a campaign launched at 40 minutes resumed at
+                # the brief's 45, the release gate's S5, 2026-10-30).
+                requested = budget or Budget()
                 arguments = resume_arguments(record, {
                     "host": coding_agent,
                     "eval_dir": eval_dir,
                     "data_dir": data_dir,
-                    "experiments": max_iterations,
-                    "minutes": time_budget_minutes,
-                    "usd": cost_budget,
-                    "reserve_minutes": finalization_reserve_minutes,
+                    "experiments": requested.experiments,
+                    "minutes": requested.minutes,
+                    "usd": requested.usd,
+                    "reserve_minutes": requested.reserve_minutes,
                 })
                 # The loaded experience is campaign identity: a resume with
                 # nothing loaded takes the record's list and re-pins each
@@ -1550,6 +1633,27 @@ class Kapso:
         )
 
     @staticmethod
+    def awaiting_resume(campaign: str) -> List[Request]:
+        """The answered requests a resume has not delivered: the last one
+        failed or was killed, and `Kapso.reply` with the request's id tries
+        again. Empty while a live process holds the campaign."""
+        requests = load_requests(inbox_path(campaign))
+        store = RunCheckpointStore(campaign)
+        if not requests or not store.exists() or Kapso._live_status(campaign):
+            return []
+        nodes = store.load().strategy_state.get("node_history") or []
+        return awaiting_resume(requests, nodes)
+
+    @staticmethod
+    def _live_status(campaign: str) -> Optional[OperationStatusView]:
+        """The campaign's status view when a live process holds it."""
+        status_file = Path(campaign) / ".kapso" / "status.json"
+        if not status_file.is_file():
+            return None
+        view = OperationStatusView(status_file)
+        return view if view.alive else None
+
+    @staticmethod
     def inbox_ideas(campaign: str) -> Dict[int, str]:
         """One line per node of the campaign — the `for` row of a request
         — read from the checkpoint. Empty without a checkpoint."""
@@ -1574,26 +1678,45 @@ class Kapso:
         open, or a campaign started from a script with a callback — resume
         it from the script with resume=True).
 
+        The answer is on disk before the resume starts, and a resume that
+        fails raises with the answer kept: calling this again retries, with
+        a note replacing the answer and an empty one keeping it.
+
         Refuses while a live process holds the campaign, so nothing runs
         twice, and refuses a note shaped like a credential unless
         allow_secret is True (replies are plain text handed to the coder;
-        the value belongs in the .env the fix names). An empty note means
-        "done"."""
+        the value belongs in the .env the fix names). On a new request an
+        empty note means "done"."""
         campaign_dir = str(Path(campaign).resolve())
         if not Path(campaign_dir, ".kapso").is_dir():
             raise FileNotFoundError(
                 f"{campaign_dir} is not a campaign directory on this machine"
             )
-        status_file = Path(campaign_dir) / ".kapso" / "status.json"
-        if status_file.is_file() and OperationStatusView(status_file).alive:
-            pid = OperationStatusView(status_file).data.get("pid")
+        live = cls._live_status(campaign_dir)
+        if live is not None:
             raise RuntimeError(
-                f"{campaign_dir} is running (pid {pid}); wait for it to pause "
-                "before replying"
+                f"{campaign_dir} is running (pid {live.data.get('pid')}); wait "
+                "for it to pause before replying"
             )
         path = inbox_path(campaign_dir)
-        request = record_reply(path, request_id, note, allow_secret=allow_secret)
-        print(f"#{request_id} answered.")
+        requests = load_requests(path)
+        current = requests.get(request_id)
+        answered_before = current is not None and not current.open
+        if answered_before and not (
+            any(other.node == current.node and other.open for other in requests.values())
+            or request_id in [r.id for r in cls.awaiting_resume(campaign_dir)]
+        ):
+            raise ValueError(
+                f"inbox request #{request_id} was already answered and nothing "
+                f"waits on a resume: {current.reply!r}. To continue the campaign: "
+                f"kapso build --output {shlex.quote(campaign_dir)} --resume"
+            )
+        if answered_before and (not note or note == current.reply):
+            request = current
+            print(f"#{request_id} keeps its answer: {request.reply!r}.")
+        else:
+            request = record_reply(path, request_id, note, allow_secret=allow_secret)
+            print(f"#{request_id} answered.")
         still_open = sorted(
             other.id
             for other in load_requests(path).values()
@@ -1613,28 +1736,37 @@ class Kapso:
                 "existed) — resume it from your script with resume=True."
             )
             return None
-        checkpoint = RunCheckpointStore(campaign_dir).load()
-        remaining = max(
-            1, int(record["experiments"]) - int(checkpoint.completed_iterations)
-        )
         print(
             f"Resuming {campaign_dir}: continuing node {request.node}'s session. "
-            "Ctrl-C stops it; resume later with kapso build --output "
-            f"{campaign_dir} --resume"
+            "Your reply is saved. If this stops or fails, fix the cause and run "
+            f"kapso inbox reply {shlex.quote(campaign_dir)} {request_id}"
         )
-        # Everything else a resume needs comes from the launch record,
-        # its .env included: a reply may run far from the launch directory.
-        if record.get("dotenv_path"):
-            load_dotenv(record["dotenv_path"])
-        # Your bank where the launch had it (`Kapso(bank=)`): the record's
-        # `mine` entry names its home, absolute.
-        mine = next((entry for entry in record.get("experience", []) if entry["reference"] == MINE), None)
-        kapso = cls(config=record["config_path"], bank=mine["resolved"] if mine is not None else None)
-        return kapso.build(
-            output=campaign_dir,
-            budget=Budget(experiments=remaining),
-            resume=True,
-        )
+        with resume_lock(campaign_dir):
+            # Another reply may have held the lock until now. A session it
+            # started and finished has read this answer; one that failed or
+            # was killed still owes a resume, and this one takes it over.
+            if load_requests(path)[request_id].continued and request_id not in [
+                r.id for r in cls.awaiting_resume(campaign_dir)
+            ]:
+                print(f"Another reply already resumed {campaign_dir}; nothing to run.")
+                return None
+            checkpoint = RunCheckpointStore(campaign_dir).load()
+            remaining = max(
+                1, int(record["experiments"]) - int(checkpoint.completed_iterations)
+            )
+            # Everything else a resume needs comes from the launch record,
+            # its .env included: a reply may run far from the launch directory.
+            if record.get("dotenv_path"):
+                load_dotenv(record["dotenv_path"])
+            # Your bank where the launch had it (`Kapso(bank=)`): the record's
+            # `mine` entry names its home, absolute.
+            mine = next((entry for entry in record.get("experience", []) if entry["reference"] == MINE), None)
+            kapso = cls(config=record["config_path"], bank=mine["resolved"] if mine is not None else None)
+            return kapso.build(
+                output=campaign_dir,
+                budget=Budget(experiments=remaining),
+                resume=True,
+            )
 
     @staticmethod
     def _validate_resume_workspace(output_path: Optional[str]) -> None:

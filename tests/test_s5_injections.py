@@ -99,6 +99,12 @@ def test_shown_state_reads_the_verdict_kapso_watch_prints():
     assert timeline.shown_state("RUNNING ♥ 289s ago   ⚠ DEAD (pid 5554 is gone)      pid 5554\nbudget 9%") == "DEAD"
     assert timeline.shown_state("RUNNING ♥ 200s ago   ⚠ STALLED?      pid 5554") == "STALLED"
     assert timeline.shown_state("RUNNING ♥ 8s ago      pid 6754") == "RUNNING"
+    # A detached resume whose child has not written its status yet: watch
+    # says so above the earlier run's screen, DEAD marker and all; the
+    # product's verdict is the top line (rel-s5-codex's killed writer read
+    # DEAD a minute after the resume, and the bar fell on the sampler).
+    resuming = "starting again (pid 18047, launched 14s ago; log: /x/s5-killed-writer.log); the status below is the earlier run's\nRUNNING ♥ 90s ago   ⚠ DEAD (pid 16983 is gone)      pid 16983"
+    assert timeline.shown_state(resuming) == "STARTING"
 
 
 def test_the_sampler_records_what_watch_shows_beside_the_stored_status(tmp_path, monkeypatch):
@@ -187,6 +193,25 @@ def test_a_crash_is_read_from_the_attempts_own_sessions(tmp_path):
     assert s5.session_mentions(campaign, attempt, "holdout_labels.csv")
     assert not s5.session_mentions(campaign, attempt, "ENOSPC")
     assert not s5.session_mentions(campaign, {"sessions": [{"label": "missing"}]}, "holdout_labels.csv")
+    # The crash counts even when a capable agent then restored the labels and
+    # the attempt went on to score (rel-s5-codex: the crash sat in the session,
+    # the attempt scored 0.8481, and the plugin named the crash): the injection
+    # bit and the plugin had a crash to diagnose, which is what is under test.
+    assert s5.evaluator_crashed(campaign, attempt) and s5.crash_occurred(campaign, {"attempts": [attempt]})
+    scored = {"node": 1, "sessions": [{"label": "generic_exp_1", "module": "implementation"}], "evaluation": {"score": 0.8481}}
+    assert not s5.evaluator_crashed(campaign, scored), "a scored attempt is not a scoreless crash"
+    assert s5.crash_occurred(campaign, {"attempts": [scored]}), "but the crash in its session still occurred"
+
+
+def test_a_finished_rate_limited_campaign_is_continued_not_waited_for():
+    # rel-s5-codex, sixth launch: the rate-limited first attempt counted
+    # against the two experiments and the campaign stopped at max_iterations
+    # before the question; the plugin's fix was a larger allowance, not a
+    # wait, and the vocabulary takes it.
+    text = ("The first attempt hit 429 rate-limit errors during ideation before producing any implementation turns. "
+            "Kapso counted it anyway. Continuing requires increasing the experiment allowance.")
+    assert s5.names_class_and_fix(text, "provider-limit") == {"names_class": True, "names_fix": True}
+    assert s5.names_class_and_fix("the first attempt hit 429 errors; wait for the window, then resume", "provider-limit") == {"names_class": True, "names_fix": True}
 
 
 def test_the_request_names_the_variable_and_never_a_value_and_the_diagnosis_names_its_class(tmp_path):
@@ -222,6 +247,11 @@ def test_the_diagnosis_vocabularies_are_disjoint_and_name_the_class(tmp_path):
     # table; "the evaluator is fine" satisfied both halves of the crash.
     assert s5.names_class_and_fix("you can resume it", "killed-writer") == {"names_class": False, "names_fix": True}
     assert s5.names_class_and_fix("the writer is dead (pid 19524 is gone); run kapso build --output ../s5-killed-writer --resume", "killed-writer") == {"names_class": True, "names_fix": True}
+    # rel-s5-codex's plugin named the class as plainly, in other words.
+    assert s5.names_class_and_fix("The campaign's writer process died at the start of iteration 1's implementation. `watch` correctly detected that PID 16983 was gone. I resumed the existing campaign with `--resume --detach`.", "killed-writer") == {"names_class": True, "names_fix": True}
+    # rel-s5-codex's two phrasings, both correct: the campaign/pid gone, the campaign recovered and finished.
+    assert s5.names_class_and_fix("The campaign died at iteration 1's implementation phase: PID 16763 disappeared, leaving a stale 'running' status. I resumed it from its checkpoint.", "killed-writer") == {"names_class": True, "names_fix": True}
+    assert s5.names_class_and_fix("First attempt: terminated by SIGKILL (exit -9). The campaign recovered and finished. Second attempt: delivered a three-model ensemble.", "killed-session") == {"names_class": True, "names_fix": True}
     assert s5.names_class_and_fix("the evaluator is fine", "evaluator-crash") == {"names_class": False, "names_fix": False}
     assert s5.names_class_and_fix("the evaluator crashed: holdout_labels.csv was missing; restore it, then resume", "evaluator-crash") == {"names_class": True, "names_fix": True}
     # s5-claude-8's engineer, rightly: the session got SIGKILL, the campaign finished normally, nothing to resume.
@@ -247,7 +277,7 @@ def test_an_archived_run_is_re_read_where_the_archive_allows(tmp_path):
     assert kept["killed-writer"]["attempts_kept"] is None, "no attempt had landed: retention not exercised"
     assert kept["full-disk"]["attempts_kept"] is True and kept["full-disk"]["truthful"] is None, "the truthfulness verdict stays as recorded"
     assert kept["killed-writer"]["names_class"] and kept["killed-writer"]["names_fix"]
-    assert out["metrics"]["truthfulness_unobserved"] == 1 and out["steps"][0]["notes"][-1].startswith("re-read 2026-10-29")
+    assert out["metrics"]["truthfulness_unobserved"] == 1 and out["steps"][0]["notes"][-1].startswith("re-read 20") and " from the archive:" in out["steps"][0]["notes"][-1]
 
 
 def test_a_score_after_the_reply_may_land_on_the_paused_node_itself():
@@ -259,3 +289,20 @@ def test_a_score_after_the_reply_may_land_on_the_paused_node_itself():
     assert s5.scored_after(before, [{"node": 0, "evaluation": {"score": None}}, {"node": 1, "evaluation": {"score": 0.8}}])
     assert not s5.scored_after({0: 0.84}, [{"node": 0, "evaluation": {"score": 0.84}}]), "a score the record held before the reply is not one after it"
     assert not s5.scored_after(before, [{"node": 0, "evaluation": {"score": None}}])
+
+
+def test_a_resume_is_read_from_the_campaigns_records_not_from_a_running_state_after_the_turn(tmp_path):
+    # The second S5 of the release gate read three resumes as none: the plugin
+    # waited inside its turn until the resumed campaign had finished, and the
+    # driver looked for `running` afterwards. The records say when the campaign
+    # was launched again: the status's started_at, or the launch receipt's.
+    campaign = tmp_path / "s5-full-disk"
+    (campaign / ".kapso").mkdir(parents=True)
+    asked = datetime(2026, 10, 30, 8, 43, tzinfo=timezone.utc)
+    (campaign / ".kapso" / "status.json").write_text(json.dumps({"state": "done", "started_at": "2026-10-30T07:54:00+00:00"}), encoding="utf-8")
+    assert not s5.launched_after(campaign, asked), "the first launch, before the ask, is no resume"
+    (campaign / ".kapso" / "status.json").write_text(json.dumps({"state": "done", "started_at": "2026-10-30T08:45:10+00:00"}), encoding="utf-8")
+    assert s5.launched_after(campaign, asked), "a campaign relaunched after the ask and already done is a resume"
+    (campaign / ".kapso" / "status.json").write_text(json.dumps({"state": "running", "started_at": "2026-10-30T07:54:00+00:00"}), encoding="utf-8")
+    (tmp_path / "s5-full-disk.launch.json").write_text(json.dumps({"pid": 1, "log": "x", "argv": [], "started_at": "2026-10-30T08:44:00+00:00"}), encoding="utf-8")
+    assert s5.launched_after(campaign, asked), "the launch receipt's time counts before the status is rewritten"

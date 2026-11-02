@@ -7,7 +7,8 @@ requests: ``requested`` (written by the session through the
 ``request_from_user`` tool), ``replied`` (written by ``kapso inbox
 reply``) and ``continued`` (written by the orchestrator when the session
 was resumed). A request's state is the fold of its events; nothing is
-ever rewritten, and no request carries a value.
+ever rewritten, and no request carries a value. A later ``replied`` before
+``continued`` replaces the answer, since no session has read it yet.
 
 Also the two small records that make a reply self-sufficient: the launch
 record (``.kapso/launch.json`` — the build arguments the checkpoint does
@@ -15,11 +16,13 @@ not hold) and the campaign registry (one line per launch, so ``kapso
 inbox`` with no campaign can list every campaign waiting on a person).
 
 Every read of the inbox file raises on a malformed line (Rule 2); a
-missing file is the documented "no requests" default.
+missing file is the documented "no requests" default. Only a line ending
+in a newline is an event: see ``_committed``.
 """
 
 import fcntl
 import json
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -34,6 +37,7 @@ class InboxOpenError(RuntimeError):
 
 INBOX_RELATIVE_PATH = Path(".kapso") / "inbox.jsonl"
 LAUNCH_RELATIVE_PATH = Path(".kapso") / "launch.json"
+RESUME_LOCK_RELATIVE_PATH = Path(".kapso") / "resume.lock"
 LAUNCH_SCHEMA_VERSION = 2
 
 # The fields a session supplies for one request (Appendix A.2). All are
@@ -88,18 +92,49 @@ class Request:
 # THE FILE
 # =============================================================================
 
+def _committed(text: str) -> str:
+    """The complete lines of the file. A writer acknowledges an event only
+    once its whole line is on disk, so a tail with no newline is a write
+    that never finished (a full disk, a killed process): nobody was told
+    it happened, and the request it was for is unchanged. That is not
+    corruption, and it must not make the campaign unreadable; a complete
+    line that does not parse still raises."""
+    return text[: text.rfind("\n") + 1]
+
+
 @contextmanager
 def _locked(path: Path) -> Iterator[Any]:
     """The inbox file opened for append-plus-read under an exclusive
     lock, so a read-fold-append sequence sees and writes a consistent
-    file even with the gate, the CLI and the orchestrator all writing."""
+    file even with the gate, the CLI and the orchestrator all writing.
+    Holding the lock proves no write is in flight, so an unfinished tail
+    is removed here, before an append could join it to the next event.
+    What the caller wrote is on disk when this returns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+", encoding="utf-8") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         handle.seek(0)
+        text = handle.read()
+        committed = _committed(text)
+        if committed != text:
+            handle.truncate(len(committed.encode("utf-8")))
+        handle.seek(0)
         yield handle
         handle.flush()
+        os.fsync(handle.fileno())
         fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextmanager
+def resume_lock(workspace_dir: str | Path) -> Iterator[None]:
+    """Held for the whole of a resume started from a reply, so two replies
+    cannot both resume the campaign. It blocks rather than refuses: the
+    second reply decides what to do after the first has finished, knowing
+    how it ended. The kernel releases it when the holder dies, so a killed
+    resume leaves nothing to clean up, and the sessions a resume starts do
+    not inherit it."""
+    with _locked(Path(workspace_dir).resolve() / RESUME_LOCK_RELATIVE_PATH):
+        yield
 
 
 def _parse_events(text: str, source: str) -> List[Dict[str, Any]]:
@@ -123,7 +158,7 @@ def read_events(path: str | Path) -> List[Dict[str, Any]]:
     path = Path(path)
     if not path.is_file():
         return []
-    return _parse_events(path.read_text(encoding="utf-8"), str(path))
+    return _parse_events(_committed(path.read_text(encoding="utf-8")), str(path))
 
 
 def fold(events: Sequence[Dict[str, Any]]) -> Dict[int, Request]:
@@ -154,8 +189,10 @@ def fold(events: Sequence[Dict[str, Any]]) -> Dict[int, Request]:
             )
         request = requests[request_id]
         if kind == "replied":
-            if request.reply is not None:
-                raise ValueError(f"inbox request #{request_id} replied twice")
+            if request.continued:
+                raise ValueError(
+                    f"inbox request #{request_id} replied after it was continued"
+                )
             request.reply = str(event["note"])
             request.replied_at = str(event["ts"])
         else:
@@ -189,6 +226,22 @@ def all_answered(requests: Dict[int, Request], ids: Sequence[int]) -> bool:
     if not ids:
         return False
     return all(not request.open for request in requests_for_ids(requests, ids))
+
+
+def awaiting_resume(
+    requests: Dict[int, Request], node_history: Sequence[Dict[str, Any]]
+) -> List[Request]:
+    """The requests whose node the checkpoint still holds suspended with
+    every reply in: the person has done their part and the campaign owes a
+    resume, because the last one failed or was killed. The checkpoint
+    decides, not ``continued``, which is written as the session starts and
+    says nothing about whether it finished."""
+    awaiting: List[Request] = []
+    for node in node_history:
+        ids = node.get("request_ids") or []
+        if node.get("suspended") and all_answered(requests, ids):
+            awaiting.extend(requests_for_ids(requests, ids))
+    return awaiting
 
 
 def _validate_entries(entries: Any) -> List[Dict[str, str]]:
@@ -284,7 +337,8 @@ def looks_like_a_secret(note: str) -> bool:
 def record_reply(
     path: str | Path, request_id: int, note: str, *, allow_secret: bool = False
 ) -> Request:
-    """The person's answer. The request must exist and be open.
+    """The person's answer. The request must exist, and a session must not
+    have been given an earlier answer yet: until then the latest one wins.
 
     A note shaped like a credential is refused unless the caller says it
     knows (`allow_secret=True`, the CLI's --yes): the guard holds for every
@@ -303,10 +357,10 @@ def record_reply(
         if request_id not in requests:
             raise ValueError(f"inbox has no request #{request_id}")
         request = requests[request_id]
-        if not request.open:
+        if request.continued:
             raise ValueError(
-                f"inbox request #{request_id} was already answered: "
-                f"{request.reply!r}"
+                f"inbox request #{request_id} was already answered and handed "
+                f"to its session: {request.reply!r}"
             )
         event = {"ts": _utcnow(), "event": "replied", "id": request_id, "note": note}
         handle.write(json.dumps(event) + "\n")
@@ -335,6 +389,20 @@ def record_continued(
                 "node": node,
                 "session": session,
             }) + "\n")
+
+
+def continue_answered(path: str | Path, *, node: int, session: str) -> List[int]:
+    """The answered requests of ``node`` not yet continued, recorded as
+    continued by ``session`` — a restarted session that carries the
+    replies (the harness setup session, which the orchestrator runs again
+    rather than resuming). Their ids, in request order."""
+    pending = [
+        request.id for request in load_requests(path).values()
+        if request.node == node and not request.open and not request.continued
+    ]
+    if pending:
+        record_continued(path, pending, node=node, session=session)
+    return pending
 
 
 def new_requests_for_session(
@@ -392,11 +460,23 @@ def launch_record_path(workspace_dir: str | Path) -> Path:
 
 
 def write_launch_record(workspace_dir: str | Path, record: Dict[str, Any]) -> Path:
-    """Written once, on a fresh campaign; a resume never rewrites it."""
+    """Written once, on a fresh campaign; a resume never rewrites it.
+    Paths are stored resolved: `kapso inbox reply` resumes from inside
+    the campaign, not from the directory the launch ran in. Replaced
+    atomically: every resume reads this file, and a torn one would strand
+    the campaign."""
     path = launch_record_path(workspace_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema_version": LAUNCH_SCHEMA_VERSION, **record}
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for key in _RECORDED_PATH_KEYS:
+        if payload.get(key):
+            payload[key] = _resolved_path(payload[key])
+    temporary = path.with_name(path.name + ".tmp")
+    with open(temporary, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
     return path
 
 
@@ -428,6 +508,11 @@ _PATH_LAUNCH_KEYS = ("eval_dir", "config_path")
 # the heads are re-pinned from the record, so a bank that moved since the
 # launch is not a change (docs/plans/redesign/wp3-experience.md).
 _EXPERIENCE_LAUNCH_KEY = "experience"
+_RECORDED_PATH_KEYS = (*_PATH_LAUNCH_KEYS, "data_dir")
+
+
+def _resolved_path(value: Any) -> str:
+    return str(Path(str(value)).expanduser().resolve())
 
 
 def resume_arguments(record: Dict[str, Any], requested: Dict[str, Any]) -> Dict[str, Any]:
@@ -450,7 +535,7 @@ def launch_mismatches(record: Dict[str, Any], requested: Dict[str, Any]) -> Dict
             return [(source["reference"], source["scope"]) for source in (value or [])]
         if value is None or key not in _PATH_LAUNCH_KEYS:
             return value
-        return str(Path(str(value)).expanduser().resolve())
+        return _resolved_path(value)
 
     return {
         key: (record.get(key), requested.get(key))
@@ -474,12 +559,21 @@ def register_campaign(registry_path: str | Path, workspace_dir: str | Path, goal
         fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+def beside(campaign: Path, suffix: str) -> Path:
+    """The file that lies beside a campaign directory, named after it: the
+    log, the launch receipt, the learn log. The path is resolved first, so
+    a campaign named `.` or `..` (an empty name, which `with_name`
+    refuses) is the directory it stands for."""
+    resolved = Path(campaign).resolve()
+    return resolved.with_name(resolved.name + suffix)
+
+
 def launch_receipt_path(campaign: Path) -> Path:
     """The detached launch's receipt, beside the log: the child's pid, the
     log's path, the argv and the time, written before the child starts, so
     `kapso watch` can tell a campaign that is starting from one that died
     before writing its status (wp6-observability.md, change 7)."""
-    return campaign.with_name(campaign.name + ".launch.json")
+    return beside(campaign, ".launch.json")
 
 
 def read_launch_receipt(campaign: Path) -> Optional[Dict[str, Any]]:
@@ -571,6 +665,19 @@ def render_requests(requests: Sequence[Request], ideas: Dict[int, str]) -> str:
             f"      next   {request.next_steps}",
         ])
         blocks.append("\n".join(rows))
+    return "\n\n".join(blocks)
+
+
+def render_awaiting_resume(requests: Sequence[Request], ideas: Dict[int, str]) -> str:
+    """The rows of `kapso inbox` for replies a resume has not delivered."""
+    blocks = []
+    for request in requests:
+        idea = ideas.get(request.node, "")
+        blocks.append("\n".join([
+            f"  #{request.id}  {request.key}   answered, campaign not resumed",
+            f"      for    node {request.node} · {idea}" if idea else f"      for    node {request.node}",
+            f"      reply  {request.reply!r}",
+        ]))
     return "\n\n".join(blocks)
 
 

@@ -66,7 +66,7 @@ from typing import Any, Dict, List, Optional, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import plugin_proof  # noqa: E402
 import status_timeline  # noqa: E402
-from plugin_proof import CAMPAIGN_GRACE_SECONDS, SUITE, ClaudeHost, Context, UserMode, codex_session_note, record_step, shell_step, status_of, wait_for  # noqa: E402
+from plugin_proof import CAMPAIGN_GRACE_SECONDS, SUITE, ClaudeHost, CodexHost, Context, UserMode, codex_session_note, record_step, shell_step, status_of, wait_for  # noqa: E402
 from status_timeline import heartbeat_seconds  # noqa: E402
 
 BUDGET = SUITE["builds"]["s5"]
@@ -109,18 +109,33 @@ CLASS_WORDS = {
     "evaluator-crash": re.compile(r"evaluat\w*\s+(crash|fail|error|broke|could not)|labels?\s+(file\s+)?(is\s+|was\s+|were\s+)?(missing|gone|not found|moved|absent)|holdout_labels|hold-?out labels|FileNotFound", re.I),
     "missing-key": re.compile(r"DATA_API_KEY|missing (the )?(api )?key|api key|waiting (on|for) (the|a|your) (key|reply|answer)|inbox request|asked (you )?for the key", re.I),
     "killed-session": re.compile(r"session\s+(was\s+)?(killed|died|terminated|ended|crashed)|(killed|died|terminated)\s+(mid|during)|SIGKILL|exit(ed)?\s+(code\s+)?(137|-9)|run entry (ended|ends) in error|session (ended|exited) (abnormally|in error)", re.I),
-    "killed-writer": re.compile(r"\bdead\b|writer\s+(is\s+|was\s+)?(gone|dead|killed|died)|pid \d+ is gone|no longer running|not running|process\s+(is\s+)?gone|heartbeat\s+(stopped|stale|is old)", re.I),
+    # "the writer process died", "PID 16983 was gone", "the campaign died …
+    # PID 16763 disappeared, leaving a stale 'running' status" (rel-s5-codex)
+    # all name the writer gone as plainly as "the writer died".
+    "killed-writer": re.compile(r"\bdead\b|(writer|campaign|main)(\s+process)?\s+(is\s+|was\s+)?(gone|dead|killed|died)|pid \d+ (is |was )?(gone|dead|disappeared)|no longer running|not running|process\s+(is\s+|was\s+)?(gone|died|killed)|heartbeat\s+(stopped|stale|is old)|stale\s+.{0,12}status", re.I),
     "full-disk": re.compile(r"no space left|ENOSPC|disk\s+(is\s+|was\s+)?full|out of (disk )?space|tmpfs|ran out of space", re.I),
     "tampering": re.compile(r"integrity|tamper|modified evaluator|evaluat\w*\s+(was\s+)?(edited|changed|modified|altered)|hash\s+(mismatch|check)|\bvoided\b", re.I),
 }
 FIX_WORDS = {
-    "provider-limit": re.compile(r"\bwait\b|retry|retried|rode it out|window|resume", re.I),
+    # A campaign asked about after it finished (the sixth S5 Codex launch:
+    # the rate-limited attempt counted against its two experiments and it
+    # stopped at max_iterations) is continued with a larger allowance, not
+    # waited for: "continuing requires increasing the experiment allowance".
+    "provider-limit": re.compile(r"\bwait\b|retry|retried|rode it out|window|resume|continu(e|es|ing)|experiment allowance|more experiments|--budget-experiments|another (attempt|experiment)", re.I),
     "evaluator-crash": re.compile(r"restore|put (it|them|the labels) back|move (it|them) back|then resume|resume", re.I),
     "missing-key": re.compile(r"kapso inbox reply|\breply\b|\.env|provide the key|set (the )?key", re.I),
-    "killed-session": re.compile(r"went on|carried on|continued|next attempt|moved on|nothing to (do|resume|stop)|no action|on its own|finished normally|completed normally|the (next|second) (iteration|attempt)|iteration 2", re.I),
-    "killed-writer": re.compile(r"--resume|\bresume\b", re.I),
-    "full-disk": re.compile(r"free (up )?(the )?(disk|space)|clear (up )?space|delete|remove .*(file|filler)|resume", re.I),
-    "tampering": re.compile(r"not counted|discarded|restore the evaluator|leave the evaluator|do not (edit|modify)|unedited|revert|unchanged", re.I),
+    # "recovered from a killed implementation session and finished", "Second
+    # attempt: delivered" (rel-s5-codex) name the fix — the campaign went on
+    # by itself and finished — as plainly as "it carried on".
+    "killed-session": re.compile(r"went on|carried on|continued|recovered|\bfinished\b|next attempt|moved on|nothing to (do|resume|stop)|no action|on its own|finished normally|completed normally|(the |a )?(next|second) (iteration|attempt)|iteration 2", re.I),
+    # A resume by another name is the fix named: the second S5 of the release
+    # gate found the tmpfs with room again (the driver had removed its filler
+    # before asking) and said "relaunch with the same command", which is it.
+    "killed-writer": re.compile(r"--resume|\bresum(e|ed|ing)\b|relaunch|restart|re-?run|run (it )?again", re.I),
+    "full-disk": re.compile(r"free (up )?(the )?(disk|space)|clear (up )?space|delete|remove .*(file|filler)|resume|relaunch|restart|re-?run|run (it )?again", re.I),
+    # "requesting restoration of the evaluator", "not as a valid scored
+    # result" (rel-s5-codex) name the fix as "restore the evaluator" does.
+    "tampering": re.compile(r"not (counted|as a valid|a valid)|discarded|restor\w*\s+(of\s+)?(the\s+)?evaluator|leave the evaluator|do not (edit|modify)|unedited|revert|unchanged", re.I),
 }
 STEP_NAMES = ["provider-limit", "evaluator-crash", "missing-key", "killed-session", "killed-writer", "full-disk", "tampering", "bank-compare"]
 PAUSE_RULE = (
@@ -188,6 +203,25 @@ def names_class_and_fix(text: str, injection: str) -> Dict[str, bool]:
     return {"names_class": bool(CLASS_WORDS[injection].search(text)), "names_fix": bool(FIX_WORDS[injection].search(text))}
 
 
+def launched_after(campaign: Path, since: datetime) -> bool:
+    """Whether the campaign was launched again after ``since``, from its
+    records: the status file's `started_at` (a resume writes the
+    relaunch's time) or the launch receipt's. The release gate's second
+    S5 read three resumes as none by looking for `running` in the minutes
+    after the turn — the plugin had waited inside its turn until the
+    resumed campaign was done."""
+    status = status_of(campaign) or {}
+    resolved = Path(campaign).resolve()
+    receipt_path = resolved.with_name(resolved.name + ".launch.json")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.is_file() else {}
+    times = [status.get("started_at"), receipt.get("started_at")]
+    return any(stamp and datetime.fromisoformat(stamp) > since for stamp in times)
+
+
+def resumed_after(campaign: Path, since: datetime, seconds: int = 300) -> bool:
+    return wait_for(lambda: launched_after(campaign, since), seconds, every=10)
+
+
 def scored_after(scores_before: Dict[Any, Any], attempts: Sequence[Dict[str, Any]]) -> bool:
     """Whether some attempt carries a score it did not carry when the reply
     went: a new node's score, or the paused node's own first score (s5-
@@ -204,11 +238,18 @@ def request_names_no_value(inbox: Path, key_value: str) -> Optional[bool]:
     return "DATA_API_KEY" in text and key_value not in text
 
 
+# The seed commit's author and committer date: a fixture's commit is the same
+# commit every time it is seeded, so the comparison can hold a bank's head
+# against its seed (a clock-dated commit differed across a second boundary).
+SEED_COMMIT_DATE = "2026-01-01T00:00:00Z"
+
+
 def seed_bank(fixture: Path, target: Path) -> Dict[str, Any]:
     """A bare bank at `target` holding the fixture's tree as one commit —
     the seeded bank every S5 campaign is served and the comparison reads
     before and after each injection (a bank with no card compares
-    vacuously). Returns its state."""
+    vacuously). Returns its state. Re-seeding reproduces the commit: the
+    tree, the message and the dates are fixed."""
     if not fixture.is_dir():
         raise FileNotFoundError(f"the bank fixture is missing: {fixture}")
     source = target.with_name(target.name + ".src")
@@ -216,7 +257,8 @@ def seed_bank(fixture: Path, target: Path) -> Dict[str, Any]:
         if path.exists():
             shutil.rmtree(path)
     shutil.copytree(fixture, source)
-    git = lambda *args: subprocess.run(["git", "-C", str(source), "-c", "user.name=kapso-semantic", "-c", "user.email=semantic@kapso.invalid", *args], check=True, capture_output=True, text=True)
+    dated = {**os.environ, "GIT_AUTHOR_DATE": SEED_COMMIT_DATE, "GIT_COMMITTER_DATE": SEED_COMMIT_DATE}
+    git = lambda *args: subprocess.run(["git", "-C", str(source), "-c", "user.name=kapso-semantic", "-c", "user.email=semantic@kapso.invalid", *args], check=True, capture_output=True, text=True, env=dated)
     # On `main`: the engine reads a bank's main branch, whatever git's default is.
     git("init", "-q", "-b", "main")
     git("add", "-A")
@@ -247,7 +289,7 @@ def session_mentions(campaign: Path, attempt: Dict[str, Any], needle: Any) -> bo
 # The evaluator's own failure on the labels: the file not found, in a
 # traceback or an error line — never the file's name in a prompt or a
 # command, which any session that read the brief carries.
-CRASH_ON_LABELS = re.compile(r"(FileNotFoundError|No such file|Traceback|Errno 2)[^\n]{0,200}holdout_labels\.csv|holdout_labels\.csv[^\n]{0,120}(not found|No such file|does not exist|is missing)")
+CRASH_ON_LABELS = re.compile(r"(FileNotFoundError|No such file|Traceback|Errno 2)[^\n]{0,200}holdout_labels\.csv|holdout_labels\.csv[^\n]{0,120}(not found|No such file|does not exist|is missing|raised `?FileNotFoundError|FileNotFoundError)")
 
 
 def evaluator_crashed(campaign: Path, attempt: Dict[str, Any]) -> bool:
@@ -260,6 +302,35 @@ def evaluator_crashed(campaign: Path, attempt: Dict[str, Any]) -> bool:
     if CRASH_ON_LABELS.search(f"{evaluation.get('output') or ''}\n{evaluation.get('integrity_error') or ''}"):
         return True
     return session_mentions(campaign, attempt, CRASH_ON_LABELS)
+
+
+def crash_occurred(campaign: Path, trace: Dict[str, Any]) -> bool:
+    """Whether the evaluator crashed on the missing labels at all this
+    campaign — in any attempt's evaluation output, integrity error or
+    sessions — even when a capable agent then restored the labels from a
+    workspace copy (WP7's readability finding) and the attempt went on to
+    score. The injection bit and the plugin had a crash to diagnose; the
+    recovery is the finding, not a miss (rel-s5-codex: the agent restored
+    a hash-matching fixture itself and scored 0.8481, and no attempt was
+    left scoreless, though the crash was in the record and the plugin
+    named it)."""
+    for attempt in trace.get("attempts", []):
+        evaluation = attempt.get("evaluation") or {}
+        if CRASH_ON_LABELS.search(f"{evaluation.get('output') or ''}\n{evaluation.get('integrity_error') or ''}"):
+            return True
+        if session_mentions(campaign, attempt, CRASH_ON_LABELS):
+            return True
+    # The engine's own record of each node's difficulties (the fourth S5
+    # Codex launch: "The evaluator crashed before scoring anything … raised
+    # FileNotFoundError", which the plugin cited, in run_state.json and in
+    # no session stream, the session having restored the file first).
+    run_state = campaign / ".kapso" / "run_state.json"
+    if run_state.is_file():
+        state = json.loads(run_state.read_text(encoding="utf-8"))
+        history = (state.get("strategy_state") or {}).get("node_history") or []
+        if any(CRASH_ON_LABELS.search(str(node.get("technical_difficulties") or "")) for node in history if isinstance(node, dict)):
+            return True
+    return False
 
 
 def bank_state(bank: Path) -> Dict[str, Any]:
@@ -288,7 +359,14 @@ class S5:
         self.out = Path(args.out).resolve()
         self.work = self.out / "work"
         self.work.mkdir(parents=True, exist_ok=True)
-        self.ctx = Context(ClaudeHost(), self.clone, self.work, self.out, None, args.machine, user=UserMode("scripted", "claude_code"))
+        # The plugin's host is the run's (`--host`): the release gate's second
+        # S5 ran the plugin on Claude Code under a machine named for Codex,
+        # since the driver took no host. The wheel is pinned in the record
+        # as S2 pins it (`--wheel`), where the first gate runs named the
+        # version alone.
+        host = CodexHost() if args.host == "codex" else ClaudeHost()
+        wheel = Path(args.wheel).resolve() if args.wheel else None
+        self.ctx = Context(host, self.clone, self.work, self.out, wheel, args.machine, user=UserMode("scripted", args.host))
         self.cadence = heartbeat_seconds() if args.cadence is None else args.cadence
         # The bank every campaign is served: the one given, else the seeded
         # fixture (three cards of a real learn) as a bare repo under out/.
@@ -394,8 +472,9 @@ class S5:
         trace = self.trace(campaign)
         failures = [f for f in trace.get("failures", []) if "429" in json.dumps(f) or "rate_limit" in json.dumps(f)]
         turn_1 = self.ask(name, project, f"what happened to the kapso campaign at ../s5-{name}? it does not look right")
+        asked_at = datetime.now(timezone.utc)
         turn_2 = self.ask(name + "-2", project, f"the window is over; continue the campaign at ../s5-{name}")
-        resumed = wait_for(lambda: (status_of(campaign) or {}).get("state") == "running", 300, every=10)
+        resumed = resumed_after(campaign, asked_at)
         diagnosis = names_class_and_fix(turn_1.text, name)
         metrics = {"shim_fired": (shim / "fired").read_text(encoding="utf-8").count("\n") if (shim / "fired").is_file() else 0, "failures_with_the_limit": len(failures),
                    "truthful": truthful_within(self.timeline(name), injected_at, self.cadence, expect_terminal=False), **diagnosis, "resumed": resumed}
@@ -426,11 +505,31 @@ class S5:
         # The evaluator reads the labels through the ABSOLUTE path in
         # evaluation/private_dir.txt, the project's own private directory
         # outside the campaign; moving it there breaks every evaluation,
-        # the engine's own included (the generator never copies private/
-        # into a workspace, so the campaign tree has no copy to move).
-        labels = project / "private" / "holdout_labels.csv"
-        moved = self.work / f"s5-{name}-labels.away"
-        labels.rename(moved)
+        # the engine's own included. The seed copies the project directory
+        # whole, so the campaign root holds a second copy under private/
+        # (ignored by git, on disk, its digest in the project's manifest):
+        # the gate's S5 on Codex saw the implementation session copy it back
+        # to the path the pointer names and score 0.8505 — the readability
+        # limit WP7 named, used. Every copy the campaign can reach moves.
+        # … and every sibling's: the earlier injections' projects and
+        # campaigns keep their own copies of the same labels under the work
+        # directory, and the fourth S5 Codex launch saw the session find one
+        # by `sha256sum` across the siblings and `cp` it into place before
+        # scoring. The rig's own layout must not hand the labels back, so
+        # every copy under the work directory moves away for the step.
+        # … and the repository clone's fixtures: the fifth S5 Codex launch's
+        # session searched the whole machine and copied the labels from
+        # examples/churn-first-build/private in the test checkout. The only
+        # copies on a fresh machine are the rig's, and all of them move.
+        copies = sorted(set(
+            [project / "private" / "holdout_labels.csv", campaign / "private" / "holdout_labels.csv"]
+            + list(self.work.glob("*/private/holdout_labels.csv"))
+            + list(self.clone.glob("examples/*/private/holdout_labels.csv"))
+            + list(self.clone.glob("tests/fixtures/*/private/holdout_labels.csv"))
+        ))
+        moved = {path: self.work / f"s5-{name}-labels-{index}.away" for index, path in enumerate(copies) if path.is_file()}
+        for path, away in moved.items():
+            path.rename(away)
         injected_at = datetime.now(timezone.utc)
         status = self.finish(name, campaign)
         trace = self.trace(campaign)
@@ -440,20 +539,30 @@ class S5:
         # the session did — so both are read. Paired with a null score it
         # stays specific to the crash (a healthy attempt carries a score).
         crashed = [attempt for attempt in trace.get("attempts", []) if evaluator_crashed(campaign, attempt)]
+        crash_seen = bool(crashed) or crash_occurred(campaign, trace)
         turn_1 = self.ask(name, project, f"why did the later attempt of the kapso campaign at ../s5-{name} fail?")
-        # A labels file back in the protected directory before the driver
+        # A labels file back in a protected directory before the driver
         # restores it was written by the campaign — the thing the record
-        # must say (observed: a session rebuilt it from the generator).
-        rebuilt_by_campaign = labels.exists()
-        moved.rename(labels)
+        # must say (observed: a session rebuilt it from the generator; a
+        # session copied the campaign root's own copy back).
+        rebuilt_by_campaign = any(path.exists() for path in copies)
+        for path, away in moved.items():
+            if path.exists():
+                path.unlink()
+            away.rename(path)
+        asked_at = datetime.now(timezone.utc)
         turn_2 = self.ask(name + "-2", project, f"the labels file is back where it was; continue the campaign at ../s5-{name}")
-        resumed = wait_for(lambda: (status_of(campaign) or {}).get("state") == "running", 300, every=10)
+        resumed = resumed_after(campaign, asked_at)
         diagnosis = names_class_and_fix(turn_1.text, name)
-        metrics = {"attempts_with_the_crash": len(crashed), "labels_rebuilt_by_campaign": rebuilt_by_campaign, "truthful": truthful_within(self.timeline(name), injected_at, self.cadence, expect_terminal=False), **diagnosis, "resumed": resumed}
+        metrics = {"attempts_with_the_crash": len(crashed), "crash_occurred": crash_seen, "labels_rebuilt_by_campaign": rebuilt_by_campaign, "truthful": truthful_within(self.timeline(name), injected_at, self.cadence, expect_terminal=False), **diagnosis, "resumed": resumed}
         artifacts = [self.ctx.artifact(f"{name}-answers.txt", turn_1.text + "\n\n---\n\n" + turn_2.text), self.ctx.artifact(f"{name}-status.json", json.dumps(status, indent=2)), self.ctx.artifact(f"{name}-trace.json", json.dumps(trace, indent=2))]
         self.ctx.shell(f"kapso build --output {campaign} --stop", check=False)
+        # The crash is what the plugin had to diagnose; whether an agent then
+        # restored the labels from a workspace copy and re-scored (WP7's
+        # readability finding) does not unmake it. The pass is the crash seen
+        # in the record, the plugin naming the class and the fix, and a resume.
         return self.record_injection(name, [turn_1, turn_2], metrics, artifacts, ["the hold-out labels moved away before the first evaluation: the protected evaluator crashes on every invocation, the engine's own included"],
-                                     bool(crashed) and diagnosis["names_class"] and diagnosis["names_fix"] and resumed, started)
+                                     crash_seen and diagnosis["names_class"] and diagnosis["names_fix"] and resumed, started)
 
     def step_missing_key(self) -> Dict[str, Any]:
         started = time.monotonic()
@@ -556,7 +665,11 @@ class S5:
         shown_after = (self.timeline(name) or [{}])[-1].get("shown")
         turn_1 = self.ask(name, project, f"what happened to the kapso campaign at ../s5-{name}? kapso watch says something is wrong")
         turn_2 = self.ask(name + "-2", project, second_prompt)
-        resumed = wait_for(lambda: (status_of(campaign) or {}).get("state") == "running" and status_timeline.sample(campaign).get("shown") == "RUNNING", 300, every=10)
+        # The resume is any relaunch after the writer went: a plugin that
+        # diagnoses and resumes in its first answer (rel-s5-codex's full-disk:
+        # "the filesystem now has 59 MB free; I resumed the campaign") has
+        # done the thing, and the second turn's "already resumed" is right.
+        resumed = resumed_after(campaign, injected_at)
         # The resumed campaign is watched for what is left of the step's own
         # budget, not to its end: the claim is that it continues from its
         # checkpoint with the attempts kept, read from the trace, and a
@@ -652,19 +765,22 @@ class S5:
         name = "tampering"
         project = self.project(name)
         campaign = self.launch(name, project)
-        self.wait_phase(campaign, "implementation", 1800)
-        # The implementation runs in a git CLONE of the campaign under
-        # sessions/<branch>/; editing THAT working tree before it commits
-        # carries the edit into the committed branch the integrity check
-        # materialises and verifies. (The campaign root's working tree is
-        # never committed, so an edit there would not reach the check.)
-        def session_evaluators():
-            return [path for path in (campaign / "sessions").glob("*/kapso_evaluation/evaluate.py")]
-        wait_for(lambda: bool(session_evaluators()), 900, every=10)
-        edited = session_evaluators()
-        for evaluator in edited:
-            with open(evaluator, "a", encoding="utf-8") as out:
-                out.write("\n# S5: an edit to the protected evaluator inside the running attempt's session clone\n")
+        # The edit lands in the campaign's own `main` as a commit during the
+        # first ideation: after the harness setup session, which works in
+        # the campaign root, and before the attempt's session clone, which
+        # is made from main's tip — so the clone inherits the edited
+        # evaluator with no diff against its parent for the writer to
+        # notice. (The release gate's first S5 edited the running clone's
+        # working tree; the writer diffed against the parent, restored the
+        # pristine file, and nothing was voided.) The integrity check
+        # materialises the committed branch and reads its evaluator against
+        # the sealed manifest: the void, with the hash evidence.
+        self.wait_phase(campaign, "ideation", 1800)
+        evaluator = campaign / "kapso_evaluation" / "evaluate.py"
+        with open(evaluator, "a", encoding="utf-8") as out:
+            out.write("\n# S5: an edit to the protected evaluator in the campaign's main branch, before the attempt's clone\n")
+        self.ctx.shell(f"git -C {campaign} add kapso_evaluation/evaluate.py && git -C {campaign} -c user.name=S5 -c user.email=s5@kapso.invalid commit -q -m 'S5: the protected evaluator edited in main'")
+        edited = [evaluator]
         injected_at = datetime.now(timezone.utc)
         status = self.finish(name, campaign)
         trace = self.trace(campaign)
@@ -678,7 +794,7 @@ class S5:
         artifacts = [self.ctx.artifact(f"{name}-answers.txt", turn_1.text), self.ctx.artifact(f"{name}-status.json", json.dumps(status, indent=2)), self.ctx.artifact(f"{name}-trace.json", json.dumps(trace, indent=2))]
         self.ctx.state["tampering_campaign"] = str(campaign)
         self.ctx.save()
-        return self.record_injection(name, [turn_1], metrics, artifacts, ["the evaluator edited inside the running attempt's session clone; the integrity check voids the attempt with the hash evidence; this campaign is S4's (left running to its end, never stopped)"],
+        return self.record_injection(name, [turn_1], metrics, artifacts, ["the protected evaluator edited in the campaign's main during the first ideation, before the attempt's clone, so the writer sees no diff to restore; the integrity check voids the attempt with the hash evidence; the campaign is left running to its end, never stopped"],
                                      bool(edited) and bool(integrity_voids) and diagnosis["names_class"], started)
 
     def step_bank_compare(self) -> Dict[str, Any]:
@@ -702,7 +818,7 @@ def class_completed(name: str, metrics: Dict[str, Any], state: Optional[str]) ->
     driver's), in which case the completion stays as recorded."""
     needed = {
         "provider-limit": ("failures_with_the_limit", "names_class", "names_fix", "resumed"),
-        "evaluator-crash": ("attempts_with_the_crash", "names_class", "names_fix", "resumed"),
+        "evaluator-crash": ("crash_occurred", "names_class", "names_fix", "resumed"),
         "missing-key": ("paused", "request_names_no_value", "authorised_table_fetch_after_reply", "scored_after_resume", "resumed"),
         "killed-session": ("session_killed", "failures", "names_class", "names_fix"),
         "killed-writer": ("injected", "shown_dead", "names_class", "names_fix", "resumed", "attempts_kept"),
@@ -715,7 +831,7 @@ def class_completed(name: str, metrics: Dict[str, Any], state: Optional[str]) ->
     if name == "provider-limit":
         return bool(m["failures_with_the_limit"] and m["names_class"] and m["names_fix"] and (m["resumed"] or state == "done"))
     if name == "evaluator-crash":
-        return bool(m["attempts_with_the_crash"] and m["names_class"] and m["names_fix"] and m["resumed"])
+        return bool(m["crash_occurred"] and m["names_class"] and m["names_fix"] and m["resumed"])
     if name == "missing-key":
         return bool(m["paused"] and m["request_names_no_value"] and m["authorised_table_fetch_after_reply"] and m["scored_after_resume"] and m["resumed"])
     if name == "killed-session":
@@ -746,7 +862,9 @@ def rederive(record: Dict[str, Any], out: Path) -> Dict[str, Any]:
             trace_file = out / "artifacts" / f"{name}-trace.json"
             if trace_file.is_file():
                 trace = json.loads(trace_file.read_text(encoding="utf-8"))
-                metrics["attempts_with_the_crash"] = sum(1 for attempt in trace.get("attempts", []) if evaluator_crashed(out / "work" / f"s5-{name}", attempt))
+                campaign = out / "work" / f"s5-{name}"
+                metrics["attempts_with_the_crash"] = sum(1 for attempt in trace.get("attempts", []) if evaluator_crashed(campaign, attempt))
+                metrics["crash_occurred"] = bool(metrics["attempts_with_the_crash"]) or crash_occurred(campaign, trace)
         if "attempts_kept" in metrics and not metrics.get("attempts_before"):
             metrics["attempts_kept"] = None
         if name == "missing-key" and metrics.get("paused"):
@@ -763,10 +881,10 @@ def rederive(record: Dict[str, Any], out: Path) -> Dict[str, Any]:
         if completed is not None:
             step["completed"] = completed
         step["notes"] = [*[note for note in step.get("notes", []) if not note.startswith("re-read")],
-                         "re-read 2026-10-29 from the archive: the diagnosis under the disjoint vocabularies, the crash evidence from the evaluator's own failure line, retention not exercised where no attempt had landed, a paused campaign's score after the reply from its trace, the completion from the class's predicate over the record where every metric it needs is there; the truthfulness verdict as recorded (the injection's moment is not in the archive)"]
+                         f"re-read {datetime.now(timezone.utc).date().isoformat()} from the archive: the diagnosis under the disjoint vocabularies, the crash evidence from the evaluator's own failure line, retention not exercised where no attempt had landed, a paused campaign's score after the reply from its trace, the completion from the class's predicate over the record where every metric it needs is there; the truthfulness verdict as recorded (the injection's moment is not in the archive)"]
     record["metrics"] = run_metrics(record)
     record["notes"] = [*[note for note in record.get("notes", []) if not note.startswith("re-derived")],
-                       "re-derived 2026-10-29 under the current rules where the archive allows (each injection's note says what)"]
+                       f"re-derived {datetime.now(timezone.utc).date().isoformat()} under the current rules where the archive allows (each injection's note says what)"]
     return record
 
 
@@ -793,6 +911,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--clone", default=None)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--host", choices=["claude_code", "codex"], default="claude_code", help="the host the plugin's conversations run on")
+    parser.add_argument("--wheel", default=None, help="the wheel the machine installed, pinned in the record by its sha256")
     parser.add_argument("--rederive", action="store_true", help="read an archived run again under the current rules where the archive allows (on the development box); runs nothing")
     parser.add_argument("--bank", default=None, help="a bank with at least one card, loaded into every campaign and compared before and after each injection")
     parser.add_argument("--cadence", type=float, default=None, help="the sampler's cadence; default: the engine config's budget.checkpoint_heartbeat_seconds")
@@ -812,10 +932,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     driver = S5(args)
     record_file = driver.out / "record.json"
     started = datetime.now(timezone.utc)
+    wheel_sha256 = hashlib.sha256(driver.ctx.wheel.read_bytes()).hexdigest() if driver.ctx.wheel else "-"
     record = json.loads(record_file.read_text()) if record_file.exists() else {
-        "test": "S5", "host": "claude_code", "machine": args.machine, "run_id": f"S5-claude_code-{started.strftime('%Y%m%dT%H%M%SZ')}", "advisory": args.advisory,
-        "package": {"version": subprocess.run(["kapso", "--version"], capture_output=True, text=True).stdout.strip().split()[-1], "wheel_sha256": "-"},
-        "pins": {"suite_sha256": hashlib.sha256(plugin_proof.SUITE_PATH.read_bytes()).hexdigest(), "cadence_seconds": driver.cadence, "bank": str(driver.bank) if driver.bank else None},
+        "test": "S5", "host": args.host, "machine": args.machine, "run_id": f"S5-{args.host}-{started.strftime('%Y%m%dT%H%M%SZ')}", "advisory": args.advisory,
+        "package": {"version": subprocess.run(["kapso", "--version"], capture_output=True, text=True).stdout.strip().split()[-1], "wheel_sha256": wheel_sha256},
+        "pins": {"wheel_sha256": wheel_sha256, "suite_sha256": hashlib.sha256(plugin_proof.SUITE_PATH.read_bytes()).hexdigest(), "cadence_seconds": driver.cadence, "bank": str(driver.bank) if driver.bank else None},
         "user": {"kind": "scripted", "card": None, "interventions": [], "events": [], "pushback": None},
         "started": started.isoformat(timespec="seconds"), "finished": None, "steps": [], "metrics": {}, "notes": [RECONSTRUCTED_LIMIT["note"], *[note for note in [codex_session_note()] if note]], "transcripts": [],
     }

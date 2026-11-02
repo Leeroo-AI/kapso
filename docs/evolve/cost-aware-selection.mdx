@@ -149,10 +149,11 @@ Equal-score candidates therefore prefer the cheaper design when `weight` is
 positive. Equal-cost candidates retain the problem's score ordering. External
 iteration-evaluator metrics remain observational.
 
-The same cost utility guides best-candidate selection, `parent_policy: best`,
-top-experiment queries, and the strategy template's ranking. With `weight: 0.0`,
-caps still apply without a cost penalty in selection. With `enabled: false`,
-existing rankings and agent-facing history remain unchanged.
+The same cost utility guides best-candidate selection, the `best` and
+`weighted` parent policies, top-experiment queries, and the strategy template's
+ranking. With `weight: 0.0`, caps still apply without a cost penalty in
+selection. With `enabled: false`, existing rankings and agent-facing history
+remain unchanged.
 
 ## Where cost decisions show up
 

@@ -115,6 +115,9 @@ class FakeStrategy:
             return None
         return self.budget_snapshot.room(obligations_seconds, finishing=finishing)
 
+    def continues_an_answered_node(self) -> bool:
+        return False   # the fake has no inbox; a test that needs a continuation patches this
+
     def run(self, context: str, budget_progress: float = 0.0) -> SearchNode:
         node_id = len(self.node_history)
         branch_name = f"generic_exp_{node_id}"
@@ -268,23 +271,31 @@ def test_checkpoint_round_trip(tmp_path: Path) -> None:
     assert store.load() == expected
 
 
-def test_heartbeat_patches_only_the_durable_clock(tmp_path: Path) -> None:
+def test_budget_patch_leaves_the_search_state_alone(tmp_path: Path) -> None:
     # Mid-iteration preemption must not rewind the budget on resume: the
-    # heartbeat refreshes elapsed_seconds while leaving every other field
-    # (notably strategy_state) exactly as the boundary checkpoint wrote it.
+    # patch refreshes the clock and the spend while leaving every other
+    # field (notably strategy_state) exactly as the boundary checkpoint
+    # wrote it.
+    totals = {
+        "elapsed_seconds": 4321.0,
+        "cumulative_cost": 7.5,
+        "cost_by_component": {"implementation": 7.5},
+    }
     store = RunCheckpointStore(str(tmp_path))
-    store.heartbeat_elapsed(123.0)  # pre-bootstrap: no file, no write
+    store.patch_budget_totals(**totals)  # pre-bootstrap: no file, no write
     assert not store.exists()
 
     boundary = _checkpoint()
     store.save(boundary)
-    store.heartbeat_elapsed(boundary.elapsed_seconds + 4321.0)
+    store.patch_budget_totals(**totals)
 
     patched = store.load()
-    assert patched.elapsed_seconds == boundary.elapsed_seconds + 4321.0
+    assert patched.elapsed_seconds == 4321.0
+    assert patched.cumulative_cost == 7.5
+    assert patched.cost_by_component == {"implementation": 7.5}
     assert patched.strategy_state == boundary.strategy_state
     assert patched.completed_iterations == boundary.completed_iterations
-    assert patched.cumulative_cost == boundary.cumulative_cost
+    assert patched.current_feedback == boundary.current_feedback
 
 
 def test_missing_and_corrupt_checkpoints_fail_clearly(tmp_path: Path) -> None:

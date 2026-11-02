@@ -1,0 +1,18 @@
+# Overrides that produced the numbers in the PR: a local embedder and a
+# reranker model a ChatGPT-login codex account can use. Layer it over the
+# default config (later files deep-merge over earlier ones):
+#
+#   python -m benchmarks.kg_retrieval.runner \
+#       --config benchmarks/kg_retrieval/config.yaml \
+#       --config benchmarks/kg_retrieval/config.local.yaml
+#
+# Needs Ollama with `ollama pull bge-m3`, and any non-empty OPENAI_API_KEY
+# in .env (the OpenAI SDK insists on one; Ollama ignores it).
+inference:
+  roles:
+    kg_rerank: {model: "gpt-6-luna"}
+
+benchmark:
+  search:
+    embedding_base_url: "http://localhost:11434/v1"
+    embedding_model: "bge-m3"

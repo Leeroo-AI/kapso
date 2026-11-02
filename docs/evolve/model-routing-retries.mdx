@@ -92,7 +92,7 @@ server abandons mid-stream cannot block the calling thread forever.
 ## Standalone use
 
 ```python
-from kapso.core import LLMBackend, RetryPolicy
+from kapso.core.llm import LLMBackend, RetryPolicy
 
 llm = LLMBackend(
     models={"embedding": "text-embedding-3-small"},

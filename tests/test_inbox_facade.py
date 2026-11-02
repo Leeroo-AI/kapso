@@ -6,11 +6,15 @@ a resume writes neither; Kapso.inbox lists the open requests with the
 idea line from the checkpoint; Kapso.reply refuses a live campaign,
 records and waits while another request of the node is open, says so
 for a non-resumable campaign, and otherwise resumes the campaign with the
-launch arguments and the remaining iterations.
+launch arguments and the remaining iterations. A resume that fails or is
+killed leaves the answer on file, listed as awaiting a resume, and a second
+reply retries it.
 """
 
 import json
+import shlex
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,16 +27,24 @@ from kapso.core.config import load_config
 from tests.handles_support import facade
 from tests.harness_support import fake_config
 import kapso.kapso as kapso_module
+from kapso.core.config import ConfigError
 from kapso.execution.inbox import (
     file_requests,
     inbox_path,
     list_registered_campaigns,
     load_requests,
     read_launch_record,
+    record_continued,
+    record_reply,
     write_launch_record,
 )
 from kapso.execution.orchestrator import SolveResult
-from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore, config_fingerprint
+from kapso.execution.run_checkpoint import (
+    RunCheckpoint,
+    RunCheckpointCorruptError,
+    RunCheckpointStore,
+    config_fingerprint,
+)
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.handles import Brief, Budget
 from kapso.kapso import Kapso
@@ -141,6 +153,17 @@ def test_the_launch_record_keeps_every_path_absolute(tmp_path, monkeypatch):
     assert record["config_path"] is None
 
 
+def test_the_launch_record_resolves_a_relative_config_path(tmp_path, monkeypatch):
+    """A relative `--config` typed at the launch made the reply fail after
+    it had consumed the request (main, 2026-10-29): the record stores it
+    resolved, as it stores the evaluation and data directories."""
+    monkeypatch.chdir(tmp_path)
+    write_launch_record(tmp_path / "campaign", {"config_path": "my.yaml", "eval_dir": None, "data_dir": "data"})
+    record = read_launch_record(tmp_path / "campaign")
+    assert record["config_path"] == str((tmp_path / "my.yaml").resolve())
+    assert record["data_dir"] == str((tmp_path / "data").resolve()) and record["eval_dir"] is None
+
+
 def test_resume_and_reply_load_the_campaigns_dotenv(tmp_path, monkeypatch):
     workspace = _paused_campaign(tmp_path)
     dotenv = tmp_path / "launch-dir" / ".env"
@@ -205,6 +228,11 @@ def _paused_campaign(tmp_path, *, requests=1, resumable=True, completed=2, max_i
     return workspace
 
 
+def _patch_launch(workspace: Path, **fields: Any) -> None:
+    path = workspace / ".kapso" / "launch.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), **fields}))
+
+
 def _status(workspace: Path, state: str, heartbeat_age: float = 0.0) -> None:
     beat = datetime.now(timezone.utc).timestamp() - heartbeat_age
     stamp = datetime.fromtimestamp(beat, timezone.utc).isoformat(timespec="seconds")
@@ -264,6 +292,167 @@ def test_reply_resumes_with_the_launch_arguments(tmp_path, monkeypatch):
     assert captured["output"] == str(workspace.resolve())
     assert captured["budget"] == Budget(experiments=3)
     assert set(captured) == {"init", "resume", "output", "budget"}
+
+
+@pytest.mark.parametrize("break_campaign, raised", [
+    (lambda workspace: _patch_launch(workspace, config_path="/nowhere/config.yaml"), ConfigError),
+    (lambda workspace: (workspace / ".kapso" / "launch.json").write_text('{"schema'), json.JSONDecodeError),
+    (lambda workspace: (workspace / ".kapso" / "run_state.json").write_text('{"schema'), RunCheckpointCorruptError),
+])
+def test_a_resume_that_cannot_start_keeps_the_reply_retryable(tmp_path, break_campaign, raised):
+    workspace = _paused_campaign(tmp_path)
+    launch = (workspace / ".kapso" / "launch.json").read_text()
+    state = (workspace / ".kapso" / "run_state.json").read_text()
+    break_campaign(workspace)
+
+    with pytest.raises(raised):
+        Kapso.reply(str(workspace), 1, "added the key")
+
+    request = load_requests(inbox_path(workspace))[1]
+    assert request.state == "answered" and request.reply == "added the key"
+    (workspace / ".kapso" / "launch.json").write_text(launch)
+    (workspace / ".kapso" / "run_state.json").write_text(state)
+    assert [r.id for r in Kapso.awaiting_resume(str(workspace))] == [1]
+
+
+def _resume_stub(monkeypatch, *, raises=None) -> List[Dict[str, Any]]:
+    calls: List[Dict[str, Any]] = []
+
+    def build(self, **kwargs):
+        calls.append(kwargs)
+        if raises is not None:
+            raise raises
+        return "resumed"
+
+    monkeypatch.setattr(Kapso, "__init__", lambda self, config=None, bank=None: None)
+    monkeypatch.setattr(Kapso, "build", build)
+    return calls
+
+
+def test_a_retry_keeps_the_reply_and_resumes(tmp_path, monkeypatch, capsys):
+    workspace = _paused_campaign(tmp_path)
+    _resume_stub(monkeypatch, raises=RuntimeError("preflight: claude not on PATH"))
+    with pytest.raises(RuntimeError, match="preflight"):
+        Kapso.reply(str(workspace), 1, "added the key")
+    assert f"kapso inbox reply {workspace.resolve()} 1" in capsys.readouterr().out
+
+    calls = _resume_stub(monkeypatch)
+    assert Kapso.reply(str(workspace), 1) == "resumed"
+    assert Kapso.reply(str(workspace), 1, "added the key") == "resumed"
+    assert len(calls) == 2
+    assert load_requests(inbox_path(workspace))[1].reply == "added the key"
+    assert sum(
+        json.loads(line)["event"] == "replied"
+        for line in inbox_path(workspace).read_text().splitlines()
+    ) == 1
+
+
+def test_the_printed_retry_line_survives_a_space_in_the_path(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "my work"
+    root.mkdir()
+    workspace = _paused_campaign(root)
+    _resume_stub(monkeypatch, raises=RuntimeError("preflight: claude not on PATH"))
+    with pytest.raises(RuntimeError, match="preflight"):
+        Kapso.reply(str(workspace), 1, "added the key")
+
+    printed = capsys.readouterr().out
+    line = printed[printed.index("kapso inbox reply"):].splitlines()[0]
+    assert shlex.split(line)[3:] == [str(workspace.resolve()), "1"]
+
+
+def test_a_retry_with_a_new_note_replaces_the_reply(tmp_path, monkeypatch):
+    workspace = _paused_campaign(tmp_path)
+    _resume_stub(monkeypatch, raises=RuntimeError("no"))
+    with pytest.raises(RuntimeError):
+        Kapso.reply(str(workspace), 1, "added the key")
+    _resume_stub(monkeypatch)
+    assert Kapso.reply(str(workspace), 1, "go on without it") == "resumed"
+    assert load_requests(inbox_path(workspace))[1].reply == "go on without it"
+
+
+def test_a_kill_after_the_session_started_can_still_be_retried(tmp_path, monkeypatch):
+    workspace = _paused_campaign(tmp_path)
+    record_reply(inbox_path(workspace), 1, "added the key")
+    record_continued(inbox_path(workspace), [1], node=3, session="s")
+    calls = _resume_stub(monkeypatch)
+    assert Kapso.reply(str(workspace), 1) == "resumed"
+    assert len(calls) == 1
+    # The session may have read that answer; a different one is refused.
+    with pytest.raises(ValueError, match="handed to its session"):
+        Kapso.reply(str(workspace), 1, "something else")
+
+
+def test_replying_again_when_nothing_is_owed_never_runs_the_campaign(tmp_path, monkeypatch):
+    workspace = _paused_campaign(tmp_path)
+    record_reply(inbox_path(workspace), 1, "added the key")
+    record_continued(inbox_path(workspace), [1], node=3, session="s")
+    store = RunCheckpointStore(str(workspace))
+    checkpoint = store.load()
+    checkpoint.strategy_state["node_history"][0].update(suspended=False, request_ids=[])
+    store.save(checkpoint)
+    calls = _resume_stub(monkeypatch)
+
+    assert Kapso.awaiting_resume(str(workspace)) == []
+    with pytest.raises(ValueError, match="already answered"):
+        Kapso.reply(str(workspace), 1)
+    assert calls == []
+
+
+def test_a_retry_refuses_a_live_campaign_and_it_awaits_nothing(tmp_path):
+    workspace = _paused_campaign(tmp_path)
+    record_reply(inbox_path(workspace), 1, "added the key")
+    _status(workspace, "running")
+    assert Kapso.awaiting_resume(str(workspace)) == []
+    with pytest.raises(RuntimeError, match="is running"):
+        Kapso.reply(str(workspace), 1)
+
+
+def _two_replies(workspace: Path, monkeypatch, first_resume) -> List[Dict[str, Any]]:
+    """The first reply is inside its resume, past the live check, when the
+    second reply starts. Returns once both have finished."""
+    calls: List[Dict[str, Any]] = []
+    inside, release = threading.Event(), threading.Event()
+
+    def build(self, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            inside.set()
+            assert release.wait(10)
+            first_resume()
+        return "resumed"
+
+    monkeypatch.setattr(Kapso, "__init__", lambda self, config=None, bank=None: None)
+    monkeypatch.setattr(Kapso, "build", build)
+    first = threading.Thread(target=Kapso.reply, args=(str(workspace), 1, "added the key"))
+    second = threading.Thread(target=Kapso.reply, args=(str(workspace), 1))
+    first.start()
+    assert inside.wait(10)
+    second.start()
+    second.join(0.3)
+    assert second.is_alive() and len(calls) == 1
+    release.set()
+    first.join(10)
+    second.join(10)
+    return calls
+
+
+def test_two_replies_resume_the_campaign_once(tmp_path, monkeypatch, capsys):
+    workspace = _paused_campaign(tmp_path)
+
+    def session_finished():
+        record_continued(inbox_path(workspace), [1], node=3, session="s")
+        store = RunCheckpointStore(str(workspace))
+        checkpoint = store.load()
+        checkpoint.strategy_state["node_history"][0].update(suspended=False, request_ids=[])
+        store.save(checkpoint)
+
+    assert len(_two_replies(workspace, monkeypatch, session_finished)) == 1
+    assert "Another reply already resumed" in capsys.readouterr().out
+
+
+def test_the_second_reply_takes_over_when_the_first_resume_never_started_a_session(tmp_path, monkeypatch):
+    workspace = _paused_campaign(tmp_path)
+    assert len(_two_replies(workspace, monkeypatch, lambda: None)) == 2
 
 
 def test_reply_needs_the_campaign_directory_here(tmp_path):

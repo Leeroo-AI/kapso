@@ -5,25 +5,9 @@
 # packaged config through kapso.core.config, and the execution package
 # imports the gate registry — an execution import here closes that cycle
 # on every cold start of the MCP server subprocess.
-
-from kapso.core.llm import (
-    MODEL_ROLES,
-    LLMBackend,
-    LLMRetryError,
-    ModelRouter,
-    RetryPolicy,
-    is_transient_llm_error,
-)
-from kapso.core.config import load_config
-
-__all__ = [
-    # LLM
-    "MODEL_ROLES",
-    "LLMBackend",
-    "LLMRetryError",
-    "ModelRouter",
-    "RetryPolicy",
-    "is_transient_llm_error",
-    # Config
-    "load_config",
-]
+#
+# Nothing is re-exported here either: a `from kapso.core import LLMBackend`
+# imported litellm on every cold start of the package — a second and a half
+# of the MCP server's startup, which Codex bounds at ten seconds — for the
+# config loader's sake. Callers import `kapso.core.llm` and
+# `kapso.core.config` by name.

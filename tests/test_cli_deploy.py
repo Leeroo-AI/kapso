@@ -123,8 +123,12 @@ def test_the_lifecycle_flags_act_through_the_record(tmp_path, capsys):
     lifecycle(arguments(first.campaign, start=True, number=1))
     assert capsys.readouterr().out == f"started deployment 1 of {first.campaign} (healthy)\n  the t target has nothing to start\n"
     assert open_record(first.campaign, 1).state == RUNNING
-    with pytest.raises(DeployError, match="has no deployment"):
-        lifecycle(arguments(tmp_path / "nowhere", status=True))
+    # A status question before the first deploy is answered, not refused: the
+    # gate's cold engineer read the error exit as a wrong call of the package.
+    lifecycle(arguments(tmp_path / "nowhere", status=True))
+    assert capsys.readouterr().out == f"{tmp_path / 'nowhere'} has no deployment yet\n"
+    with pytest.raises(DeployError, match="has no deployment 3"):
+        lifecycle(arguments(first.campaign, status=True, number=3))
 
 
 def test_the_status_rows_say_what_a_person_needs_while_deploying_and_after_a_failure(tmp_path, capsys):

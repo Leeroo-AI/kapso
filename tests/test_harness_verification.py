@@ -248,11 +248,12 @@ def test_a_session_that_dies_is_said_so_and_a_budget_clamp_ends_the_retries(stra
     assert node.verification["summary"] == "the verification session failed: Deadline of 102.2s reached — terminating Claude Code"
 
     FakeVerifier.calls = []
-    # The budget's end: 200s remain, the judge's floor and the delivery's
-    # slice follow, so the session gets 110s of its 600 and no retry.
+    # The budget's end: 200s remain, the judge's reserve (here 60s, a judge
+    # already observed at that) and the delivery's slice follow, so the
+    # session gets 110s of its 600 and no retry.
     strategy.budget_snapshot = BudgetSnapshot(
         iteration_index=0, max_iterations=3, elapsed_seconds=800, cost_usd=0.0, time_budget_seconds=1000,
-        finalization_reserve_seconds=0.0, min_agent_timeout_seconds=60, delivery_seconds=30,
+        finalization_reserve_seconds=0.0, min_agent_timeout_seconds=60, judge_reserve_seconds=60, delivery_seconds=30,
     )
     FakeVerifier.killed = True
     clamped = node_for(strategy, "generic_exp_0", node_id=1)
