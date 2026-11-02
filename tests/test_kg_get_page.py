@@ -59,6 +59,7 @@ def search_over(candidates):
     search.weaviate_collection = "LeeroopediaKG"
     search._weaviate_client = SimpleNamespace(
         collections=SimpleNamespace(get=lambda name: SimpleNamespace(query=query)),
+        close=lambda: None,
     )
     return search, query
 
