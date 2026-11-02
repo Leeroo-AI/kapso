@@ -12,13 +12,13 @@ from kapso.cli.common import AVAILABLE_AGENTS
 from kapso.deployment import DeployError, Software
 from kapso.deployment.record import RUNNING, DeploymentRecord, open_record, records
 from kapso.deployment.targets import FUNCTION
-from kapso.handles import Solution
+from kapso.handles import Solution, chosen_attempt_line
 from kapso.kapso import Kapso
 
 NAME = "deploy"
 LIFECYCLE = ("status", "stop", "start", "logs")
 # The flags of a deploy, refused beside a lifecycle flag.
-DEPLOY_ONLY = ("target", "env", "option", "coding_agent", "harness")
+DEPLOY_ONLY = ("branch", "target", "env", "option", "coding_agent", "harness")
 
 
 def pairs(values: Optional[List[str]], flag: str) -> Dict[str, str]:
@@ -73,6 +73,10 @@ def summary(software: Software, campaign: str, config: Optional[str] = None) -> 
         "=" * 60,
         f"DEPLOYED: deployment {software.number} of {campaign}",
         "=" * 60,
+        *(
+            [f"  Attempt:   {record['branch']} @ {record['commit'][:12]}, {chosen_attempt_line(record['chosen_attempt'])}"]
+            if record["chosen_attempt"] is not None else []
+        ),
         f"  Target:    {software.target}" + (f" (chosen: {record['reasoning']})" if record["target_requested"] == "auto" else ""),
         f"  State:     {software.state}" + health_word(software),
         f"  Run:       {how}",
@@ -94,7 +98,8 @@ def summary(software: Software, campaign: str, config: Optional[str] = None) -> 
 def status_line(record: DeploymentRecord, config: Optional[str]) -> str:
     """One deployment's row: number, state (with health for a running
     one, the error for a failed one), target (the request until the
-    session chose), endpoint, when the state was written."""
+    session chose), endpoint, when the state was written, and the attempt
+    when a person chose it rather than the engine delivering it."""
     note = ""
     if record.state == RUNNING:
         if record.workspace.is_dir() and (record.data["target"] is None or record.target_dir.is_dir()):
@@ -106,7 +111,8 @@ def status_line(record: DeploymentRecord, config: Optional[str]) -> str:
     elif record.data["error"]:
         note = f" ({record.data['error']})"
     target = record.data["target"] or f"{record.data['target_requested']} (requested)"
-    return f"  {record.number}  {record.state}{note}  {target}  {record.data['endpoint'] or 'no endpoint'}  {record.data['state_at']}"
+    chosen = f"  chosen attempt {record.data['branch']}" if record.data.get("chosen_attempt") is not None else ""
+    return f"  {record.number}  {record.state}{note}  {target}  {record.data['endpoint'] or 'no endpoint'}  {record.data['state_at']}{chosen}"
 
 
 def lifecycle(args) -> None:
@@ -148,8 +154,9 @@ def cmd_deploy(args) -> None:
         return
     if args.number is not None:
         raise DeployError("--number goes with --status, --stop, --start or --logs; a deploy takes the next number")
-    # The solution a build wrote in that directory (its .kapso/solution.json)
-    solution = Solution.open(args.campaign)
+    # The solution a build wrote in that directory (its .kapso/solution.json),
+    # or the attempt the person named
+    solution = Solution.open(args.campaign, branch=args.branch)
     env = pairs(args.env, "--env")
     options = pairs(args.option, "--option")
     kapso = Kapso(config=args.config)
@@ -172,6 +179,7 @@ def add_parser(subparsers):
 Examples:
   kapso deploy ../churn-build
   kapso deploy ../churn-build --target docker --env API_KEY=xxx
+  kapso deploy ../churn-build --branch generic_exp_3 --target local
   kapso deploy ../churn-build --target paper-trading --option schedule="*/5 * * * *"
   kapso deploy ../churn-build --status
   kapso deploy ../churn-build --stop --number 2
@@ -180,6 +188,11 @@ Examples:
     deploy_parser.add_argument(
         "campaign", type=str,
         help="The campaign directory a build wrote (holds .kapso/solution.json)",
+    )
+    deploy_parser.add_argument(
+        "--branch", type=str, default=None,
+        help="Deploy this attempt of the campaign, the branch `kapso trace` shows, instead of what the engine "
+             "delivered; its verdict is printed and the deployment is recorded as your choice",
     )
     deploy_parser.add_argument(
         "--target", type=str, default=None,

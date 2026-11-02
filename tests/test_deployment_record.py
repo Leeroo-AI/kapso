@@ -30,7 +30,7 @@ PORTS = {"port_base": 48000, "port_span": 50}
 def started(campaign, **overrides):
     fields = dict(
         target_requested="auto", host="claude_code:claude-opus-5", interpreter="/usr/bin/python3", env_names=["API_KEY"],
-        options={}, commit="1a102cc2c8dc", branch="generic_exp_0", harness_built=None, harness=None, harness_root=None,
+        options={}, commit="1a102cc2c8dc", branch="generic_exp_0", chosen_attempt=None, harness_built=None, harness=None, harness_root=None,
         **PORTS,
     )
     fields.update(overrides)

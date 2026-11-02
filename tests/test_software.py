@@ -55,7 +55,7 @@ def deployed(tmp_path, *, run, name="campaign", scripts=None, values=None, endpo
     campaign.mkdir(exist_ok=True)
     record = start_record(
         campaign, target_requested="t", host="claude_code:m", interpreter=sys.executable, env_names=["GREETING"],
-        options=options or {}, commit="abc", branch="generic_exp_0", harness_built=None, harness=None, harness_root=None, **PORTS,
+        options=options or {}, commit="abc", branch="generic_exp_0", chosen_attempt=None, harness_built=None, harness=None, harness_root=None, **PORTS,
     )
     record.workspace.mkdir()
     (record.workspace / "main.py").write_text(MAIN)
@@ -315,7 +315,7 @@ def test_a_failed_deployment_with_no_target_opens_and_says_there_is_nothing_to_s
     campaign.mkdir()
     record = start_record(
         campaign, target_requested="auto", host="claude_code:m", interpreter=sys.executable, env_names=[],
-        options={}, commit="abc", branch=None, harness_built=None, harness=None, harness_root=None, **PORTS,
+        options={}, commit="abc", branch=None, chosen_attempt=None, harness_built=None, harness=None, harness_root=None, **PORTS,
     )
     record.workspace.mkdir()
     record.set_state(FAILED, error="the session was cut at its deadline")

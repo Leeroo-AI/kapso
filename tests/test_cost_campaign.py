@@ -118,6 +118,7 @@ def campaign(tmp_path, monkeypatch, *, campaign_budget, suspended_lane=False):
     orchestrator._checkpoint_lock = threading.Lock()
     orchestrator._heartbeat_stop = threading.Event()
     orchestrator.checkpoint_store = RunCheckpointStore(str(tmp_path))
+    orchestrator._change_requests_filed = 0
     orchestrator.experiment_store = ExperimentHistoryStore(
         str(tmp_path / ".kapso" / "experiment_history.json"), cost_config=policy
     )

@@ -559,7 +559,14 @@ class KGGraphSearch(KnowledgeSearch):
     # Graph edge types from wiki structure (non-configurable)
     # Note: STEP removed - Workflows now link to GitHub repos instead of Principles
     EDGE_TYPES = ["IMPLEMENTED_BY", "USES_HEURISTIC", "REQUIRES_ENV"]
-    
+
+    # The clients close() releases. Class-level defaults so close() and
+    # __del__ also work on an instance __init__ never ran for (built with
+    # __new__ in tests).
+    _neo4j_driver = None
+    _weaviate_client = None
+    _embedder = None
+
     def __init__(
         self,
         params: Optional[Dict[str, Any]] = None,
@@ -595,11 +602,7 @@ class KGGraphSearch(KnowledgeSearch):
         self.include_connected_pages = self.params.get("include_connected_pages", True)
         self.use_llm_reranker = self.params.get("use_llm_reranker", True)
         
-        # Truncation limit for reranker prompt (config-driven).
         # No embedding truncation -- full description text is sent to the model.
-        self.reranker_overview_max_chars = self._coerce_positive_int(
-            self.params.get("reranker_overview_max_chars")
-        )
         
         # Clients (initialized lazily)
         self._neo4j_driver = None
@@ -611,31 +614,6 @@ class KGGraphSearch(KnowledgeSearch):
         self._pages: List[WikiPage] = []
         
         self._initialize_clients()
-    
-    @staticmethod
-    def _coerce_positive_int(value: Any) -> Optional[int]:
-        """Parse an optional positive int from config; return None if unset/invalid."""
-        try:
-            if value is None:
-                return None
-            n = int(value)
-            return n if n > 0 else None
-        except Exception:
-            return None
-    
-    @staticmethod
-    def _maybe_truncate(text: str, max_chars: Optional[int]) -> str:
-        """
-        Optionally truncate text to max_chars.
-        
-        This is intentionally centralized and config-driven. Do NOT add ad-hoc
-        `[:N]` slices in other code paths.
-        """
-        if not text:
-            return ""
-        if max_chars is None:
-            return text
-        return text[:max_chars]
     
     # =========================================================================
     # Client Initialization
@@ -1070,10 +1048,9 @@ class KGGraphSearch(KnowledgeSearch):
         # Build context for LLM
         pages_info = []
         for i, result in enumerate(results):
-            overview_preview = self._maybe_truncate(result.overview or "", self.reranker_overview_max_chars)
             pages_info.append(
                 f"[{i}] {result.id} ({result.page_type})\n"
-                f"    Overview: {overview_preview}..."
+                f"    Overview: {result.overview or ''}"
             )
         
         pages_text = "\n\n".join(pages_info)

@@ -513,6 +513,8 @@ class SearchStrategy(ABC):
     # spent is real before the round ends. A class default because many test
     # harnesses build strategies through __new__.
     in_flight_nodes: Sequence[SearchNode] = ()
+    # What this round's ideation sessions paid before it has a node to carry it.
+    ideation_bills: Sequence[float] = ()
     
     def __init__(self, config: SearchStrategyConfig, workspace_dir: Optional[str] = None, import_from_checkpoint: bool = False):
         """

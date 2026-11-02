@@ -162,6 +162,43 @@ line, since what its deploy script started may be running (a session
 under `auto` that named no target leaves nothing for `--stop` to run, and
 the line says so).
 
+## Deploying an attempt the engine did not deliver
+
+A campaign can stop with a scored attempt and no candidate delivered, and a
+campaign that did deliver may hold an attempt you prefer: simpler, cheaper,
+the runner-up. Name it by the branch [`kapso trace`](/docs/build/trace) shows:
+
+```bash
+kapso trace campaign                                      # find the attempt
+kapso deploy campaign --branch generic_exp_3 --target local
+```
+
+```python
+software = Kapso().deploy(Solution.open("campaign", branch="generic_exp_3"), target="local")
+```
+
+The deployment's workspace holds the attempt's tracked files at the commit it
+was evaluated on, with the campaign's untracked data beside them, as in any
+deployment. You do not check anything out: the campaign's head, index and files
+stay as they are, so an edit to a tracked file there does not reach the workspace
+and a campaign that delivered something stays at it. A submodule stays at the
+campaign's checkout, and an untracked path standing where the attempt has its own
+is refused: move it and deploy again.
+
+The engine never delivers an attempt the harness could not verify, and this does
+not change that. Naming one yourself is allowed, and its score, evaluation
+validity and verification verdict are printed before the session starts and in
+the summary, so nothing is deployed silently. Read them before you trust what
+you started.
+
+What you chose stays recorded as your choice: `chosen_attempt` in the
+deployment's `deployment.json` holds that verdict and what the engine delivered
+(it is `null` on a deployment of the engine's own deliverable), `--status` marks
+the row, and `.kapso/solution.json` is not touched, so `Solution.open` without a
+branch and everything that reads that file still report what the engine
+delivered. An unknown branch and an attempt with no commit are refused in one
+line, naming the attempts or the reason.
+
 ## Deploying a harness build
 
 On a build made with a harness, `deploy()` takes the harness from the

@@ -146,7 +146,7 @@ def _mint(deployments: Path) -> Path:
 
 def start_record(
     campaign: Path, *, target_requested: str, host: str, interpreter: str, env_names: List[str],
-    options: Dict[str, str], commit: str, branch: Optional[str], harness_built: Optional[Dict[str, str]],
+    options: Dict[str, str], commit: str, branch: Optional[str], chosen_attempt: Optional[Dict[str, Any]], harness_built: Optional[Dict[str, str]],
     harness: Optional[Dict[str, str]], harness_root: Optional[str], port_base: int, port_span: int,
 ) -> DeploymentRecord:
     """A deployment's record at its first second: the number minted, the
@@ -166,6 +166,9 @@ def start_record(
         "offered": [],
         "commit": commit,
         "branch": branch,
+        # Set when a person named the attempt (`Solution.chosen_attempt`);
+        # null is the engine's deliverable.
+        "chosen_attempt": chosen_attempt,
         "harness_built": harness_built,
         "harness": harness,
         "harness_root": harness_root,

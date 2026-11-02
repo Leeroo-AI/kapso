@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
+from kapso.core.processes import process_start
+
 
 def detach(argv: Sequence[str], *, log_path: Path, receipt_path: Optional[Path]) -> int:
     """Start `python -m kapso.cli <argv>` in a session of its own, appending
@@ -50,6 +52,7 @@ def detach(argv: Sequence[str], *, log_path: Path, receipt_path: Optional[Path])
     if receipt_path is not None:
         receipt_path.write_text(json.dumps({
             "pid": pid,
+            "pid_started": process_start(pid),
             "log": str(log_path),
             "argv": list(argv),
             "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

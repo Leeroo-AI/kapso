@@ -61,6 +61,9 @@ def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
                 ),
             )
 
+        def get_cumulative_cost(self):
+            return 0.4
+
         def cleanup(self):
             pass
 
@@ -70,7 +73,7 @@ def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
     stream = tmp_path / "stream.jsonl"
     stream.write_text('{"type":"assistant"}\n')
 
-    text = difficulties_generator.generate_technical_difficulties(
+    text, telemetry = difficulties_generator.generate_technical_difficulties(
         role=SessionRole(
             name="implementation", cli="claude_code", model="test-model",
             effort="xhigh", timeout=None, settings={"auth_mode": "oauth"},
@@ -86,6 +89,7 @@ def test_fallback_prompt_renders_and_tag_is_parsed(tmp_path, monkeypatch):
     )
 
     assert text == "reconstructed: session died mid-eval"
+    assert telemetry["cost_usd"] == 0.4
     assert str(stream) in captured["prompt"]
     assert "the plan" in captured["prompt"]
     # The prompt reads the branch before it concludes what was lost.
@@ -117,13 +121,16 @@ def test_fallback_returns_empty_on_session_failure(monkeypatch, tmp_path):
 
             return SimpleNamespace(success=False, output="")
 
+        def get_cumulative_cost(self):
+            return 0.4
+
         def cleanup(self):
             pass
 
     monkeypatch.setattr(
         difficulties_generator.CodingAgentFactory, "create", classmethod(lambda cls, config: DeadAgent(config))
     )
-    text = difficulties_generator.generate_technical_difficulties(
+    text, telemetry = difficulties_generator.generate_technical_difficulties(
         role=SessionRole(name="implementation", cli="claude_code", model="m", effort=None, timeout=None),
         env_strip=[],
         timeout_seconds=60,
@@ -135,6 +142,8 @@ def test_fallback_returns_empty_on_session_failure(monkeypatch, tmp_path):
         staged=None,
     )
     assert text == ""
+    # The session that produced nothing was still paid for.
+    assert telemetry["cost_usd"] == 0.4
 
 
 def test_gate_renders_difficulties_block():

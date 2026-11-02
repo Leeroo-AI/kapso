@@ -1,4 +1,5 @@
 {
+  "change_requests_filed": 0,
   "completed_iterations": 1,
   "config_fingerprint": "7377ada4da5d63a0f063b30a84ad5f00fed680d8042795a05334f2da40121b79",
   "cost_by_component": {
@@ -39,7 +40,7 @@
   },
   "last_stop": null,
   "maximize_scoring": true,
-  "schema_version": 6,
+  "schema_version": 7,
   "status": "completed",
   "strategy_state": {
     "evaluation_integrity": {

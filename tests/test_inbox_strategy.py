@@ -85,6 +85,9 @@ class Harness:
         self.implement_kwargs.append(kwargs)
         telemetry = {"cost_usd": 0.5, "duration_seconds": 2.0}
         continuation = kwargs.get("continuation")
+        self.strategy._note_session_spend(
+            kwargs["node_id"], telemetry, continued=continuation is not None
+        )
         if continuation is None or self.ask_again_on_continue:
             (request_id, _), = file_requests(
                 self.inbox, node=kwargs["node_id"], session="inbox-sid",

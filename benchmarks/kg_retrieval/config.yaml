@@ -42,9 +42,5 @@ benchmark:
   arms:
     - name: "off"
       rerank: false
-    - name: "on_cap300"
+    - name: "on"
       rerank: true
-      reranker_overview_max_chars: 300
-    - name: "on_nocap"
-      rerank: true
-      reranker_overview_max_chars: null

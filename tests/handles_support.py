@@ -3,6 +3,8 @@
 read commits from, the facade stub, and a fake orchestrator that returns a
 chosen `SolveResult` and records what the facade handed it."""
 
+import json
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,6 +75,57 @@ def candidate_branch(path: Path, name: str, filename: str, content: str) -> str:
     commit = git(path, "rev-parse", "HEAD")
     git(path, "checkout", "-q", "main")
     return commit
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "trace"
+
+
+def recorded_campaign(tmp_path, fixture, branch="generic_exp_0", plant_commit=True):
+    """The fixture's records in a campaign with a seed commit on `main`
+    and the attempt's commit on its branch, with the records pointing at
+    those commits; left checked out at `main`, as a campaign that delivered
+    nothing is. Returns the campaign and the attempt's commit."""
+    campaign = tmp_path / fixture
+    shutil.copytree(FIXTURES / fixture, campaign)
+    (campaign / "trace.txt").unlink()
+    base = git_workspace(campaign)
+    commit = candidate_branch(campaign, branch, "model.py", "improved = True\n")
+    solution = campaign / ".kapso" / "solution.json"
+    record = json.loads(solution.read_text(encoding="utf-8"))
+    record["base_commit"] = base
+    solution.write_text(json.dumps(record), encoding="utf-8")
+    if plant_commit:
+        state = campaign / ".kapso" / "run_state.json"
+        checkpoint = json.loads(state.read_text(encoding="utf-8"))
+        for node in checkpoint["strategy_state"]["node_history"]:
+            if node["branch_name"] == branch:
+                node["commit"] = commit
+        state.write_text(json.dumps(checkpoint), encoding="utf-8")
+    return campaign, commit
+
+
+def deployable(tmp_path, fixture="churn-unjudged"):
+    """A recorded campaign that also has what a deployment copies: a file
+    tracked on `main` that the attempt deletes, a file only the attempt
+    has, untracked data, and a directory the workspace never carries."""
+    campaign, _ = recorded_campaign(tmp_path, fixture, plant_commit=False)
+    (campaign / "old.py").write_text("legacy = True\n")
+    git(campaign, "add", "old.py")
+    git(campaign, "commit", "-q", "-m", "main moves on")
+    git(campaign, "checkout", "-q", "generic_exp_0")
+    (campaign / ".claude" / "skills" / "from_the_attempt").mkdir(parents=True)
+    (campaign / ".claude" / "skills" / "from_the_attempt" / "SKILL.md").write_text("x")
+    git(campaign, "add", ".claude")
+    git(campaign, "commit", "-q", "-m", "the attempt's session left host files on the branch")
+    commit = git(campaign, "rev-parse", "HEAD")
+    git(campaign, "checkout", "-q", "main")
+    (campaign / "kapso_datasets").mkdir()
+    (campaign / "kapso_datasets" / "train.csv").write_text("id,y\n1,0\n")
+    state = campaign / ".kapso" / "run_state.json"
+    checkpoint = json.loads(state.read_text(encoding="utf-8"))
+    checkpoint["strategy_state"]["node_history"][0]["commit"] = commit
+    state.write_text(json.dumps(checkpoint), encoding="utf-8")
+    return campaign, commit
 
 
 def facade() -> Kapso:

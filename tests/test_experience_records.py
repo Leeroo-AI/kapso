@@ -69,7 +69,7 @@ def test_the_checkpoint_carries_the_sources_and_requires_the_field(tmp_path):
         status="running", completed_iterations=1, cumulative_cost=0.0, current_feedback=None,
         strategy_state={"node_history": []}, experience=[vars(MINE)],
     )
-    assert checkpoint.schema_version == 6
+    assert checkpoint.schema_version == 7
     store = RunCheckpointStore(str(tmp_path))
     store.save(checkpoint)
     assert store.load().experience == [vars(MINE)]

@@ -16,6 +16,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -64,36 +65,39 @@ _JOURNAL_PATTERN = re.compile(
     r"^- \*\*(obs-\d+|dk-\d+) → ([A-Z-]+)\*\*", re.MULTILINE
 )
 _WORD_PATTERN = re.compile(r"[a-z]{3,}")
+# A bank's commits are the engine's, on a machine that may have no git identity.
+BANK_COMMITTER = ("-c", "user.name=Kapso", "-c", "user.email=kapso@leeroo.com")
 
 
 def init_bank(home_path: str) -> None:
-    """Create the bank home (a bare repo) with the founding skeleton."""
+    """Create the bank home (a bare repo) with the founding skeleton. It is
+    built aside and renamed into place last, so a failure leaves no home."""
     home = Path(home_path).expanduser()
     if home.exists():
         raise FileExistsError(f"bank home {home_path} already exists")
     home.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "--bare", "-b", "main", str(home)], check=True)
-    seed = home.parent / f".seed-{home.name}"
-    if seed.exists():
-        shutil.rmtree(seed)
-    subprocess.run(["git", "clone", str(home), str(seed)], check=True)
-    (seed / "insights").mkdir()
-    (seed / "procedures").mkdir()
-    (seed / "index.md").write_text(
-        "# kapso knowledge bank\n\n- [insights](insights/index.md) — declarative memory\n"
-        "- [procedures](procedures/index.md) — procedural memory\n"
-    )
-    (seed / "log.md").write_text("# Learner-run journal\n")
-    (seed / "sightings.md").write_text("# Sightings — pre-card observations\n")
-    (seed / "insights" / "index.md").write_text("# Insights\n")
-    (seed / "procedures" / "index.md").write_text("# Procedures\n")
-    subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
-    subprocess.run(
-        ["git", "-C", str(seed), "commit", "-m", "bank founding skeleton"],
-        check=True,
-    )
-    subprocess.run(["git", "-C", str(seed), "push", "origin", "main"], check=True)
-    shutil.rmtree(seed)
+    with tempfile.TemporaryDirectory(dir=home.parent, prefix=f".init-{home.name}-") as scratch:
+        building = Path(scratch) / "bank.git"
+        seed = Path(scratch) / "seed"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(building)], check=True)
+        subprocess.run(["git", "clone", str(building), str(seed)], check=True)
+        (seed / "insights").mkdir()
+        (seed / "procedures").mkdir()
+        (seed / "index.md").write_text(
+            "# kapso knowledge bank\n\n- [insights](insights/index.md) — declarative memory\n"
+            "- [procedures](procedures/index.md) — procedural memory\n"
+        )
+        (seed / "log.md").write_text("# Learner-run journal\n")
+        (seed / "sightings.md").write_text("# Sightings — pre-card observations\n")
+        (seed / "insights" / "index.md").write_text("# Insights\n")
+        (seed / "procedures" / "index.md").write_text("# Procedures\n")
+        subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(seed), *BANK_COMMITTER, "commit", "-m", "bank founding skeleton"],
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(seed), "push", "origin", "main"], check=True)
+        building.rename(home)
 
 
 def _tokens(text: str) -> set:
@@ -806,7 +810,7 @@ exit "$status"
         )
         subprocess.run(["git", "-C", str(bank_dir), "add", "-A"], check=True)
         subprocess.run(
-            ["git", "-C", str(bank_dir), "commit", "-m", message],
+            ["git", "-C", str(bank_dir), *BANK_COMMITTER, "commit", "-m", message],
             check=True, capture_output=True,
         )
         subprocess.run(

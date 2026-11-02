@@ -13,7 +13,8 @@ or outcome-based.
 
 import os
 import re
-from typing import Optional
+import time
+from typing import Dict, Optional, Tuple
 
 from kapso.core.prompt_loader import load_prompt, render_prompt
 from kapso.execution.coding_agents.factory import CodingAgentFactory
@@ -36,7 +37,7 @@ def generate_technical_difficulties(
     branch_name: str,
     parent_branch_name: str,
     staged: Optional[StagedHarness],
-) -> str:
+) -> Tuple[str, Dict[str, float]]:
     """Reconstruct the technical-difficulties report for one session, on
     the implementation role's host, staged and recorded like every session
     (`difficulties/<branch>`); its prompt reads the branch before it
@@ -44,7 +45,8 @@ def generate_technical_difficulties(
 
     Returns the report text ("" if the fallback session itself failed —
     the node then carries an empty field, which downstream extraction
-    treats as "(none reported)").
+    treats as "(none reported)") and the session's telemetry, which is
+    paid for either way.
     """
     template = load_prompt(
         "execution/search_strategies/generic/prompts/difficulties_fallback.md"
@@ -73,12 +75,17 @@ def generate_technical_difficulties(
     }, staged)
     agent = CodingAgentFactory.create(config)
     agent.initialize(workspace_dir)
+    started = time.monotonic()
     result = agent.generate_code(prompt)
+    telemetry = {
+        "cost_usd": agent.get_cumulative_cost(),
+        "duration_seconds": time.monotonic() - started,
+    }
     agent.cleanup()
 
     if not result.success or not result.output:
-        return ""
+        return "", telemetry
     match = _TAG_PATTERN.search(result.output)
     if match:
-        return match.group(1).strip()
-    return result.output.strip()
+        return match.group(1).strip(), telemetry
+    return result.output.strip(), telemetry

@@ -307,6 +307,7 @@ Turns the solution a build wrote into running software, and stops, starts, reads
 | Flag | What it does | Default |
 |------|--------------|---------|
 | `campaign` | The campaign directory a build wrote; its `.kapso/solution.json` is the solution, and it must be checked out at the delivered candidate. **Required**, positional | — |
+| `--branch` | Deploy this attempt of the campaign, the branch [`kapso trace`](#kapso-trace) shows, instead of what the engine delivered. No checkout is needed and the campaign does not move. Its score, evaluation validity and verification verdict are printed, and the deployment is recorded as your choice. An unknown branch and an attempt with no commit are refused in one line. See [Deploying an attempt the engine did not deliver](/docs/deploy/targets#deploying-an-attempt-the-engine-did-not-deliver) | what the engine delivered |
 | `--target` | Where to deploy: `auto` (the session chooses), a bundled target (`local`, `docker`, `modal`, `bentoml`, `langgraph`) or a target the build's harness ships (`paper-trading` in the trading example). An unknown name is refused naming the targets | from config (`deployment.target`, `auto` as packaged) |
 | `--env` | A variable the software needs at runtime, `KEY=VALUE`; repeat for more than one. Written to `.env` in the deployment's workspace, named (never valued) in the session's prompt, set on every runtime the engine manages | — |
 | `--option` | An option for the target's workflow, `KEY=VALUE`; repeat for more than one. Exported to the target's scripts as `KAPSO_OPTION_<KEY>`; a harness target's skill says which it takes | — |
@@ -320,12 +321,13 @@ Turns the solution a build wrote into running software, and stops, starts, reads
 ```bash
 kapso deploy ../churn-build
 kapso deploy ../churn-build --target docker --env API_KEY=xxx
+kapso deploy ../churn-build --branch generic_exp_3 --target local
 kapso deploy ../churn-build --target paper-trading --option schedule="*/5 * * * *"
 kapso deploy ../churn-build --status
 kapso deploy ../churn-build --stop --number 2
 ```
 
-The summary after a deployment names its number and state, the target (and the session's reasoning when it chose), how `run()` calls it, the call the session proved and what the engine's own call of it answered, the endpoint, the interpreter, the workspace and the record under `<campaign>/.kapso/deployments/<n>/`, and the next actions pinned to that number, copy-pastable as printed: the Python line (`from kapso import Software; Software.open(…).run(…)`, the proof's inputs as Python literals) and the three lifecycle lines (with `--config` when one was passed). A deploy that fails prints the record's path and the `--stop` line, since what its deploy script started may be running.
+The summary after a deployment names its number and state, the attempt with its verdict when you chose one, the target (and the session's reasoning when it chose), how `run()` calls it, the call the session proved and what the engine's own call of it answered, the endpoint, the interpreter, the workspace and the record under `<campaign>/.kapso/deployments/<n>/`, and the next actions pinned to that number, copy-pastable as printed: the Python line (`from kapso import Software; Software.open(…).run(…)`, the proof's inputs as Python literals) and the three lifecycle lines (with `--config` when one was passed). A deploy that fails prints the record's path and the `--stop` line, since what its deploy script started may be running.
 
 ## kapso watch
 
@@ -352,7 +354,7 @@ The header names the harness (`harness: trading 0.1.0 (83b6c0b60d6a)`) and each 
 
 A campaign writes its status file the moment its workspace is seeded, in phase `setup`, so a watch started right after the launch sees it within seconds. Before that, a detached launch has left a receipt beside its log (`<campaign>.launch.json`): while the child's pid lives the line is `starting (pid N, launched 12s ago; log: …)`; once it is gone, `stopped before writing a status; the log says why: <log>`, exit 1, and `--follow` stops waiting (a child that dies at a launch check while `--follow` waits ends the wait the same way). Without a receipt the line is `no status yet at <path>` and exit 1; with `--follow` it prints the line and waits for the file. `--json` before a status prints the launch state as data: `{"state": "starting" | "stopped", "pid", "log", "started_at"}`, or `{"state": "no_status", "path"}`. A detached resume leaves a receipt newer than the status: its child alive is `starting again (pid N, …); the status below is the earlier run's`, its child gone the stopped line. The receipt goes once the status is born.
 
-With no path, one line per entry (`RUNNING`, `STARTING`, `WAITING`, or with `--all` every state, `DEAD` for a running campaign whose writer is gone or silent past its beats): the operation, the phase, the heartbeat's age, the best score and the path. Listed are the campaigns the registry knows that are alive (a fresh beat and a living writer) or waiting on you, and the learns and ingests under `learning.status_dir`; `--json` prints `[{path, operation, state, phase, heartbeat_age_seconds, best, stopped_reason, alive}]`.
+With no path, one line per entry (`RUNNING`, `STARTING`, `WAITING`, `STALLED` for one whose writer is there but past its beats, or with `--all` every state, `DEAD` for one whose writer is gone): the operation, the phase, the heartbeat's age, the best score and the path. Listed are the campaigns the registry knows whose writer is running or that are waiting on you, and the learns and ingests under `learning.status_dir`; `--json` prints `[{path, operation, state, phase, heartbeat_age_seconds, best, stopped_reason, alive, stalled}]`: `alive` is whether the writer runs, so a hung one reads `alive: true, stalled: true`.
 
 ### The status file
 
@@ -364,9 +366,9 @@ With no path, one line per entry (`RUNNING`, `STARTING`, `WAITING`, or with `--a
 | `phases` | The operation's phases in order. Build: `setup`, `harness_setup`, `lens_planning`, `ideation`, `implementation`, `evaluation`, `verification`, `feedback`. Learn: `harvest`, `mine`, `exam`, `lesson`, `push`. Experience (an ingest): `ingest`, `merge` |
 | `state` | `starting` (preparing, for a build the `setup` phase), `running`, `done` or `failed` |
 | `phase`, `phase_started_at` | The current phase and when it began |
-| `pid` | The writing process. `kapso watch` reports `DEAD` when it is gone |
+| `pid`, `pid_started` | The writing process and the kernel's start stamp for it. `kapso watch` reports `DEAD` when it is gone, asked of the kernel on Linux and macOS, including when the pid now belongs to a later process. On other systems the heartbeat is the only signal, so a killed operation reads as running until it goes stale |
 | `started_at`, `heartbeat_at`, `finished_at` | Timestamps, UTC |
-| `heartbeat_seconds` | The writer's beat; `STALLED` after three missed beats |
+| `heartbeat_seconds` | The writer's beat; `STALLED` after three missed beats, which a suspended process or a sleeping laptop also does |
 | `recent` | The last ten human-readable lines |
 | `error` | The failure, when `state` is `failed` |
 | `budget` | Build: `{elapsed_min, total_min}`, the time dial |

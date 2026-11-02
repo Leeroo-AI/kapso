@@ -639,6 +639,7 @@ def test_v2_checkpoint_is_rejected_without_migration(tmp_path: Path) -> None:
     v2_data["schema_version"] = 2
     del v2_data["cost_config"]
     del v2_data["maximize_scoring"]
+    del v2_data["change_requests_filed"]
     store.path.parent.mkdir(parents=True)
     store.path.write_text(checkpoint_module.json.dumps(v2_data))
 
@@ -646,7 +647,7 @@ def test_v2_checkpoint_is_rejected_without_migration(tmp_path: Path) -> None:
     # campaign reads "start a fresh campaign", never "missing cost_config".
     with pytest.raises(
         RunCheckpointIncompatibleError,
-        match=r"expected 6\. .*not migrated",
+        match=r"expected 7\. .*not migrated",
     ):
         store.load()
 

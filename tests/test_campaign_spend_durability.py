@@ -175,7 +175,13 @@ class Campaign:
             telemetry = self.bill.charge(IMPLEMENTATION_USD)
             if branch_name not in {head.name for head in self.repo.heads}:
                 self.repo.create_head(branch_name)
+        # A session reports its bill when it ends, so one killed midway has
+        # charged the account and told nobody.
+        note_spend = lambda: self.orchestrator.search_strategy._note_session_spend(
+            node_id, telemetry, continued=kwargs.get("continuation") is not None
+        )
         if kwargs.get("continuation") is None and node_id == self.ask_on_node:
+            note_spend()
             ((request_id, _),) = file_requests(
                 self.inbox,
                 node=node_id,
@@ -185,6 +191,7 @@ class Campaign:
             suspended = SuspendedSession([request_id], "cli-1")
             return "partial", telemetry, None, suspended, None
         self.during_implementation(node_id)
+        note_spend()
         return "output", telemetry, None, None, None
 
     def _generate_feedback(self, node):

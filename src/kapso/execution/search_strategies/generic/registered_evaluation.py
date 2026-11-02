@@ -25,6 +25,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from kapso.core.processes import process_commands
 from kapso.execution.evaluation_integrity import verify_data_manifest
 from kapso.execution.evaluation_maintainer.maintainer import (
     MANIFEST_MARKER,
@@ -37,10 +38,6 @@ from kapso.execution.search_strategies.base import SearchNode
 # Enforcement mechanic (mirrors the coding-agent adapter's deadline grace):
 # time granted between SIGTERM and SIGKILL when a frame run overruns.
 _FRAME_RUN_KILL_GRACE_SECONDS = 2.0
-
-# Where the kernel lists live processes. macOS and the BSDs have none, and
-# there the teardown guard has no grader to wait on.
-PROC_ROOT = "/proc"
 
 
 # Byte-identical to the pre-maintainer template text: rendered whenever no
@@ -573,7 +570,7 @@ def await_registered_evaluation(
     if MANIFEST_MARKER in (output_text or ""):
         return None
 
-    # A distinctive fragment of the registered command for /proc matching:
+    # A distinctive fragment of the registered command to find it running by:
     # prefer the script path token; fall back to the full command string.
     tokens = [
         t for t in registered_evaluation_command.split() if ".py" in t
@@ -581,20 +578,9 @@ def await_registered_evaluation(
     needle = tokens[0] if tokens else registered_evaluation_command
 
     def _live_eval_pid():
-        if not os.path.isdir(PROC_ROOT):
-            return None
-        for pid in os.listdir(PROC_ROOT):
-            if not pid.isdigit():
-                continue
-            cmdline_path = os.path.join(PROC_ROOT, pid, "cmdline")
-            if not os.path.exists(cmdline_path):
-                continue
-            with open(cmdline_path, "rb") as fh:
-                cmdline = fh.read().replace(b"\0", b" ").decode(
-                    "utf-8", "replace"
-                )
-            if needle in cmdline:
-                return int(pid)
+        for pid, command in process_commands().items():
+            if needle in command:
+                return pid
         return None
 
     bound = clamped_timeout(implementation_timeout)

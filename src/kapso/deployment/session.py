@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -97,12 +98,44 @@ def refuse_dirty(campaign: Path) -> None:
         )
 
 
+def place_commit(campaign: Path, commit: str, workspace: Path) -> None:
+    """The campaign's tracked files taken out of the copy and the commit's
+    put in, under the same exclusions; the untracked data stays. Read
+    through a private index, so the campaign's head, index and files are
+    not touched: a campaign that delivered something stays at it."""
+    repo = git.Repo(campaign)
+    for name in repo.git.ls_files("-z").split("\0"):
+        tracked = workspace / name
+        if name and (tracked.is_file() or tracked.is_symlink()):
+            tracked.unlink()
+            for parent in tracked.parents:
+                if parent == workspace or any(parent.iterdir()):
+                    break
+                parent.rmdir()
+    with tempfile.TemporaryDirectory() as scratch:
+        tree = Path(scratch) / "tree"
+        with repo.git.custom_environment(GIT_INDEX_FILE=str(Path(scratch) / "index")):
+            repo.git.read_tree(commit)
+            repo.git.checkout_index("--all", f"--prefix={tree}/")
+        for source in tree.rglob("*"):
+            placed = workspace / source.relative_to(tree)
+            if placed.is_symlink() or (placed.exists() and placed.is_dir() != (source.is_dir() and not source.is_symlink())):
+                raise DeployError(
+                    f"the campaign's untracked {placed.relative_to(workspace)} stands where "
+                    f"commit {commit[:12]} has its own; move it and deploy again"
+                )
+        shutil.copytree(tree, workspace, ignore=shutil.ignore_patterns(*COPY_IGNORE), symlinks=True, dirs_exist_ok=True)
+
+
 def make_workspace(campaign: Path, record: DeploymentRecord) -> Path:
     """The solution's working tree copied without the engine's and the
     hosts' directories, then its own repository with one commit, so a
-    session's git commands stop here."""
+    session's git commands stop here. A chosen attempt's tracked files
+    then replace the campaign's, which is left where it was."""
     workspace = record.workspace
     shutil.copytree(campaign, workspace, ignore=shutil.ignore_patterns(*COPY_IGNORE), symlinks=True)
+    if record.data["chosen_attempt"] is not None:
+        place_commit(campaign, record.data["commit"], workspace)
     repo = git.Repo.init(workspace)
     repo.git.add("--all")
     repo.index.commit(
@@ -179,6 +212,7 @@ def _prompt(solution: Any, record: DeploymentRecord, target: Optional[TargetSkil
     result_path = workspace / RESULT_FILE
     return render_prompt(load_prompt(DEPLOYMENT_PROMPT), {
         "objective": solution.brief.objective,
+        "origin": "Delivered" if solution.chosen_attempt is None else "Chosen by the person, not delivered by the engine",
         "branch": solution.branch,
         "commit": solution.commit,
         "score": "unscored" if solution.score is None else f"{solution.score}",
@@ -343,13 +377,14 @@ def run_deployment(
     env = dict(env or {})
     options = {str(k): str(v) for k, v in (options or {}).items()}
     check_env(env)
-    refuse_dirty(campaign)
+    if solution.chosen_attempt is None:
+        refuse_dirty(campaign)   # a chosen attempt's tracked files come from its commit
     if harness is not None:
         check_harness_unchanged(harness)   # before any record: a changed harness deploys nothing
     record = start_record(
         campaign, target_requested=target if target is not None else block["target"],
         host=f"{role.cli}:{role.model}", interpreter=sys.executable, env_names=sorted(env), options=options,
-        commit=solution.commit, branch=solution.branch,
+        commit=solution.commit, branch=solution.branch, chosen_attempt=solution.chosen_attempt,
         harness_built=None if solution.harness is None else {"name": solution.harness.name, "version": solution.harness.version, "hash": solution.harness.hash, "source": solution.harness.source},
         harness=None if harness is None else harness.ref_dict(),
         harness_root=None if harness is None else str(harness.path),

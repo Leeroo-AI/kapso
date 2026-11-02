@@ -35,6 +35,7 @@ from kapso.execution.search_strategies.generic import FeedbackGenerator, Feedbac
 from kapso.execution.search_strategies.generic.implementation import render_inbox_section
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.execution.inbox import (
+    HARNESS_SETUP_NODE,
     idea_line,
     continue_answered,
     load_requests,
@@ -118,7 +119,6 @@ CHANGE_REQUEST_PATTERN = re.compile(
 # prompt, the line that offers the inbox, and the campaign directories it
 # must leave alone.
 HARNESS_SETUP_SESSION = "harness_setup"
-HARNESS_SETUP_NODE = -1
 HARNESS_SETUP_PROMPT = "execution/search_strategies/generic/prompts/harness_setup.md"
 HARNESS_SETUP_INBOX_LINE = (
     "\n- If an input the task statement names is missing (a file, a variable), ask for it "
@@ -415,7 +415,11 @@ class OrchestratorAgent:
             self._max_change_requests,
             self._transition_freeze_fraction,
         ) = self._create_evaluation_maintainer()
-        self._change_requests_filed = 0
+        self._change_requests_filed = (
+            self._resume_checkpoint.change_requests_filed
+            if self._resume_checkpoint is not None
+            else 0
+        )
         # The open requests a waiting_for_user stop leaves behind, as the
         # status file, the result and the on_status hook carry them.
         self._waiting_payload: List[Dict[str, Any]] = []
@@ -521,6 +525,9 @@ class OrchestratorAgent:
         the running round's included. The heartbeat thread reads this while
         the phases write, hence the copies."""
         live: Dict[str, float] = {}
+        ideation_bills = list(getattr(self.search_strategy, "ideation_bills", ()))
+        if ideation_bills:
+            live["ideation"] = sum(ideation_bills)
         for node in [
             *self.search_strategy.get_experiment_history(),
             *getattr(self.search_strategy, "in_flight_nodes", ()),
@@ -558,6 +565,7 @@ class OrchestratorAgent:
             fast_variant_threshold_seconds=block["fast_variant_threshold_minutes"] * 60,
             overhead_factor=block["overhead_factor"],
             protected_data_paths=list(block["protected_data_paths"]),
+            note_session_spend=self._record_maintainer_spend,
         )
         freeze_fraction = block["transition_freeze_fraction"]
         if not 0.0 < freeze_fraction <= 1.0:
@@ -567,16 +575,16 @@ class OrchestratorAgent:
             )
         return maintainer, int(block["max_change_requests"]), freeze_fraction
 
-    def _record_maintainer_spend(self) -> None:
-        telemetry = self.evaluation_maintainer.last_transaction_telemetry
-        if telemetry is not None:
-            self.budget_ledger.record(
-                CostEntry(
-                    component="evaluation_maintenance",
-                    cost_usd=telemetry.cost_usd,
-                    duration_seconds=telemetry.duration_seconds,
-                )
+    def _record_maintainer_spend(
+        self, cost_usd: float, duration_seconds: float
+    ) -> None:
+        self.budget_ledger.record(
+            CostEntry(
+                component="evaluation_maintenance",
+                cost_usd=cost_usd,
+                duration_seconds=duration_seconds,
             )
+        )
 
     def _adopt_registered_evaluation(self) -> None:
         """Point the strategy at the registered evaluator head."""
@@ -776,6 +784,9 @@ class OrchestratorAgent:
             return
         registry = self.evaluation_maintainer.registry
         if registry.exists():
+            self.evaluation_maintainer.restore_provided_baseline(
+                self._provided_evaluation_manifest or {}
+            )
             head = registry.head()
             current = build_evaluation_manifest(
                 self.evaluation_maintainer.evaluation_dir
@@ -801,7 +812,6 @@ class OrchestratorAgent:
                 data_dir=self.data_dir,
                 staged=self._stage_maintainer("setup", "evaluation_setup"),
             )
-            self._record_maintainer_spend()
         self._adopt_registered_evaluation()
 
     def _canonical_evaluation_params(self):
@@ -1018,7 +1028,14 @@ class OrchestratorAgent:
                     "requests this campaign"
                 )
                 return
+            staged = self._stage_maintainer("verification", f"evaluation/change_{candidate.node_id}")
+            # On disk before the session starts: a killed session was still
+            # paid for, and the round that dies is redone and may ask again.
             self._change_requests_filed += 1
+            with self._checkpoint_lock:
+                self.checkpoint_store.patch_change_requests_filed(
+                    self._change_requests_filed
+                )
             outcome = self.evaluation_maintainer.handle_change_request(
                 EvaluationChangeRequest(
                     iteration=self.completed_iterations + 1,
@@ -1026,9 +1043,8 @@ class OrchestratorAgent:
                     summary=match.group(1).strip(),
                     evidence=candidate.evaluation_output or "",
                 ),
-                staged=self._stage_maintainer("verification", f"evaluation/change_{candidate.node_id}"),
+                staged=staged,
             )
-            self._record_maintainer_spend()
             print(
                 "[Orchestrator] Evaluation change request "
                 f"{'accepted' if outcome.accepted else 'rejected'}: "
@@ -1100,6 +1116,7 @@ class OrchestratorAgent:
             harness=self.harness.ref_dict() if self.harness is not None else None,
             harness_setup=self._harness_setup,
             experience=self.experience,
+            change_requests_filed=self._change_requests_filed,
         )
         with self._checkpoint_lock:
             self.checkpoint_store.save(checkpoint)
