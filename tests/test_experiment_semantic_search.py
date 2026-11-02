@@ -54,11 +54,11 @@ def make_store(tmp_path, llm):
     )
 
 
-def test_add_embeds_full_solution_and_persists_vector(tmp_path):
+def test_reconcile_embeds_full_solution_and_persists_vector(tmp_path):
     llm = StubEmbedder()
     store = make_store(tmp_path, llm)
 
-    store.add_experiment(node(0, "teacher distillation with vllm"))
+    store.reconcile([node(0, "teacher distillation with vllm")])
 
     assert llm.calls == ["teacher distillation with vllm"]  # full text, once
     reloaded = make_store(tmp_path, llm=None)
@@ -68,9 +68,11 @@ def test_add_embeds_full_solution_and_persists_vector(tmp_path):
 def test_search_ranks_by_cosine_similarity(tmp_path):
     llm = StubEmbedder()
     store = make_store(tmp_path, llm)
-    store.add_experiment(node(0, "teacher distillation with vllm"))
-    store.add_experiment(node(1, "dpo preference pairs"))
-    store.add_experiment(node(2, "decoding config sweep"))
+    store.reconcile([
+        node(0, "teacher distillation with vllm"),
+        node(1, "dpo preference pairs"),
+        node(2, "decoding config sweep"),
+    ])
 
     results = store.search_similar("distill from a strong teacher", k=2)
 
@@ -86,8 +88,8 @@ def test_invalid_evaluation_records_stay_searchable(tmp_path):
     surface invalid attempts too; renders mark them INVALID."""
     llm = StubEmbedder()
     store = make_store(tmp_path, llm)
-    store.add_experiment(
-        node(0, "teacher distillation with vllm", evaluation_valid=False)
+    store.reconcile(
+        [node(0, "teacher distillation with vllm", evaluation_valid=False)]
     )
 
     results = store.search_similar("distill from a strong teacher", k=1)
@@ -98,8 +100,10 @@ def test_invalid_evaluation_records_stay_searchable(tmp_path):
 
 def test_no_backend_degrades_to_recent(tmp_path):
     store = make_store(tmp_path, llm=None)
-    store.add_experiment(node(0, "teacher distillation with vllm"))
-    store.add_experiment(node(1, "dpo preference pairs"))
+    store.reconcile([
+        node(0, "teacher distillation with vllm"),
+        node(1, "dpo preference pairs"),
+    ])
 
     results = store.search_similar("anything", k=1)
 
@@ -111,7 +115,7 @@ def test_blank_solution_is_not_embedded(tmp_path):
     llm = StubEmbedder()
     store = make_store(tmp_path, llm)
 
-    store.add_experiment(node(0, "   "))
+    store.reconcile([node(0, "   ")])
 
     assert llm.calls == []
     assert store.experiments[0].solution_embedding == []

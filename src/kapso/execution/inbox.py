@@ -5,8 +5,9 @@ Design: docs/research/evolve-hub-design.md (v4). One append-only JSONL
 file per campaign, ``.kapso/inbox.jsonl``, holding events about
 requests: ``requested`` (written by the session through the
 ``request_from_user`` tool), ``replied`` (written by ``kapso inbox
-reply``) and ``continued`` (written by the orchestrator when the session
-was resumed). A request's state is the fold of its events; nothing is
+reply``), ``continued`` (written by the orchestrator when the session
+was resumed) and ``withdrawn`` (written by a resume, for a request whose
+round died before its checkpoint). A request's state is the fold of its events; nothing is
 ever rewritten, and no request carries a value. A later ``replied`` before
 ``continued`` replaces the answer, since no session has read it yet.
 
@@ -27,7 +28,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, Iterator, List, Optional, Sequence, Tuple
 from contextlib import contextmanager
 
 class CampaignRunningError(RuntimeError):
@@ -50,7 +51,7 @@ HARNESS_SETUP_NODE = -1
 # The fields a session supplies for one request (Appendix A.2). All are
 # required, all are non-empty strings.
 REQUEST_FIELDS = ("key", "hit", "tried", "fix", "next_steps")
-EVENT_TYPES = ("requested", "replied", "continued")
+EVENT_TYPES = ("requested", "replied", "continued", "withdrawn")
 
 
 def _utcnow() -> str:
@@ -81,10 +82,11 @@ class Request:
     reply: Optional[str] = None
     replied_at: Optional[str] = None
     continued: bool = False
+    withdrawn: bool = False
 
     @property
     def open(self) -> bool:
-        return self.reply is None
+        return self.reply is None and not self.withdrawn
 
     @property
     def state(self) -> str:
@@ -200,8 +202,14 @@ def fold(events: Sequence[Dict[str, Any]]) -> Dict[int, Request]:
                 raise ValueError(
                     f"inbox request #{request_id} replied after it was continued"
                 )
+            if request.withdrawn:
+                raise ValueError(
+                    f"inbox request #{request_id} replied after it was withdrawn"
+                )
             request.reply = str(event["note"])
             request.replied_at = str(event["ts"])
+        elif kind == "withdrawn":
+            request.withdrawn = True
         else:
             if request.reply is None:
                 raise ValueError(
@@ -212,7 +220,13 @@ def fold(events: Sequence[Dict[str, Any]]) -> Dict[int, Request]:
 
 
 def load_requests(path: str | Path) -> Dict[int, Request]:
-    return fold(read_events(path))
+    """The campaign's requests. A withdrawn one is history, not a request:
+    only the fold under the write lock sees it, because its id stays used."""
+    return {
+        request_id: request
+        for request_id, request in fold(read_events(path)).items()
+        if not request.withdrawn
+    }
 
 
 def open_requests(requests: Dict[int, Request]) -> List[Request]:
@@ -303,7 +317,11 @@ def file_requests(
         requests = fold(_parse_events(handle.read(), str(path)))
         next_id = max(requests, default=0) + 1
         for entry in validated:
-            same_key = [r for r in requests.values() if r.key == entry["key"]]
+            same_key = [
+                r
+                for r in requests.values()
+                if r.key == entry["key"] and not r.withdrawn
+            ]
             still_open = [r for r in same_key if r.open]
             if still_open:
                 results.append((still_open[-1].id, None))
@@ -372,6 +390,11 @@ def record_reply(
         if request_id not in requests:
             raise ValueError(f"inbox has no request #{request_id}")
         request = requests[request_id]
+        if request.withdrawn:
+            raise ValueError(
+                f"inbox request #{request_id} was withdrawn: the round that asked "
+                "died before its checkpoint and was redone, so nothing waits on it"
+            )
         if request.continued:
             raise ValueError(
                 f"inbox request #{request_id} was already answered and handed "
@@ -418,6 +441,31 @@ def continue_answered(path: str | Path, *, node: int, session: str) -> List[int]
     if pending:
         record_continued(path, pending, node=node, session=session)
     return pending
+
+
+def withdraw_orphaned_requests(
+    path: str | Path, waiting_nodes: Collection[int]
+) -> List[int]:
+    """Close the open requests no node of the checkpoint waits on, and return
+    their ids. They were filed by a round that died before its checkpoint:
+    no session will ever be continued with the reply, and left open they would
+    tell the redo to treat the need as absent and never ask, and would swallow
+    its question if it did, since a key that is open joins without a new event
+    and only a new event stops a session. An answered request stays: the
+    person's reply holds for the whole campaign."""
+    path = Path(path)
+    withdrawn: List[int] = []
+    with _locked(path) as handle:
+        requests = fold(_parse_events(handle.read(), str(path)))
+        for request in requests.values():
+            if request.open and request.node not in waiting_nodes:
+                handle.write(json.dumps({
+                    "ts": _utcnow(),
+                    "event": "withdrawn",
+                    "id": request.id,
+                }) + "\n")
+                withdrawn.append(request.id)
+    return withdrawn
 
 
 def new_requests_for_session(

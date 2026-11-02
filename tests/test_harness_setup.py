@@ -18,11 +18,12 @@ import pytest
 import kapso.execution.orchestrator as orchestrator_module
 from kapso.execution.coding_agents.base import CodingResult
 from kapso.execution.inbox import file_requests, load_requests, record_reply
+from kapso.execution.search_strategies.generic.strategy import GenericSearch
 from kapso.handles import Budget
 from kapso.harness import HarnessError
 from kapso.kapso import Kapso
 from tests.handles_support import git_workspace
-from tests.harness_support import patch_engine
+from tests.harness_support import ScoringFakeStrategy, patch_engine
 
 TRADING = Path(__file__).resolve().parent.parent / "examples" / "harnesses" / "trading"
 ENTRY = {
@@ -200,6 +201,53 @@ def test_a_session_that_asks_pauses_the_campaign_and_the_reply_lets_it_finish(mo
     assert "dropped under kapso_datasets/bars/" in FakeSetupAgent.calls[1]["prompt"]
     assert second.stopped_reason != "waiting_for_user" and second.experiments == 1
     assert json.loads((workspace / ".kapso" / "run_state.json").read_text())["harness_setup"]["prepared"] == ["market-data"]
+
+
+def test_a_resume_withdraws_a_dead_rounds_request_and_keeps_the_setups(monkeypatch, tmp_path):
+    """Setup is not a node, so no suspended flag protects what it asked: its
+    open request must survive until the setup is done, while a request whose
+    round died goes."""
+    FakeSetupAgent.calls = []
+    inbox_path = tmp_path / "campaign" / ".kapso" / "inbox.jsonl"
+    inbox = {"enabled": True, "path": str(inbox_path), "stop_grace_seconds": 5.0, "dotenv_path": ""}
+    patch_engine(monkeypatch, inbox=inbox)
+    monkeypatch.setattr(
+        ScoringFakeStrategy, "withdraw_orphaned_requests", GenericSearch.withdraw_orphaned_requests, raising=False,
+    )
+    monkeypatch.setattr(orchestrator_module.CodingAgentFactory, "create", staticmethod(lambda config: FakeSetupAgent(config)))
+    harness_dir = tmp_path / "harness" / "trading"
+    shutil.copytree(TRADING, harness_dir)
+    workspace = tmp_path / "campaign"
+    git_workspace(workspace)
+
+    def ask_until_answered(workspace_dir: Path, prompt: str) -> None:
+        if any(r.reply for r in load_requests(inbox_path).values()):
+            prepare_market_data(workspace_dir, prompt)
+            return
+        session = FakeSetupAgent.calls[-1]["config"].agent_specific["session_id"]
+        file_requests(inbox_path, node=-1, session=session, entries=[ENTRY])
+
+    FakeSetupAgent.script = staticmethod(ask_until_answered)
+    first = kapso_with(harness_dir, tmp_path).build("g", output=str(workspace), budget=Budget(experiments=1))
+    assert first.stopped_reason == "waiting_for_user"
+    file_requests(inbox_path, node=3, session="dead", entries=[{**ENTRY, "key": "env:DEAD"}])
+
+    again = kapso_with(harness_dir, tmp_path).build(output=str(workspace), resume=True, budget=Budget(experiments=1))
+
+    assert again.stopped_reason == "waiting_for_user"
+    # The same request: the person's open question was not closed and reissued.
+    assert [request["id"] for request in again.requests] == [1]
+    assert [request.id for request in load_requests(inbox_path).values()] == [1]
+
+    # The reply still reaches the setup session, and finishing the setup ends
+    # the exemption: a request left on the setup's node now waits on nothing.
+    [request] = load_requests(inbox_path).values()
+    record_reply(inbox_path, request.id, "dropped under kapso_datasets/bars/")
+    done = kapso_with(harness_dir, tmp_path).build(output=str(workspace), resume=True, budget=Budget(experiments=1))
+    assert done.stopped_reason != "waiting_for_user"
+    file_requests(inbox_path, node=-1, session="stray", entries=[{**ENTRY, "key": "env:STRAY"}])
+    kapso_with(harness_dir, tmp_path).build(output=str(workspace), resume=True, budget=Budget(experiments=1))
+    assert "env:STRAY" not in [request.key for request in load_requests(inbox_path).values()]
 
 
 def test_a_reply_the_setup_session_never_got_can_be_retried(monkeypatch, tmp_path):

@@ -133,6 +133,9 @@ class EvaluationMaintainer:
         self.workspace_dir = Path(workspace_dir)
         self.evaluation_dir = self.workspace_dir / EVALUATION_DIR_NAME
         self.registry = EvaluationRegistry(str(self.workspace_dir))
+        self._open_change_path = (
+            self.workspace_dir / ".kapso" / "evaluation_change_open.json"
+        )
         self.coding_agent_config = coding_agent_config
         self.fast_fraction = float(fast_fraction)
         self.subsample_seed = int(subsample_seed)
@@ -249,14 +252,61 @@ class EvaluationMaintainer:
     def handle_change_request(
         self, request: EvaluationChangeRequest, staged: Optional[StagedHarness] = None
     ) -> ChangeOutcome:
-        """Triage and, if accepted, implement + register a new version;
-        ``staged`` is the harness's verification module for this session."""
+        """Triage and, if accepted, implement + register a new version. The
+        agent edits the live evaluation tree, so the transaction is marked on
+        disk until it ends: see recover_open_change. ``staged`` is the
+        harness's verification module for this session."""
         head = self.registry.head()
         if head is None:
             raise EvaluationMaintainerError(
                 "Cannot handle a change request before setup registered v1"
             )
+        self._open_change(head)
+        outcome = self._run_change_request(request, head, staged)
+        self._open_change_path.unlink()
+        return outcome
 
+    def recover_open_change(self) -> None:
+        """Finish what a dead change request left, before anything compares
+        the tree with the registry. Registered means the verdict stands and
+        only its commit may be missing. Otherwise the edits carry no verdict,
+        and the tree goes back to where the transaction found it, including
+        anything the agent committed on the way."""
+        if not self._open_change_path.is_file():
+            return
+        started = json.loads(self._open_change_path.read_text(encoding="utf-8"))
+        head = self.registry.head()
+        message = f"chore(kapso): register evaluator v{head.version}"
+        if head.evaluator_id == started["evaluator_id"]:
+            message = f"chore(kapso): restore evaluator v{head.version}"
+            repo = git.Repo(str(self.workspace_dir))
+            repo.git.restore(
+                "--source", started["commit"], "--staged", "--worktree",
+                EVALUATION_DIR_NAME,
+            )
+            repo.git.clean("-fdx", EVALUATION_DIR_NAME)
+            print(
+                "[EvaluationMaintainer] A change request died before its "
+                f"verdict; restored the tree to evaluator v{head.version}"
+            )
+        self._commit_evaluation(message)
+        self._open_change_path.unlink()
+
+    def _open_change(self, head: EvaluatorVersion) -> None:
+        marker = {
+            "evaluator_id": head.evaluator_id,
+            "commit": git.Repo(str(self.workspace_dir)).head.commit.hexsha,
+        }
+        temporary = self._open_change_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(marker), encoding="utf-8")
+        temporary.replace(self._open_change_path)
+
+    def _run_change_request(
+        self,
+        request: EvaluationChangeRequest,
+        head: EvaluatorVersion,
+        staged: Optional[StagedHarness],
+    ) -> ChangeOutcome:
         prompt = render_prompt(
             load_prompt(
                 "execution/evaluation_maintainer/prompts/change_request.md"
@@ -496,7 +546,7 @@ class EvaluationMaintainer:
         with a fingerprint no registry entry can explain."""
         repo = git.Repo(str(self.workspace_dir))
         repo.git.checkout("HEAD", "--", EVALUATION_DIR_NAME)
-        repo.git.clean("-fd", EVALUATION_DIR_NAME)
+        repo.git.clean("-fdx", EVALUATION_DIR_NAME)
 
     def _commit_evaluation(self, message: str) -> None:
         # The registry is deliberately NOT committed: a tracked registry

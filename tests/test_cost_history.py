@@ -73,8 +73,10 @@ def test_reopened_history_keeps_cost_policy_and_problem_direction(
     store = ExperimentHistoryStore(
         history_path, cost_config=cost_config(), maximize_scoring=maximize_scoring
     )
-    store.add_experiment(candidate(0, scores[0], 1.0, measured=8.0))
-    store.add_experiment(candidate(1, scores[1], 2.0))
+    store.reconcile([
+        candidate(0, scores[0], 1.0, measured=8.0),
+        candidate(1, scores[1], 2.0),
+    ])
 
     reopened = open_campaign_history(history_path, goal=None, llm=None)
 
@@ -100,8 +102,6 @@ def test_mcp_reports_whole_campaign_cost_once_above_subset(
     store = ExperimentHistoryStore(
         campaign_history_path(tmp_path), cost_config=cost_config()
     )
-    store.add_experiment(candidate(0, 10.0, 10.0, measured=4.0))
-    store.add_experiment(candidate(1, 9.0, 3.0))
     refusal = {
         "estimate": {
             "amount": 40.0,
@@ -112,7 +112,11 @@ def test_mcp_reports_whole_campaign_cost_once_above_subset(
         "cap": 20.0,
         "reason": "cap_per_candidate",
     }
-    store.add_experiment(candidate(2, None, 40.0, refusal=refusal))
+    store.reconcile([
+        candidate(0, 10.0, 10.0, measured=4.0),
+        candidate(1, 9.0, 3.0),
+        candidate(2, None, 40.0, refusal=refusal),
+    ])
     gate = ExperimentHistoryGate()
     gate._store = open_campaign_history(store.json_path, goal=None, llm=None)
 
@@ -137,8 +141,10 @@ def test_disabled_history_keeps_ranking_and_prompt_bytes(tmp_path):
     store = ExperimentHistoryStore(
         str(tmp_path / "history.json"), maximize_scoring=False
     )
-    store.add_experiment(candidate(0, 3.0, 900.0))
-    store.add_experiment(candidate(1, 1.0, 0.0))
+    store.reconcile([
+        candidate(0, 3.0, 900.0),
+        candidate(1, 1.0, 0.0),
+    ])
 
     assert [record.node_id for record in store.get_top_experiments()] == [0, 1]
     assert format_experiments(store.experiments[:1]) == (
@@ -172,7 +178,7 @@ def test_history_preserves_complete_cost_refusal_and_prompt_content(tmp_path):
         "cap": 20.0,
         "reason": "full refusal basis " * 500,
     }
-    store.add_experiment(refused)
+    store.reconcile([refused])
 
     reopened = open_campaign_history(store.json_path, goal=None, llm=None)
     rendered = reopened.format_experiments(reopened.experiments)
@@ -192,8 +198,10 @@ def test_measured_zero_replaces_estimate_in_history_ranking_and_budget(tmp_path)
     store = ExperimentHistoryStore(
         str(tmp_path / "history.json"), cost_config=cost_config()
     )
-    store.add_experiment(candidate(0, 10.0, 10.0, measured=0.0))
-    store.add_experiment(candidate(1, 10.0, 1.0))
+    store.reconcile([
+        candidate(0, 10.0, 10.0, measured=0.0),
+        candidate(1, 10.0, 1.0),
+    ])
 
     assert [record.node_id for record in store.get_top_experiments()] == [0, 1]
     assert "Campaign budget used: 1.0 / 50.0 credits" in store.format_experiments(

@@ -302,8 +302,10 @@ def test_invalid_evaluations_cannot_win_strategy_or_history_selection(
     store = ExperimentHistoryStore(
         json_path=str(tmp_path / "history.json"),
     )
-    store.add_experiment(invalid)
-    store.add_experiment(valid)
+    store.reconcile([
+        invalid,
+        valid,
+    ])
     assert [record.node_id for record in store.get_top_experiments()] == [1]
 
     persisted = json.loads((tmp_path / "history.json").read_text())
@@ -364,8 +366,10 @@ def test_invalid_evaluation_is_stored_but_never_ranked_top(
     )
     valid = SearchNode(node_id=1, score=0.2)
 
-    store.add_experiment(invalid)
-    store.add_experiment(valid)
+    store.reconcile([
+        invalid,
+        valid,
+    ])
 
     assert [e.node_id for e in store.get_top_experiments()] == [1]
     assert store.get_experiment_count() == 2

@@ -51,6 +51,27 @@ running anything. See [The inbox](/docs/build/inbox).
 Validation happens before anything is touched: a refused resume creates no
 repository, renames no branch and overwrites no state.
 
+## What agents read after a resume
+
+A round that dies before its checkpoint did not happen, as far as the campaign
+is concerned: its node id and branch are used again by the redo, and the redo
+replaces the branch. So nothing an agent reads may describe it.
+
+`.kapso/experiment_history.json`, which the `experiment_history` gate reads, is a
+projection of the checkpoint's finalized nodes. It is rewritten atomically right
+after every checkpoint and on the way into every resume, and never ahead of the
+checkpoint. Scores and verdicts follow the node: after an evaluator transition
+agents see the new ruler's scores, and `score=None` for a node never measured
+under it, which is what parent selection sees too. A record keeps its embedding,
+so the rewrite does not pay for one twice.
+
+A change request is marked in `.kapso/evaluation_change_open.json` while the
+maintainer works on the live `kapso_evaluation/` tree. A resume that finds the
+mark finishes the transaction before it checks the tree against the registry:
+with no new version registered the tree goes back to where the transaction found
+it, and a registered version gets its commit. A tree that differs from the
+registered head with no mark is still refused.
+
 ## The budget
 
 Four dials, every one optional:

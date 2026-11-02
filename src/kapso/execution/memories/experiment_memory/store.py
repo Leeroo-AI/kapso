@@ -15,17 +15,20 @@
 # - The per-experiment lesson artifact is technical_difficulties
 #   (implementor-authored, fallback-generated when missing)
 #
-# The store is designed to be accessed by both:
-# - The orchestrator (in-process, for adding experiments)
-# - MCP server (separate process, for querying via tools)
+# The file is a projection of the run checkpoint's node history, so agents
+# never read an experiment the campaign does not have:
+# - The orchestrator (in-process) rewrites it right after every checkpoint
+# - MCP server (separate process) reads it through tools, and only ever sees
+#   a whole file
 
 import json
 import logging
 import os
+import tempfile
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from kapso.core.llm import LLMBackend
 from kapso.execution.cost_estimator import (
@@ -71,8 +74,8 @@ class ExperimentRecord:
     # Implementor-reported (or fallback-generated) build difficulties.
     technical_difficulties: str = ""
     # Embedding of the FULL solution text (the store's llm embedding role),
-    # written at add time; empty when the store had no backend or the
-    # solution was blank.
+    # written once, at the node's first reconcile; empty when the store had
+    # no backend or the solution was blank.
     solution_embedding: List[float] = field(default_factory=list)
     # Observational caller-owned metrics. Internal ``score`` remains the search
     # and ranking signal used by Kapso.
@@ -100,7 +103,7 @@ class ExperimentHistoryStore:
     Store for experiment history.
 
     Provides:
-    - add_experiment(): Add new experiment result (embeds its solution)
+    - reconcile(): Make the store say what the checkpoint's nodes say
     - get_top_experiments(): Get best experiments by score
     - get_recent_experiments(): Get most recent experiments
     - search_similar(): Semantic search over solution embeddings
@@ -141,18 +144,50 @@ class ExperimentHistoryStore:
         self.experiments: List[ExperimentRecord] = []
         self._load_from_json()
 
-    def add_experiment(self, node: Any) -> None:
+    def reconcile(self, nodes: Sequence[Any]) -> None:
         """
-        Add experiment to the store and persist it.
+        Make the store hold exactly these nodes, and persist it.
 
-        The record carries the node's technical_difficulties verbatim, and
-        — when a backend is configured — an embedding of its full solution
-        text, computed before the record is persisted so the JSON is the
-        complete durable artifact.
+        ``nodes`` are the finalized nodes of the run checkpoint, the one
+        record of what the campaign has. A record for any other node is a
+        round that died before its checkpoint and is gone. A node's score and
+        verdict follow the node, so a re-measurement or an evaluator
+        transition reaches the agents. A record keeps its timestamp and, for
+        an unchanged solution, its embedding, so this costs nothing when
+        nothing is new.
 
         Args:
-            node: SearchNode with experiment results
+            nodes: The checkpoint's finalized SearchNodes, in history order
         """
+        known = {(record.node_id, record.solution): record for record in self.experiments}
+        records = []
+        for node in nodes:
+            record = self._record_of(node)
+            earlier = known.get((record.node_id, record.solution))
+            if earlier is not None:
+                record.timestamp = earlier.timestamp
+                record.solution_embedding = earlier.solution_embedding
+            else:
+                print(f"[ExperimentHistoryStore] Added experiment {record.node_id} (score={record.score})")
+            # Embed the full solution BEFORE persisting so the saved record is
+            # complete. A blank solution has nothing to embed.
+            if (
+                self._llm is not None
+                and record.solution.strip()
+                and not record.solution_embedding
+            ):
+                record.solution_embedding = self._llm.create_embedding(
+                    record.solution
+                )
+            records.append(record)
+        if records != self.experiments:
+            self.experiments = records
+            self._save_to_json()
+
+    @staticmethod
+    def _record_of(node: Any) -> ExperimentRecord:
+        """The record for one node, carrying its technical_difficulties
+        verbatim; the caller supplies the embedding."""
         raw_metrics = getattr(node, "metrics", {})
         metrics = (
             dict(raw_metrics) if isinstance(raw_metrics, Mapping) else {}
@@ -189,7 +224,7 @@ class ExperimentHistoryStore:
         if not isinstance(evaluation_integrity_error, str):
             evaluation_integrity_error = ""
 
-        record = ExperimentRecord(
+        return ExperimentRecord(
             node_id=node.node_id,
             solution=node.solution or "",
             score=node.score,
@@ -210,21 +245,6 @@ class ExperimentHistoryStore:
             measured_cost=getattr(node, "measured_cost", None),
             cost_refusal=getattr(node, "cost_refusal", None),
         )
-
-        # Embed the full solution BEFORE persisting so the saved record is
-        # complete. A blank solution has nothing to embed.
-        if self._llm is not None and record.solution.strip():
-            record.solution_embedding = self._llm.create_embedding(
-                record.solution
-            )
-
-        # Add to in-memory list
-        self.experiments.append(record)
-
-        # Persist to JSON
-        self._save_to_json()
-
-        print(f"[ExperimentHistoryStore] Added experiment {record.node_id} (score={record.score})")
 
     def get_top_experiments(self, k: int = 5) -> List[ExperimentRecord]:
         """
@@ -373,10 +393,19 @@ class ExperimentHistoryStore:
         print(f"[ExperimentHistoryStore] Loaded {len(self.experiments)} experiments from {self.json_path}")
 
     def _save_to_json(self) -> None:
-        """Save experiments to the JSON file (failures propagate)."""
-        os.makedirs(os.path.dirname(self.json_path), exist_ok=True)
-        with open(self.json_path, 'w') as f:
-            json.dump([asdict(e) for e in self.experiments], f, indent=2)
+        """Replace the JSON file atomically (failures propagate). A corrupt
+        file raises on load, so a half-written one would keep the campaign
+        from resuming and fail any session reading it meanwhile."""
+        directory = os.path.dirname(self.json_path)
+        os.makedirs(directory, exist_ok=True)
+        descriptor, temp_path = tempfile.mkstemp(
+            dir=directory, prefix=".experiment_history.", suffix=".tmp"
+        )
+        with os.fdopen(descriptor, "w") as handle:
+            json.dump([asdict(e) for e in self.experiments], handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, self.json_path)
 
 
 # =============================================================================

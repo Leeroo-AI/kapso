@@ -784,6 +784,7 @@ class OrchestratorAgent:
             return
         registry = self.evaluation_maintainer.registry
         if registry.exists():
+            self.evaluation_maintainer.recover_open_change()
             self.evaluation_maintainer.restore_provided_baseline(
                 self._provided_evaluation_manifest or {}
             )
@@ -1120,6 +1121,15 @@ class OrchestratorAgent:
         )
         with self._checkpoint_lock:
             self.checkpoint_store.save(checkpoint)
+        # What agents read follows the checkpoint and never leads it: a round
+        # that dies before this point is redone on resume, so it must not be
+        # in the history. A process that dies right here catches up at the
+        # bootstrap checkpoint of the resume.
+        self.experiment_store.reconcile([
+            node
+            for node in self.search_strategy.get_experiment_history()
+            if not getattr(node, "suspended", False)
+        ])
 
     def _status_budget_view(self) -> Dict[str, Any]:
         """The status file's time-only budget payload (observability §1):
@@ -1273,6 +1283,22 @@ class OrchestratorAgent:
             return list(self._setup_requests)
         hook = getattr(self.search_strategy, "waiting_requests", None)
         return list(hook()) if callable(hook) else []
+
+    def _withdraw_orphaned_requests(self) -> None:
+        """Starting closes what a dead round asked: nothing will continue it.
+        Strategies without an inbox have nothing to close."""
+        hook = getattr(self.search_strategy, "withdraw_orphaned_requests", None)
+        # The harness setup is not a node and has no suspended flag: until it
+        # is done it runs again and reads what it asked.
+        setup_waits = {HARNESS_SETUP_NODE} if self._harness_setup is None else set()
+        withdrawn = hook(setup_waits) if callable(hook) else []
+        if withdrawn:
+            print(
+                "[Orchestrator] Withdrew inbox requests "
+                + ", ".join(f"#{request_id}" for request_id in withdrawn)
+                + ": the round that asked died before its checkpoint and is "
+                "redone; a session that still needs it asks again"
+            )
 
     def _pause_for_user(self, requests: List[Any]) -> None:
         """The campaign pauses: print what the person must answer, save a
@@ -1497,6 +1523,7 @@ class OrchestratorAgent:
             self.budget_spec = budget_spec
             self._fidelity_active = False
             self.budget_ledger.start_clock()
+            self._withdraw_orphaned_requests()
             # With a harness, the task statement every session reads first is
             # written before any session runs (and again after harness setup).
             # The effective budget, as resolved: what a session reading the
@@ -1872,13 +1899,6 @@ class OrchestratorAgent:
                     finalized_candidates,
                     iteration=self.completed_iterations + 1,
                 )
-
-                # Persist every candidate finalized in this strategy iteration.
-                # External metrics are attached before history and checkpoint
-                # writes so all durable representations agree.
-                if self.experiment_store:
-                    for candidate in finalized_candidates:
-                        self.experiment_store.add_experiment(candidate)
 
                 if not self._platform_budget_exhausted:
                     self._route_change_requests([

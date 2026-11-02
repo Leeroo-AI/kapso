@@ -16,7 +16,7 @@ import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple
 
 from pathlib import Path
 from kapso.core.config import load_config
@@ -82,6 +82,7 @@ from kapso.execution.inbox import (
     read_launch_record,
     record_continued,
     requests_for_ids,
+    withdraw_orphaned_requests,
 )
 from kapso.core.prompt_loader import load_prompt, optional_block, render_prompt
 from kapso.execution.coding_agents.factory import CodingAgentFactory
@@ -639,6 +640,13 @@ class GenericSearch(SearchStrategy):
             f"{lane_tag}[GenericSearch] Implementing on branch: {branch_name} "
             f"(from {parent.branch_name})"
         )
+
+        # The adapters append to the transcript, and the difficulties fallback
+        # reads all of it. One that already exists is a dead attempt's, on a
+        # different idea, like the session folder and branch the redo replaces.
+        stream_path = self._session_stream_path(branch_name)
+        if os.path.isfile(stream_path):
+            os.remove(stream_path)
 
         self._status_phase("implementation")
         (
@@ -1304,6 +1312,24 @@ class GenericSearch(SearchStrategy):
             if request.open and request.node in waiting_nodes
         ]
 
+    def withdraw_orphaned_requests(self, also_waiting: Collection[int]) -> List[int]:
+        """Close the open requests of rounds the checkpoint does not have;
+        ``also_waiting`` names requesters that are not nodes."""
+        settings = getattr(self, "inbox_settings", None)
+        if not settings or not settings.get("enabled"):
+            return []
+        return withdraw_orphaned_requests(
+            settings["path"],
+            {
+                *also_waiting,
+                *(
+                    node.node_id
+                    for node in self.node_history
+                    if getattr(node, "suspended", False)
+                ),
+            },
+        )
+
     def _salvage_ideation_output(self, result) -> Optional[str]:
         """Recover a deadline-terminated ideation's partial output
         (None for crashes and near-empty kills)."""
@@ -1668,7 +1694,6 @@ class GenericSearch(SearchStrategy):
         stream_dir = os.path.join(
             self.workspace_dir, ".kapso", "sessions", branch_name
         )
-        os.makedirs(stream_dir, exist_ok=True)
         return os.path.join(stream_dir, "stream.jsonl")
 
     # The finishing sessions of an attempt, in order: what must still fit

@@ -353,6 +353,10 @@ class ExperimentWorkspace:
             # campaign state like the checkpoint, never branch content.
             ".kapso/inbox.jsonl",
             ".kapso/launch.json",
+            # An open change request's mark and the history's rewrite are
+            # campaign state like the checkpoint, never branch content.
+            ".kapso/evaluation_change_open.*",
+            ".kapso/.experiment_history.*.tmp",
             # The solution record build() writes when it returns.
             ".kapso/solution.json",
             # Campaign shared cache holds large reusable artifacts (tables,
