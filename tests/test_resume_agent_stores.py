@@ -520,6 +520,20 @@ def test_edits_the_killed_agent_committed_are_undone_too(maintained):
     assert not (evaluation / "scratch.py").exists()
 
 
+def test_a_gitignored_leftover_of_a_killed_triage_is_not_committed_with_the_restore(maintained):
+    def half_edit_and_log(evaluation: Path) -> None:
+        half_edit(evaluation)
+        (maintained.workspace / ".gitignore").write_text("*.log\n")
+        (evaluation / "triage_run.log").write_text("the evaluator's output\n")
+
+    maintained.kill_during_triage_of_node_one(half_edit_and_log)
+
+    result = maintained.open(resume=True).solve(experiment_max_iter=1)
+
+    assert result.stopped_reason == "max_iterations"
+    assert not (maintained.workspace / "kapso_evaluation" / "triage_run.log").exists()
+
+
 def test_a_kill_between_registering_and_committing_keeps_the_verdict(
     maintained, monkeypatch
 ):

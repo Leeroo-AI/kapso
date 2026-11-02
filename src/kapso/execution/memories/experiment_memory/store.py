@@ -74,8 +74,8 @@ class ExperimentRecord:
     # Implementor-reported (or fallback-generated) build difficulties.
     technical_difficulties: str = ""
     # Embedding of the FULL solution text (the store's llm embedding role),
-    # written at add time; empty when the store had no backend or the
-    # solution was blank.
+    # written once, at the node's first reconcile; empty when the store had
+    # no backend or the solution was blank.
     solution_embedding: List[float] = field(default_factory=list)
     # Observational caller-owned metrics. Internal ``score`` remains the search
     # and ranking signal used by Kapso.

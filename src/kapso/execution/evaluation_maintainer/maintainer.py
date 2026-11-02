@@ -289,7 +289,7 @@ class EvaluationMaintainer:
                 "--source", started["commit"], "--staged", "--worktree",
                 EVALUATION_DIR_NAME,
             )
-            repo.git.clean("-fd", EVALUATION_DIR_NAME)
+            repo.git.clean("-fdx", EVALUATION_DIR_NAME)
             print(
                 "[EvaluationMaintainer] A change request died before its "
                 f"verdict; restored the tree to evaluator v{head.version}"
@@ -578,7 +578,7 @@ class EvaluationMaintainer:
         with a fingerprint no registry entry can explain."""
         repo = git.Repo(str(self.workspace_dir))
         repo.git.checkout("HEAD", "--", EVALUATION_DIR_NAME)
-        repo.git.clean("-fd", EVALUATION_DIR_NAME)
+        repo.git.clean("-fdx", EVALUATION_DIR_NAME)
 
     def _commit_evaluation(self, message: str) -> None:
         # The registry is deliberately NOT committed: a tracked registry
