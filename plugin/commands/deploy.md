@@ -1,6 +1,6 @@
 ---
 description: "Deploy a Kapso campaign's delivered solution to a target, prove one call, and hand back the handle"
-argument-hint: "[campaign] [--target local|docker|modal|bentoml|langgraph|<harness target>]"
+argument-hint: "[campaign] [--branch <attempt>] [--target local|docker|modal|bentoml|langgraph|<harness target>]"
 ---
 Follow the `kapso` skill (`/kapso:kapso`) for: $ARGUMENTS
 

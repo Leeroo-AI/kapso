@@ -4,6 +4,7 @@ record, a bare key refused by name, flags that contradict each other, and an
 attempt named with `--branch`."""
 
 import argparse
+import json
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -152,6 +153,16 @@ def test_the_status_rows_say_what_a_person_needs_while_deploying_and_after_a_fai
     assert rows[0].startswith("  1  deploying  docker (requested)  no endpoint  ")
     assert rows[1].startswith("  2  failed (the session was cut at its deadline)  auto (requested)  no endpoint  ")
     assert rows[2].startswith("  3  running (its files are gone)  t  ")
+
+
+def test_the_status_row_reads_a_record_from_before_chosen_attempts(tmp_path, capsys):
+    software = deployed(tmp_path, run={"kind": "script"})
+    written = json.loads(software.record.read_text(encoding="utf-8"))
+    del written["chosen_attempt"]
+    software.record.write_text(json.dumps(written), encoding="utf-8")
+    capsys.readouterr()
+    lifecycle(arguments(software.campaign, status=True))
+    assert "chosen attempt" not in capsys.readouterr().out
 
 
 def test_the_branch_flag_reaches_open_and_the_summary_and_status_say_it_was_chosen(tmp_path, monkeypatch, capsys):

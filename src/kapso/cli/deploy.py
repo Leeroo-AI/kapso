@@ -111,7 +111,7 @@ def status_line(record: DeploymentRecord, config: Optional[str]) -> str:
     elif record.data["error"]:
         note = f" ({record.data['error']})"
     target = record.data["target"] or f"{record.data['target_requested']} (requested)"
-    chosen = f"  chosen attempt {record.data['branch']}" if record.data["chosen_attempt"] is not None else ""
+    chosen = f"  chosen attempt {record.data['branch']}" if record.data.get("chosen_attempt") is not None else ""
     return f"  {record.number}  {record.state}{note}  {target}  {record.data['endpoint'] or 'no endpoint'}  {record.data['state_at']}{chosen}"
 
 

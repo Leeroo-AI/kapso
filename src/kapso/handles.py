@@ -570,7 +570,7 @@ def chosen_attempt_line(chosen: Dict[str, Any]) -> str:
     could not verify never passes silently."""
     delivered = chosen["delivered_branch"] or "nothing"
     score = "no score" if chosen["score"] is None else f"score {chosen['score']}"
-    validity = "valid" if chosen["evaluation_valid"] else "not valid"
+    validity = "not judged" if chosen["unjudged"] else "valid" if chosen["evaluation_valid"] else "not valid"
     parts = [
         f"chosen by you (the engine delivered {delivered})",
         f"{score}, evaluation {validity} ({chosen['evaluation_provenance']})",

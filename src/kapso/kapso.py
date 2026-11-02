@@ -55,7 +55,7 @@ from kapso.execution.trace import TraceView, failed_runs, read_trace
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.iteration_evaluator import IterationEvaluator
-from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution, chosen_attempt_line
+from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution, SolutionError, chosen_attempt_line
 from kapso.execution.evaluation_integrity import launch_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory
@@ -780,6 +780,8 @@ class Kapso:
         # into the crews' sessions; the trajectory records which harness learned.
         # A campaign directory with a record is the same case as its Solution.
         record = source if isinstance(source, Solution) else None
+        if record is not None and record.chosen_attempt is not None:
+            raise SolutionError(f"the attempt on {record.branch} was chosen by hand; learn from the campaign's own record")
         if record is None and isinstance(source, str) and (Path(source) / ".kapso" / "solution.json").is_file():
             record = Solution.open(source)
         if record is not None:
@@ -1833,7 +1835,8 @@ class Kapso:
         if solution.commit is None:
             raise DeployError(
                 f"nothing to deploy: the build in {solution.campaign} delivered no "
-                f"candidate (stopped: {solution.stopped_reason})"
+                f"candidate (stopped: {solution.stopped_reason}); `kapso trace "
+                f"{solution.campaign}` lists its attempts, and `kapso deploy --branch` takes one"
             )
         if solution.chosen_attempt is None:
             checked_out = _git_rev(solution.campaign, "HEAD")

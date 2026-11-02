@@ -108,11 +108,22 @@ def place_commit(campaign: Path, commit: str, workspace: Path) -> None:
         tracked = workspace / name
         if name and (tracked.is_file() or tracked.is_symlink()):
             tracked.unlink()
+            for parent in tracked.parents:
+                if parent == workspace or any(parent.iterdir()):
+                    break
+                parent.rmdir()
     with tempfile.TemporaryDirectory() as scratch:
         tree = Path(scratch) / "tree"
         with repo.git.custom_environment(GIT_INDEX_FILE=str(Path(scratch) / "index")):
             repo.git.read_tree(commit)
             repo.git.checkout_index("--all", f"--prefix={tree}/")
+        for source in tree.rglob("*"):
+            placed = workspace / source.relative_to(tree)
+            if placed.is_symlink() or (placed.exists() and placed.is_dir() != (source.is_dir() and not source.is_symlink())):
+                raise DeployError(
+                    f"the campaign's untracked {placed.relative_to(workspace)} stands where "
+                    f"commit {commit[:12]} has its own; move it and deploy again"
+                )
         shutil.copytree(tree, workspace, ignore=shutil.ignore_patterns(*COPY_IGNORE), symlinks=True, dirs_exist_ok=True)
 
 

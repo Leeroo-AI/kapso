@@ -180,8 +180,10 @@ software = Kapso().deploy(Solution.open("campaign", branch="generic_exp_3"), tar
 The deployment's workspace holds the attempt's tracked files at the commit it
 was evaluated on, with the campaign's untracked data beside them, as in any
 deployment. You do not check anything out: the campaign's head, index and files
-stay as they are, so an edit there does not reach the workspace and a campaign
-that delivered something stays at it.
+stay as they are, so an edit to a tracked file there does not reach the workspace
+and a campaign that delivered something stays at it. A submodule stays at the
+campaign's checkout, and an untracked path standing where the attempt has its own
+is refused: move it and deploy again.
 
 The engine never delivers an attempt the harness could not verify, and this does
 not change that. Naming one yourself is allowed, and its score, evaluation

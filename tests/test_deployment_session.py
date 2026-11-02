@@ -22,7 +22,7 @@ from kapso.core.config import load_config
 from kapso.deployment.errors import DeployError
 from kapso.deployment.handle import Software
 from kapso.deployment.record import DEPLOYING, FAILED, RUNNING, STOPPED, open_record, records
-from kapso.deployment.session import run_deployment
+from kapso.deployment.session import place_commit, run_deployment
 from kapso.execution.coding_agents.base import CodingResult
 from kapso.handles import Solution
 from kapso.harness import HarnessError, load_harness
@@ -456,6 +456,52 @@ def test_a_dirty_campaign_does_not_leak_into_a_chosen_attempts_workspace(tmp_pat
     software.close()
     assert (software.workspace / "README.md").read_text() == "# seed\n"
     assert (campaign / "README.md").read_text() == "edited by hand\n"
+
+
+@pytest.mark.parametrize("attempt_has", ["a file", "a symlink", "nothing"])
+def test_a_tracked_directory_the_attempt_replaced_leaves_nothing_behind(tmp_path, attempt_has):
+    campaign = tmp_path / "campaign"
+    git_workspace(campaign)
+    (campaign / "model").mkdir()
+    (campaign / "model" / "weights.py").write_text("old = True\n")
+    git(campaign, "add", "model")
+    git(campaign, "commit", "-q", "-m", "a package")
+    git(campaign, "checkout", "-q", "-b", "attempt")
+    git(campaign, "rm", "-rq", "model")
+    if attempt_has == "a file":
+        (campaign / "model").write_text("flat = True\n")
+    if attempt_has == "a symlink":
+        (campaign / "model").symlink_to("README.md")
+    git(campaign, "add", "--all")
+    git(campaign, "commit", "-q", "--allow-empty", "-m", "the attempt")
+    commit = git(campaign, "rev-parse", "HEAD")
+    git(campaign, "checkout", "-q", "-")
+    workspace = tmp_path / "workspace"
+    shutil.copytree(campaign, workspace, ignore=shutil.ignore_patterns(".git"), symlinks=True)
+    place_commit(campaign, commit, workspace)
+    model = workspace / "model"
+    assert model.is_symlink() == (attempt_has == "a symlink")
+    assert model.is_file() == (attempt_has != "nothing")
+    assert model.exists() == (attempt_has != "nothing")
+
+
+def test_an_untracked_symlink_is_not_written_through_for_a_chosen_attempt(tmp_path):
+    campaign = tmp_path / "campaign"
+    git_workspace(campaign)
+    git(campaign, "checkout", "-q", "-b", "attempt")
+    (campaign / "cfg.yaml").write_text("from_the_attempt: true\n")
+    git(campaign, "add", "cfg.yaml")
+    git(campaign, "commit", "-q", "-m", "the attempt")
+    commit = git(campaign, "rev-parse", "HEAD")
+    git(campaign, "checkout", "-q", "-")
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("mine: true\n")
+    workspace = tmp_path / "workspace"
+    shutil.copytree(campaign, workspace, ignore=shutil.ignore_patterns(".git"), symlinks=True)
+    (workspace / "cfg.yaml").symlink_to(outside)
+    with pytest.raises(DeployError, match="cfg.yaml stands where commit"):
+        place_commit(campaign, commit, workspace)
+    assert outside.read_text() == "mine: true\n"
 
 
 def test_the_engines_deliverable_deploys_with_no_chosen_attempt_on_its_record(solution, agent):
