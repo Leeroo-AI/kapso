@@ -1025,6 +1025,7 @@ class OrchestratorAgent:
                     "requests this campaign"
                 )
                 return
+            staged = self._stage_maintainer("verification", f"evaluation/change_{candidate.node_id}")
             # On disk before the session starts: a killed session was still
             # paid for, and the round that dies is redone and may ask again.
             self._change_requests_filed += 1
@@ -1039,7 +1040,7 @@ class OrchestratorAgent:
                     summary=match.group(1).strip(),
                     evidence=candidate.evaluation_output or "",
                 ),
-                staged=self._stage_maintainer("verification", f"evaluation/change_{candidate.node_id}"),
+                staged=staged,
             )
             self._record_maintainer_spend()
             print(

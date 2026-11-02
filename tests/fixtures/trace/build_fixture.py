@@ -160,6 +160,7 @@ def _build_from(campaign: Path, fixture: Path) -> None:
     defaults = SearchNode(node_id=0).to_dict()
     checkpoint["schema_version"] = RunCheckpoint.SCHEMA_VERSION
     checkpoint.setdefault("experience", [])
+    checkpoint = {"change_requests_filed": 0, **checkpoint}
     # The archives predate the node's `iteration`: one node per iteration
     # in every archived campaign, so the n-th node is iteration n's.
     checkpoint["strategy_state"]["node_history"] = [
