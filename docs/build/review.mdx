@@ -104,6 +104,11 @@ lesson = kapso.learn(solution)         # bank what the campaign taught; see Lear
 kapso deploy campaign --target local
 ```
 
+To open or deploy another attempt of the campaign, including one from a
+campaign that delivered nothing, name its branch:
+[`Solution.open(path, branch=...)`](/docs/reference/kapso-api#solution) and
+[`kapso deploy campaign --branch ...`](/docs/deploy/targets#deploying-an-attempt-the-engine-did-not-deliver).
+
 ## Related
 
 <CardGroup cols={2}>

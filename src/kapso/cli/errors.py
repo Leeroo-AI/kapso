@@ -12,7 +12,7 @@ from kapso.core.preflight import PreflightError
 from kapso.deployment.errors import DeployError
 from kapso.execution.evaluation_integrity import EvaluationIntegrityError
 from kapso.execution.experiment_workspace.experiment_workspace import WorkspaceCheckoutError
-from kapso.execution.inbox import InboxOpenError
+from kapso.execution.inbox import CampaignRunningError, InboxOpenError
 from kapso.execution.run_checkpoint import RunCheckpointError
 from kapso.experience.ingest import IngestError
 from kapso.experience.reference import ExperienceReferenceError
@@ -38,6 +38,7 @@ ENGINE_ERRORS = (
     EvaluationIntegrityError,
     PreflightError,
     GitReferenceError,
+    CampaignRunningError,
     InboxOpenError,
     RunCheckpointError,
     WorkspaceCheckoutError,

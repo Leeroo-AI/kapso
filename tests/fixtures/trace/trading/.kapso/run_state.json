@@ -1,4 +1,5 @@
 {
+  "change_requests_filed": 0,
   "completed_iterations": 2,
   "config_fingerprint": "516eb6b42fd3708978c7ebccafade145ba950cbdbfc7728b9c50df2e53faf44e",
   "cost_by_component": {
@@ -49,7 +50,7 @@
   },
   "last_stop": "time_budget",
   "maximize_scoring": true,
-  "schema_version": 6,
+  "schema_version": 7,
   "status": "running",
   "strategy_state": {
     "evaluation_integrity": {

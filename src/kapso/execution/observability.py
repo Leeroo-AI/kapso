@@ -16,9 +16,11 @@ import tempfile
 import threading
 from abc import ABC
 from datetime import datetime, timezone
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
+from kapso.core.processes import process_start
 from kapso.execution.inbox import list_registered_campaigns, read_launch_receipt
 from kapso.execution.iteration_evaluator import comparison_summary
 
@@ -101,13 +103,21 @@ def platform_cost_summary(platform_budget: Mapping[str, Any]) -> str:
     return text
 
 
-def pid_alive(pid: Optional[int]) -> Optional[bool]:
-    """Whether a process exists: None where the kernel exposes no /proc
-    to ask, or with no pid to ask about."""
-    proc = Path("/proc")
-    if pid is None or not proc.is_dir():
+def pid_alive(pid: Optional[int], started: Optional[str] = None) -> Optional[bool]:
+    """Whether a process runs at `pid`, and is the one that recorded `started`
+    (its start stamp) when one was recorded: a later process handed the same
+    pid does not count. None with no pid, or where the kernel will not say."""
+    if pid is None:
         return None
-    return (proc / str(pid)).exists()
+    current = process_start(pid)
+    if current is None:
+        return None
+    return bool(current) and started in (None, current)
+
+
+def launch_alive(receipt: Mapping[str, Any]) -> Optional[bool]:
+    """Whether the child a launch receipt names still runs."""
+    return pid_alive(receipt["pid"], receipt.get("pid_started"))
 
 
 def source_line(source: Mapping[str, Any]) -> str:
@@ -126,9 +136,10 @@ def source_line(source: Mapping[str, Any]) -> str:
 def campaign_listing(registry_path, status_dir, *, everything: bool = False) -> list:
     """What `kapso watch` lists with no path: the campaigns the registry
     knows and the learn and experience operations under the status
-    directory, one entry each, the registry's newest first; those alive
-    (the view's own verdict, `starting` included and a machine without
-    /proc judged by the heartbeat) or waiting on the person, unless
+    directory, one entry each, the registry's newest first; those whose
+    writer runs (the view's own verdict, `starting` included, `stalled`
+    marking one past its beats, and a kernel that cannot say judged by the
+    heartbeat) or waiting on the person, unless
     `everything`. A registered campaign with no status yet is `starting`
     on its launch receipt while the pid lives, `stopped` once it is gone."""
     entries = []
@@ -141,12 +152,12 @@ def campaign_listing(registry_path, status_dir, *, everything: bool = False) -> 
         receipt = read_launch_receipt(campaign)
         if receipt is None:
             continue
-        alive = pid_alive(receipt["pid"])
+        alive = launch_alive(receipt)
         entries.append({
             "path": str(campaign), "operation": "build",
             "state": "starting" if alive is not False else "stopped",
             "phase": None, "heartbeat_age_seconds": None, "best": None,
-            "stopped_reason": None, "alive": alive,
+            "stopped_reason": None, "alive": alive, "stalled": False,
         })
     root = Path(status_dir).expanduser()
     if root.is_dir():
@@ -170,7 +181,8 @@ def _listing_entry(view: "OperationStatusView", path: str) -> Dict[str, Any]:
         "heartbeat_age_seconds": round(view.heartbeat_age_seconds, 1),
         "best": view.best,
         "stopped_reason": view.data.get("stopped_reason"),
-        "alive": view.alive,
+        "alive": view.running,
+        "stalled": view.stalled and view.process_alive is True,
     }
 
 
@@ -181,10 +193,11 @@ def render_listing(entries: list) -> str:
     lines = []
     for entry in entries:
         waiting = entry["state"] == "done" and entry["stopped_reason"] == "waiting_for_user"
-        # A writer gone or silent past its beats is dead, whatever the
-        # file's own word; the single-campaign screen says the same.
+        # A writer gone is dead, whatever the file's own word; where the
+        # kernel cannot say, so is one silent past its beats. The
+        # single-campaign screen says the same.
         dead = entry["alive"] is False and entry["state"] in ("running", "starting")
-        state = "WAITING" if waiting else "DEAD" if dead else entry["state"].upper()
+        state = "WAITING" if waiting else "DEAD" if dead else "STALLED" if entry["stalled"] else entry["state"].upper()
         age = f"{entry['heartbeat_age_seconds']:.0f}s ago" if entry["heartbeat_age_seconds"] is not None else "-"
         best = entry["best"].get("score") if isinstance(entry["best"], dict) else None
         lines.append(
@@ -285,6 +298,7 @@ class OperationStatus(ABC):
             "phases": list(self.PHASES),
             "state": "starting",
             "pid": os.getpid(),
+            "pid_started": process_start(os.getpid()),
             "started_at": now,
             "heartbeat_at": now,
             # A phase at birth keeps the state `starting`: the operation
@@ -564,17 +578,18 @@ class OperationStatusView:
         delta = datetime.now(timezone.utc) - _parse_at(started)
         return round(delta.total_seconds() / 60, 1)
 
-    @property
+    @cached_property
     def process_alive(self) -> Optional[bool]:
-        """Whether the pid that wrote the file still exists. The status file
+        """Whether the process that wrote the file still runs. The status file
         cannot record its own writer's death, so a fresh heartbeat proves
-        nothing once the process is gone. None where the kernel exposes no
-        /proc to ask; the heartbeat is then the only signal."""
-        return pid_alive(self.data.get("pid"))
+        nothing once the process is gone. A pid handed to a later process does
+        not count: its start stamp differs. None where the kernel will not say;
+        the heartbeat is then the only signal."""
+        return pid_alive(self.data.get("pid"), self.data.get("pid_started"))
 
     @property
     def dead(self) -> bool:
-        return self.process_alive is False and self.state not in TERMINAL_STATES
+        return self.state not in TERMINAL_STATES and self.process_alive is False
 
     @property
     def alive(self) -> Optional[bool]:
@@ -594,6 +609,20 @@ class OperationStatusView:
     @property
     def stalled(self) -> bool:
         return self.alive is False and self.state not in TERMINAL_STATES
+
+    @property
+    def running(self) -> Optional[bool]:
+        """Whether something is still working on this operation, which is what
+        a second session must not race. A process the kernel says is running
+        holds it however old its heartbeat is, because a heartbeat also stops
+        for a suspended process, a sleeping laptop or a heartbeat thread that
+        died. Where the kernel cannot say, this is `alive`, the heartbeat's
+        verdict, None included."""
+        if self.state in TERMINAL_STATES:
+            return False
+        if self.process_alive is None:
+            return self.alive
+        return self.process_alive
 
     # ---------------------------------------------------------- renderer
 

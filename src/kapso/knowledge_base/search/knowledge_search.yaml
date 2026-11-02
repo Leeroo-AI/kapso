@@ -86,8 +86,6 @@ searches:
       include_connected_pages: true
       use_llm_reranker: false
       # No embedding truncation -- full description text is sent to the embedding model.
-      # Reranker overview truncation keeps LLM prompts compact.
-      reranker_overview_max_chars: 300
     
     presets:
       # Default preset - semantic search + LLM reranking + graph enrichment
@@ -97,7 +95,6 @@ searches:
           weaviate_collection: "KapsoKG"
           include_connected_pages: true
           use_llm_reranker: true
-          reranker_overview_max_chars: 300
       
       # Fast preset - no reranking, no graph enrichment
       FAST:
@@ -106,7 +103,6 @@ searches:
           weaviate_collection: "KapsoKG"
           include_connected_pages: false
           use_llm_reranker: false
-          reranker_overview_max_chars: 300
       
       # Rerank only - no graph enrichment
       RERANK_ONLY:
@@ -115,7 +111,6 @@ searches:
           weaviate_collection: "KapsoKG"
           include_connected_pages: false
           use_llm_reranker: true
-          reranker_overview_max_chars: 300
     
     default_preset: "DEFAULT"
 

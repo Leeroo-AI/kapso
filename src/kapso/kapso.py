@@ -52,10 +52,11 @@ from kapso.execution.observability import (
     platform_cost_summary,
 )
 from kapso.execution.trace import TraceView, failed_runs, read_trace
+from kapso.execution.notify import notify_build_end
 from kapso.execution.orchestrator import OrchestratorAgent
 from kapso.execution.evaluation_maintainer.registry import EvaluationRegistry
 from kapso.execution.iteration_evaluator import IterationEvaluator
-from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution
+from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution, SolutionError, chosen_attempt_line
 from kapso.execution.evaluation_integrity import launch_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
 from kapso.knowledge_base.search import KnowledgeSearchFactory
@@ -100,6 +101,7 @@ from kapso.harness import (
 from kapso.harness import BUNDLED_ROOT
 from kapso.harness.staging import host_for
 from kapso.execution.inbox import (
+    CampaignRunningError,
     beside,
     launch_receipt_path,
     Request,
@@ -179,6 +181,13 @@ def _git_rev(workspace: Path, ref: str) -> str:
         ["git", "-C", str(workspace), "rev-parse", ref],
         check=True, capture_output=True, text=True,
     ).stdout.strip()
+
+
+def _git_has_commit(workspace: Path, commit: str) -> bool:
+    return subprocess.run(
+        ["git", "-C", str(workspace), "cat-file", "-e", f"{commit}^{{commit}}"],
+        capture_output=True,
+    ).returncode == 0
 
 
 def _memory_overrides(serving_plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -773,6 +782,8 @@ class Kapso:
         # into the crews' sessions; the trajectory records which harness learned.
         # A campaign directory with a record is the same case as its Solution.
         record = source if isinstance(source, Solution) else None
+        if record is not None and record.chosen_attempt is not None:
+            raise SolutionError(f"the attempt on {record.branch} was chosen by hand; learn from the campaign's own record")
         if record is None and isinstance(source, str) and (Path(source) / ".kapso" / "solution.json").is_file():
             record = Solution.open(source)
         if record is not None:
@@ -1137,6 +1148,8 @@ class Kapso:
             `<output>/.kapso/solution.json`, so `Solution.open(output)`
             reads it from any process.
         """
+        # To the second, as the status file stamps its own start.
+        launched_at = datetime.now(timezone.utc).replace(microsecond=0)
         if isinstance(brief, str):
             brief = Brief(objective=brief)
         elif brief is not None and not isinstance(brief, Brief):
@@ -1180,6 +1193,7 @@ class Kapso:
                 )
             argv = ["build", "--output", output_path]
             if resume:
+                self._refuse_a_live_campaign(output_path, "stop before resuming")
                 argv.append("--resume")
             else:
                 brief_path = beside(Path(output_path), ".brief.md")
@@ -1205,6 +1219,7 @@ class Kapso:
         record = None
         if resume:
             self._validate_resume_workspace(output_path)
+            self._refuse_a_live_campaign(output_path, "stop before resuming")
             # A resume without a checkpoint is refused by the orchestrator
             # with its own message; here the checkpoint is read when it
             # exists, for the brief and the harness comparison.
@@ -1489,6 +1504,7 @@ class Kapso:
             in_flight = sys.exc_info()[1]
             if in_flight is not None and output_path is not None:
                 mark_failed(Path(output_path) / ".kapso" / "status.json", in_flight)
+                notify_build_end(self._config["notify"], Path(output_path), brief.objective, launched_at)
 
         # Stage serving now that the workspace exists (see the plan/stage
         # note above): the clones, the record and the intro file the
@@ -1552,6 +1568,9 @@ class Kapso:
                 status = getattr(orchestrator.search_strategy, "operation_status", None)
                 if status is not None and not status.terminal:
                     status.failed(in_flight)
+                notify_build_end(
+                    self._config["notify"], Path(orchestrator.search_strategy.workspace.workspace_dir), brief.objective, launched_at,
+                )
 
         # The status is born, so the launch receipt has told what it had
         # to: a campaign that ran is known by its status from here on, and
@@ -1571,14 +1590,19 @@ class Kapso:
 
         # Run experimentation
         print("Running experiments...")
-        orchestrator.solve(
-            experiment_max_iter=max_iterations,
-            time_budget_minutes=time_budget_minutes,
-            cost_budget=cost_budget,
-            finalization_reserve_minutes=finalization_reserve_minutes,
-            on_status=on_status,
-            finish=finish,
-        )
+        try:
+            orchestrator.solve(
+                experiment_max_iter=max_iterations,
+                time_budget_minutes=time_budget_minutes,
+                cost_budget=cost_budget,
+                finalization_reserve_minutes=finalization_reserve_minutes,
+                on_status=on_status,
+                finish=finish,
+            )
+        finally:
+            notify_build_end(
+                self._config["notify"], Path(orchestrator.search_strategy.workspace.workspace_dir), brief.objective, launched_at,
+            )
         [(solution, solve_result)] = delivered
         strategy = orchestrator.search_strategy
 
@@ -1629,8 +1653,9 @@ class Kapso:
         store = RunCheckpointStore(campaign)
         if not requests or not store.exists() or Kapso._live_status(campaign):
             return []
-        nodes = store.load().strategy_state.get("node_history") or []
-        return awaiting_resume(requests, nodes)
+        checkpoint = store.load()
+        nodes = checkpoint.strategy_state.get("node_history") or []
+        return awaiting_resume(requests, nodes, setup_pending=checkpoint.harness_setup is None)
 
     @staticmethod
     def _live_status(campaign: str) -> Optional[OperationStatusView]:
@@ -1639,7 +1664,21 @@ class Kapso:
         if not status_file.is_file():
             return None
         view = OperationStatusView(status_file)
-        return view if view.alive else None
+        return view if view.running else None
+
+    @classmethod
+    def _refuse_a_live_campaign(cls, campaign: str, waiting_for: str) -> None:
+        live = cls._live_status(campaign)
+        if live is None:
+            return
+        hung = (
+            f" Its heartbeat has stopped; if it is hung, `kapso build --output {campaign} --stop` ends it."
+            if live.stalled else ""
+        )
+        raise CampaignRunningError(
+            f"{campaign} is running (pid {live.data.get('pid')}); wait for it "
+            f"to {waiting_for}.{hung}"
+        )
 
     @staticmethod
     def inbox_ideas(campaign: str) -> Dict[int, str]:
@@ -1680,12 +1719,7 @@ class Kapso:
             raise FileNotFoundError(
                 f"{campaign_dir} is not a campaign directory on this machine"
             )
-        live = cls._live_status(campaign_dir)
-        if live is not None:
-            raise RuntimeError(
-                f"{campaign_dir} is running (pid {live.data.get('pid')}); wait "
-                "for it to pause before replying"
-            )
+        cls._refuse_a_live_campaign(campaign_dir, "pause before replying")
         path = inbox_path(campaign_dir)
         requests = load_requests(path)
         current = requests.get(request_id)
@@ -1795,7 +1829,10 @@ class Kapso:
         Args:
             solution: The Solution from build(), or Solution.open(path); the
                 campaign must be checked out at the delivered candidate, its
-                tracked files unchanged
+                tracked files unchanged. An attempt from Solution.open(path,
+                branch=...) deploys from its own commit, wherever the
+                campaign is checked out, whatever its verification says
+                (the verdict is printed)
             target: Where to deploy: `auto` (the session chooses), a bundled
                 target (`local`, `docker`, `modal`, `bentoml`, `langgraph`)
                 or a target the build's harness ships; the config's
@@ -1823,14 +1860,21 @@ class Kapso:
         if solution.commit is None:
             raise DeployError(
                 f"nothing to deploy: the build in {solution.campaign} delivered no "
-                f"candidate (stopped: {solution.stopped_reason})"
+                f"candidate (stopped: {solution.stopped_reason}); `kapso trace "
+                f"{solution.campaign}` lists its attempts, and `kapso deploy --branch` takes one"
             )
-        checked_out = _git_rev(solution.campaign, "HEAD")
-        if checked_out != solution.commit:
+        if solution.chosen_attempt is None:
+            checked_out = _git_rev(solution.campaign, "HEAD")
+            if checked_out != solution.commit:
+                raise DeployError(
+                    f"{solution.campaign} is checked out at {checked_out[:12]}, not at "
+                    f"the delivered candidate {solution.commit[:12]} ({solution.branch}); "
+                    f"run `git -C {solution.campaign} checkout {solution.branch}` first"
+                )
+        elif not _git_has_commit(solution.campaign, solution.commit):
             raise DeployError(
-                f"{solution.campaign} is checked out at {checked_out[:12]}, not at "
-                f"the delivered candidate {solution.commit[:12]} ({solution.branch}); "
-                f"run `git -C {solution.campaign} checkout {solution.branch}` first"
+                f"commit {solution.commit[:12]} of the attempt on {solution.branch} is not in "
+                f"{solution.campaign}'s repository any more; there is nothing left to deploy from"
             )
         # The harness: the loaded one (the build's name, any version), else
         # the record's; its deployment module rides into the session.
@@ -1844,6 +1888,8 @@ class Kapso:
         print(f"{'='*60}")
         print(f"  Target: {AUTO if chosen is None else chosen.name}")
         print(f"  Campaign: {solution.campaign}")
+        if solution.chosen_attempt is not None:
+            print(f"  Attempt: {solution.branch} @ {solution.commit[:12]}, {chosen_attempt_line(solution.chosen_attempt)}")
         print()
         return run_deployment(
             solution, config=self._config, target=target, env=env, options=options,

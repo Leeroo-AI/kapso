@@ -28,6 +28,7 @@ _LAZY_IMPORTS = {
     "IterationEvaluator": ("kapso.execution.iteration_evaluator", "IterationEvaluator"),
     "EvaluationIntegrityError": ("kapso.execution.evaluation_integrity", "EvaluationIntegrityError"),
     "EvaluationIntegrityReport": ("kapso.execution.evaluation_integrity", "EvaluationIntegrityReport"),
+    "attempt_on": ("kapso.execution.trace", "attempt_on"),
 }
 
 __all__ = list(_LAZY_IMPORTS)

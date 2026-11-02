@@ -88,8 +88,12 @@ class RunCheckpoint:
     # resume re-pins each source at the recorded head and scope. Empty
     # when nothing is loaded.
     experience: List[Dict[str, Any]] = field(default_factory=list)
+    # v7: evaluation change requests filed so far. max_change_requests caps
+    # the campaign, and each request buys a maintainer session and possibly a
+    # bridge evaluation, so the count has to outlive the process.
+    change_requests_filed: int = 0
 
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
     VALID_STATUSES = {"running", "completed"}
     # waiting_for_user: the campaign paused for a reply in the inbox
     # (docs/research/evolve-hub-design.md v4); a resume continues the
@@ -119,6 +123,7 @@ class RunCheckpoint:
         harness: Optional[Dict[str, str]] = None,
         harness_setup: Optional[Dict[str, Any]] = None,
         experience: Optional[List[Dict[str, Any]]] = None,
+        change_requests_filed: int = 0,
     ) -> "RunCheckpoint":
         checkpoint = cls(
             schema_version=cls.SCHEMA_VERSION,
@@ -139,6 +144,7 @@ class RunCheckpoint:
             harness=dict(harness) if harness is not None else None,
             harness_setup=dict(harness_setup) if harness_setup is not None else None,
             experience=[dict(source) for source in experience or []],
+            change_requests_filed=change_requests_filed,
         )
         checkpoint.validate_structure()
         return checkpoint
@@ -180,6 +186,7 @@ class RunCheckpoint:
             "harness",
             "harness_setup",
             "experience",
+            "change_requests_filed",
         }
         missing = sorted(required - set(data))
         if missing:
@@ -207,6 +214,14 @@ class RunCheckpoint:
         if not isinstance(self.maximize_scoring, bool):
             raise RunCheckpointCorruptError(
                 "Run checkpoint maximize_scoring must be a boolean"
+            )
+        if (
+            isinstance(self.change_requests_filed, bool)
+            or not isinstance(self.change_requests_filed, int)
+            or self.change_requests_filed < 0
+        ):
+            raise RunCheckpointCorruptError(
+                "Run checkpoint change_requests_filed must be non-negative"
             )
         if (
             isinstance(self.schema_version, bool)
@@ -395,6 +410,16 @@ class RunCheckpointStore:
         checkpoint.elapsed_seconds = float(elapsed_seconds)
         checkpoint.cumulative_cost = float(cumulative_cost)
         checkpoint.cost_by_component = dict(cost_by_component)
+        self.save(checkpoint)
+
+    def patch_change_requests_filed(self, filed: int) -> None:
+        """Patch ONLY the change-request count on the stored checkpoint, for
+        the same reason as patch_budget_totals: the request is paid for from
+        here on, and the next full save is an iteration boundary away."""
+        if not self.exists():
+            return
+        checkpoint = self.load()
+        checkpoint.change_requests_filed = filed
         self.save(checkpoint)
 
     def save(self, checkpoint: RunCheckpoint) -> None:

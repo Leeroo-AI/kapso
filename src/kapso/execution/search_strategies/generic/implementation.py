@@ -299,6 +299,21 @@ def run_implementation(
         # judge (run #8: a self-inflicted SIGTERM was misdiagnosed as
         # the time limit, so the footgun was never named).
         meta = result.metadata or {}
+
+        # Per-gate knowledge calls ride the phase telemetry (`<gate>_calls`,
+        # `<gate>.<tool>`): the only durable record of what the session
+        # consulted, and what watch and the final summary report.
+        def session_telemetry() -> Dict[str, float]:
+            return {
+                "cost_usd": phase_cost,
+                "duration_seconds": time.monotonic() - phase_started,
+                **gate_usage(meta["tool_calls"]),
+            }
+
+        # The session is paid for whatever happens next, and what happens
+        # next can raise or outlive the process: a failed continuation, the
+        # fallback session, the evaluation wait, the push.
+        note_session_spend(session_telemetry())
         if meta.get("stopped_for_inbox"):
             request_ids = [int(i) for i in meta["inbox_request_ids"]]
             cli_session_id = str(meta.get("cli_session_id") or "")
@@ -387,6 +402,7 @@ def run_implementation(
                     )
                 )
                 phase_cost += agent.get_cumulative_cost()
+                note_session_spend(session_telemetry())
                 if fallback_result.output:
                     agent_output = fallback_result.output
                     result = fallback_result
@@ -396,16 +412,7 @@ def run_implementation(
                     )
     finally:
         agent.cleanup()
-    # Per-gate knowledge calls ride the phase telemetry (`<gate>_calls`,
-    # `<gate>.<tool>`): the only durable record of what the session
-    # consulted, and what watch and the final summary report.
-    telemetry = {
-        "cost_usd": phase_cost,
-        "duration_seconds": time.monotonic() - phase_started,
-        **gate_usage(meta["tool_calls"]),
-    }
-    
-    note_session_spend(telemetry)
+    telemetry = session_telemetry()
 
     # 7. Update RepoMemory for this experiment branch — not for a session
     # that asked and stopped: its work is unfinished, the continuation's
@@ -648,7 +655,10 @@ def ensure_technical_difficulties(
         "[GenericSearch] technical_difficulties missing — "
         "running fallback reconstruction"
     )
-    node.technical_difficulties = generate_technical_difficulties(
+    (
+        node.technical_difficulties,
+        node.phase_telemetry["technical_difficulties"],
+    ) = generate_technical_difficulties(
         role=implementation_role,
         env_strip=env_strip,
         timeout_seconds=deadline_seconds,

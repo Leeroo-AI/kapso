@@ -11,7 +11,7 @@ Its objective:
 
 {{objective}}
 
-Delivered: branch `{{branch}}` at commit `{{commit}}`, score {{score}}.
+{{origin}}: branch `{{branch}}` at commit `{{commit}}`, score {{score}}.
 
 ## The workspace
 
@@ -45,11 +45,11 @@ deploy script, and write the same under `values` in the result.
    target's entry point, run `scripts/deploy.sh` from this directory, fix
    what it reports and run it again until it succeeds.
 2. Prove one call with real inputs: a feature row or a text the solution
-   expects, not a placeholder — a row the delivered branch already scored
-   when it has one (its predictions file), so the answer is held against
-   that number. The proof is the delivered prediction, reproduced: a
-   solution that scores its rows relative to one another (a rank blend, a
-   batch normalisation) keeps the batch it was delivered with — the proof
+   expects, not a placeholder — a row this branch already scored when it
+   has one (its predictions file), so the answer is held against that
+   number. The proof is that prediction, reproduced: a solution that
+   scores its rows relative to one another (a rank blend, a batch
+   normalisation) keeps the batch it was scored with — the proof
    row is scored within it — since the same row scored against another
    reference is a different number, and a different number is no proof.
    Keep the inputs and the output.

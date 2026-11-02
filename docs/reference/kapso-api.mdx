@@ -265,7 +265,7 @@ read back by `Solution.open(path)`.
 | `stopped_reason` | `str` | `goal_achieved`, `max_iterations`, `budget_exhausted`, `waiting_for_user` |
 | `stop_detail` | `str \| None` | Why a budget stop happened: `time_budget`, `cost_budget`, `attempt_would_not_fit` or `finishing_cut`; see [Resume and budgets](/docs/build/resume-and-budgets#how-a-campaign-ends) |
 | `experiments`, `experiments_total` | `int` | Experiments this call, and across every resume |
-| `cost_usd` | `float` | Model spend |
+| `cost_usd` | `float \| None` | Model spend; on a chosen attempt, that attempt's, `None` when its record has no figure |
 | `requests` | `list[dict]` | What you must answer when `stopped_reason` is `waiting_for_user`; empty otherwise |
 | `feedback` | `str \| None` | The last judgment, in full |
 | `evaluator` | `EvaluatorRef \| None` | `version`, `evaluator_id`, `provenance` of the evaluator the score was measured under; `None` when none was registered |
@@ -275,13 +275,36 @@ read back by `Solution.open(path)`.
 | `rejected_candidates` | `int` | Candidates rejected: the judge found the evaluation invalid, the evaluator was touched, or the harness voided the attempt |
 | `callback_metrics`, `callback_primary_metric` | `dict`, `str \| None` | Your own `iteration_evaluator`'s numbers for the delivered candidate |
 | `session_failures` | `list[dict]` | The sessions' runs that ended `error`, `timeout` or `refused`, each `{label, module, host, exit, error}`; `explain()` prints them as `Sessions failed:` after the experiments line |
+| `chosen_attempt` | `dict \| None` | Set when you named the attempt with `branch=`: `score`, `evaluation_valid`, `evaluation_provenance`, `integrity_error`, `unjudged`, `verification`, and `delivered_branch`, what the engine delivered (`None` for nothing). `None` on the engine's deliverable |
 
 ```python
 Solution.open(path) -> Solution   # the record a build wrote in that directory;
                                   # raises before the build has returned, naming kapso watch
+Solution.open(path, branch="generic_exp_3") -> Solution   # one attempt of that campaign
 solution.explain() -> str         # the summary block
-solution.diff() -> str            # git diff from the seed to the delivered commit; "" when none
+solution.diff() -> str            # git diff from the seed to the candidate's commit; "" when none
 ```
+
+**Opening any attempt.** The engine delivers by its own rules, and may
+deliver nothing while the campaign holds a scored attempt. `branch=` names
+an attempt the way [`kapso trace`](/docs/build/trace) shows it, whether the
+campaign delivered it or not:
+
+```python
+solution = Solution.open("./campaign", branch="generic_exp_3")
+print(solution.score, solution.verification, solution.chosen_attempt["evaluation_valid"])
+print(solution.diff())
+```
+
+`branch`, `commit`, `score`, `goal_achieved`, `cost_usd`, `feedback`,
+`verification`, `callback_metrics`, `callback_primary_metric` and
+`session_failures` are that attempt's own; `commit` is the one its score was
+measured on. Everything else (`brief`, `stopped_reason`, `experiments`,
+`evaluator`, `harness`, ...) stays the campaign's. A branch the campaign has no
+attempt on is refused naming the attempts, and an attempt with no commit (it
+ended before it was evaluated) is refused with the reason its record gives. A
+chosen attempt is never written to `.kapso/solution.json`, so that file, and
+everything that reads it, keeps saying what the engine delivered.
 
 ### inbox and reply
 
@@ -359,7 +382,7 @@ deploy(
 
 | Argument | What it does | Default |
 |----------|--------------|---------|
-| `solution` | The `Solution` from `build()`, or `Solution.open(path)`; its campaign checked out at the delivered candidate, tracked files unchanged | required |
+| `solution` | The `Solution` from `build()`, or `Solution.open(path)`; its campaign checked out at the delivered candidate, tracked files unchanged. An attempt from `Solution.open(path, branch=...)` deploys from its own commit instead, and the campaign stays where it is | required |
 | `target` | `auto` (the session chooses), a bundled target (`local`, `docker`, `modal`, `bentoml`, `langgraph`) or a target the build's harness ships | from config (`deployment.target`) |
 | `env` | Variables the software needs at runtime: written to `.env` in the deployment's workspace, named (never valued) in the prompt, set on every runtime the engine manages | `None` |
 | `options` | Options for the target's workflow, exported to its scripts as `KAPSO_OPTION_<NAME>` | `None` |

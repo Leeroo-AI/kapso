@@ -35,7 +35,7 @@ from kapso.experience.reference import SCOPE_HARNESS
 from kapso.learning.retriever import render_index
 from kapso.learning.serving_launch import compile_intro
 from kapso.learning.trajectory_store import TrajectoryStore
-from kapso.learning.update_frame import UpdateFrame, init_bank
+from kapso.learning.update_frame import BANK_COMMITTER, UpdateFrame, init_bank
 
 MACHINERIES = ("serve", "grade-exam", "update", "frozen")
 
@@ -201,7 +201,7 @@ class BehaviorRunner:
             shutil.copytree(fixture_bank, seed, dirs_exist_ok=True)
             subprocess.run(["git", "-C", str(seed), "add", "-A"], check=True)
             subprocess.run(
-                ["git", "-C", str(seed), "commit", "-m", "fixture bank"],
+                ["git", "-C", str(seed), *BANK_COMMITTER, "commit", "-m", "fixture bank"],
                 check=True, capture_output=True,
             )
             subprocess.run(

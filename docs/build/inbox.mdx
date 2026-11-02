@@ -81,7 +81,7 @@ Replying records the note and resumes the campaign in the foreground, in your te
 #1 answered. #2 still open, so node 3 waits; nothing else to run.
 ```
 
-The command refuses to run while a live process holds the campaign, so nothing runs twice. Two replies that start at the same moment run one resume: the second waits for the first, then has nothing to do unless the first failed.
+The command refuses to run while a live process holds the campaign, so nothing runs twice. The kernel decides that on Linux and macOS: a campaign that was killed can be replied to at once, and one that is suspended or hung is still refused until you stop it, however old its heartbeat is. Two replies that start at the same moment run one resume: the second waits for the first, then has nothing to do unless the first failed.
 
 Your reply is on disk before the resume starts. If the resume then fails or is killed, the reply stays, and `kapso inbox` shows it instead of saying nothing is waiting:
 
@@ -132,6 +132,7 @@ Not kept: files git ignores inside the session folder (`*.log` other than `chang
 | `.kapso/run_state.json` | `last_stop: "waiting_for_user"` on a `running` checkpoint |
 | `.kapso/status.json` | `state: done` with `stopped_reason: "waiting_for_user"` and the requests |
 | `on_status` | Fires once at the pause with the same payload |
+| `notify:` | With `waiting_for_user` in its `events`, your command or webhook receives the requests and the `kapso inbox reply` line for each. See [Configuration: notify](/docs/reference/configuration#notify) |
 | Python | `solution.stopped_reason`, `solution.requests`, `Kapso.inbox(campaign)`, `Kapso.reply(campaign, id, note)` |
 
 A campaign started from Python with an `iteration_evaluator` callback cannot be resumed from the command line, because the callback lives in your script. `kapso inbox reply` records the note and tells you to call `build()` again with `resume=True`.
@@ -162,7 +163,7 @@ With the inbox off, sessions do not get the tool, the prompt is unchanged, no ca
 
 ## What can go wrong?
 
-- **The resume cannot start.** A moved config or evaluation directory, a missing coding agent CLI or a changed configuration raises from `kapso inbox reply`. The reply is kept and the node stays suspended. Fix the cause and retry with `kapso inbox reply`.
+- **The resume cannot start.** A moved config or evaluation directory, a missing coding agent CLI or a changed configuration raises from `kapso inbox reply`. The reply is kept and the node stays suspended. Fix the cause and retry with `kapso inbox reply`. A request from the harness setup session retries the same way: the setup session runs again with your reply, until the campaign records setup as done.
 - **The transcript is gone.** Claude Code keeps transcripts for 30 days. If the transcript has been deleted, the reply fails with the coding agent's own error, the node stays suspended and nothing else runs. The code is still on the branch, but the context is lost: start a new campaign.
 - **Kapso is killed after a session asks, before the pause is saved.** The checkpoint has no such node, so the round is redone and no session can be continued with an answer. The next resume withdraws the request: `kapso inbox` stops listing it, and a redo that still needs the thing asks again, which pauses the campaign as usual. A reply you gave before that resume stays, and later sessions read it.
 - **Kapso is killed during the continuation.** The checkpoint still marks the node suspended. `kapso inbox reply` or `kapso build --resume` continues the same session. Work the continuation had not pushed before the kill is lost; the coding agent redoes the work.

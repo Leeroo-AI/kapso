@@ -1,10 +1,13 @@
 # kg_graph_search retrieval eval
 
 Measures how well `kg_graph_search` ranks the right wiki page for a query:
-recall@k and MRR on labelled queries, with the LLM reranker off and on, and
-with the reranker prompt's overview cap (`reranker_overview_max_chars`) at its
-shipped value of 300 characters and removed. Tracked in
-[#179](https://github.com/Leeroo-AI/kapso/issues/179).
+recall@k and MRR on labelled queries, with the LLM reranker off and on.
+Tracked in [#179](https://github.com/Leeroo-AI/kapso/issues/179).
+
+The first run also compared a 300-character cap on the overviews in the rerank
+prompt against no cap. No cap matched or beat the cap in every run, on top of
+the cap breaking the rule that text bound for a model goes in full, so the cap
+was removed and that arm with it.
 
 ## What it measures
 
@@ -12,19 +15,18 @@ shipped value of 300 characters and removed. Tracked in
   `parse_wiki_directory` reads, in five clusters of ML training and inference
   engineering. Each cluster holds near neighbours a careless retriever would
   confuse. Six Implementation pages have 600-1000 character overviews that open
-  with a generic class description and put their distinguishing options after
-  the first 300 characters; the others are 100-200 characters.
+  with a generic class description and put their distinguishing options late;
+  the others are 100-200 characters.
 - **Labels** (`labels/queries.jsonl`): 30 plain-language queries, one object per
   line: `id`, `query`, `relevant` (page ids), and `stress` when the target page
   is one of the long-overview pages. Queries never use a technique, page-title
   or library name.
-- **Arms** (`config.yaml`): `off`, `on_cap300`, `on_nocap`. For each query the
-  runner fetches the candidate pool once and scores every arm on that same pool,
-  so only the rerank prompt differs. An LLM rerank varies from call to call, so
-  each reranking arm is sampled `rerank_runs` times on that pool.
+- **Arms** (`config.yaml`): `off` and `on`. For each query the runner fetches
+  the candidate pool once and scores every arm on that same pool. An LLM rerank
+  varies from call to call, so each reranking arm is sampled `rerank_runs` times
+  on that pool.
 - **Reported, overall and on the stress subset**: recall@k for each k in
-  `ks`, MRR, the mean number of results returned, the share of candidate
-  overviews the arm's cap cut (`clipped_share`), and the pool's own
+  `ks`, MRR, the mean number of results returned, and the pool's own
   recall@`candidate_pool_size`, which is the most any reranker could reach.
   Reranking arms show the mean over the runs with the min-max range, and the
   report lists the queries whose target rank changed between runs.
@@ -78,9 +80,9 @@ It indexes the corpus with the repo's own indexer, scores the arms and writes
 aborts the run: `kg_graph_search` normally falls back to the unranked order,
 which would otherwise be scored as the `off` arm.
 
-Cost: one rerank session per query, per reranking arm, per run, so 180 sessions
-for the current 30 queries, two reranking arms and `rerank_runs: 3` (about ten
-minutes with `gpt-6-luna`). The `off` arm makes no LLM calls.
+Cost: one rerank session per query, per reranking arm, per run, so 90 sessions
+for the current 30 queries, one reranking arm and `rerank_runs: 3`. The `off`
+arm makes no LLM calls.
 Remove the eval Neo4j with `docker rm -f kapso-eval-neo4j`.
 
 ## Honest limits
@@ -105,10 +107,6 @@ Remove the eval Neo4j with `docker rm -f kapso-eval-neo4j`.
   interval. The reranker also returns few pages (about 2.6 on average in the
   runs recorded for pull request #180, 2026-11-01), so recall@k flattens past
   k=3; MRR and recall@1 carry the signal.
-- The cap binds on only the six long pages, about 12% of the corpus (the real
-  historical corpus has about 6% over 300 characters, all Implementations), so
-  `on_cap300` and `on_nocap` can only differ where a target or a competitor is
-  one of them. `clipped_share` shows how often that happened.
 - Five stress queries are too few for a confident difference; read that subset
   as a pointer, not a verdict.
 - Queries avoid technique names on purpose, while agents often name them. The
@@ -120,5 +118,3 @@ Remove the eval Neo4j with `docker rm -f kapso-eval-neo4j`.
 
 - A named-technique query subset (agents often name techniques; this set
   deliberately does not).
-- A windowed rerank, if `on_nocap` clearly beats `on_cap300`: split the
-  candidates into complete batches instead of clipping their overviews.

@@ -625,6 +625,8 @@ class GenericSearch(SearchStrategy):
         node.started_at = iteration_started_at
         node.phase_telemetry["ideation"] = ideation_telemetry
         self.in_flight_nodes.append(node)
+        if ideation_telemetry:
+            self.ideation_bills = []
         if decision is not None:
             node.build_fidelity = decision.build_fidelity
             node.eval_fidelity = decision.eval_fidelity
@@ -793,9 +795,8 @@ class GenericSearch(SearchStrategy):
         )
         continued_at_monotonic = time.monotonic()
         self._status_phase("implementation")
-        (
-            agent_output, implementation_telemetry, recovered, suspended, build_error,
-        ) = self._implement(
+        # The session's bill reaches the node through note_session_spend.
+        agent_output, _, recovered, suspended, build_error = self._implement(
             solution=node.solution,
             problem=problem,
             branch_name=node.branch_name,
@@ -805,15 +806,6 @@ class GenericSearch(SearchStrategy):
             node_id=node.node_id,
             continuation=Continuation(node.cli_session_id, follow_up),
         )
-        # Implementation telemetry accumulates across the node's sessions:
-        # cost, duration and the per-gate knowledge calls alike.
-        prior = node.phase_telemetry.get("implementation", {})
-        node.phase_telemetry["implementation"] = {
-            key: prior.get(key, 0.0) + implementation_telemetry.get(key, 0.0)
-            for key in list(prior) + [
-                key for key in implementation_telemetry if key not in prior
-            ]
-        }
         node.agent_output = agent_output
         node.code_diff = self._get_code_diff(node.branch_name, node.parent_branch_name)
         node.suspended = False
@@ -1034,6 +1026,10 @@ class GenericSearch(SearchStrategy):
                 agent.initialize(worktree)
                 result = agent.generate_code(prompt)
                 cost += agent.get_cumulative_cost()
+                # On the node now: the next attempt can outlive the process.
+                node.phase_telemetry["verification"] = {
+                    "cost_usd": cost, "duration_seconds": time.monotonic() - started,
+                }
                 agent.cleanup()
                 if verdict_path.is_file():
                     break
@@ -1125,11 +1121,18 @@ class GenericSearch(SearchStrategy):
             )
         return node
 
+    def _note_ideation_spend(self, cost_usd: float) -> None:
+        """An ideation session just ended. Its round has no node to carry the
+        bill until every session has finished, and those run for a long time
+        and can raise. Members run on threads, hence the list."""
+        self.ideation_bills.append(cost_usd)
+
     def _generate_solution(
         self, problem: str, parent_branch: str
     ) -> Tuple[List[str], List[str], Dict[str, float]]:
         """Generate solution(s) using Claude Code with MCP gates; returns
         (solutions, sections_consulted, phase_telemetry)."""
+        self.ideation_bills = []
         return generate_solution(
             problem,
             parent_branch,
@@ -1160,6 +1163,7 @@ class GenericSearch(SearchStrategy):
             artifacts_dir=self._ideation_artifacts_dir(),
             staged=self.stage_harness_for("ideation", ideation_dir, "lens_planner", self.ideation_lens_planner.cli),
         )
+        self._note_ideation_spend(result[1])
         # Planning runs inside the ideation step; flip the live phase back
         # so the sessions that follow are not reported as still planning.
         self._status_phase("ideation")
@@ -1215,6 +1219,7 @@ class GenericSearch(SearchStrategy):
             build_prompt=self._build_ideation_prompt,
             resolve_lenses=self._resolve_member_lenses,
             select_candidates=self._select_from_candidates,
+            note_session_spend=self._note_ideation_spend,
             stage_harness_for=self.stage_harness_for,
         )
 
@@ -1245,6 +1250,7 @@ class GenericSearch(SearchStrategy):
             env_strip=self.env_strip,
             env_defaults=self.env_defaults,
             artifacts_dir=self._ideation_artifacts_dir(),
+            note_session_spend=self._note_ideation_spend,
             stage_harness_for=self.stage_harness_for,
         )
 
@@ -1397,7 +1403,9 @@ class GenericSearch(SearchStrategy):
                 lambda facts: self._session_end_facts.update({node_id: facts})
             ),
             note_session_spend=(
-                lambda telemetry: self._note_session_spend(node_id, telemetry)
+                lambda telemetry: self._note_session_spend(
+                    node_id, telemetry, continued=continuation is not None
+                )
             ),
             await_registered_evaluation=(
                 lambda output: self._await_registered_evaluation(output, branch_name)
@@ -1409,10 +1417,24 @@ class GenericSearch(SearchStrategy):
             stage_harness_for=self.stage_harness_for,
         )
 
-    def _note_session_spend(self, node_id: int, telemetry: Dict[str, float]) -> None:
+    def _note_session_spend(
+        self, node_id: int, telemetry: Dict[str, float], *, continued: bool
+    ) -> None:
         """A build session just ended and its bill is known, ahead of the
-        close and the evaluation wait that can outlive the process. A
-        continued node is in the history and adds this up itself."""
+        close and the evaluation wait that can outlive the process. A lane's
+        note replaces the last one, since its fallback session reports the
+        running total. A continued node is in the history and its sessions
+        add up: cost, duration and the per-gate knowledge calls alike."""
+        if continued:
+            node = self.node_history[node_id]
+            prior = node.phase_telemetry.get("implementation", {})
+            node.phase_telemetry["implementation"] = {
+                key: prior.get(key, 0.0) + telemetry.get(key, 0.0)
+                for key in list(prior) + [
+                    key for key in telemetry if key not in prior
+                ]
+            }
+            return
         for node in self.in_flight_nodes:
             if node.node_id == node_id:
                 node.phase_telemetry["implementation"] = telemetry

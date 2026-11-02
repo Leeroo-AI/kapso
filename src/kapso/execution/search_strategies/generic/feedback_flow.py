@@ -109,6 +109,14 @@ def generate_feedback(
             print(f"[GenericSearch] node {node.node_id} unjudged: {node.unjudged}")
             return node
 
+        # First: the session is paid for, and what follows can raise into
+        # the except below.
+        if feedback_result.duration_seconds is not None:
+            node.phase_telemetry["feedback"] = {
+                "cost_usd": feedback_result.cost_usd,
+                "duration_seconds": feedback_result.duration_seconds,
+            }
+
         # Update node with feedback results. A harness verdict of void is
         # ANDed in after the judge, so the judge's default cannot
         # resurrect it.
@@ -161,12 +169,7 @@ def generate_feedback(
         node.should_stop = (
             feedback_result.stop and node.evaluation_valid
         )
-        if feedback_result.duration_seconds is not None:
-            node.phase_telemetry["feedback"] = {
-                "cost_usd": feedback_result.cost_usd,
-                "duration_seconds": feedback_result.duration_seconds,
-            }
-        
+
         print(f"[GenericSearch] Feedback generated: stop={node.should_stop}, score={node.score}")
         
     except Exception as e:

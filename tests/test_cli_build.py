@@ -6,6 +6,8 @@ brief passes none; and the errors a person can hit say what to do."""
 
 import argparse
 import json
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -15,7 +17,8 @@ import pytest
 
 import kapso.cli.build as build_cli
 from kapso.cli import build_parser, main
-from kapso.execution.inbox import launch_receipt_path
+from kapso.execution import observability
+from kapso.execution.inbox import CampaignRunningError, launch_receipt_path
 from kapso.handles import Brief, Budget
 
 FACADE_KWARGS = {"evaluation", "data", "repo", "output", "resume", "coding_agent"}
@@ -285,6 +288,58 @@ def test_stop_refuses_a_dead_writer_and_names_the_resume(monkeypatch, tmp_path, 
     with pytest.raises(SystemExit) as refusal:
         _run(monkeypatch, "--stop")
     assert refusal.value.code == 1 and "--stop needs --output" in capsys.readouterr().err
+
+
+def _kill_writer_and_agent(child, status):
+    """A test that leaves the writer running, or kills it itself, ends the
+    agent session under it too: that session is in a session of its own."""
+    child.kill()
+    child.wait()
+    os.kill(int((status.parent / "agent.pid").read_text()), signal.SIGKILL)
+
+
+def test_stop_never_signals_a_stranger_holding_the_writers_old_pid(monkeypatch, tmp_path, capsys):
+    """A dead writer's status file stays, and pids come back. A stop that asks
+    only whether the pid exists takes whatever runs there now."""
+    campaign = tmp_path / "campaign"
+    child, status = _writer(campaign)
+    _kill_writer_and_agent(child, status)
+    stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    data = json.loads(status.read_text())
+    data["pid"] = stranger.pid
+    status.write_text(json.dumps(data))
+
+    with pytest.raises(SystemExit) as refusal:
+        _run(monkeypatch, "--output", str(campaign), "--stop")
+    still_running = stranger.poll() is None
+    stranger.kill()
+    stranger.wait()
+    assert still_running
+    assert refusal.value.code == 1 and "it is dead, not running" in capsys.readouterr().err
+
+
+def test_a_stop_on_a_kernel_that_cannot_say_signals_nothing_and_does_not_call_it_dead(monkeypatch, tmp_path, capsys):
+    campaign = tmp_path / "campaign"
+    child, status = _writer(campaign)
+    monkeypatch.setattr(observability, "process_start", lambda pid: None)
+    with pytest.raises(SystemExit) as refusal:
+        _run(monkeypatch, "--output", str(campaign), "--stop")
+    still_running = child.poll() is None
+    _kill_writer_and_agent(child, status)
+    err = capsys.readouterr().err
+    assert still_running and refusal.value.code == 1
+    assert "cannot tell" in err and "dead" not in err
+    assert json.loads(status.read_text())["state"] == "running"
+
+
+def test_a_detached_resume_of_a_live_campaign_is_refused_before_the_fork(monkeypatch, tmp_path):
+    campaign = tmp_path / "campaign"
+    child, status = _writer(campaign)
+    monkeypatch.setattr(build_cli, "_detach", lambda *args, **kwargs: pytest.fail("a child was started"))
+    monkeypatch.setattr(build_cli.Kapso, "__init__", lambda self, config=None, bank=None: None)
+    with pytest.raises(CampaignRunningError, match=rf"\(pid {child.pid}\); wait for it to stop before resuming"):
+        _run(monkeypatch, "--output", str(campaign), "--resume", "--detach")
+    _kill_writer_and_agent(child, status)
 
 
 def test_the_files_beside_a_campaign_follow_a_bare_dot_to_the_directory_it_stands_for(tmp_path, monkeypatch):

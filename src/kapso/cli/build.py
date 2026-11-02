@@ -92,6 +92,8 @@ def cmd_build(args) -> None:
             references = [recorded_reference(entry) for entry in record.get("experience", [])]
         for reference in references:
             kapso.load_experience(reference)
+        if args.resume:
+            Kapso._refuse_a_live_campaign(str(campaign), "stop before resuming")
         _detach(
             "kapso build",
             _without_detach_flags(sys.argv[1:]),
@@ -147,7 +149,12 @@ def _stop(args) -> None:
         print(f"Error: the campaign at {campaign} is {view.state}; nothing to stop", file=sys.stderr)
         sys.exit(1)
     pid = view.data.get("pid")
-    if pid_alive(pid) is not True:
+    # The writer's own stamp, not the bare pid: a pid handed to a later
+    # process would take that stranger and everything under it.
+    if view.process_alive is None:
+        print(f"Error: this machine cannot tell whether pid {pid} is the campaign's writer; nothing was signalled", file=sys.stderr)
+        sys.exit(1)
+    if not view.process_alive:
         print(
             f"Error: the campaign at {campaign} has no live writer (pid {pid}): it is dead, not running; "
             f"`kapso build --output {campaign} --resume --detach` continues it",
@@ -166,8 +173,7 @@ def _stop(args) -> None:
     _wait_gone(targets, grace, poll)
     if any(pid_alive(target) for target in targets):
         _signal(targets, signal.SIGKILL)
-        # Bounded again: a process whose parent has not reaped it keeps
-        # its /proc entry a while; the run has ended all the same.
+        # Bounded again: a process in uninterruptible sleep can outlast it.
         _wait_gone(targets, grace, poll)
     mark_failed(status_path, "stopped by the person", stopped_reason="stopped")
     receipt = launch_receipt_path(campaign)

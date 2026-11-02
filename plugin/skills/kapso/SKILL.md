@@ -285,6 +285,7 @@ deploy starts, so `--status` says what is deploying even while the call runs.
 ```bash
 kapso doctor deploy --json --config kapso-config.yaml
 kapso deploy ../churn-campaign --target local --config kapso-config.yaml       # auto|local|docker|modal|bentoml|langgraph, or a harness target
+kapso deploy ../churn-campaign --branch generic_exp_3 --target local --config kapso-config.yaml   # an attempt from `kapso trace`, not the delivered one
 kapso deploy ../churn-campaign --status --config kapso-config.yaml             # every deployment of the campaign, with its state
 kapso deploy ../churn-campaign --logs --number 1 --config kapso-config.yaml
 kapso deploy ../churn-campaign --stop --number 1 --config kapso-config.yaml

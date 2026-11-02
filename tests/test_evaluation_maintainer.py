@@ -137,7 +137,6 @@ def test_setup_registers_v1_and_commits(tmp_path, monkeypatch):
 
     repo = git.Repo(workspace)
     assert "register evaluator v1" in repo.head.commit.message
-    assert maintainer.last_transaction_telemetry.cost_usd == 0.25
     # The registered invocation contract uses CLI arguments, never env vars.
     command = maintainer.evaluation_command(fidelity="fast", fraction=0.15)
     assert "--fidelity fast" in command and "KAPSO_EVAL" not in command

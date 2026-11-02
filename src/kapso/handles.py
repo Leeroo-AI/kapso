@@ -6,22 +6,27 @@ the `kapso-brief.md` file, one grammar; `build()` renders the whole brief
 into the engine's goal text, so nothing an engineer wrote is lost on the
 way to the model. A `Solution` is written to `.kapso/solution.json` in the
 campaign directory every time `build()` returns, and `Solution.open()`
-reads that file and nothing else.
+reads that file, and with a `branch` the campaign's record of that attempt.
 """
 
 import json
 import math
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+# The package, not the trace: its names load on first use, so this module
+# stays free of the engine until an attempt is opened, and the trace can
+# import `Solution` from here.
+import kapso.execution as execution
+
 
 class SolutionError(FileNotFoundError):
-    """A path with no solution to open: not a campaign directory, or a
-    build that has not returned. The CLI prints the message as one line,
-    with the other engine errors."""
+    """A path with no solution to open: not a campaign directory, a build
+    that has not returned, or an attempt that is unknown or has no commit.
+    The CLI prints the message as one line, with the other engine errors."""
 
 
 class BriefError(ValueError):
@@ -558,13 +563,42 @@ def _failed_sessions_line(failures: List[Dict[str, Any]]) -> str:
     return "; ".join(parts)
 
 
+def chosen_attempt_line(chosen: Dict[str, Any]) -> str:
+    """What a person reads before an attempt they named goes anywhere: that
+    it was their choice, what the engine delivered, and the attempt's own
+    score, evaluation and verification, so that an attempt the harness
+    could not verify never passes silently."""
+    delivered = chosen["delivered_branch"] or "nothing"
+    score = "no score" if chosen["score"] is None else f"score {chosen['score']}"
+    validity = "not judged" if chosen["unjudged"] else "valid" if chosen["evaluation_valid"] else "not valid"
+    parts = [
+        f"chosen by you (the engine delivered {delivered})",
+        f"{score}, evaluation {validity} ({chosen['evaluation_provenance']})",
+    ]
+    if chosen["integrity_error"]:
+        parts.append(f"integrity: {chosen['integrity_error']}")
+    verification = chosen["verification"]
+    if verification is None:
+        parts.append("no harness verification")
+    else:
+        parts.append(f"verification {verification['verdict']}: {verification['summary']}")
+    if chosen["unjudged"]:
+        parts.append(f"unjudged: {chosen['unjudged']}")
+    return "; ".join(parts)
+
+
 @dataclass
 class Solution:
     """What a build delivered, and the account of how. `campaign` is the
     campaign directory: the workspace, checked out at the delivered branch,
     with the record under `.kapso/`. `branch` and `commit` are `None` when
     no candidate succeeded; `evaluator` is `None` when no evaluator was
-    registered (the agent built its own evaluation)."""
+    registered (the agent built its own evaluation).
+
+    `Solution.open(path, branch=...)` hands back one attempt instead: the
+    candidate's fields are that attempt's, the campaign's stay the
+    campaign's, and `chosen_attempt` is set. It is never the engine's
+    deliverable, and never written as if it were."""
 
     brief: Brief
     campaign: Path
@@ -577,7 +611,7 @@ class Solution:
     stop_detail: Optional[str]    # which budget dial stopped it, when one did
     experiments: int              # experiments this run
     experiments_total: int        # experiments across every resume
-    cost_usd: float
+    cost_usd: Optional[float]     # None only on a chosen attempt whose node recorded no cost
     requests: List[Dict[str, Any]]   # what the person must answer when waiting_for_user
     feedback: Optional[str]       # the judge's words on the delivered candidate, in full
     evaluator: Optional[EvaluatorRef]
@@ -590,6 +624,11 @@ class Solution:
     # The sessions' run entries that ended error, timeout or refused:
     # {label, module, host, exit, error} each (kapso.execution.trace).
     session_failures: List[Dict[str, Any]]
+    # Set when a person named this attempt: {score, evaluation_valid,
+    # evaluation_provenance, integrity_error, unjudged, verification,
+    # delivered_branch}, what the deployment record carries too. None is
+    # the engine's deliverable.
+    chosen_attempt: Optional[Dict[str, Any]] = None
 
     @property
     def record_path(self) -> Path:
@@ -648,6 +687,11 @@ class Solution:
 
     def save(self) -> Path:
         """Write the record; `build()` does this every time it returns."""
+        if self.chosen_attempt is not None:
+            raise SolutionError(
+                f"the attempt on {self.branch} was chosen by hand and is not written over "
+                f"the engine's record in {self.record_path}"
+            )
         path = self.record_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
@@ -656,9 +700,12 @@ class Solution:
         return path
 
     @classmethod
-    def open(cls, path: Union[str, Path]) -> "Solution":
-        """The solution a build wrote in `path`. A campaign that has not
-        returned yet has no solution: follow it with `kapso watch`."""
+    def open(cls, path: Union[str, Path], branch: Optional[str] = None) -> "Solution":
+        """The solution a build wrote in `path`, or with `branch` that
+        attempt of the campaign, the name `kapso trace` shows; an unknown
+        branch and an attempt with no commit are refused. A campaign that
+        has not returned yet has no solution: follow it with `kapso
+        watch`."""
         campaign = Path(path).expanduser().resolve()
         record = campaign / SOLUTION_RECORD
         if not record.is_file():
@@ -677,7 +724,7 @@ class Solution:
             )
         evaluator = data["evaluator"]
         harness = data["harness"]
-        return cls(
+        solution = cls(
             brief=Brief.from_dict(data["brief"]),
             campaign=campaign,
             branch=data["branch"],
@@ -701,9 +748,39 @@ class Solution:
             callback_primary_metric=data["callback_primary_metric"],
             session_failures=[dict(failure) for failure in data["session_failures"]],
         )
+        return solution if branch is None else solution._as_attempt(execution.attempt_on(campaign, branch))
+
+    def _as_attempt(self, attempt: Dict[str, Any]) -> "Solution":
+        """This record with its candidate replaced by an attempt the trace
+        shows. The commit is the one evaluated, not the branch's head, which
+        may have moved on with the engine's own bookkeeping."""
+        evaluation = attempt["evaluation"]
+        judge = attempt["judge"]
+        return replace(
+            self,
+            branch=attempt["branch"],
+            commit=attempt["commit"],
+            score=evaluation["score"],
+            goal_achieved=judge["stop"],
+            cost_usd=attempt["cost_usd"],
+            feedback=judge["feedback"] or None,
+            verification=attempt["verification"],
+            callback_metrics=dict(attempt["metrics"]),
+            callback_primary_metric=attempt["primary_metric"],
+            session_failures=attempt["failures"],
+            chosen_attempt={
+                "score": evaluation["score"],
+                "evaluation_valid": evaluation["valid"],
+                "evaluation_provenance": evaluation["provenance"],
+                "integrity_error": evaluation["integrity_error"],
+                "unjudged": attempt["unjudged"] or None,
+                "verification": attempt["verification"],
+                "delivered_branch": self.branch,
+            },
+        )
 
     def diff(self) -> str:
-        """The delivered code against the seed, as `git diff`; empty when
+        """The candidate's code against the seed, as `git diff`; empty when
         no candidate succeeded."""
         if self.commit is None:
             return ""
@@ -726,7 +803,9 @@ class Solution:
         if self.branch is None:
             row("Candidate", "none succeeded")
         else:
-            row("Candidate", f"{self.branch} @ {self.commit}")
+            row("Candidate", f"{self.branch} @ {self.commit}" + (
+                f", {chosen_attempt_line(self.chosen_attempt)}" if self.chosen_attempt is not None else ""
+            ))
         if self.score is not None:
             measured = str(self.score)
             if self.evaluator is not None:
@@ -746,7 +825,7 @@ class Solution:
         row("Experiments", experiments)
         if self.session_failures:
             row("Sessions failed", _failed_sessions_line(self.session_failures))
-        row("Cost", f"${self.cost_usd:.3f}")
+        row("Cost", "not recorded" if self.cost_usd is None else f"${self.cost_usd:.3f}")
         if self.callback_primary_metric:
             row(
                 "Your metric",
