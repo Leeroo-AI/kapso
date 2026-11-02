@@ -15,7 +15,7 @@ import pytest
 import kapso.cli.experience as experience_cli
 import kapso.execution.launch as launch_module
 from kapso.cli import main
-from kapso.execution.inbox import LAUNCH_SCHEMA_VERSION, inbox_path, load_requests, write_launch_record
+from kapso.execution.inbox import LAUNCH_SCHEMA_VERSION, CampaignRunningError, inbox_path, load_requests, write_launch_record
 from kapso.execution.observability import BuildStatus
 from kapso.experience import ExperienceReferenceError
 from tests.test_inbox_cli import _paused_campaign
@@ -119,14 +119,12 @@ def test_reply_detach_refuses_a_credential_before_spawning(tmp_path, monkeypatch
     assert popen == []
 
 
-def test_reply_detach_refuses_a_live_campaign(tmp_path, monkeypatch, popen, capsys):
+def test_reply_detach_refuses_a_live_campaign(tmp_path, monkeypatch, popen):
     workspace = _paused_campaign(tmp_path)
     BuildStatus(workspace / ".kapso" / "status.json", heartbeat_seconds=60).update(iteration=1)
     monkeypatch.chdir(workspace)
-    with pytest.raises(SystemExit) as stop:
+    with pytest.raises(CampaignRunningError, match="is running"):
         _run(monkeypatch, "inbox", "reply", "1", "added", "--detach")
-    assert stop.value.code == 1
-    assert "is running" in capsys.readouterr().out
     assert popen == []
 
 

@@ -92,11 +92,8 @@ def cmd_build(args) -> None:
             references = [recorded_reference(entry) for entry in record.get("experience", [])]
         for reference in references:
             kapso.load_experience(reference)
-        if args.resume and args.output:
-            live = Kapso._live_status(str(campaign))
-            if live is not None:
-                print(f"{campaign} is running (pid {live.data.get('pid')}); stop it before resuming", file=sys.stderr)
-                sys.exit(1)
+        if args.resume:
+            Kapso._refuse_a_live_campaign(str(campaign), "stop before resuming")
         _detach(
             "kapso build",
             _without_detach_flags(sys.argv[1:]),
@@ -176,8 +173,7 @@ def _stop(args) -> None:
     _wait_gone(targets, grace, poll)
     if any(pid_alive(target) for target in targets):
         _signal(targets, signal.SIGKILL)
-        # Bounded again: a process whose parent has not reaped it keeps
-        # its /proc entry a while; the run has ended all the same.
+        # Bounded again: a process in uninterruptible sleep can outlast it.
         _wait_gone(targets, grace, poll)
     mark_failed(status_path, "stopped by the person", stopped_reason="stopped")
     receipt = launch_receipt_path(campaign)

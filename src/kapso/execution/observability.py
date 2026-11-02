@@ -136,9 +136,10 @@ def source_line(source: Mapping[str, Any]) -> str:
 def campaign_listing(registry_path, status_dir, *, everything: bool = False) -> list:
     """What `kapso watch` lists with no path: the campaigns the registry
     knows and the learn and experience operations under the status
-    directory, one entry each, the registry's newest first; those alive
-    (the view's own verdict, `starting` included and a machine without
-    /proc judged by the heartbeat) or waiting on the person, unless
+    directory, one entry each, the registry's newest first; those whose
+    writer runs (the view's own verdict, `starting` included, `stalled`
+    marking one past its beats, and a kernel that cannot say judged by the
+    heartbeat) or waiting on the person, unless
     `everything`. A registered campaign with no status yet is `starting`
     on its launch receipt while the pid lives, `stopped` once it is gone."""
     entries = []

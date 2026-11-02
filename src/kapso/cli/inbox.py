@@ -18,7 +18,6 @@ from kapso.execution.inbox import (
     render_awaiting_resume,
     render_requests,
 )
-from kapso.execution.observability import OperationStatusView
 from kapso.execution.run_checkpoint import RunCheckpointStore
 from kapso.cli.common import _default_log, _detach, _inside, _print_build_summary, build_handoff
 
@@ -173,11 +172,7 @@ def cmd_inbox_reply(
         if log and _inside(Path(log).expanduser().resolve(), campaign):
             print("Error: --log must be outside the campaign directory", file=sys.stderr)
             sys.exit(1)
-        located = OperationStatusView.locate(campaign)
-        if located is not None and OperationStatusView(located).running:
-            pid = OperationStatusView(located).data.get("pid")
-            print(f"{campaign} is running (pid {pid}); wait for it to pause before replying")
-            sys.exit(1)
+        Kapso._refuse_a_live_campaign(str(campaign), "pause before replying")
         argv = ["inbox", "reply", str(campaign), str(request_id)]
         if note:
             argv.append(note)

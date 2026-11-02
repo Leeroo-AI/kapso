@@ -100,6 +100,7 @@ from kapso.harness import (
 from kapso.harness import BUNDLED_ROOT
 from kapso.harness.staging import host_for
 from kapso.execution.inbox import (
+    CampaignRunningError,
     beside,
     launch_receipt_path,
     Request,
@@ -1649,10 +1650,10 @@ class Kapso:
         if live is None:
             return
         hung = (
-            " Its heartbeat has stopped; if it is hung, stop that process first."
+            f" Its heartbeat has stopped; if it is hung, `kapso build --output {campaign} --stop` ends it."
             if live.stalled else ""
         )
-        raise RuntimeError(
+        raise CampaignRunningError(
             f"{campaign} is running (pid {live.data.get('pid')}); wait for it "
             f"to {waiting_for}.{hung}"
         )

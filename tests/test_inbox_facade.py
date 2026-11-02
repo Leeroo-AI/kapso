@@ -319,7 +319,7 @@ def test_reply_refuses_a_stopped_process_whose_heartbeat_went_stale(tmp_path, mo
         view = OperationStatusView(workspace)
     assert view.stalled
 
-    with pytest.raises(RuntimeError, match="is running.*if it is hung, stop that process first"):
+    with pytest.raises(RuntimeError, match="is running.*if it is hung, `kapso build --output .* --stop` ends it"):
         Kapso.reply(str(workspace), 1, "added")
     assert load_requests(inbox_path(workspace))[1].open and not resumes
 

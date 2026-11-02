@@ -12,8 +12,8 @@ incompatible or completed checkpoint into a new campaign.
 ## Resume
 
 ```bash
-kapso watch campaign                              # DEAD or STALLED: it died; max_iterations: it ran out
-kapso build --output campaign --resume --detach
+kapso watch campaign                              # DEAD: it died; max_iterations: it ran out
+kapso build --output campaign --resume --detach   # STALLED: `kapso build --output campaign --stop` first
 ```
 
 ```python

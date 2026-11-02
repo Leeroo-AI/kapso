@@ -18,7 +18,7 @@ import pytest
 import kapso.cli.build as build_cli
 from kapso.cli import build_parser, main
 from kapso.execution import observability
-from kapso.execution.inbox import launch_receipt_path
+from kapso.execution.inbox import CampaignRunningError, launch_receipt_path
 from kapso.handles import Brief, Budget
 
 FACADE_KWARGS = {"evaluation", "data", "repo", "output", "resume", "coding_agent"}
@@ -332,15 +332,14 @@ def test_a_stop_on_a_kernel_that_cannot_say_signals_nothing_and_does_not_call_it
     assert json.loads(status.read_text())["state"] == "running"
 
 
-def test_a_detached_resume_of_a_live_campaign_is_refused_before_the_fork(monkeypatch, tmp_path, capsys):
+def test_a_detached_resume_of_a_live_campaign_is_refused_before_the_fork(monkeypatch, tmp_path):
     campaign = tmp_path / "campaign"
     child, status = _writer(campaign)
     monkeypatch.setattr(build_cli, "_detach", lambda *args, **kwargs: pytest.fail("a child was started"))
     monkeypatch.setattr(build_cli.Kapso, "__init__", lambda self, config=None, bank=None: None)
-    with pytest.raises(SystemExit) as refusal:
+    with pytest.raises(CampaignRunningError, match=rf"\(pid {child.pid}\); wait for it to stop before resuming"):
         _run(monkeypatch, "--output", str(campaign), "--resume", "--detach")
     _kill_writer_and_agent(child, status)
-    assert refusal.value.code == 1 and f"(pid {child.pid}); stop it before resuming" in capsys.readouterr().err
 
 
 def test_the_files_beside_a_campaign_follow_a_bare_dot_to_the_directory_it_stands_for(tmp_path, monkeypatch):

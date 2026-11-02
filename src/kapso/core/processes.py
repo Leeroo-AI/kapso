@@ -103,8 +103,10 @@ def _darwin_process_start(pid: int) -> Optional[str]:
 def _darwin_process_commands() -> Dict[int, str]:
     libc = ctypes.CDLL(None, use_errno=True)
     # Room for pids that appear between the count and the listing.
-    capacity = libc.proc_listallpids(None, 0) * 2
-    pids = (ctypes.c_int * capacity)()
+    listed = libc.proc_listallpids(None, 0)
+    if listed < 0:
+        return {}
+    pids = (ctypes.c_int * (listed * 2))()
     count = libc.proc_listallpids(pids, ctypes.sizeof(pids))
     # Every command fits in ARGMAX, so one buffer serves the whole listing.
     arguments = ctypes.create_string_buffer(_darwin_sysctl_int(libc, _KERN_ARGMAX))
