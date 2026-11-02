@@ -146,7 +146,9 @@ and whether it was judged), the durable clock, the last round's duration,
 the cumulative cost and the status. It is written atomically after every
 finalized experiment, so an interrupted write leaves the previous
 checkpoint readable. A resume restores the node history, the feedback for
-the next experiment, the clock and the cost, and continues.
+the next experiment, the clock, the cost and the evaluation change requests
+filed so far (`max_change_requests` caps the campaign, not each process), and
+continues.
 
 Every agent session a campaign starts is on the ledger as soon as it ends,
 ahead of whatever follows it: a failed continuation, a failed push, a failed

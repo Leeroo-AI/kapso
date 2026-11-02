@@ -1,4 +1,5 @@
 {
+  "change_requests_filed": 0,
   "completed_iterations": 1,
   "config_fingerprint": "363f7a895e9091f8eb402b6b28dff91ecd447ca593e0842ec85f3106588f939a",
   "cost_by_component": {
@@ -35,7 +36,7 @@
   "harness_setup": null,
   "last_stop": null,
   "maximize_scoring": true,
-  "schema_version": 6,
+  "schema_version": 7,
   "status": "running",
   "strategy_state": {
     "evaluation_integrity": {

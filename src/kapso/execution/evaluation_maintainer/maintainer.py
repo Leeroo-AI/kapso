@@ -238,6 +238,10 @@ class EvaluationMaintainer:
 
         return version
 
+    def restore_provided_baseline(self, manifest: Dict[str, str]) -> None:
+        """A resume does not run setup, which is where the baseline is set."""
+        self._provided_baseline = dict(manifest)
+
     # =====================================================================
     # Change-request governance
     # =====================================================================
