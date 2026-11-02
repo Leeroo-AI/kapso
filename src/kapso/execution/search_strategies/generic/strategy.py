@@ -1018,6 +1018,10 @@ class GenericSearch(SearchStrategy):
                 agent.initialize(worktree)
                 result = agent.generate_code(prompt)
                 cost += agent.get_cumulative_cost()
+                # On the node now: the next attempt can outlive the process.
+                node.phase_telemetry["verification"] = {
+                    "cost_usd": cost, "duration_seconds": time.monotonic() - started,
+                }
                 agent.cleanup()
                 if verdict_path.is_file():
                     break

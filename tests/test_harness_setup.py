@@ -200,3 +200,50 @@ def test_a_session_that_asks_pauses_the_campaign_and_the_reply_lets_it_finish(mo
     assert "dropped under kapso_datasets/bars/" in FakeSetupAgent.calls[1]["prompt"]
     assert second.stopped_reason != "waiting_for_user" and second.experiments == 1
     assert json.loads((workspace / ".kapso" / "run_state.json").read_text())["harness_setup"]["prepared"] == ["market-data"]
+
+
+def test_a_reply_the_setup_session_never_got_can_be_retried(monkeypatch, tmp_path):
+    """The setup session is no node, so nothing holds it suspended: until the
+    checkpoint says setup is done, its answered requests still owe a resume."""
+    FakeSetupAgent.calls = []
+    inbox_path = tmp_path / "campaign" / ".kapso" / "inbox.jsonl"
+    inbox = {"enabled": True, "path": str(inbox_path), "stop_grace_seconds": 5.0, "dotenv_path": ""}
+    patch_engine(monkeypatch, inbox=inbox)
+    monkeypatch.setattr(orchestrator_module.CodingAgentFactory, "create", staticmethod(lambda config: FakeSetupAgent(config)))
+    harness_dir = tmp_path / "harness" / "trading"
+    shutil.copytree(TRADING, harness_dir)
+    workspace = tmp_path / "campaign"
+    git_workspace(workspace)
+
+    def ask_once(workspace_dir: Path, prompt: str) -> None:
+        if not load_requests(inbox_path):
+            file_requests(inbox_path, node=-1, session="setup", entries=[ENTRY])
+            return
+        prepare_market_data(workspace_dir, prompt)
+
+    FakeSetupAgent.script = staticmethod(ask_once)
+    kapso_with(harness_dir, tmp_path).build("g", output=str(workspace), budget=Budget(experiments=1))
+    assert Kapso.awaiting_resume(str(workspace)) == []
+
+    with monkeypatch.context() as resume_dies:
+        def dies(self, **kwargs):
+            raise RuntimeError("preflight: claude not on PATH")
+
+        resume_dies.setattr(Kapso, "__init__", lambda self, config=None, bank=None: None)
+        resume_dies.setattr(Kapso, "build", dies)
+        with pytest.raises(RuntimeError, match="preflight"):
+            Kapso.reply(str(workspace), 1, "dropped under kapso_datasets/bars/")
+    assert [request.id for request in Kapso.awaiting_resume(str(workspace))] == [1]
+
+    with monkeypatch.context() as resumes:
+        resumes.setattr(Kapso, "__init__", lambda self, config=None, bank=None: None)
+        resumes.setattr(Kapso, "build", lambda self, **kwargs: "resumed")
+        assert Kapso.reply(str(workspace), 1) == "resumed"
+    assert load_requests(inbox_path)[1].reply == "dropped under kapso_datasets/bars/"
+
+    kapso_with(harness_dir, tmp_path).build(output=str(workspace), resume=True, budget=Budget(experiments=1))
+    assert "dropped under kapso_datasets/bars/" in FakeSetupAgent.calls[1]["prompt"]
+    assert json.loads((workspace / ".kapso" / "run_state.json").read_text())["harness_setup"]["prepared"] == ["market-data"]
+    assert Kapso.awaiting_resume(str(workspace)) == []
+    with pytest.raises(ValueError, match="already answered"):
+        Kapso.reply(str(workspace), 1)

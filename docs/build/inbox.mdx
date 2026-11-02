@@ -163,7 +163,7 @@ With the inbox off, sessions do not get the tool, the prompt is unchanged, no ca
 
 ## What can go wrong?
 
-- **The resume cannot start.** A moved config or evaluation directory, a missing coding agent CLI or a changed configuration raises from `kapso inbox reply`. The reply is kept and the node stays suspended. Fix the cause and retry with `kapso inbox reply`.
+- **The resume cannot start.** A moved config or evaluation directory, a missing coding agent CLI or a changed configuration raises from `kapso inbox reply`. The reply is kept and the node stays suspended. Fix the cause and retry with `kapso inbox reply`. A request from the harness setup session retries the same way: the setup session runs again with your reply, until the campaign records setup as done.
 - **The transcript is gone.** Claude Code keeps transcripts for 30 days. If the transcript has been deleted, the reply fails with the coding agent's own error, the node stays suspended and nothing else runs. The code is still on the branch, but the context is lost: start a new campaign.
 - **Kapso is killed during the continuation.** The checkpoint still marks the node suspended. `kapso inbox reply` or `kapso build --resume` continues the same session. Work the continuation had not pushed before the kill is lost; the coding agent redoes the work.
 - **You supplied a wrong value.** The coding agent verifies, asks again, and the new request quotes your previous reply. Reply again after fixing the value.

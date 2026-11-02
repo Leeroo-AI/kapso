@@ -35,6 +35,7 @@ from kapso.execution.search_strategies.generic import FeedbackGenerator, Feedbac
 from kapso.execution.search_strategies.generic.implementation import render_inbox_section
 from kapso.environment.handlers.base import ProblemHandler
 from kapso.execution.inbox import (
+    HARNESS_SETUP_NODE,
     idea_line,
     continue_answered,
     load_requests,
@@ -118,7 +119,6 @@ CHANGE_REQUEST_PATTERN = re.compile(
 # prompt, the line that offers the inbox, and the campaign directories it
 # must leave alone.
 HARNESS_SETUP_SESSION = "harness_setup"
-HARNESS_SETUP_NODE = -1
 HARNESS_SETUP_PROMPT = "execution/search_strategies/generic/prompts/harness_setup.md"
 HARNESS_SETUP_INBOX_LINE = (
     "\n- If an input the task statement names is missing (a file, a variable), ask for it "

@@ -39,6 +39,9 @@ INBOX_RELATIVE_PATH = Path(".kapso") / "inbox.jsonl"
 LAUNCH_RELATIVE_PATH = Path(".kapso") / "launch.json"
 RESUME_LOCK_RELATIVE_PATH = Path(".kapso") / "resume.lock"
 LAUNCH_SCHEMA_VERSION = 2
+# The node id the harness setup session files its requests under: it runs
+# before the first experiment and is no node of the search.
+HARNESS_SETUP_NODE = -1
 
 # The fields a session supplies for one request (Appendix A.2). All are
 # required, all are non-empty strings.
@@ -229,14 +232,22 @@ def all_answered(requests: Dict[int, Request], ids: Sequence[int]) -> bool:
 
 
 def awaiting_resume(
-    requests: Dict[int, Request], node_history: Sequence[Dict[str, Any]]
+    requests: Dict[int, Request],
+    node_history: Sequence[Dict[str, Any]],
+    *,
+    setup_pending: bool = False,
 ) -> List[Request]:
     """The requests whose node the checkpoint still holds suspended with
     every reply in: the person has done their part and the campaign owes a
     resume, because the last one failed or was killed. The checkpoint
     decides, not ``continued``, which is written as the session starts and
-    says nothing about whether it finished."""
+    says nothing about whether it finished. The harness setup session is no
+    node: while the checkpoint has no finished setup (``setup_pending``), its
+    requests count the same way."""
     awaiting: List[Request] = []
+    setup = [r for r in requests.values() if r.node == HARNESS_SETUP_NODE]
+    if setup_pending and setup and not any(r.open for r in setup):
+        awaiting.extend(setup)
     for node in node_history:
         ids = node.get("request_ids") or []
         if node.get("suspended") and all_answered(requests, ids):

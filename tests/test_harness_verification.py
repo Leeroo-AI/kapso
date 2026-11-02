@@ -235,6 +235,18 @@ def test_no_verdict_is_retried_once_then_unverified_and_never_delivered(strategy
     assert strategy.get_deliverable_experiment() is None
 
 
+def test_a_finished_attempt_stays_billed_when_the_next_one_raises(strategy):
+    def second_attempt_raises(verdict_path, prompt):
+        if len(FakeVerifier.calls) == 2:
+            raise RuntimeError("the process is going down")
+
+    FakeVerifier.script = staticmethod(second_attempt_raises)
+    node = node_for(strategy)
+    with pytest.raises(RuntimeError, match="going down"):
+        strategy._verify_attempt(node)
+    assert node.phase_telemetry["verification"]["cost_usd"] == pytest.approx(0.1)
+
+
 def test_a_session_that_dies_is_said_so_and_a_budget_clamp_ends_the_retries(strategy):
     """A killed or failed session is not one that chose silence: its error
     reaches the summary the judge and the record see. When the budget set

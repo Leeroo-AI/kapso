@@ -1641,8 +1641,9 @@ class Kapso:
         store = RunCheckpointStore(campaign)
         if not requests or not store.exists() or Kapso._live_status(campaign):
             return []
-        nodes = store.load().strategy_state.get("node_history") or []
-        return awaiting_resume(requests, nodes)
+        checkpoint = store.load()
+        nodes = checkpoint.strategy_state.get("node_history") or []
+        return awaiting_resume(requests, nodes, setup_pending=checkpoint.harness_setup is None)
 
     @staticmethod
     def _live_status(campaign: str) -> Optional[OperationStatusView]:
