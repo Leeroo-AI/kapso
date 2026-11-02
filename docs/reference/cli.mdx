@@ -352,7 +352,7 @@ The header names the harness (`harness: trading 0.1.0 (83b6c0b60d6a)`) and each 
 
 A campaign writes its status file the moment its workspace is seeded, in phase `setup`, so a watch started right after the launch sees it within seconds. Before that, a detached launch has left a receipt beside its log (`<campaign>.launch.json`): while the child's pid lives the line is `starting (pid N, launched 12s ago; log: …)`; once it is gone, `stopped before writing a status; the log says why: <log>`, exit 1, and `--follow` stops waiting (a child that dies at a launch check while `--follow` waits ends the wait the same way). Without a receipt the line is `no status yet at <path>` and exit 1; with `--follow` it prints the line and waits for the file. `--json` before a status prints the launch state as data: `{"state": "starting" | "stopped", "pid", "log", "started_at"}`, or `{"state": "no_status", "path"}`. A detached resume leaves a receipt newer than the status: its child alive is `starting again (pid N, …); the status below is the earlier run's`, its child gone the stopped line. The receipt goes once the status is born.
 
-With no path, one line per entry (`RUNNING`, `STARTING`, `WAITING`, or with `--all` every state, `DEAD` for a running campaign whose writer is gone or silent past its beats): the operation, the phase, the heartbeat's age, the best score and the path. Listed are the campaigns the registry knows that are alive (a fresh beat and a living writer) or waiting on you, and the learns and ingests under `learning.status_dir`; `--json` prints `[{path, operation, state, phase, heartbeat_age_seconds, best, stopped_reason, alive}]`.
+With no path, one line per entry (`RUNNING`, `STARTING`, `WAITING`, `STALLED` for one whose writer is there but past its beats, or with `--all` every state, `DEAD` for one whose writer is gone): the operation, the phase, the heartbeat's age, the best score and the path. Listed are the campaigns the registry knows whose writer is running or that are waiting on you, and the learns and ingests under `learning.status_dir`; `--json` prints `[{path, operation, state, phase, heartbeat_age_seconds, best, stopped_reason, alive, stalled}]`: `alive` is whether the writer runs, so a hung one reads `alive: true, stalled: true`.
 
 ### The status file
 
@@ -364,9 +364,9 @@ With no path, one line per entry (`RUNNING`, `STARTING`, `WAITING`, or with `--a
 | `phases` | The operation's phases in order. Build: `setup`, `harness_setup`, `lens_planning`, `ideation`, `implementation`, `evaluation`, `verification`, `feedback`. Learn: `harvest`, `mine`, `exam`, `lesson`, `push`. Experience (an ingest): `ingest`, `merge` |
 | `state` | `starting` (preparing, for a build the `setup` phase), `running`, `done` or `failed` |
 | `phase`, `phase_started_at` | The current phase and when it began |
-| `pid` | The writing process. `kapso watch` reports `DEAD` when it is gone |
+| `pid`, `pid_started` | The writing process and the kernel's start stamp for it. `kapso watch` reports `DEAD` when it is gone, asked of the kernel on Linux and macOS, including when the pid now belongs to a later process. On other systems the heartbeat is the only signal, so a killed operation reads as running until it goes stale |
 | `started_at`, `heartbeat_at`, `finished_at` | Timestamps, UTC |
-| `heartbeat_seconds` | The writer's beat; `STALLED` after three missed beats |
+| `heartbeat_seconds` | The writer's beat; `STALLED` after three missed beats, which a suspended process or a sleeping laptop also does |
 | `recent` | The last ten human-readable lines |
 | `error` | The failure, when `state` is `failed` |
 | `budget` | Build: `{elapsed_min, total_min}`, the time dial |

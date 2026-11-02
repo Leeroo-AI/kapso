@@ -92,8 +92,9 @@ then `ideation`, `implementation`, `evaluation`, `feedback`, one round per
 experiment. The header names the harness and the sources from the first
 second; `kapso watch` shows the phase, the iteration, the best and the
 latest score, the budget bar, and the last lines of output. `DEAD` means
-the process is gone; `STALLED` means three heartbeats were missed. Both are
-resumed the same way, see [Resume and budgets](/docs/build/resume-and-budgets).
+the process is gone; `STALLED` means three heartbeats were missed while the
+process is still there, so `kapso build --stop` ends it before a resume. Both
+are resumed the same way, see [Resume and budgets](/docs/build/resume-and-budgets).
 A campaign that failed shows its `error` line.
 
 Before the status file exists, a detached launch's receipt tells the two

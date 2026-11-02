@@ -30,6 +30,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 from contextlib import contextmanager
 
+class CampaignRunningError(RuntimeError):
+    """A live process holds the campaign; its message says what to do."""
+
+
 class InboxOpenError(RuntimeError):
     """A suspended node still waits for a reply: the campaign must pause,
     never run an iteration."""

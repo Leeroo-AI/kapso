@@ -14,7 +14,11 @@ reply retries it.
 import json
 import shlex
 import os
+import signal
+import subprocess
+import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +32,7 @@ from tests.handles_support import facade
 from tests.harness_support import fake_config
 import kapso.kapso as kapso_module
 from kapso.core.config import ConfigError
+from kapso.execution import observability
 from kapso.execution.inbox import (
     file_requests,
     inbox_path,
@@ -38,6 +43,7 @@ from kapso.execution.inbox import (
     record_reply,
     write_launch_record,
 )
+from kapso.execution.observability import OperationStatusView
 from kapso.execution.orchestrator import SolveResult
 from kapso.execution.run_checkpoint import (
     RunCheckpoint,
@@ -257,6 +263,135 @@ def test_reply_refuses_a_live_campaign(tmp_path):
     with pytest.raises(RuntimeError, match="is running"):
         Kapso.reply(str(workspace), 1, "added")
     assert load_requests(inbox_path(workspace))[1].open
+
+
+WRITER = """
+import sys, time
+from kapso.execution.observability import BuildStatus
+heartbeat = float(sys.argv[2]) or None
+status = BuildStatus(sys.argv[1], heartbeat_seconds=heartbeat, daemon=bool(heartbeat))
+status.update(iteration=1)
+print("up", flush=True)
+time.sleep(60)
+"""
+
+
+@pytest.fixture
+def campaign_writer():
+    """A real process writing the campaign's status file, so a test can stop
+    and kill it with real signals. Gone when the test ends."""
+    started = []
+
+    def start(workspace: Path, heartbeat: float) -> subprocess.Popen:
+        process = subprocess.Popen(
+            [sys.executable, "-c", WRITER, str(workspace / ".kapso" / "status.json"), str(heartbeat)],
+            stdout=subprocess.PIPE,
+        )
+        started.append(process)
+        assert process.stdout.readline().strip() == b"up"
+        return process
+
+    yield start
+    for process in started:
+        process.kill()
+        process.wait()
+        process.stdout.close()
+
+
+def _capture_resume(monkeypatch) -> List[Dict[str, Any]]:
+    calls: List[Dict[str, Any]] = []
+    monkeypatch.setattr(Kapso, "__init__", lambda self, **kwargs: None)
+    monkeypatch.setattr(Kapso, "build", lambda self, **kwargs: calls.append(kwargs))
+    return calls
+
+
+def test_reply_refuses_a_stopped_process_whose_heartbeat_went_stale(tmp_path, monkeypatch, campaign_writer):
+    """A stale heartbeat does not mean nothing is running. Suspend the process
+    (Ctrl-Z, a sleeping laptop) and it comes back to a second session on the
+    same conversation and branch."""
+    workspace = _paused_campaign(tmp_path)
+    resumes = _capture_resume(monkeypatch)
+    writer = campaign_writer(workspace, 0.2)
+    writer.send_signal(signal.SIGSTOP)
+    deadline = time.monotonic() + 10
+    view = OperationStatusView(workspace)
+    while not view.stalled and time.monotonic() < deadline:
+        view = OperationStatusView(workspace)
+    assert view.stalled
+
+    with pytest.raises(RuntimeError, match="is running.*if it is hung, `kapso build --output .* --stop` ends it"):
+        Kapso.reply(str(workspace), 1, "added")
+    assert load_requests(inbox_path(workspace))[1].open and not resumes
+
+
+def test_reply_refuses_a_live_process_with_no_heartbeat_to_judge(tmp_path, monkeypatch, campaign_writer):
+    # budget.checkpoint_heartbeat_seconds is optional; without it the file
+    # records no cadence, and a running campaign looked free to take over.
+    workspace = _paused_campaign(tmp_path)
+    resumes = _capture_resume(monkeypatch)
+    campaign_writer(workspace, 0)
+
+    with pytest.raises(RuntimeError, match="is running"):
+        Kapso.reply(str(workspace), 1, "added")
+    assert load_requests(inbox_path(workspace))[1].open and not resumes
+
+
+def test_reply_resumes_at_once_after_a_kill_with_a_fresh_heartbeat(tmp_path, monkeypatch, campaign_writer):
+    """The heartbeat is 60s old at most here, and it used to take three of them
+    on a kernel without /proc before the campaign was anything but running."""
+    workspace = _paused_campaign(tmp_path)
+    resumes = _capture_resume(monkeypatch)
+    writer = campaign_writer(workspace, 60)
+    assert Kapso.awaiting_resume(str(workspace)) == []
+    writer.kill()
+    writer.wait()
+
+    view = OperationStatusView(workspace)
+    assert view.heartbeat_age_seconds < 60 and view.dead and not view.running
+    Kapso.reply(str(workspace), 1, "added")
+    assert len(resumes) == 1
+
+
+def test_where_the_kernel_cannot_say_the_heartbeat_decides(tmp_path, monkeypatch):
+    workspace = _paused_campaign(tmp_path)
+    resumes = _capture_resume(monkeypatch)
+    monkeypatch.setattr(observability, "process_start", lambda pid: None)
+
+    _status(workspace, "running")
+    with pytest.raises(RuntimeError, match="is running"):
+        Kapso.reply(str(workspace), 1, "added")
+    assert load_requests(inbox_path(workspace))[1].open and not resumes
+
+    _status(workspace, "running", heartbeat_age=600)
+    Kapso.reply(str(workspace), 1, "added")
+    assert len(resumes) == 1
+
+
+def test_build_resume_refuses_a_live_campaign_and_takes_a_dead_one(tmp_path, monkeypatch, campaign_writer):
+    workspace = tmp_path / "campaign"
+    _init_git_workspace(workspace)
+    (workspace / ".kapso").mkdir(exist_ok=True)
+    _fake_orchestrator(workspace, monkeypatch)
+    writer = campaign_writer(workspace, 60)
+    kapso = _facade(tmp_path / "registry.jsonl")
+
+    with pytest.raises(RuntimeError, match="is running.*stop before resuming"):
+        kapso.build("g", output=str(workspace), resume=True)
+
+    writer.kill()
+    writer.wait()
+    kapso.build("g", output=str(workspace), resume=True)
+
+
+def test_a_detached_resume_refuses_a_live_campaign_before_it_starts_a_child(tmp_path, monkeypatch, campaign_writer):
+    workspace = tmp_path / "campaign"
+    _init_git_workspace(workspace)
+    (workspace / ".kapso").mkdir(exist_ok=True)
+    monkeypatch.setattr(kapso_module, "launch_detached", lambda *args, **kwargs: pytest.fail("a child was started"))
+    campaign_writer(workspace, 60)
+
+    with pytest.raises(RuntimeError, match="is running"):
+        _facade(tmp_path / "registry.jsonl").build(output=str(workspace), resume=True, detach=True)
 
 
 def test_reply_records_and_waits_while_another_request_is_open(tmp_path, capsys):

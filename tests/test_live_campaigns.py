@@ -20,6 +20,7 @@ from kapso.cli.watch import cmd_watch
 import kapso.kapso as kapso_module
 from kapso.execution.evaluation_integrity import EvaluationIntegrityError
 from kapso.execution.inbox import launch_receipt_path, list_registered_campaigns, register_campaign
+from kapso.execution import observability
 from kapso.execution.observability import BuildStatus, LessonStatus, campaign_listing, render_listing
 from tests.handles_support import facade
 from tests.harness_support import fake_config, patch_engine
@@ -73,7 +74,8 @@ def test_the_listing_keeps_the_alive_and_the_waiting(tmp_path):
 
     listed = campaign_listing(registry, status_dir)
     by_path = {entry["path"]: entry for entry in listed}
-    assert set(by_path) == {str(starting), str(running), str(waiting), str(receipt_only), str(status_dir / "learn-1.json")}
+    # `stale` stays: past its beats, but its writer is running (this process).
+    assert set(by_path) == {str(starting), str(running), str(stale), str(waiting), str(receipt_only), str(status_dir / "learn-1.json")}
     assert by_path[str(starting)]["state"] == "starting" and by_path[str(running)]["phase"] == "ideation"
     assert by_path[str(receipt_only)]["state"] == "starting" and by_path[str(receipt_only)]["alive"] is True
     assert by_path[str(status_dir / "learn-1.json")]["operation"] == "learn"
@@ -86,7 +88,7 @@ def test_the_listing_keeps_the_alive_and_the_waiting(tmp_path):
     assert states[str(stale)] == "running" and states[str(dead)] == "running"
     assert states[str(done)] == "done" and states[str(failed)] == "failed"
     assert str(gone) not in states
-    assert {entry["alive"] for entry in everything if entry["path"] in (str(stale), str(dead), str(done), str(failed))} == {False}
+    assert {entry["alive"] for entry in everything if entry["path"] in (str(dead), str(done), str(failed))} == {False}
 
     text = render_listing(listed)
     assert "WAITING" in text and "RUNNING   build      ideation" in text and str(status_dir / "learn-1.json") in text
@@ -121,7 +123,19 @@ def test_the_listing_says_dead_for_a_writer_that_is_gone(tmp_path):
     campaign(tmp_path, "live")
     lines = render_listing(campaign_listing(registry, tmp_path / "status", everything=True)).splitlines()
     states = {line.split()[-1].rsplit("/", 1)[-1]: line.split()[0] for line in lines}
-    assert states == {"dead": "DEAD", "stale": "DEAD", "live": "RUNNING"}
+    # `stale` is past its beats with its writer running (this test's process):
+    # the single-campaign screen says STALLED, and a resume is refused.
+    assert states == {"dead": "DEAD", "stale": "STALLED", "live": "RUNNING"}
+
+
+def test_where_the_kernel_cannot_say_a_silent_writer_is_dead(tmp_path, monkeypatch):
+    monkeypatch.setattr(observability, "process_start", lambda pid: None)
+    registry = tmp_path / "registry.jsonl"
+    campaign(tmp_path, "stale", stale=True)
+    campaign(tmp_path, "live")
+    lines = render_listing(campaign_listing(registry, tmp_path / "status", everything=True)).splitlines()
+    states = {line.split()[-1].rsplit("/", 1)[-1]: line.split()[0] for line in lines}
+    assert states == {"stale": "DEAD", "live": "RUNNING"}
 
 
 def test_a_launch_refused_at_a_check_is_registered_all_the_same(tmp_path, monkeypatch):

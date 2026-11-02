@@ -101,6 +101,7 @@ from kapso.harness import (
 from kapso.harness import BUNDLED_ROOT
 from kapso.harness.staging import host_for
 from kapso.execution.inbox import (
+    CampaignRunningError,
     beside,
     launch_receipt_path,
     Request,
@@ -1183,6 +1184,7 @@ class Kapso:
                 )
             argv = ["build", "--output", output_path]
             if resume:
+                self._refuse_a_live_campaign(output_path, "stop before resuming")
                 argv.append("--resume")
             else:
                 brief_path = beside(Path(output_path), ".brief.md")
@@ -1208,6 +1210,7 @@ class Kapso:
         record = None
         if resume:
             self._validate_resume_workspace(output_path)
+            self._refuse_a_live_campaign(output_path, "stop before resuming")
             # A resume without a checkpoint is refused by the orchestrator
             # with its own message; here the checkpoint is read when it
             # exists, for the brief and the harness comparison.
@@ -1652,7 +1655,21 @@ class Kapso:
         if not status_file.is_file():
             return None
         view = OperationStatusView(status_file)
-        return view if view.alive else None
+        return view if view.running else None
+
+    @classmethod
+    def _refuse_a_live_campaign(cls, campaign: str, waiting_for: str) -> None:
+        live = cls._live_status(campaign)
+        if live is None:
+            return
+        hung = (
+            f" Its heartbeat has stopped; if it is hung, `kapso build --output {campaign} --stop` ends it."
+            if live.stalled else ""
+        )
+        raise CampaignRunningError(
+            f"{campaign} is running (pid {live.data.get('pid')}); wait for it "
+            f"to {waiting_for}.{hung}"
+        )
 
     @staticmethod
     def inbox_ideas(campaign: str) -> Dict[int, str]:
@@ -1693,12 +1710,7 @@ class Kapso:
             raise FileNotFoundError(
                 f"{campaign_dir} is not a campaign directory on this machine"
             )
-        live = cls._live_status(campaign_dir)
-        if live is not None:
-            raise RuntimeError(
-                f"{campaign_dir} is running (pid {live.data.get('pid')}); wait "
-                "for it to pause before replying"
-            )
+        cls._refuse_a_live_campaign(campaign_dir, "pause before replying")
         path = inbox_path(campaign_dir)
         requests = load_requests(path)
         current = requests.get(request_id)

@@ -11,7 +11,7 @@ from pathlib import Path
 from kapso.kapso import DEFAULT_CONFIG_PATH, Kapso
 from kapso.core.config import load_config
 from kapso.execution.inbox import read_launch_receipt
-from kapso.execution.observability import OperationStatusView, campaign_listing, pid_alive, render_listing
+from kapso.execution.observability import OperationStatusView, campaign_listing, launch_alive, render_listing
 
 NAME = "watch"
 
@@ -55,7 +55,7 @@ def cmd_watch(args) -> None:
         # tells a campaign still starting from one that died before its
         # status, and the log says why (wp6-observability.md, change 7).
         _say_launch_state(receipt, expected, args.json)
-        if receipt is not None and pid_alive(receipt["pid"]) is False:
+        if receipt is not None and launch_alive(receipt) is False:
             sys.exit(1)
         if not args.follow:
             sys.exit(1)
@@ -63,14 +63,14 @@ def cmd_watch(args) -> None:
             time.sleep(_WATCH_FALLBACK_SECONDS)
             # The child may die at a launch check while we wait.
             receipt = read_launch_receipt(campaign)
-            if receipt is not None and pid_alive(receipt["pid"]) is False and OperationStatusView.locate(args.path) is None:
+            if receipt is not None and launch_alive(receipt) is False and OperationStatusView.locate(args.path) is None:
                 _say_launch_state(receipt, expected, args.json)
                 sys.exit(1)
     elif receipt is not None and _newer_than_status(receipt, args.path):
         # A detached resume wrote a receipt after the status's last write:
         # its child is starting, or died at a launch check, and the status
         # on disk is the earlier slice's.
-        if pid_alive(receipt["pid"]) is False:
+        if launch_alive(receipt) is False:
             _say_launch_state(receipt, campaign, args.json)
             sys.exit(1)
         if not args.json:
@@ -103,7 +103,7 @@ def _say_launch_state(receipt, expected: Path, as_json: bool) -> None:
             f"no status yet at {expected} — the campaign is still starting "
             "(seeding its workspace), or nothing runs there"
         )
-    elif pid_alive(receipt["pid"]) is False:
+    elif launch_alive(receipt) is False:
         state = {"state": "stopped", "pid": receipt["pid"], "log": receipt["log"], "started_at": receipt["started_at"]}
         line = f"stopped before writing a status; the log says why: {receipt['log']}"
     else:

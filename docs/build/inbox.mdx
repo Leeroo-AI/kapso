@@ -81,7 +81,7 @@ Replying records the note and resumes the campaign in the foreground, in your te
 #1 answered. #2 still open, so node 3 waits; nothing else to run.
 ```
 
-The command refuses to run while a live process holds the campaign, so nothing runs twice. Two replies that start at the same moment run one resume: the second waits for the first, then has nothing to do unless the first failed.
+The command refuses to run while a live process holds the campaign, so nothing runs twice. The kernel decides that on Linux and macOS: a campaign that was killed can be replied to at once, and one that is suspended or hung is still refused until you stop it, however old its heartbeat is. Two replies that start at the same moment run one resume: the second waits for the first, then has nothing to do unless the first failed.
 
 Your reply is on disk before the resume starts. If the resume then fails or is killed, the reply stays, and `kapso inbox` shows it instead of saying nothing is waiting:
 

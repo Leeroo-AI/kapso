@@ -8,6 +8,8 @@ watch` and Kapso.status() depend on.
 """
 
 import json
+import subprocess
+import sys
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,7 +17,11 @@ from pathlib import Path
 import pytest
 
 from kapso.core.config import load_config
+from kapso.core.processes import process_start
+from kapso.execution import observability
+from kapso.execution.launch import detach
 from kapso.execution.observability import (
+    launch_alive,
     credits_summary,
     knowledge_summary,
     platform_cost_summary,
@@ -247,18 +253,20 @@ def test_workspace_without_a_status_file_yet_does_not_parse_other_json(tmp_path)
         OperationStatusView(workspace)
 
 
+def _gone_pid() -> int:
+    child = subprocess.Popen([sys.executable, "-c", ""])
+    child.wait()
+    return child.pid
+
+
 def test_dead_writer_is_reported_before_the_heartbeat_goes_stale(tmp_path):
     """The status file cannot record its own writer's death: a campaign
     killed mid-run kept rendering RUNNING for three heartbeat intervals.
     The view asks the kernel about the recorded pid instead."""
-    if not Path("/proc").is_dir():
-        pytest.skip("pid liveness needs /proc")
     path = tmp_path / "s.json"
     BuildStatus(path, heartbeat_seconds=60).update(iteration=1)
     data = read(path)
-    gone = 2**22 - 1
-    while Path("/proc", str(gone)).exists():
-        gone -= 1
+    gone = _gone_pid()
     data["pid"] = gone
     path.write_text(json.dumps(data))
 
@@ -271,6 +279,50 @@ def test_dead_writer_is_reported_before_the_heartbeat_goes_stale(tmp_path):
     data["state"] = "done"
     path.write_text(json.dumps(data))
     assert OperationStatusView(path).dead is False
+
+
+def test_a_writers_pid_reused_by_a_later_process_is_still_a_dead_writer(tmp_path):
+    """Pids come back. The stamp the writer recorded tells it from the stranger
+    now holding its number, which merely existing at that pid cannot."""
+    path = tmp_path / "s.json"
+    BuildStatus(path, heartbeat_seconds=60).update(iteration=1)
+    assert OperationStatusView(path).process_alive is True
+    data = read(path)
+    stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    data["pid"] = stranger.pid
+    path.write_text(json.dumps(data))
+
+    view = OperationStatusView(path)
+    assert view.process_alive is False and view.dead is True
+    stranger.kill()
+    stranger.wait()
+
+
+def test_a_launch_receipt_tells_its_own_child_from_a_later_process(tmp_path):
+    """A receipt is read for as long as it lies there, so the child it names
+    can be long gone with its pid given to something else."""
+    log = tmp_path / "campaign.log"
+    receipt_path = tmp_path / "campaign.launch.json"
+    pid = detach(["--version"], log_path=log, receipt_path=receipt_path)
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["pid"] == pid and "pid_started" in receipt
+
+    stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    assert launch_alive({"pid": stranger.pid, "pid_started": "1.000001"}) is False
+    assert launch_alive({"pid": stranger.pid, "pid_started": process_start(stranger.pid)}) is True
+    stranger.kill()
+    stranger.wait()
+    assert launch_alive({"pid": stranger.pid}) is False
+
+
+def test_a_kernel_that_cannot_say_leaves_only_the_heartbeat(tmp_path, monkeypatch):
+    monkeypatch.setattr(observability, "process_start", lambda pid: None)
+    path = tmp_path / "s.json"
+    BuildStatus(path, heartbeat_seconds=60).update(iteration=1)
+    assert "pid_started" in read(path) and read(path)["pid_started"] is None
+
+    view = OperationStatusView(path)
+    assert view.process_alive is None and view.dead is False and view.alive is True
 
 
 def test_knowledge_summary_is_empty_without_gate_calls():
