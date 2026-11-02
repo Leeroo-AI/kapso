@@ -3,11 +3,11 @@
 Indexes the synthetic corpus into a dedicated Weaviate collection (and a
 dedicated Neo4j instance) with the repo's own indexer, fetches each
 query's candidate pool once, then scores every arm on that same pool: the
-reranker off, and the reranker on with each configured overview cap. The
-reranker arms are sampled `rerank_runs` times on that same pool, since an
-LLM rerank varies from call to call. All metrics are reported over every
-query and over the stress subset (queries whose target page has an overview
-long enough for the cap to cut), as a mean with its range across the runs.
+reranker off and the reranker on. A reranking arm is sampled `rerank_runs`
+times on that same pool, since an LLM rerank varies from call to call. All
+metrics are reported over every query and over the stress subset (queries
+whose target page has a long overview), as a mean with its range across the
+runs.
 
 Run from the repository root; --config may be repeated, later files
 deep-merging over earlier ones:
@@ -85,11 +85,10 @@ class KGRetriever:
             query, filters=filters, use_llm_reranker=False
         ).results
 
-    def rerank(self, query, pool, top_k, overview_cap):
-        """Rerank a copy of the pool with this arm's cap on the prompt."""
+    def rerank(self, query, pool, top_k):
+        """Rerank a copy of the pool, so every run starts from the same scores."""
         if not pool:
             return []
-        self.search.reranker_overview_max_chars = overview_cap
         candidates = copy.deepcopy(pool)
         results = self.search._rerank_results(query, candidates, top_k)
         if not self.reranker.last_call_completed:
@@ -108,23 +107,12 @@ def check_isolated(search_params):
             )
 
 
-def clipped_counts(pool, overview_cap):
-    """Pool overviews the prompt cap cuts, and the pool size."""
-    if overview_cap is None:
-        return 0, len(pool)
-    return sum(len(item.overview) > overview_cap for item in pool), len(pool)
-
-
-def summarize(indices, rankings, queries, ks, extras):
-    """Metrics for the queries at `indices`; extras carry per-query counts."""
+def summarize(indices, rankings, queries, ks, returned):
+    """Metrics for the queries at `indices`."""
     relevants = [queries[i].relevant for i in indices]
     scores = aggregate([rankings[i] for i in indices], relevants, ks)
-    counts = [extras["returned"][i] for i in indices]
+    counts = [returned[i] for i in indices]
     scores["mean_results"] = sum(counts) / len(counts)
-    if extras["clipped"] is not None:
-        clipped = sum(extras["clipped"][i][0] for i in indices)
-        total = sum(extras["clipped"][i][1] for i in indices)
-        scores["clipped_share"] = clipped / total
     return scores
 
 
@@ -150,7 +138,7 @@ def spread(per_run):
 
 
 def empty_run():
-    return {"rankings": [], "returned": [], "clipped": []}
+    return {"rankings": [], "returned": []}
 
 
 def ranks_by_query(queries, runs):
@@ -179,9 +167,7 @@ def evaluate(queries, arms, retriever, ks, top_k, pool_size, rerank_runs):
         for arm in arms:
             for run in arm_runs[arm["name"]]:
                 if arm["rerank"]:
-                    cap = arm["reranker_overview_max_chars"]
-                    results = retriever.rerank(query.query, pool, top_k, cap)
-                    run["clipped"].append(clipped_counts(pool, cap))
+                    results = retriever.rerank(query.query, pool, top_k)
                 else:
                     results = retriever.top(query.query, top_k)
                 run["rankings"].append([item.id for item in results])
@@ -208,14 +194,10 @@ def evaluate(queries, arms, retriever, ks, top_k, pool_size, rerank_runs):
         runs = arm_runs[arm["name"]]
         report["arms"][arm["name"]] = {}
         for name, idx in subsets.items():
-            per_run = []
-            for run in runs:
-                extras = {
-                    "returned": run["returned"],
-                    "clipped": run["clipped"] if arm["rerank"] else None,
-                }
-                rankings = run["rankings"]
-                per_run.append(summarize(idx, rankings, queries, ks, extras))
+            per_run = [
+                summarize(idx, run["rankings"], queries, ks, run["returned"])
+                for run in runs
+            ]
             report["arms"][arm["name"]][name] = spread(per_run)
         report["target_ranks"][arm["name"]] = ranks_by_query(queries, runs)
     report["unstable"] = sorted(
@@ -247,16 +229,12 @@ def render_markdown(report, ks, pool_size):
             "",
             f"Candidate pool ceiling, recall@{pool_size}: {ceiling:.3f}",
             "",
-            "| arm | " + " | ".join(columns) + " | clipped_share |",
-            "|---|" + "---|" * (len(columns) + 1),
+            "| arm | " + " | ".join(columns) + " |",
+            "|---|" + "---|" * len(columns),
         ]
         for arm, subsets in report["arms"].items():
             stats = subsets[subset]
             cells = [cell(stats, column) for column in columns]
-            if "clipped_share" in stats["mean"]:
-                cells.append(cell(stats, "clipped_share"))
-            else:
-                cells.append("n/a")
             lines.append(f"| {arm} | " + " | ".join(cells) + " |")
         lines.append("")
     lines.append("## Target rank by run, queries that changed")
@@ -278,11 +256,6 @@ def validate_arms(arms):
             arm.get("rerank"), bool
         ):
             raise ValueError(f"arm needs a name and a boolean rerank: {arm!r}")
-        if arm["rerank"] and "reranker_overview_max_chars" not in arm:
-            raise ValueError(
-                f"arm {arm['name']!r} reranks, so it must set "
-                "reranker_overview_max_chars (null for no cap)"
-            )
 
 
 def load_layers(config_paths):
