@@ -521,6 +521,9 @@ class OrchestratorAgent:
         the running round's included. The heartbeat thread reads this while
         the phases write, hence the copies."""
         live: Dict[str, float] = {}
+        ideation_bills = list(getattr(self.search_strategy, "ideation_bills", ()))
+        if ideation_bills:
+            live["ideation"] = sum(ideation_bills)
         for node in [
             *self.search_strategy.get_experiment_history(),
             *getattr(self.search_strategy, "in_flight_nodes", ()),
@@ -558,6 +561,7 @@ class OrchestratorAgent:
             fast_variant_threshold_seconds=block["fast_variant_threshold_minutes"] * 60,
             overhead_factor=block["overhead_factor"],
             protected_data_paths=list(block["protected_data_paths"]),
+            note_session_spend=self._record_maintainer_spend,
         )
         freeze_fraction = block["transition_freeze_fraction"]
         if not 0.0 < freeze_fraction <= 1.0:
@@ -567,16 +571,16 @@ class OrchestratorAgent:
             )
         return maintainer, int(block["max_change_requests"]), freeze_fraction
 
-    def _record_maintainer_spend(self) -> None:
-        telemetry = self.evaluation_maintainer.last_transaction_telemetry
-        if telemetry is not None:
-            self.budget_ledger.record(
-                CostEntry(
-                    component="evaluation_maintenance",
-                    cost_usd=telemetry.cost_usd,
-                    duration_seconds=telemetry.duration_seconds,
-                )
+    def _record_maintainer_spend(
+        self, cost_usd: float, duration_seconds: float
+    ) -> None:
+        self.budget_ledger.record(
+            CostEntry(
+                component="evaluation_maintenance",
+                cost_usd=cost_usd,
+                duration_seconds=duration_seconds,
             )
+        )
 
     def _adopt_registered_evaluation(self) -> None:
         """Point the strategy at the registered evaluator head."""
@@ -801,7 +805,6 @@ class OrchestratorAgent:
                 data_dir=self.data_dir,
                 staged=self._stage_maintainer("setup", "evaluation_setup"),
             )
-            self._record_maintainer_spend()
         self._adopt_registered_evaluation()
 
     def _canonical_evaluation_params(self):
@@ -1028,7 +1031,6 @@ class OrchestratorAgent:
                 ),
                 staged=self._stage_maintainer("verification", f"evaluation/change_{candidate.node_id}"),
             )
-            self._record_maintainer_spend()
             print(
                 "[Orchestrator] Evaluation change request "
                 f"{'accepted' if outcome.accepted else 'rejected'}: "

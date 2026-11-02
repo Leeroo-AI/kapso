@@ -264,6 +264,7 @@ def generate_solution_ensemble(
     build_prompt: Callable[..., str],
     resolve_lenses: Callable[[str, str], tuple],
     select_candidates: Callable[..., Dict[str, Any]],
+    note_session_spend: Callable[[float], None],
     stage_harness_for: Callable[..., StagedHarness],
 ) -> Tuple[str, List[str], Dict[str, float]]:
     """Fan out ideation across the members, then select one solution.
@@ -446,6 +447,7 @@ def generate_solution_ensemble(
         agent.initialize(ideation_dir)
         result = agent.generate_code(prompt)
         cost = agent.get_cumulative_cost()
+        note_session_spend(cost)
         agent.cleanup()
         if not result.success:
             logger.warning(
@@ -618,6 +620,7 @@ def select_from_candidates(
     env_defaults: Dict[str, str],
     artifacts_dir: str,
     stage_harness_for: Callable[..., StagedHarness],
+    note_session_spend: Callable[[float], None],
 ) -> Dict[str, Any]:
     """Run the selector-critic session over the pooled candidates.
 
@@ -709,6 +712,7 @@ def select_from_candidates(
         agent.initialize(ideation_dir)
         session_result = agent.generate_code(session_prompt)
         session_cost = agent.get_cumulative_cost()
+        note_session_spend(session_cost)
         agent.cleanup()
         return session_result, session_cost
 

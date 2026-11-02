@@ -110,14 +110,6 @@ class TimingEstimate:
     basis: str  # "calibration" | "measured(n=...)"
 
 
-@dataclass(frozen=True)
-class MaintainerTransactionTelemetry:
-    """Budget telemetry for the last maintainer transaction."""
-
-    cost_usd: float
-    duration_seconds: float
-
-
 class EvaluationMaintainer:
     """Owns kapso_evaluation/: setup, change governance, and timing."""
 
@@ -134,6 +126,9 @@ class EvaluationMaintainer:
         overhead_factor: float,
         protected_data_paths: Optional[List[str]] = None,
         command_runner: Optional[Callable[..., Any]] = None,
+        note_session_spend: Callable[[float, float], None] = (
+            lambda cost_usd, duration_seconds: None
+        ),
     ):
         self.workspace_dir = Path(workspace_dir)
         self.evaluation_dir = self.workspace_dir / EVALUATION_DIR_NAME
@@ -151,9 +146,7 @@ class EvaluationMaintainer:
         # Injectable for hermetic tests, like core.llm's sleep_fn seam.
         self._run_command = command_runner or subprocess.run
         self._provided_baseline: Dict[str, str] = {}
-        self.last_transaction_telemetry: Optional[
-            MaintainerTransactionTelemetry
-        ] = None
+        self._note_session_spend = note_session_spend
 
     # =====================================================================
     # Setup transaction
@@ -169,8 +162,6 @@ class EvaluationMaintainer:
     ) -> EvaluatorVersion:
         """Verify-or-build the evaluator, time it, register v1, commit.
         ``staged`` is the harness's setup module for this session, or None."""
-        transaction_started = time.monotonic()
-
         provided = eval_dir is not None
         if provided:
             # The provided files were copied into kapso_evaluation/ by
@@ -209,7 +200,11 @@ class EvaluationMaintainer:
                 },
             )
 
-        agent_cost = self._run_agent(prompt, staged)
+        result = self._run_session(prompt, staged)
+        if not result.success:
+            raise EvaluationMaintainerError(
+                f"Maintainer agent call failed: {result.error}"
+            )
         self._enforce_provided_immutable()
 
         timing, calibration_manifest = self._run_calibration()
@@ -241,10 +236,6 @@ class EvaluationMaintainer:
         self.registry.register(version)
         self._commit_evaluation("chore(kapso): register evaluator v1")
 
-        self.last_transaction_telemetry = MaintainerTransactionTelemetry(
-            cost_usd=agent_cost,
-            duration_seconds=time.monotonic() - transaction_started,
-        )
         return version
 
     # =====================================================================
@@ -256,7 +247,6 @@ class EvaluationMaintainer:
     ) -> ChangeOutcome:
         """Triage and, if accepted, implement + register a new version;
         ``staged`` is the harness's verification module for this session."""
-        transaction_started = time.monotonic()
         head = self.registry.head()
         if head is None:
             raise EvaluationMaintainerError(
@@ -279,11 +269,7 @@ class EvaluationMaintainer:
                 "domain_guidance": optional_block(staged.guidance if staged is not None else ""),
             },
         )
-        agent = CodingAgentFactory.create(self._config_for(staged))
-        agent.initialize(str(self.workspace_dir))
-        result = agent.generate_code(prompt)
-        agent_cost = agent.get_cumulative_cost()
-        agent.cleanup()
+        result = self._run_session(prompt, staged)
         if not result.success:
             # A triage that cannot run is a verdict failure, not a campaign
             # failure: reject with the infrastructure reason and let the
@@ -296,10 +282,6 @@ class EvaluationMaintainer:
             # left partial edits with no verdict to justify them — restore
             # the tree to the registered head before continuing.
             self._restore_evaluation_tree()
-            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
-                cost_usd=agent_cost,
-                duration_seconds=time.monotonic() - transaction_started,
-            )
             return ChangeOutcome(
                 accepted=False,
                 reason=f"triage unavailable: {result.error}",
@@ -320,10 +302,6 @@ class EvaluationMaintainer:
             # Same class as a failed agent call: edits without a verdict
             # are unjustified — restore and reject.
             self._restore_evaluation_tree()
-            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
-                cost_usd=agent_cost,
-                duration_seconds=time.monotonic() - transaction_started,
-            )
             return ChangeOutcome(
                 accepted=False,
                 reason=(
@@ -336,10 +314,6 @@ class EvaluationMaintainer:
         reason = reason_match.group(1).strip()
 
         if verdict_match.group(1) == "reject":
-            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
-                cost_usd=agent_cost,
-                duration_seconds=time.monotonic() - transaction_started,
-            )
             return ChangeOutcome(
                 accepted=False,
                 reason=reason,
@@ -357,10 +331,6 @@ class EvaluationMaintainer:
             # correct behavior — instead of crashing the campaign
             # (observed live: rel-amazon/user-churn, 2026-08-11).
             self._restore_evaluation_tree()
-            self.last_transaction_telemetry = MaintainerTransactionTelemetry(
-                cost_usd=agent_cost,
-                duration_seconds=time.monotonic() - transaction_started,
-            )
             return ChangeOutcome(
                 accepted=False,
                 reason=(
@@ -394,10 +364,6 @@ class EvaluationMaintainer:
             f"chore(kapso): register evaluator v{version.version}"
         )
 
-        self.last_transaction_telemetry = MaintainerTransactionTelemetry(
-            cost_usd=agent_cost,
-            duration_seconds=time.monotonic() - transaction_started,
-        )
         return ChangeOutcome(
             accepted=True,
             reason=reason,
@@ -455,21 +421,19 @@ class EvaluationMaintainer:
         config.agent_specific = staged.merged_agent_specific(config.agent_specific)
         return config
 
-    def _run_agent(self, prompt: str, staged: Optional[StagedHarness] = None) -> float:
-        _, cost = self._run_agent_with_output(prompt, staged)
-        return cost
-
-    def _run_agent_with_output(self, prompt: str, staged: Optional[StagedHarness] = None) -> tuple:
+    def _run_session(self, prompt: str, staged: Optional[StagedHarness] = None) -> Any:
+        """One agent session, on the budget as soon as it ends: what follows
+        it (the immutability check, calibration, the commit) can raise or
+        outlive the process, and the session stays paid for."""
+        started = time.monotonic()
         agent = CodingAgentFactory.create(self._config_for(staged))
         agent.initialize(str(self.workspace_dir))
         result = agent.generate_code(prompt)
-        cost = agent.get_cumulative_cost()
+        self._note_session_spend(
+            agent.get_cumulative_cost(), time.monotonic() - started
+        )
         agent.cleanup()
-        if not result.success:
-            raise EvaluationMaintainerError(
-                f"Maintainer agent call failed: {result.error}"
-            )
-        return result.output or "", cost
+        return result
 
     def _enforce_provided_immutable(self) -> None:
         """Post-condition, not a prompt: provided bytes never change."""

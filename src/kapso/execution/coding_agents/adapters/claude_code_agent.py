@@ -579,11 +579,12 @@ class ClaudeCodeCodingAgent(CodingAgentInterface):
                 result = CodingResult(
                     success=False, output="",
                     error=f"Claude Code CLI timed out after {timeout_seconds} seconds",
+                    metadata={"tool_calls": []},
                 )
             except Exception as e:
                 if not convert:
                     raise
-                result = CodingResult(success=False, output="", error=str(e))
+                result = CodingResult(success=False, output="", error=str(e), metadata={"tool_calls": []})
         finally:
             record_run(recorder, result, sys.exc_info()[1])
         return result

@@ -148,6 +148,12 @@ finalized experiment, so an interrupted write leaves the previous
 checkpoint readable. A resume restores the node history, the feedback for
 the next experiment, the clock and the cost, and continues.
 
+Every agent session a campaign starts is on the ledger as soon as it ends,
+ahead of whatever follows it: a failed continuation, a failed push, a failed
+calibration. A session still running when the process is killed has not reported
+its cost, so that cost is not on the ledger. Neither is what a gate server
+spends: it runs in its own process and has no way to report back.
+
 Resume errors are importable from `kapso`:
 
 | Error | Meaning |
