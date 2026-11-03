@@ -11,9 +11,6 @@ from typing import Optional
 
 from kapso.core.cli_inference import CliInference
 
-# Maximum diff length to send to LLM (to avoid token limits)
-MAX_DIFF_LENGTH = 4000
-
 
 class CommitMessageGenerator:
     """
@@ -88,15 +85,12 @@ class CommitMessageGenerator:
         Returns:
             Generated commit message
         """
-        # Truncate large diffs to avoid token limits
-        truncated_diff = diff[:MAX_DIFF_LENGTH] if len(diff) > MAX_DIFF_LENGTH else diff
-        
-        # Build the prompt
+        # The diff and the summary cross into the prompt whole: a clipped diff
+        # describes only its first files, and a diff too large for the model
+        # surfaces as the CLI's own error rather than a quietly partial message.
         context_section = ""
         if solution_summary:
-            # Truncate solution summary too
-            summary = solution_summary[:500] if len(solution_summary) > 500 else solution_summary
-            context_section = f"\nSolution being implemented:\n{summary}\n"
+            context_section = f"\nSolution being implemented:\n{solution_summary}\n"
         
         prompt = f"""Generate a Git commit message following Conventional Commits format.
 
@@ -114,7 +108,7 @@ Types:
 {context_section}
 Git diff:
 ```diff
-{truncated_diff}
+{diff}
 ```
 
 Rules:
