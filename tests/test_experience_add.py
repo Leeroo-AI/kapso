@@ -132,6 +132,20 @@ def test_a_question_is_researched_then_ingested(tmp_path, ingestion, monkeypatch
     assert record["source"] == "QLoRA memory"
 
 
+def test_a_paper_is_read_whole_then_ingested(tmp_path, ingestion):
+    paper = tmp_path / "paper.md"
+    paper.write_text("# Adapters\nthe whole paper\n")
+    kapso = _kapso(tmp_path)
+    assert kapso.add_experience(paper=str(paper), name="adapters") == "adapters"
+    [report] = ingestion["sources"]
+    assert report.content == "# Adapters\nthe whole paper\n"
+    assert ingestion["preflight"] == [{"research": False}]
+    record = json.loads((Path(settings_for(tmp_path)["indexes"]) / "adapters" / "index.json").read_text())
+    assert record["source"] == str(paper)
+    with pytest.raises(ValueError, match="exactly one of"):
+        kapso.add_experience(paper=str(paper), repo="https://github.com/org/x", name="again")
+
+
 def test_the_bank_and_the_hosted_gate_are_added_by_reference(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)   # no .env in reach: the key's presence is the environment's
     kapso = _kapso(tmp_path)

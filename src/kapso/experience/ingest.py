@@ -8,11 +8,15 @@ deletes the namespace with the record. Design:
 docs/plans/redesign/wp3-experience.md (change 7).
 """
 
+import io
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+import requests
+from pypdf import PdfReader
 
 from kapso.experience.reference import RESERVED, valid_index_name
 from kapso.experience.store import ExperienceStore, IndexRecord
@@ -24,6 +28,8 @@ from kapso.researcher import Researcher
 GRAPH_SEARCH = "kg_graph_search"
 WIKI_DIR = "wiki"
 _NOT_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+_ARXIV_ABSTRACT = re.compile(r"^https?://arxiv\.org/abs/(.+)$")
+_PDF_MEDIA_TYPE = "application/pdf"
 
 
 class IngestError(ValueError):
@@ -89,6 +95,33 @@ def research_sources(question: str, settings: Dict[str, Any], config_path: Optio
     if not sources:
         raise IngestError(f"the research on {question!r} returned nothing to ingest")
     return sources
+
+
+def paper_sources(location: str, settings: Dict[str, Any]) -> List[Any]:
+    """A paper's whole text as the research report the pipeline ingests:
+    a PDF, markdown or text file on disk, or a URL (an arXiv abstract page
+    is fetched as its PDF)."""
+    if location.startswith(("http://", "https://")):
+        reply = requests.get(
+            _ARXIV_ABSTRACT.sub(r"https://arxiv.org/pdf/\1", location),
+            timeout=settings["paper_fetch_timeout_seconds"],
+        )
+        reply.raise_for_status()
+        data = reply.content
+        is_pdf = reply.headers.get("Content-Type", "").startswith(_PDF_MEDIA_TYPE)
+    else:
+        path = Path(location).expanduser()
+        if not path.is_file():
+            raise IngestError(f"the paper {location!r} is neither a file nor a URL")
+        data = path.read_bytes()
+        is_pdf = path.suffix.lower() == ".pdf"
+    if is_pdf:
+        text = "\n\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
+    else:
+        text = data.decode("utf-8")
+    if not text.strip():
+        raise IngestError(f"the paper {location!r} has no text to ingest (a scanned PDF needs OCR first)")
+    return [Source.ResearchReport(query=location, content=text)]
 
 
 def ingest(

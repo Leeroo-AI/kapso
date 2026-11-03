@@ -72,7 +72,7 @@ The user-facing entry point: the three verbs, and the two layers a verb runs wit
 class Kapso:
     def load_harness(ref) -> Harness                 # the domain layer a build runs with
     def load_experience(ref) -> ExperienceSource     # what a build is served: mine, leeroopedia, a bank, an index
-    def add_experience(ref=None, *, repo=None, research=None, name=None) -> str   # make a source
+    def add_experience(ref=None, *, repo=None, research=None, paper=None, name=None) -> str   # make a source
     def build(brief, ...) -> Solution
     def learn(source) -> LessonResult                # mine one finished campaign into your bank
     def deploy(solution, target) -> Software

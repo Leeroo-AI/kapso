@@ -111,7 +111,7 @@ add_experience(ref: str | None = None, *, repo: str | None = None, research: str
 | `research` | A question to research on the web; the findings are ingested into a new index named `name` |
 | `name` | The index's name: letters, digits and dashes; `mine` and `leeroopedia` are reserved |
 
-Exactly one of `ref`, `repo` and `research` is given. Ingesting runs the knowledge pipeline into the experience home (`experience.indexes` in the config): the pages under `<name>/wiki/`, the index's own namespace in the graph stores, and `index.json`, the record that pins the index at its id and names what it was made from. An index is never written again after this: a name that exists is refused (remove it first). The stores and the embeddings key are checked before any work (`kapso doctor experience`); the operation writes a status file you can `kapso watch`.
+Exactly one of `ref`, `repo`, `research` and `paper` is given (`paper` is a PDF, markdown or text file, or a URL such as an arXiv link). Ingesting runs the knowledge pipeline into the experience home (`experience.indexes` in the config): the pages under `<name>/wiki/`, the index's own namespace in the graph stores, and `index.json`, the record that pins the index at its id and names what it was made from. An index is never written again after this: a name that exists is refused (remove it first). The stores and the embeddings key are checked before any work (`kapso doctor experience`); the operation writes a status file you can `kapso watch`.
 
 ```python
 kapso.add_experience(repo="https://github.com/org/x", name="org-x")

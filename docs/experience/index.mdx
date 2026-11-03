@@ -15,7 +15,7 @@ Kapso runs the same campaign in every domain: propose a candidate, implement it 
 | `mine:all` | The same bank, every card whatever the harness | the same |
 | `leeroopedia` | [Leeroopedia](https://leeroopedia.com), the hosted knowledge base of ML and AI frameworks, reached over MCP with one key in `.env` | reported by others |
 | a bank path or git reference | A bank another team shares: `./team/bank.git`, `acme/kapso-bank@v2`, `git+https://…@main`. Read, never written | measured by others |
-| an index name | A corpus you ingested with `kapso experience add --repo` or `--research`: a repository or a researched question turned into pages, searched by the `idea` and `code` tools | reported by others |
+| an index name | A corpus you ingested with `kapso experience add --repo`, `--research` or `--paper`: a repository, a researched question or a paper turned into pages, searched by the `idea` and `code` tools | reported by others |
 
 The three verbs of the package are `kapso experience add`, which makes a source that must exist before it can be loaded, `list`, and `share`, which attaches a remote to your bank. Loading happens at the call: `kapso build --experience mine,leeroopedia`, the brief's `Experience` line, or `load_experience()` in Python. [Use experience on a build](/docs/experience/use) is the user's side; [Add a source](/docs/experience/add) and [Share a bank](/docs/experience/share) make the sources.
 

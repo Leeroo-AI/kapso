@@ -224,5 +224,5 @@ def test_experience_add_detach_runs_an_ingest_in_a_session_of_its_own(tmp_path, 
     # An instant add has nothing to detach.
     with pytest.raises(SystemExit) as refusal:
         _run(monkeypatch, "experience", "add", "mine", "--detach")
-    assert refusal.value.code == 1 and "--detach goes with --repo or --research" in capsys.readouterr().err
+    assert refusal.value.code == 1 and "--detach goes with --repo, --research or --paper" in capsys.readouterr().err
     assert len(popen) == 1
