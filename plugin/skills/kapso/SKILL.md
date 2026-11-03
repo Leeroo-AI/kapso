@@ -126,7 +126,8 @@ kapso watch --config kapso-config.yaml                   # every campaign of thi
 ```
 
 Answer "how is it going" in three lines from `--json`: the state and phase with the
-iteration, the best score and its branch against the brief's baseline and target, the
+iteration, the best score and its branch against the brief's target (and its baseline
+when the brief states one), the
 budget left — the launch's minutes and experiments less what the status shows used,
 read from the launch record when the status does not carry them, never "not
 reported"; add what the last attempt consulted when the user asks what it is doing.

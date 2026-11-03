@@ -48,7 +48,7 @@ the fence.
 - **What won.** The delivered branch and commit, its score with the evaluation that
   produced it (the provenance: provided and protected, built by the campaign, or a
   registered version when the maintainer ran; without a version say "protected,
-  unversioned"), against the baseline, against the target (met or not, by how much).
+  unversioned"), against the brief's baseline when it states one, against the target (met or not, by how much).
 - **What changed.** The diff in outline: the files, the one or two ideas that carry
   the gain (from the attempt's idea and the judge's feedback), what stayed as it was.
 - **What was voided or rejected.** Each voided attempt with the verification

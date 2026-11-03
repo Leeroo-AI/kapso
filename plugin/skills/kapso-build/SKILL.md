@@ -1,6 +1,6 @@
 ---
 name: kapso-build
-description: Turn what the user wants built into a Kapso campaign — discover the repository's data, evaluation and domain in silence, write the brief (objective, how it is measured, baseline, target, rules, budget), get the evaluation approved through kapso-evaluation, and launch detached with the handoff. Use when the user says build X and verify it, I need Y that meets Z, improve W, make this pass the benchmark, get the metric above a number, ship a model that meets a bar, or runs /kapso:build. Do not use for a one-file change with an obvious fix, for operating a campaign already running (the kapso skill), or inside a Kapso campaign session.
+description: Turn what the user wants built into a Kapso campaign — discover the repository's data, evaluation and domain in silence, write the brief (objective, how it is measured, target, rules, budget), get the evaluation approved through kapso-evaluation, and launch detached with the handoff. Use when the user says build X and verify it, I need Y that meets Z, improve W, make this pass the benchmark, get the metric above a number, ship a model that meets a bar, or runs /kapso:build. Do not use for a one-file change with an obvious fix, for operating a campaign already running (the kapso skill), or inside a Kapso campaign session.
 ---
 
 # From a wish to a launched campaign
@@ -38,11 +38,13 @@ cards, a Leeroopedia key, an ingested index).
 
 Hand what you found to the `kapso-evaluation` skill (`/kapso:kapso-evaluation`),
 which owns the one thing the product promise rests on: an evaluation Kapso can
-protect. Its three branches: an evaluator found is audited against the contract and
-run once for the baseline; a criterion without an evaluator gets one built from the
-criterion and the data; neither gets candidate criteria proposed from the
-repository with their evidence, one recommended. This happens before the user hears
-anything, except the single approval it needs. When the user asks what the
+protect. Its three branches: an evaluator found is audited against the contract,
+read-only; a criterion without an evaluator gets one built from the criterion and
+the data; neither gets candidate criteria proposed from the repository with their
+evidence, one recommended. This happens before the user hears anything, except the
+single approval it needs, and none of it measures: nothing that calls a model, a GPU
+or a paid API, and nothing longer than a minute, runs before the approval. The
+campaign's first evaluation is the first measurement. When the user asks what the
 candidates were, the comparison goes in one fenced block (a table of the criteria,
 their evidence and figures), which the message's line budget exempts, and the prose
 around it is at most three lines — the recommendation and why, ending there with no
@@ -50,20 +52,23 @@ question: the user asked to see, and the one approval was already asked.
 
 ## 4. One message
 
-What was found (data, evaluator, baseline, domain), with the evidence each rests on
+What was found (data, evaluator, the bar, domain), with the evidence each rests on
 ("`evaluate.py` prints macro-F1 on `data/dev.csv`, 1,204 rows"); the brief as the
 file `kapso-brief.md`; the evaluation's protocol for approval when one was built or
-changed; and the single thing the user must confirm or edit. Short: the brief is the
-message, and the prose around its fence is at most ten lines in all — one line for
-each thing found (the data, the evaluator, the baseline, the domain), its evidence in
-that same line; when an evaluation was built or changed, two lines, what it measures
-and how it was checked; and the one line that asks the approval. The four findings
-are the message's worth and are never dropped for brevity: the data with its rows and
-label, the evaluator with what it prints on what, the baseline with the figure it
-measured, the domain with the harness loaded — each a fact the user did not have, with
-its figure or file. A baseline is a figure the evaluator printed in this session on the
-shipped model, never a number a comment, a README or a generator reports: "unmeasured"
-is a step skipped, not a finding. No headings, no sub-bullets, no paragraph, and never a
+changed; what one evaluation costs, in minutes and in paid calls, from the script's
+own statement or the user's; and the single thing the user must confirm or edit.
+Short: the brief is the message, and the prose around its fence is at most ten lines
+in all — one line for each thing found (the data, the evaluator, the bar, the domain),
+its evidence in that same line; when an evaluation was built or changed, two lines,
+what it measures and how it was checked; and the one line that asks the approval. The
+four findings are the message's worth and are never dropped for brevity: the data with
+its rows and label, the evaluator with what it prints on what and what one run costs,
+the bar the repository or the user states (a recorded run with its figure and its
+file; a README's number, named as a claim) or "none stated", the domain with the
+harness loaded — each a fact the user did not have, with its figure or file. Nothing
+is measured before the approval: no baseline run, no smoke that calls a model; every
+number in the message is one the repository recorded or the user gave, named as such.
+No headings, no sub-bullets, no paragraph, and never a
 line that cites this skill's or another skill's rules to the user: a line each. The brief, one field per line, indented lines
 continuing the field above:
 
@@ -71,7 +76,6 @@ continuing the field above:
 Objective    Raise the churn model's out-of-sample AUC above 0.85
              without changing the prediction contract.
 Measured by  evaluation/evaluate.py, ROC AUC on the held-out rows
-Baseline     0.797 (logistic regression, bootstrap SE 0.010)
 Target       0.85
 Rules
   - the evaluator is never modified
@@ -85,9 +89,11 @@ Experience   mine, leeroopedia
   whole brief reaches the judge, which stops the campaign only when the objective
   reads as fully achieved and scores every experiment from what the evaluation
   prints. So name the metric and a number, and the judge.
-- `Baseline` is measured when that is cheap, else `unknown`. `Target` is the user's,
-  or proposed with headroom below any ceiling you can see and the reasoning in one
-  line; a target the data cannot reach ends in the inbox, not in a result.
+- `Baseline` is written only when the user states one or the repository records one
+  (a recorded run, named with its file); it is never measured before the approval,
+  and the line is left out otherwise. `Target` is the user's, or proposed with
+  headroom below any ceiling you can see and the reasoning in one line; a target the
+  data cannot reach ends in the inbox, not in a result.
 - Rules go in, methods do not: the judge enforces data rules and prohibitions as
   invariants for the whole campaign, and would freeze a method preference the same
   way.
@@ -123,6 +129,9 @@ kapso build --brief kapso-brief.md --repo . --evaluation evaluation --data data 
 
 - The criterion comes from the user or the repository, never invented; every
   proposal carries its evidence.
+- Nothing runs before the approval that calls a model, a GPU or a paid API, or that
+  takes longer than a minute: the audit is read-only, and the campaign's first
+  evaluation is the first measurement.
 - Never says it cannot proceed; asks one question in all — the approval of the
   proposal, which states every choice it made (the criterion, the evaluation's split
   and metric, the target) as a default the user may change in their answer — and

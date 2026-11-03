@@ -1,6 +1,6 @@
 ---
 name: kapso-evaluation
-description: Give a Kapso build an evaluation it can protect — audit the evaluator the repository has against the contract, or build one from the success criterion and the data, run the baseline, and get the protocol approved in one message. Use when kapso-build hands over the repository's findings before a launch; called by kapso-build, never from a menu. Do not use on its own, for a campaign already running, or inside a Kapso campaign session.
+description: Give a Kapso build an evaluation it can protect — audit the evaluator the repository has against the contract, or build one from the success criterion and the data, and get the protocol approved in one message. Use when kapso-build hands over the repository's findings before a launch; called by kapso-build, never from a menu. Do not use on its own, for a campaign already running, or inside a Kapso campaign session.
 user-invocable: false
 ---
 
@@ -38,15 +38,18 @@ never "versioned".
 
 ## Three branches
 
-1. **An evaluator was found.** Read it against the contract; run it once for the
-   baseline in a copy of its directory (the directory passed with `--evaluation`
-   must hold no `result.json`, or the launch refuses it); list the gaps (a hold-out
-   inside the repository, a metric not printed, a split without a seed) and fix them
-   in a copy the user approves, never in silence.
+1. **An evaluator was found.** Read it against the contract without running it:
+   nothing that calls a model, a GPU or a paid API, and nothing longer than a minute,
+   runs before the approval (a failure path that needs no model, such as the exit on
+   a missing input, may be tried); list the gaps (a hold-out inside the repository, a
+   metric not printed, a split without a seed) and fix them in a copy the user
+   approves, never in silence; the directory passed with `--evaluation` must hold no
+   `result.json`, or the launch refuses it.
 2. **A criterion, no evaluator.** Build one from the criterion and the data: choose
    the split and the metric that match the criterion, write
    `kapso_evaluation/evaluate.py` with its `--fast` mode, put the hold-out under the
-   evaluation directory, run it for the baseline, and write the protocol in five
+   evaluation directory, check it without a model call when that takes under a
+   minute, and write the protocol in five
    lines (the data, the hold-out and the split rule, the seed, the metric's
    definition and how it is printed, what counts as a pass), naming the leakage
    checks run (time order, grouping, duplicates).
@@ -64,14 +67,16 @@ never "versioned".
 
 ## The approval message
 
-Inside `kapso-build`'s one message: the protocol, the baseline (or `unknown` and
-why), the file's path, and "approve, or edit a line". On approval the directory is
-passed with `--evaluation` and is protected from that moment; the brief's
-`Measured by` line names the script and the metric.
+Inside `kapso-build`'s one message: the protocol, what one run costs (its duration
+and its paid calls, from the script's own statement or the user's), the file's path,
+and "approve, or edit a line". On approval the directory is passed with
+`--evaluation` and is protected from that moment; the brief's `Measured by` line
+names the script and the metric, and the campaign's first evaluation is the first
+measurement.
 
 ## Rules
 
 - Proposes and builds; never changes the user's own evaluator without the approval.
-- The baseline runs in a copy, never where the launch will read.
+- Nothing runs before the approval; the first measurement is the campaign's own.
 - Hold-out labels never under `--data`; the protocol says where they are.
 - One approval message, carried by `kapso-build`; never a menu entry.
