@@ -82,6 +82,7 @@ from kapso.experience import (
 from kapso.experience.ingest import (
     check_name,
     ingest,
+    paper_location,
     paper_sources,
     repository_source,
     research_sources,
@@ -472,6 +473,7 @@ class Kapso:
         if repo:
             sources = repository_source(repo)
         elif paper:
+            paper = paper_location(paper)
             sources = paper_sources(paper, self._experience_settings)
         else:
             sources = research_sources(research, self._experience_settings, self.config_path)
