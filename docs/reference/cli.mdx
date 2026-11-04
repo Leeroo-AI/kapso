@@ -57,7 +57,7 @@ Runs an experiment campaign that meets a brief and returns the solution; writes 
 | `--detach` | Start the campaign in a session of its own and return at once with its pid, the log, the status path and the `watch` command. Needs `--output`. The run outlives the shell that started it, a coding agent's tool call included | off |
 | `--log` | Where a detached run's output goes | `<output>.log`, beside the campaign directory |
 | `-a`, `--coding-agent` | The host every role without a `cli` of its own runs on, with that host's model: an entry of the config's `hosts` table (`claude_code`, `codex`, `oss_claude_code`, `vertex_claude_code`: the adapters with a staging). Recorded in the launch record and fingerprinted, so a resume runs on the launch's host. The engine's own inference sessions (the repo memory, the commit messages) follow `inference.default` instead, Codex as packaged, whatever the host; an all-Claude run sets `inference.default.cli: claude_code` in its override file | `search_strategy.params.host`, `claude_code` as packaged |
-| `--config` | Your override file, layered over the packaged config; see [Configuration](/docs/reference/configuration) | the packaged defaults |
+| `--config` | Your override file, layered over the packaged config; see [Configuration](/docs/reference/configuration) | the packaged defaults; with `--resume` or `--stop`, the one the campaign launched with |
 
 A budget flag wins over the brief's `Budget` line; on a resume the launch record fills what is still unset, the experience included: a bare resume is served the sources the launch pinned, and a resume that names a different list is refused by name.
 

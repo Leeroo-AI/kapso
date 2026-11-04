@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from kapso.core.config import load_config
 from kapso.kapso import Kapso
@@ -80,7 +80,7 @@ def cmd_build(args) -> None:
         # experience the same, so a reference that names nothing, or a
         # source that is gone, refuses here with its line. A bare resume
         # takes both from the launch record, as the build will.
-        kapso = Kapso(config=args.config)
+        kapso = Kapso(config=_campaign_config(args))
         record = read_launch_record(campaign) if args.resume else None
         ref = _harness_reference(args, brief)
         if ref is None and record is not None and record.get("harness"):
@@ -106,7 +106,7 @@ def cmd_build(args) -> None:
         )
         return
 
-    kapso = Kapso(config=args.config)
+    kapso = Kapso(config=_campaign_config(args))
     _load_harness_or_exit(kapso, args, brief)
     for reference in _experience_references(args, brief):
         kapso.load_experience(reference)
@@ -161,7 +161,7 @@ def _stop(args) -> None:
             file=sys.stderr,
         )
         sys.exit(1)
-    budget = load_config(args.config)["budget"]
+    budget = load_config(_campaign_config(args))["budget"]
     grace, poll = float(budget["stop_grace_seconds"]), float(budget["stop_poll_seconds"])
     # The campaign's processes: the writer and everything under it (the
     # coding-agent CLIs run in sessions of their own, outside the writer's
@@ -182,6 +182,18 @@ def _stop(args) -> None:
     print(f"stopped the campaign at {campaign} (pid {pid})")
     print(f"  status:  {status_path}")
     print(f"  resume:  kapso build --output {campaign} --resume --detach")
+
+
+def _campaign_config(args) -> Optional[str]:
+    """The config a resume or a stop of the campaign in --output runs
+    with: --config when given, else the one its launch ran with (the
+    launch record keeps it absolute), so the bare `kapso build --output
+    <dir> --resume` every handoff prints is not refused for a config the
+    checkpoint fingerprints. A fresh build reads --config alone."""
+    if args.config is not None or not args.output or not (args.resume or args.stop):
+        return args.config
+    record = read_launch_record(Path(args.output).expanduser().resolve())
+    return record.get("config_path") if record is not None else None
 
 
 def _descendants(pid: int) -> List[int]:
