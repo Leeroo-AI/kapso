@@ -35,11 +35,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Load environment variables from .env file (if present)
-from dotenv import find_dotenv, load_dotenv
+from dotenv import find_dotenv
+from kapso.core.env_file import load_env_file
 # Resolve .env from the caller's CWD upward. The no-arg default anchors at
 # THIS file's directory — site-packages in a pip install — so the .env the
 # README tells users to create next to their project was never read.
-load_dotenv(find_dotenv(usecwd=True))
+load_env_file(find_dotenv(usecwd=True))
 
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.execution.observability import (
@@ -1218,6 +1219,9 @@ class Kapso:
             return Launch(pid=pid, log=str(log_path), status=str(Path(output_path) / ".kapso" / "status.json"))
         checkpoint = None
         record = None
+        # The .env this campaign reads: the one found from here at a
+        # launch, the launch's own on a resume (below).
+        campaign_dotenv = find_dotenv(usecwd=True)
         if resume:
             self._validate_resume_workspace(output_path)
             self._refuse_a_live_campaign(output_path, "stop before resuming")
@@ -1251,10 +1255,14 @@ class Kapso:
             # mismatch from the checkpoint.
             record = read_launch_record(output_path)
             if record is not None:
-                # The campaign's own .env, from wherever the resume runs;
-                # the process environment keeps precedence.
+                # The campaign's own .env, from wherever the resume runs:
+                # it replaces what the .env found from here set, and the
+                # shell's own variables keep precedence. A launch that
+                # found none keeps the one found from here, the file its
+                # inbox prompt tells the person to create.
                 if record.get("dotenv_path"):
-                    load_dotenv(record["dotenv_path"])
+                    campaign_dotenv = record["dotenv_path"]
+                    load_env_file(campaign_dotenv)
                 # The budget a resume asks for is the caller's own, a field
                 # left None keeping the launch's (the Budget contract); the
                 # brief-merged figures above would pass the checkpoint
@@ -1399,7 +1407,7 @@ class Kapso:
                 host_for(coding_agent)   # a host with no staging is refused here, not inside the first session
             # A variable put in .env since this process started reaches the
             # sessions, as the prerequisite check above already counted it.
-            load_dotenv(find_dotenv(usecwd=True))
+            load_env_file(campaign_dotenv)
             overrode = self._harness is not None and bool(brief.harness) and not _same_reference(brief.harness, harness)
             print(
                 f"  Harness: {harness.label()} from {harness.source}"
@@ -1779,8 +1787,7 @@ class Kapso:
             )
             # Everything else a resume needs comes from the launch record,
             # its .env included: a reply may run far from the launch directory.
-            if record.get("dotenv_path"):
-                load_dotenv(record["dotenv_path"])
+            load_env_file(record.get("dotenv_path", ""))
             # Your bank where the launch had it (`Kapso(bank=)`): the record's
             # `mine` entry names its home, absolute.
             mine = next((entry for entry in record.get("experience", []) if entry["reference"] == MINE), None)
