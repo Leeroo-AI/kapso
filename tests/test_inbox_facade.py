@@ -22,7 +22,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import git
 import pytest
@@ -31,6 +31,7 @@ from kapso.core.config import load_config
 from tests.handles_support import facade
 from tests.harness_support import fake_config
 import kapso.kapso as kapso_module
+from kapso.core import env_file
 from kapso.core.config import ConfigError
 from kapso.execution import observability
 from kapso.execution.inbox import (
@@ -177,7 +178,7 @@ def test_resume_and_reply_load_the_campaigns_dotenv(tmp_path, monkeypatch):
     write_launch_record(workspace, {**{k: v for k, v in record.items() if k != "schema_version"},
                                     "eval_dir": None, "dotenv_path": str(dotenv)})
     loaded: List[str] = []
-    monkeypatch.setattr(kapso_module, "load_dotenv", lambda path: loaded.append(path))
+    monkeypatch.setattr(kapso_module, "load_env_file", lambda path: loaded.append(path))
 
     # A reply, before the agent is even constructed (its knowledge index
     # may need a key), and a resume, before preflight.
@@ -189,11 +190,89 @@ def test_resume_and_reply_load_the_campaigns_dotenv(tmp_path, monkeypatch):
 
     monkeypatch.undo()
     loaded.clear()
-    monkeypatch.setattr(kapso_module, "load_dotenv", lambda path: loaded.append(path))
+    monkeypatch.setattr(kapso_module, "load_env_file", lambda path: loaded.append(path))
     monkeypatch.setattr(kapso_module, "run_preflight", lambda *args, **kwargs: None)
     _fake_orchestrator(workspace, monkeypatch)
     _facade(tmp_path / "registry.jsonl").build(output=str(workspace), resume=True)
     assert loaded == [str(dotenv)]
+
+
+KEY = "KAPSO_TEST_CAMPAIGN_KEY"
+
+
+def _sessions_key(workspace: Path, monkeypatch) -> List[Optional[str]]:
+    """The fake orchestrator, recording the key as the sessions would see
+    it: in the environment when solve() starts."""
+    _fake_orchestrator(workspace, monkeypatch)
+    base = kapso_module.OrchestratorAgent
+    seen: List[Optional[str]] = []
+
+    class Recording(base):
+        def solve(self, *args, **kwargs):
+            seen.append(os.environ.get(KEY))
+            return super().solve(*args, **kwargs)
+
+    monkeypatch.setattr(kapso_module, "OrchestratorAgent", Recording)
+    return seen
+
+
+def _launched_from_its_own_env(tmp_path, monkeypatch) -> Path:
+    """A paused campaign whose launch found `launch-dir/.env`, and a fresh
+    process in `elsewhere`, a project with a `.env` of its own: what Kapso
+    loads at import there has been loaded. A host plugin replies from the
+    host session's directory, never the launch's."""
+    workspace = _paused_campaign(tmp_path)
+    _status(workspace, "done")
+    (tmp_path / "launch-dir").mkdir()
+    (tmp_path / "launch-dir" / ".env").write_text(f"{KEY}=from-the-launch\n")
+    _patch_launch(workspace, eval_dir=None, dotenv_path=str(tmp_path / "launch-dir" / ".env"))
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / ".env").write_text(f"{KEY}=from-another-project\n")
+    monkeypatch.chdir(tmp_path / "elsewhere")
+    monkeypatch.delenv(KEY, raising=False)
+    monkeypatch.setattr(env_file, "_SET_BY_ENV_FILE", {})
+    env_file.load_env_file(str(tmp_path / "elsewhere" / ".env"))
+    monkeypatch.setattr(Kapso, "__init__", lambda self, config=None, bank=None: self.__dict__.update(
+        vars(_facade(tmp_path / "registry.jsonl"))))
+    return workspace
+
+
+@pytest.mark.parametrize("how", ["reply", "resume"])
+def test_a_resume_from_another_project_runs_on_the_campaigns_env(tmp_path, monkeypatch, how):
+    """The inbox prompt names the launch's `.env` as the file a fix goes
+    in; a resume run from a project with its own `.env` handed the
+    sessions that project's value instead."""
+    workspace = _launched_from_its_own_env(tmp_path, monkeypatch)
+    seen = _sessions_key(workspace, monkeypatch)
+    if how == "reply":
+        Kapso.reply(str(workspace), 1, "added the key")
+    else:
+        Kapso().build(output=str(workspace), resume=True)
+    assert seen == ["from-the-launch"]
+
+
+def test_the_shell_still_wins_over_the_campaigns_env(tmp_path, monkeypatch):
+    workspace = _launched_from_its_own_env(tmp_path, monkeypatch)
+    monkeypatch.setenv(KEY, "from-the-shell")
+    seen = _sessions_key(workspace, monkeypatch)
+    Kapso.reply(str(workspace), 1, "added the key")
+    assert seen == ["from-the-shell"]
+
+
+def test_a_value_fixed_in_the_env_reaches_a_reply_from_the_same_process(tmp_path, monkeypatch):
+    """A notebook in the launch directory loaded the placeholder at import;
+    the person fixes it in `.env`, as the request asked, and replies from
+    the same process. The placeholder used to stay."""
+    workspace = _launched_from_its_own_env(tmp_path, monkeypatch)
+    dotenv = tmp_path / "launch-dir" / ".env"
+    monkeypatch.chdir(dotenv.parent)
+    monkeypatch.setattr(env_file, "_SET_BY_ENV_FILE", {})
+    monkeypatch.delenv(KEY)
+    env_file.load_env_file(str(dotenv))
+    dotenv.write_text(f"{KEY}=the-real-key\n")
+    seen = _sessions_key(workspace, monkeypatch)
+    Kapso.reply(str(workspace), 1, "fixed the value")
+    assert seen == ["the-real-key"]
 
 
 def test_a_callback_makes_the_campaign_not_resumable_from_the_inbox(tmp_path, monkeypatch):
