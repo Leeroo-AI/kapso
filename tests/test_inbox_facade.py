@@ -28,8 +28,10 @@ import git
 import pytest
 
 from kapso.core.config import load_config
+from kapso.cli import main
 from tests.handles_support import facade
 from tests.harness_support import fake_config
+import kapso.cli.build as build_cli
 import kapso.kapso as kapso_module
 from kapso.core import env_file
 from kapso.core.config import ConfigError
@@ -273,6 +275,42 @@ def test_a_value_fixed_in_the_env_reaches_a_reply_from_the_same_process(tmp_path
     seen = _sessions_key(workspace, monkeypatch)
     Kapso.reply(str(workspace), 1, "fixed the value")
     assert seen == ["the-real-key"]
+
+
+TOKEN = "KAPSO_TEST_HARNESS_TOKEN"
+
+
+def test_a_detached_resume_from_elsewhere_counts_the_campaigns_env(monkeypatch, tmp_path):
+    """The check before the fork counted only the `.env` found where the
+    command runs, so a detached resume from another directory was refused
+    for a variable the campaign's `.env` holds, while the foreground
+    resume, which reads that `.env` first, ran."""
+    harness = tmp_path / "harness"
+    (harness / "instructions").mkdir(parents=True)
+    (harness / "instructions" / "guardrails.md").write_text("Stay inside the workspace.\n")
+    (harness / "harness.yaml").write_text(
+        "schema_version: 1\nname: tokened\nversion: 0.1.0\ndescription: needs a token\n"
+        "modules:\n  implementation:\n    mcp_servers: [api]\n"
+    )
+    (harness / "mcp.json").write_text(json.dumps({"mcpServers": {"api": {
+        "type": "http", "url": "https://api.example.com/mcp", "headers": {"Authorization": f"${{{TOKEN}}}"},
+    }}}))
+    (tmp_path / "launch-dir").mkdir()
+    (tmp_path / "launch-dir" / ".env").write_text(f"{TOKEN}=from-the-launch\n")
+    campaign = tmp_path / "launch-dir" / "campaign"
+    write_launch_record(campaign, {
+        "harness": {"source": str(harness)}, "config_path": None, "eval_dir": None, "data_dir": None,
+        "dotenv_path": str(tmp_path / "launch-dir" / ".env"),
+    })
+    (tmp_path / "elsewhere").mkdir()
+    monkeypatch.chdir(tmp_path / "elsewhere")
+    monkeypatch.delenv(TOKEN, raising=False)
+    monkeypatch.setattr(env_file, "_SET_BY_ENV_FILE", {})
+    forks = []
+    monkeypatch.setattr(build_cli, "_detach", lambda *args, **kwargs: forks.append(args))
+    monkeypatch.setattr(sys, "argv", ["kapso", "build", "--output", str(campaign), "--resume", "--detach"])
+    main()
+    assert len(forks) == 1 and os.environ[TOKEN] == "from-the-launch"
 
 
 def test_a_callback_makes_the_campaign_not_resumable_from_the_inbox(tmp_path, monkeypatch):

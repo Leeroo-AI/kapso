@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from kapso.core.config import load_config
+from kapso.core.env_file import load_env_file
 from kapso.kapso import Kapso
 from kapso.handles import Brief, Budget
 from kapso.execution.inbox import launch_receipt_path, read_launch_record
@@ -85,6 +86,9 @@ def cmd_build(args) -> None:
         ref = _harness_reference(args, brief)
         if ref is None and record is not None and record.get("harness"):
             ref = record["harness"]["source"]
+        if record is not None:
+            # The check counts the campaign's .env, as the child's will.
+            load_env_file(record.get("dotenv_path", ""))
         if ref is not None:
             _load_harness_or_exit(kapso, args, brief, ref=ref)
         references = _experience_references(args, brief)
