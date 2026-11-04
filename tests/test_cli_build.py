@@ -11,15 +11,20 @@ import signal
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 import kapso.cli.build as build_cli
+import kapso.kapso as kapso_module
 from kapso.cli import build_parser, main
 from kapso.execution import observability
-from kapso.execution.inbox import CampaignRunningError, launch_receipt_path
+from kapso.execution.inbox import CampaignRunningError, launch_receipt_path, write_launch_record
+from kapso.execution.orchestrator import SolveResult
+from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore, config_fingerprint
 from kapso.handles import Brief, Budget
+from tests.handles_support import git_workspace
 
 FACADE_KWARGS = {"evaluation", "data", "repo", "output", "resume", "coding_agent"}
 BUDGET_FIELDS = {"budget_minutes": "minutes", "budget_experiments": "experiments",
@@ -351,3 +356,86 @@ def test_the_files_beside_a_campaign_follow_a_bare_dot_to_the_directory_it_stand
     assert launch_receipt_path(Path(".")) == tmp_path / "campaign.launch.json"
     assert build_cli._default_log(Path(".")) == tmp_path / "campaign.log"
     assert launch_receipt_path(campaign) == tmp_path / "campaign.launch.json"
+
+
+def _launched_with_a_config(campaign, config) -> None:
+    """A campaign whose launch ran with `--config`: its record keeps the
+    path absolute, as every launch writes it."""
+    config.write_text("budget:\n  stop_grace_seconds: 1\n")
+    write_launch_record(campaign, {"config_path": str(config), "eval_dir": None, "data_dir": None})
+
+
+def test_a_bare_resume_runs_with_the_launchs_config_and_a_flag_still_wins(monkeypatch, tmp_path):
+    """Every handoff prints `kapso build --output <dir> --resume`; with the
+    packaged config in its place the checkpoint refused that resume for a
+    changed config."""
+    campaign = tmp_path / "campaign"
+    _launched_with_a_config(campaign, tmp_path / "launch.yaml")
+    constructor, _ = _mock_facade(monkeypatch)
+    _run(monkeypatch, "--output", str(campaign), "--resume")
+    assert constructor.call_args.kwargs["config"] == str(tmp_path / "launch.yaml")
+
+    _run(monkeypatch, "--output", str(campaign), "--resume", "--config", "mine.yaml")
+    assert constructor.call_args.kwargs["config"] == "mine.yaml"
+
+    monkeypatch.setattr(build_cli, "_detach", lambda *args, **kwargs: None)
+    _run(monkeypatch, "--output", str(campaign), "--resume", "--detach")
+    assert constructor.call_args.kwargs["config"] == str(tmp_path / "launch.yaml")
+
+    # A fresh build never reads a record; a campaign without one is the packaged config's.
+    _run(monkeypatch, "--goal", "g", "--output", str(campaign))
+    assert constructor.call_args.kwargs["config"] is None
+    _run(monkeypatch, "--output", str(tmp_path / "unrecorded"), "--resume")
+    assert constructor.call_args.kwargs["config"] is None
+
+
+def test_a_bare_resume_of_a_campaign_launched_with_a_config_runs(monkeypatch, tmp_path):
+    """Through the real facade, from another directory, with only the
+    orchestrator stubbed: launch with `--config`, then the bare resume."""
+    campaign = tmp_path / "campaign"
+    git_workspace(campaign)
+    (tmp_path / "launch.yaml").write_text(f'inbox:\n  registry: "{tmp_path / "registry.jsonl"}"\n')
+    solves = []
+
+    class Orchestrator:
+        def __init__(self, handler, **kwargs):
+            self.search_strategy = SimpleNamespace(
+                workspace=SimpleNamespace(workspace_dir=str(campaign)),
+                get_experiment_history=lambda: [], get_deliverable_experiment=lambda: None,
+                get_deliverable_score=lambda: None, checkout_to_best_experiment_branch=lambda: None,
+            )
+            self.operation_status = SimpleNamespace(path="fake/.kapso/status.json")
+
+        def solve(self, experiment_max_iter, finish=None, **kwargs):
+            solves.append(experiment_max_iter)
+            result = SolveResult(best_experiment=None, final_feedback=None, stopped_reason="max_iterations",
+                                 iterations_run=1, total_cost=0.0)
+            finish(result)
+            return result
+
+    monkeypatch.setattr(kapso_module, "OrchestratorAgent", Orchestrator)
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "--goal", "g", "--output", "campaign", "--config", "launch.yaml", "--coding-agent", "codex",
+         "--budget-experiments", "3")
+    RunCheckpointStore(str(campaign)).save(RunCheckpoint.create(
+        strategy_type="generic", goal=Brief(objective="g").render(), config_fingerprint=config_fingerprint({"m": 1}),
+        status="running", completed_iterations=1, cumulative_cost=0.0, current_feedback=None,
+        strategy_state={"node_history": []}, last_stop="time_budget",
+    ))
+    (tmp_path / "elsewhere").mkdir()
+    monkeypatch.chdir(tmp_path / "elsewhere")
+    _run(monkeypatch, "--output", str(campaign), "--resume")
+    assert solves == [3, 3]
+
+
+def test_a_bare_stop_waits_the_launchs_grace(monkeypatch, tmp_path, capsys):
+    campaign = tmp_path / "campaign"
+    child, status = _writer(campaign)
+    _launched_with_a_config(campaign, tmp_path / "launch.yaml")
+    read = []
+    real = build_cli.load_config
+    monkeypatch.setattr(build_cli, "load_config", lambda path=None: read.append(path) or real(path))
+    _run(monkeypatch, "--output", str(campaign), "--stop")
+    assert "stopped the campaign" in capsys.readouterr().out
+    child.wait()
+    assert read[-1] == str(tmp_path / "launch.yaml")   # the parser's help reads the packaged one first
