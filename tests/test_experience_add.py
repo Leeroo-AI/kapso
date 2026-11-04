@@ -67,7 +67,7 @@ def ingestion(monkeypatch, tmp_path):
             captured["index_builder"](wiki_dir=str(wiki), save_to=str(wiki / ".index"))
             return SimpleNamespace(total_pages_extracted=2, created=2, edited=0, errors=[])
 
-    def create(search_type, params):
+    def create(search_type, params, preset=None):
         search = FakeSearch(params)
         captured["searches"].append((search_type, search))
         return search

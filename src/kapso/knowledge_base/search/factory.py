@@ -163,16 +163,12 @@ class KnowledgeSearchFactory:
         
         Priority (highest to lowest):
         1. params (explicit overrides)
-        2. preset params
+        2. preset params (default_preset when none is named)
         3. config defaults
         """
         # Start with defaults from config
         resolved = cls.get_defaults(search_type)
-        
-        # Apply preset params
-        if preset:
-            preset_params = cls.get_preset_params(search_type, preset)
-            resolved.update(preset_params)
+        resolved.update(cls.get_preset_params(search_type, preset or cls.get_default_preset(search_type)))
         
         # Apply explicit overrides
         if params:
@@ -200,7 +196,7 @@ class KnowledgeSearchFactory:
         presets = s_config.get("presets", {})
         
         if preset not in presets:
-            return {}
+            raise ValueError(f"unknown preset {preset!r} for {search_type!r}: {sorted(presets)}")
         
         return presets[preset].get("params", {}).copy()
     

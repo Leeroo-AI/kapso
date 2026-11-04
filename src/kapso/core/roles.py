@@ -46,7 +46,7 @@ CONFIG_PARAMS = frozenset({
 })
 # What the engine threads in at launch, never a file's.
 ENGINE_PARAMS = frozenset({
-    "bank_serving", "experience_intro_path", "kg_index_path", "hosted", "inbox",
+    "bank_serving", "experience_intro_path", "kg_index_path", "kg_config_path", "hosted", "inbox",
     "experiment_history_path",
 })
 ORIGIN = "search_strategy.params"

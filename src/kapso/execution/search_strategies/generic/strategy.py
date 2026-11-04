@@ -355,6 +355,7 @@ class GenericSearch(SearchStrategy):
         # The loaded index's record for the wiki-search gates (an ingest
         # writes it; the facade threads it per campaign).
         self.kg_index_path = self.params.get("kg_index_path")
+        self.kg_config_path = self.params.get("kg_config_path")
         # Durable-archive recovery root for the registered evaluation (glob
         # of run archive parents, e.g. "tmp/relbench/*/runs"). None disables
         # archive recovery; the live-process wait still applies.
@@ -1143,6 +1144,7 @@ class GenericSearch(SearchStrategy):
             gate_failure_policy=self.gate_failure_policy,
             bank_serving=self.bank_serving,
             kg_index_path=self.kg_index_path,
+            kg_config_path=self.kg_config_path,
             hosted=self.hosted,
             web=self.ideation_role.web,
             run_ensemble=self._generate_solution_ensemble,
@@ -1378,6 +1380,7 @@ class GenericSearch(SearchStrategy):
             gate_failure_policy=self.gate_failure_policy,
             bank_serving=self.bank_serving,
             kg_index_path=self.kg_index_path,
+            kg_config_path=self.kg_config_path,
             hosted=self.hosted,
             implementation_role=self.implementation_role,
             implementation_fallback_model=self.implementation_fallback_model,

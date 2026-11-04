@@ -14,6 +14,7 @@ Environment Variables:
     KG_INDEX_PATH: Path to .index file for KG configuration
 """
 
+import argparse
 import logging
 import os
 from pathlib import Path
@@ -217,11 +218,17 @@ async def run_server(
 
 
 def main():
-    """CLI entry point."""
+    """CLI entry point. `--config` is the config the wiki-search gates build
+    their backend from; absent, the packaged defaults."""
     import asyncio
     
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config")
+    args = parser.parse_args()
+    gate_params = {gate: {"config_path": args.config} for gate in ("kg", "idea", "code")}
+    
     try:
-        asyncio.run(run_server())
+        asyncio.run(run_server(gate_params))
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
     except Exception as e:

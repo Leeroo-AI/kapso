@@ -986,6 +986,8 @@ class KGGraphSearch(KnowledgeSearch):
         
         # Resolve use_llm_reranker: parameter override > instance setting
         should_rerank = use_llm_reranker if use_llm_reranker is not None else self.use_llm_reranker
+        if should_rerank and self._llm_backend is None:
+            raise ValueError("a rerank was requested but this backend was built with use_llm_reranker=False")
         
         # Semantic search in Weaviate (get more results for reranking)
         search_top_k = filters.top_k * 2 if should_rerank else filters.top_k
@@ -999,7 +1001,7 @@ class KGGraphSearch(KnowledgeSearch):
         results = self._semantic_search(query, search_filters)
         
         # LLM reranking if enabled (check resolved should_rerank value)
-        if should_rerank and self._llm_backend and len(results) > 0:
+        if should_rerank and len(results) > 0:
             results = self._rerank_results(query, results, filters.top_k)
         
         # Enrich with Neo4j connections if enabled
@@ -1087,33 +1089,28 @@ Only include pages that would actually help answer the query.
 
 <output_order>YOUR_COMMA_SEPARATED_INDICES_HERE</output_order>"""
 
-        try:
-            response = self._llm_backend.llm_completion_with_system_prompt(
-                system_prompt=system_prompt,
-                user_message=user_message,
-                role="kg_rerank",
-            )
-            
-            # Parse response - extract indices
-            indices = self._parse_rerank_response(response, len(results))
-            
-            # Reorder results based on LLM ranking
-            reranked = []
-            for idx in indices[:top_k]:
-                if 0 <= idx < len(results):
-                    # Update score based on rerank position
-                    result = results[idx]
-                    # New score: weighted combination of semantic score and rank position
-                    rank_score = 1.0 - (len(reranked) * 0.1)  # Decay by position
-                    result.score = max(0.1, min(1.0, (result.score + rank_score) / 2))
-                    reranked.append(result)
-            
-            logger.info(f"Reranked {len(results)} results -> {len(reranked)}")
-            return reranked
-            
-        except Exception as e:
-            logger.warning(f"Reranking failed, using original order: {e}")
-            return results[:top_k]
+        response = self._llm_backend.llm_completion_with_system_prompt(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            role="kg_rerank",
+        )
+        
+        # Parse response - extract indices
+        indices = self._parse_rerank_response(response, len(results))
+        
+        # Reorder results based on LLM ranking
+        reranked = []
+        for idx in indices[:top_k]:
+            if 0 <= idx < len(results):
+                # Update score based on rerank position
+                result = results[idx]
+                # New score: weighted combination of semantic score and rank position
+                rank_score = 1.0 - (len(reranked) * 0.1)  # Decay by position
+                result.score = max(0.1, min(1.0, (result.score + rank_score) / 2))
+                reranked.append(result)
+        
+        logger.info(f"Reranked {len(results)} results -> {len(reranked)}")
+        return reranked
     
     def _parse_rerank_response(self, response: str, max_idx: int) -> List[int]:
         """Parse LLM reranking response to extract indices from <output_order> tags."""

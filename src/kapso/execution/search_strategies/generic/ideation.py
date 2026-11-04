@@ -182,6 +182,7 @@ def generate_solution(
     gate_failure_policy: str,
     bank_serving: Optional[Dict[str, str]] = None,
     kg_index_path: Optional[str] = None,
+    kg_config_path: Optional[str] = None,
     hosted: Optional[Dict[str, Any]] = None,
     web: bool,
     run_ensemble: Callable[..., Tuple[List[str], List[str], Dict[str, float]]],
@@ -220,6 +221,7 @@ def generate_solution(
             gate_failure_policy=gate_failure_policy,
             bank_serving=bank_serving,
             kg_index_path=kg_index_path,
+            config_path=kg_config_path,
             hosted=hosted,
             # One config for the phase's sessions: its members' reads are
             # attributed to the phase (`ideation/iter<n>`).

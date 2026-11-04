@@ -100,7 +100,7 @@ def test_a_lane_recovers_only_its_own_sessions_archive(tmp_path, monkeypatch):
     stub.__dict__.update(
         expansion_lane_env=None, workspace=None, llm=None,
         registered_evaluation_manifest=None, implementation_gates=[],
-        gate_failure_policy="skip", bank_serving=None, kg_index_path=None, hosted=None,
+        gate_failure_policy="skip", bank_serving=None, kg_index_path=None, kg_config_path=None, hosted=None,
         implementation_role=SessionRole(name="implementation", cli="claude_code", model="m", effort=None, timeout=None, web=False),
         implementation_fallback_model=None, env_strip=[], env_defaults={},
         previous_errors=[], recent_error_count=3,

@@ -160,14 +160,14 @@ class WorkflowRepoSearch:
     def __init__(
         self,
         kg_search: Optional["KGGraphSearch"] = None,
-        use_llm_reranker: bool = True,
+        use_llm_reranker: Optional[bool] = None,
     ):
         """
         Initialize WorkflowRepoSearch.
         
         Args:
             kg_search: Existing KGGraphSearch instance (creates via factory if None)
-            use_llm_reranker: Whether to use LLM for reranking results
+            use_llm_reranker: Whether to use LLM for reranking results; None follows the backend
         """
         # Use factory to get params from config
         if kg_search is None:

@@ -33,13 +33,14 @@ _index_metadata = None
 _index_data_source: Optional[str] = None
 
 
-def get_kg_search_backend():
+def get_kg_search_backend(config_path: Optional[str] = None):
     """
     Get or create the KGGraphSearch backend singleton.
     
     Thread-safe lazy initialization. The backend is configured from:
     1. KG_INDEX_PATH env var (if set, reads .index file for config)
-    2. Default kg_graph_search backend
+    2. The config at `config_path` (None: the packaged defaults): its
+       preset and its models, retry and inference blocks
     
     Returns:
         KGGraphSearch instance
@@ -58,7 +59,8 @@ def get_kg_search_backend():
             return _kg_search_backend
         
         try:
-            from kapso.knowledge_base.search.factory import KnowledgeSearchFactory
+            from kapso.core.config import load_config
+            from kapso.experience.ingest import search_from_refs
             from kapso.knowledge_base.search.base import KGIndexMetadata
             
             # Check for index file configuration
@@ -89,7 +91,7 @@ def get_kg_search_backend():
             
             # Create the backend
             logger.info(f"Creating KGGraphSearch backend: {backend_type}")
-            _kg_search_backend = KnowledgeSearchFactory.create(backend_type, params=backend_refs)
+            _kg_search_backend = search_from_refs(backend_type, backend_refs, load_config(config_path))
             logger.info("KGGraphSearch backend initialized successfully")
             
             return _kg_search_backend

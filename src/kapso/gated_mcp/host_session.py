@@ -360,7 +360,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     os.environ["MCP_ENABLED_GATES"] = ",".join(gates.enabled)
     os.environ["MCP_GATE_FAILURE_POLICY"] = "error"
     asyncio.run(run_server(
-        gate_params={"campaign": {"config_path": config_path, "cwd": str(root)}},
+        gate_params={
+            "campaign": {"config_path": config_path, "cwd": str(root)},
+            **{gate: {"config_path": config_path} for gate in INDEX_GATES},
+        },
         instructions=session_brief(gates.enabled, notes, gates.env.get("KAPSO_SERVING_INTRO")),
     ))
 

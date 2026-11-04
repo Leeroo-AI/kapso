@@ -38,26 +38,37 @@ def collection_name(name: str, index_id: str) -> str:
     return f"Kapso{words}{index_id}"
 
 
-def search_params(config: Dict[str, Any], name: str, index_id: str) -> Dict[str, Any]:
-    """The graph backend's parameters for one index: the config's
-    `knowledge_search.params` with the models, retry and inference blocks
-    the backend needs, and the index's own namespace over them."""
+def backend_params(config: Dict[str, Any]) -> Dict[str, Any]:
+    """The config's `knowledge_search.params` with the models, retry and
+    inference blocks the backend needs."""
     params = dict(config["knowledge_search"]["params"])
     params.setdefault("models", config["models"])
     params.setdefault("retry", config["retry"])
     params.setdefault("inference", config["inference"])
+    return params
+
+
+def search_params(config: Dict[str, Any], name: str, index_id: str) -> Dict[str, Any]:
+    """The graph backend's parameters for one index: the backend's, and the
+    index's own namespace over them."""
+    params = backend_params(config)
     params["weaviate_collection"] = collection_name(name, index_id)
     params["corpus"] = index_id
     return params
 
 
+def search_from_refs(search_backend: str, backend_refs: Dict[str, Any], config: Dict[str, Any]):
+    """The search backend an index names, connected: its backend references
+    over the config's parameters and preset, the way the index was built."""
+    return KnowledgeSearchFactory.create(
+        search_type=search_backend,
+        params={**backend_params(config), **backend_refs},
+        preset=config["knowledge_search"]["preset"],
+    )
+
+
 def search_for(record: IndexRecord, config: Dict[str, Any]):
-    """The search backend an index record names, connected: the record's
-    backend references over the config's parameters, the way the index
-    was built."""
-    params = search_params(config, record.name, record.id)
-    params.update(record.backend_refs)
-    return KnowledgeSearchFactory.create(search_type=record.search_backend, params=params)
+    return search_from_refs(record.search_backend, record.backend_refs, config)
 
 
 def check_name(name: Optional[str], store: ExperienceStore) -> str:

@@ -39,37 +39,11 @@ SEARCH_BACKEND = "kg_graph_search"
 load_dotenv(find_dotenv(usecwd=True))
 
 
-class RerankFailed(RuntimeError):
-    """A rerank call failed; scoring it would silently measure no reranker."""
-
-
-class FailLoudReranker:
-    """Wraps the rerank LLM backend; remembers if its last call finished.
-
-    KGGraphSearch._rerank_results swallows any error from the backend and
-    returns the original order, which would score a failed run as the
-    "reranker off" arm. The wrapper cannot stop that swallow, but it leaves
-    a flag the caller checks right after the rerank.
-    """
-
-    def __init__(self, backend):
-        self.backend = backend
-        self.last_call_completed = False
-
-    def llm_completion_with_system_prompt(self, **kwargs):
-        self.last_call_completed = False
-        response = self.backend.llm_completion_with_system_prompt(**kwargs)
-        self.last_call_completed = True
-        return response
-
-
 class KGRetriever:
     """The retrieval operations the arm loop needs, over a KGGraphSearch."""
 
     def __init__(self, search):
         self.search = search
-        self.reranker = FailLoudReranker(search._llm_backend)
-        search._llm_backend = self.reranker
 
     def top(self, query, top_k):
         """What the product returns with the reranker off."""
@@ -89,11 +63,7 @@ class KGRetriever:
         """Rerank a copy of the pool, so every run starts from the same scores."""
         if not pool:
             return []
-        candidates = copy.deepcopy(pool)
-        results = self.search._rerank_results(query, candidates, top_k)
-        if not self.reranker.last_call_completed:
-            raise RerankFailed(f"rerank call failed for query {query!r}")
-        return results
+        return self.search._rerank_results(query, copy.deepcopy(pool), top_k)
 
 
 def check_isolated(search_params):
