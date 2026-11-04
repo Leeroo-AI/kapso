@@ -17,19 +17,25 @@ was removed and that arm with it.
   confuse. Six Implementation pages have 600-1000 character overviews that open
   with a generic class description and put their distinguishing options late;
   the others are 100-200 characters.
-- **Labels** (`labels/queries.jsonl`): 30 plain-language queries, one object per
-  line: `id`, `query`, `relevant` (page ids), and `stress` when the target page
-  is one of the long-overview pages. Queries never use a technique, page-title
-  or library name.
+- **Labels** (`labels/queries.jsonl`): 40 queries, one object per line: `id`,
+  `query`, `relevant` (page ids), `stress` when the target page is one of the
+  long-overview pages, and `style`. 30 are `plain` (the default): a need
+  described without naming a technique, page title or library. 10 are `named`
+  (`n01`-`n10`): short agent-style asks of 4-8 words that name the technique,
+  library or parameter, such as "LoRA target_modules for Llama attention
+  layers". Five named queries share their exact target pages with a plain
+  query, which makes five plain/named pairs: the same page asked both ways.
 - **Arms** (`config.yaml`): `off` and `on`. For each query the runner fetches
   the candidate pool once and scores every arm on that same pool. An LLM rerank
   varies from call to call, so each reranking arm is sampled `rerank_runs` times
   on that pool.
-- **Reported, overall and on the stress subset**: recall@k for each k in
+- **Reported, overall, on the stress subset, per style (`plain`, `named`) and
+  on the plain and named halves of the pairs**: recall@k for each k in
   `ks`, MRR, the mean number of results returned, and the pool's own
   recall@`candidate_pool_size`, which is the most any reranker could reach.
   Reranking arms show the mean over the runs with the min-max range, and the
-  report lists the queries whose target rank changed between runs.
+  report lists the queries whose target rank changed between runs. A table
+  lists each pair's target rank, off and on, for the plain and the named query.
 
 ## Running it
 
@@ -80,8 +86,8 @@ It indexes the corpus with the repo's own indexer, scores the arms and writes
 aborts the run: `kg_graph_search` normally falls back to the unranked order,
 which would otherwise be scored as the `off` arm.
 
-Cost: one rerank session per query, per reranking arm, per run, so 90 sessions
-for the current 30 queries, one reranking arm and `rerank_runs: 3`. The `off`
+Cost: one rerank session per query, per reranking arm, per run, so 120 sessions
+for the current 40 queries, one reranking arm and `rerank_runs: 3`. The `off`
 arm makes no LLM calls.
 Remove the eval Neo4j with `docker rm -f kapso-eval-neo4j`.
 
@@ -109,12 +115,9 @@ Remove the eval Neo4j with `docker rm -f kapso-eval-neo4j`.
   k=3; MRR and recall@1 carry the signal.
 - Five stress queries are too few for a confident difference; read that subset
   as a pointer, not a verdict.
-- Queries avoid technique names on purpose, while agents often name them. The
-  eval measures meaning-based retrieval, not keyword matching.
+- Ten named queries and five pairs are too few for a confident difference
+  between the styles; read them as a pointer. The named queries are written
+  from the corpus's own parameter and class names, which makes them easier than
+  an agent's real asks would be.
 - Page text was checked against library signatures and sources when written;
   those libraries change, and two of them (AutoGPTQ, AutoAWQ) are archived.
-
-## Follow-ups
-
-- A named-technique query subset (agents often name techniques; this set
-  deliberately does not).
