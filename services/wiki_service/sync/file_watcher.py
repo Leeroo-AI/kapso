@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import (
     FileSystemEventHandler,
     FileCreatedEvent,
@@ -129,11 +130,15 @@ class FileWatcher:
         debounce_ms: int = 500,
         on_change: Optional[Callable[[Path], None]] = None,
         on_delete: Optional[Callable[[Path], None]] = None,
+        polling: bool = False,
     ):
         self.wiki_dir = wiki_dir
         self.debounce_ms = debounce_ms
         self.on_change = on_change or (lambda p: None)
         self.on_delete = on_delete or (lambda p: None)
+        # Polling finds edits that never raise an inotify event, such as
+        # host-side edits through a Docker Desktop bind mount on macOS
+        self.polling = polling
 
         self._observer: Optional[Observer] = None
         self._handler: Optional[DebouncedHandler] = None
@@ -150,14 +155,15 @@ class FileWatcher:
             on_delete=self.on_delete,
         )
 
-        self._observer = Observer()
+        self._observer = PollingObserver() if self.polling else Observer()
         self._observer.schedule(
             self._handler,
             str(self.wiki_dir),
             recursive=True,
         )
         self._observer.start()
-        logger.info(f"File watcher started for {self.wiki_dir}")
+        mode = "polling" if self.polling else "events"
+        logger.info(f"File watcher started for {self.wiki_dir} ({mode})")
 
     def stop(self) -> None:
         """Stop watching the wiki directory."""

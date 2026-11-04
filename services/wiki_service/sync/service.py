@@ -142,6 +142,7 @@ class WikiSyncService:
         logger.info(f"  Refresh delay: {self.config.refresh_delay}s")
         logger.info(f"  Conflict mode: {self.config.conflict_mode}")
         logger.info(f"  Delete mode: {self.config.delete_mode}")
+        logger.info(f"  Watch mode: {self.config.watch_mode}")
 
         # Verify wiki directory exists
         if not self.config.wiki_dir.exists():
@@ -154,6 +155,7 @@ class WikiSyncService:
             debounce_ms=self.config.debounce_ms,
             on_change=self._on_local_change,
             on_delete=self._on_local_delete,
+            polling=self.config.watch_mode == "polling",
         )
 
         self._poller = WikiPoller(
