@@ -135,13 +135,19 @@ while IFS= read -r -d '' file; do
     content=$(echo "$content" | sed -E 's/\[\[source::[^|]+\|([^|]+)\|(https?:[^]]+)\]\]/[\2 \1]/g')
 
     # Add category and Cargo template for queryability
+    # Each is added only if missing: a file synced back from the wiki
+    # already has both (matches transforms.add_page_metadata)
     if [ -n "$namespace" ]; then
         category="${namespace}s"  # Pluralize: Workflow -> Workflows
-        # Add PageInfo template for Cargo queries and category
-        content="{{PageInfo|type=${namespace}|title=${page_name}}}
-${content}
+        if [[ "$content" != *"{{PageInfo|"* ]]; then
+            content="{{PageInfo|type=${namespace}|title=${page_name}}}
+${content}"
+        fi
+        if [[ "$content" != *"[[Category:${category}]]"* ]]; then
+            content="${content}
 
 [[Category:${category}]]"
+        fi
     fi
 
     # Import the page using MediaWiki's edit.php maintenance script
