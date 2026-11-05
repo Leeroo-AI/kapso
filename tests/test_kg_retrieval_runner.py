@@ -19,7 +19,6 @@ from benchmarks.kg_retrieval.runner import (
 from kapso.core.config import ConfigError
 from kapso.knowledge_base.search.base import KGResultItem
 from kapso.knowledge_base.search.kg_graph_search import KGGraphSearch
-from benchmarks.kg_retrieval import runner
 
 
 def item(page_id, overview=""):
@@ -178,7 +177,7 @@ def test_a_local_config_overrides_only_what_it_names(tmp_path):
         load_layers([str(base), str(local)])
 
 
-def test_plain_and_named_queries_are_scored_apart_and_paired_by_target():
+def test_plain_and_named_queries_are_scored_apart():
     queries = [
         LabeledQuery("q1", "first", ("C",)),
         LabeledQuery("q2", "second", ("A",), stress=True),
@@ -196,33 +195,16 @@ def test_plain_and_named_queries_are_scored_apart_and_paired_by_target():
         rerank_runs=1,
     )
 
-    # n1 shares q1's target; n2's target B has no plain twin, so it is unpaired
-    assert report["pairs"] == [{"named": "n1", "plain": "q1"}]
     assert report["queries"] == {
         "overall": 4,
         "stress": 1,
         "plain": 2,
         "named": 2,
-        "paired_plain": 1,
-        "paired_named": 1,
     }
     arms = report["arms"]
     # off returns B,A: n2 hits at rank 1, n1 misses; on is C,A, the reverse
     assert arms["off"]["named"]["mean"]["recall@1"] == 0.5
     assert arms["on"]["named"]["mean"]["recall@1"] == 0.5
-    assert arms["off"]["paired_named"]["mean"]["mrr"] == 0.0
-    assert arms["on"]["paired_named"]["mean"]["mrr"] == 1.0
-    assert arms["on"]["paired_plain"]["mean"]["mrr"] == 1.0
-    table = runner.render_markdown(report, [1], 3)
-    assert "| q1 | n1 | miss | 1 | miss | 1 |" in table
-
-
-def test_a_named_query_with_two_plain_twins_is_ambiguous():
-    queries = [
-        LabeledQuery("q1", "first", ("C",)),
-        LabeledQuery("q2", "second", ("C",)),
-        LabeledQuery("n1", "named", ("C",), style="named"),
-    ]
-
-    with pytest.raises(ValueError, match="n1 has several plain twins"):
-        runner.pair_indices(queries)
+    # q1 misses off and hits on; q2 misses at rank 1 both ways
+    assert arms["off"]["plain"]["mean"]["recall@1"] == 0.0
+    assert arms["on"]["plain"]["mean"]["recall@1"] == 0.5

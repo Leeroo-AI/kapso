@@ -23,19 +23,16 @@ was removed and that arm with it.
   described without naming a technique, page title or library. 10 are `named`
   (`n01`-`n10`): short agent-style asks of 4-8 words that name the technique,
   library or parameter, such as "LoRA target_modules for Llama attention
-  layers". Five named queries share their exact target pages with a plain
-  query, which makes five plain/named pairs: the same page asked both ways.
+  layers".
 - **Arms** (`config.yaml`): `off` and `on`. For each query the runner fetches
   the candidate pool once and scores every arm on that same pool. An LLM rerank
   varies from call to call, so each reranking arm is sampled `rerank_runs` times
   on that pool.
-- **Reported, overall, on the stress subset, per style (`plain`, `named`) and
-  on the plain and named halves of the pairs**: recall@k for each k in
+- **Reported, overall, on the stress subset, and per style (`plain`, `named`)**: recall@k for each k in
   `ks`, MRR, the mean number of results returned, and the pool's own
   recall@`candidate_pool_size`, which is the most any reranker could reach.
   Reranking arms show the mean over the runs with the min-max range, and the
-  report lists the queries whose target rank changed between runs. A table
-  lists each pair's target rank, off and on, for the plain and the named query.
+  report lists the queries whose target rank changed between runs.
 
 ## Running it
 
@@ -115,7 +112,7 @@ Remove the eval Neo4j with `docker rm -f kapso-eval-neo4j`.
   k=3; MRR and recall@1 carry the signal.
 - Five stress queries are too few for a confident difference; read that subset
   as a pointer, not a verdict.
-- Ten named queries and five pairs are too few for a confident difference
+- Ten named queries are too few for a confident difference
   between the styles; read them as a pointer. The named queries are written
   from the corpus's own parameter and class names, which makes them easier than
   an agent's real asks would be.

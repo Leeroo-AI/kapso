@@ -6,9 +6,8 @@ query's candidate pool once, then scores every arm on that same pool: the
 reranker off and the reranker on. A reranking arm is sampled `rerank_runs`
 times on that same pool, since an LLM rerank varies from call to call. All
 metrics are reported over every query, over the stress subset (queries
-whose target page has a long overview), over the plain and the named queries,
-and over the plain/named pairs that share a target page, as a mean with its
-range across the runs.
+whose target page has a long overview), and over the plain and the named
+queries, as a mean with its range across the runs.
 
 Run from the repository root; --config may be repeated, later files
 deep-merging over earlier ones:
@@ -151,39 +150,13 @@ def ranks_by_query(queries, runs):
     return ranks
 
 
-def pair_indices(queries):
-    """(named, plain) index pairs: each named query with the one plain query
-    that has exactly the same target pages. A named query with no plain twin
-    is simply unpaired; with several it is ambiguous."""
-    pairs = []
-    for n, named in enumerate(queries):
-        if named.style != "named":
-            continue
-        twins = [
-            p
-            for p, plain in enumerate(queries)
-            if plain.style == "plain" and plain.relevant == named.relevant
-        ]
-        if len(twins) > 1:
-            ids = [queries[p].id for p in twins]
-            raise ValueError(f"{named.id} has several plain twins: {ids}")
-        if twins:
-            pairs.append((n, twins[0]))
-    return pairs
-
-
-def style_subsets(queries, pairs):
-    """The per-style subsets, once both styles are present, and the paired
-    ones, once a plain/named pair exists."""
+def style_subsets(queries):
+    """The per-style subsets, once both styles are present."""
     by_style = {
         style: [i for i, query in enumerate(queries) if query.style == style]
         for style in STYLES
     }
-    subsets = by_style if all(by_style.values()) else {}
-    if pairs:
-        subsets["paired_plain"] = [p for _, p in pairs]
-        subsets["paired_named"] = [n for n, _ in pairs]
-    return subsets
+    return by_style if all(by_style.values()) else {}
 
 
 def evaluate(queries, arms, retriever, ks, top_k, pool_size, rerank_runs):
@@ -212,15 +185,11 @@ def evaluate(queries, arms, retriever, ks, top_k, pool_size, rerank_runs):
         "overall": list(range(len(queries))),
         "stress": [i for i, query in enumerate(queries) if query.stress],
     }
-    pairs = pair_indices(queries)
-    subsets.update(style_subsets(queries, pairs))
+    subsets.update(style_subsets(queries))
     report = {
         "rerank_runs": rerank_runs,
         "queries": {name: len(idx) for name, idx in subsets.items()},
     }
-    report["pairs"] = [
-        {"named": queries[n].id, "plain": queries[p].id} for n, p in pairs
-    ]
     report["pool_ceiling"] = {
         name: aggregate(
             [pool_rankings[i] for i in idx],
@@ -259,34 +228,6 @@ def cell(stats, metric):
     return text if low == high else f"{text} ({low:.3f}-{high:.3f})"
 
 
-def rank_text(ranks):
-    """A target rank, or every rank it took when the runs disagree."""
-    return "/".join(sorted({"miss" if r is None else str(r) for r in ranks}))
-
-
-def render_pairs(report):
-    """Target rank of each plain/named pair, per arm."""
-    arms = list(report["target_ranks"])
-    kinds = ("plain", "named")
-    columns = [f"{kind} {arm}" for kind in kinds for arm in arms]
-    lines = [
-        "## Target rank, plain vs named query on the same target",
-        "",
-        "| plain | named | " + " | ".join(columns) + " |",
-        "|---|---|" + "---|" * len(columns),
-    ]
-    for pair in report["pairs"]:
-        cells = [
-            rank_text(report["target_ranks"][arm][pair[kind]])
-            for kind in kinds
-            for arm in arms
-        ]
-        row = " | ".join(cells)
-        lines.append(f"| {pair['plain']} | {pair['named']} | {row} |")
-    lines.append("")
-    return lines
-
-
 def render_markdown(report, ks, pool_size):
     """One table per subset, one row per arm."""
     columns = [f"recall@{k}" for k in ks] + ["mrr", "mean_results"]
@@ -306,8 +247,6 @@ def render_markdown(report, ks, pool_size):
             cells = [cell(stats, column) for column in columns]
             lines.append(f"| {arm} | " + " | ".join(cells) + " |")
         lines.append("")
-    if report["pairs"]:
-        lines += render_pairs(report)
     lines.append("## Target rank by run, queries that changed")
     lines.append("")
     for query_id in report["unstable"]:
