@@ -141,7 +141,7 @@ What a build is served that was measured before: your own bank (the one `learn()
 
 | Subcommand | What it does |
 |------------|--------------|
-| `add` | `add mine` creates your bank, empty; `add leeroopedia` checks the gate's key is in `.env`; `add --repo <url> --name <n>` ingests a repository into the index `<n>`; `add --research "<question>" --name <n>` researches the web and ingests the findings. Exactly one of the three; an index name that exists is refused |
+| `add` | `add mine` creates your bank, empty; `add leeroopedia` checks the gate's key is in `.env`; `add --repo <url> --name <n>` ingests a repository into the index `<n>`; `add --research "<question>" --name <n>` researches the web and ingests the findings; `add --paper <file or url> --name <n>` ingests one paper. Exactly one of the four; an index name that exists is refused |
 | `list` | `mine` with its head, card count and remote; the hosted gate's key state; the banks you read; the indexes with their id, page count and origin |
 | `share` | Attach a git remote to your bank and push it; `learn()` pushes there from then on |
 | `update` | The network step loading never takes: `mine` takes its remote's main, a bank you read at a moving reference is fetched again, a tag or a commit never moves; every bank when none is named. A running campaign keeps the pin it launched with |

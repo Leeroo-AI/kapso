@@ -8,11 +8,15 @@ deletes the namespace with the record. Design:
 docs/plans/redesign/wp3-experience.md (change 7).
 """
 
+import io
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+import requests
+from pypdf import PdfReader
 
 from kapso.experience.reference import RESERVED, valid_index_name
 from kapso.experience.store import ExperienceStore, IndexRecord
@@ -24,6 +28,11 @@ from kapso.researcher import Researcher
 GRAPH_SEARCH = "kg_graph_search"
 WIKI_DIR = "wiki"
 _NOT_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+_ARXIV_ABSTRACT = re.compile(r"^https?://(?:www\.)?arxiv\.org/abs/(.+)$")
+_URL_SCHEMES = ("http://", "https://")
+_PDF_MAGIC = b"%PDF-"
+_TEXT_MEDIA_TYPES = ("text/plain", "text/markdown")
+_PAPER_SUFFIXES = (".pdf", ".txt", ".md")
 
 
 class IngestError(ValueError):
@@ -100,6 +109,56 @@ def research_sources(question: str, settings: Dict[str, Any], config_path: Optio
     if not sources:
         raise IngestError(f"the research on {question!r} returned nothing to ingest")
     return sources
+
+
+def paper_location(location: str) -> str:
+    """Where a paper is, as the index record keeps it: a URL as given, a
+    file resolved against the working directory so the record means the
+    same thing from any other."""
+    if location.startswith(_URL_SCHEMES):
+        return location
+    return str(Path(location).expanduser().resolve())
+
+
+def paper_sources(location: str, settings: Dict[str, Any]) -> List[Any]:
+    """A paper's whole text as the research report the pipeline ingests:
+    a PDF, markdown or text file on disk, or a URL (an arXiv abstract page
+    is fetched as its PDF). A reply is a PDF by its content, or plain text
+    or markdown by its media type; anything else (an HTML page) is
+    refused, never ingested."""
+    if location.startswith(_URL_SCHEMES):
+        reply = requests.get(
+            _ARXIV_ABSTRACT.sub(r"https://arxiv.org/pdf/\1", location),
+            timeout=settings["paper_fetch_timeout_seconds"],
+        )
+        reply.raise_for_status()
+        data = reply.content
+        media_type = reply.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        is_pdf = data.startswith(_PDF_MAGIC)
+        if not is_pdf and media_type not in _TEXT_MEDIA_TYPES:
+            raise IngestError(
+                f"{location} answered with content type {media_type or 'none'}, which is not a paper: "
+                "a PDF, `text/plain` or `text/markdown` is (an HTML page is not; link the PDF itself)"
+            )
+    else:
+        path = Path(location).expanduser()
+        if not path.is_file():
+            raise IngestError(f"the paper {location!r} is neither a file nor a URL")
+        suffix = path.suffix.lower()
+        if suffix not in _PAPER_SUFFIXES:
+            raise IngestError(
+                f"the paper {location!r} is a {suffix or 'suffixless'} file; "
+                f"a paper is one of {', '.join(_PAPER_SUFFIXES)}"
+            )
+        data = path.read_bytes()
+        is_pdf = suffix == ".pdf"
+    if is_pdf:
+        text = "\n\n".join(page.extract_text() for page in PdfReader(io.BytesIO(data)).pages)
+    else:
+        text = data.decode("utf-8")
+    if not text.strip():
+        raise IngestError(f"the paper {location!r} has no text to ingest (a scanned PDF needs OCR first)")
+    return [Source.ResearchReport(query=location, content=text)]
 
 
 def ingest(

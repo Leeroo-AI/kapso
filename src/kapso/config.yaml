@@ -138,6 +138,8 @@ experience:
   # deep); the findings are ingested as they come.
   research_modes: [idea, implementation]
   research_depth: deep
+  # `kapso experience add --paper <url>`: how long the download may take.
+  paper_fetch_timeout_seconds: 60
   # What a host session (`kapso-mcp`, the plugin's server) is served when
   # `--experience` is absent: references in the grammar `kapso experience
   # list` shows (mine, mine:all, a bank path or git reference, an index

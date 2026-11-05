@@ -101,7 +101,7 @@ Loading resolves the reference, confirms the source exists and is readable (a ba
 Makes a source that must exist before it can be loaded, and returns its reference.
 
 ```python
-add_experience(ref: str | None = None, *, repo: str | None = None, research: str | None = None, name: str | None = None) -> str
+add_experience(ref: str | None = None, *, repo: str | None = None, research: str | None = None, paper: str | None = None, name: str | None = None) -> str
 ```
 
 | Argument | What it does |
@@ -109,13 +109,15 @@ add_experience(ref: str | None = None, *, repo: str | None = None, research: str
 | `ref` | `mine` creates your bank, empty (a first `learn()` does too); `leeroopedia` checks the hosted gate's key is present |
 | `repo` | A repository URL to ingest into a new index named `name` |
 | `research` | A question to research on the web; the findings are ingested into a new index named `name` |
+| `paper` | A paper to ingest into a new index named `name`: a PDF, markdown or text file, or a URL (an arXiv abstract link is fetched as its PDF). A local path is recorded resolved; a URL that answers with anything but a PDF, plain text or markdown (an HTML page) is refused |
 | `name` | The index's name: letters, digits and dashes; `mine` and `leeroopedia` are reserved |
 
-Exactly one of `ref`, `repo` and `research` is given. Ingesting runs the knowledge pipeline into the experience home (`experience.indexes` in the config): the pages under `<name>/wiki/`, the index's own namespace in the graph stores, and `index.json`, the record that pins the index at its id and names what it was made from. An index is never written again after this: a name that exists is refused (remove it first). The stores and the embeddings key are checked before any work (`kapso doctor experience`); the operation writes a status file you can `kapso watch`.
+Exactly one of `ref`, `repo`, `research` and `paper` is given (`paper` is a PDF, markdown or text file, or a URL such as an arXiv link). Ingesting runs the knowledge pipeline into the experience home (`experience.indexes` in the config): the pages under `<name>/wiki/`, the index's own namespace in the graph stores, and `index.json`, the record that pins the index at its id and names what it was made from. An index is never written again after this: a name that exists is refused (remove it first). The stores and the embeddings key are checked before any work (`kapso doctor experience`); the operation writes a status file you can `kapso watch`.
 
 ```python
 kapso.add_experience(repo="https://github.com/org/x", name="org-x")
 kapso.add_experience(research="QLoRA memory optimizations", name="qlora")
+kapso.add_experience(paper="https://arxiv.org/abs/2305.14314", name="qlora-paper")
 kapso.load_experience("org-x")        # a build then mounts the search gates over it
 ```
 

@@ -59,6 +59,8 @@ dependencies = [
     # HTTP from the engine's own code (the handles, the inbox, the
     # embeddings; it arrived only transitively before, through google-auth).
     "requests>=2.28",
+    # The text of a paper for `kapso experience add --paper`.
+    "pypdf>=4.0",
 ]
 
 [project.optional-dependencies]
