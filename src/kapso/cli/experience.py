@@ -19,6 +19,7 @@ from kapso.experience import (
     hosted_key_present,
     probe_hosted_gate,
 )
+from kapso.experience.browse import render_hits, render_page
 from kapso.cli.common import _detach, _without_detach_flags, learning_handoff
 from kapso.kapso import Kapso
 from kapso.learning.bank_remote import bank_origin, connect_bank
@@ -36,6 +37,12 @@ def cmd_experience(args) -> None:
         return
     if args.experience_command == "remove":
         Kapso(config=args.config).remove_experience(args.ref)
+        return
+    if args.experience_command == "search":
+        print(render_hits(Kapso(config=args.config).search_experience(args.index, args.query, top_k=args.top)))
+        return
+    if args.experience_command == "show":
+        print(render_page(Kapso(config=args.config).show_experience(args.index, args.page)))
         return
     settings = experience_settings(load_config(args.config))
     home = Path(settings["bank_home"]).expanduser()
@@ -156,7 +163,8 @@ def add_parser(subparsers):
         allow_abbrev=False,
         description=(
             "Experience is loaded at the call (`--experience mine,leeroopedia`, the brief's Experience line, "
-            "load_experience()); this verb makes what must exist first, lists what exists, and shares your bank."
+            "load_experience()); this verb makes what must exist first, lists what exists, shares your bank, "
+            "and looks inside an index (search a query, show a page)."
         ),
         epilog="""
 Examples:
@@ -166,6 +174,9 @@ Examples:
   kapso experience add --research "QLoRA memory tricks" --name qlora     # researches the web, ingests the findings
   kapso experience add --paper https://arxiv.org/abs/2305.14314 --name qlora-paper   # ingests a paper's whole text
   kapso experience list                                       # mine, the hosted gate, banks you read, indexes
+  kapso experience search org-x "paged optimizers"            # the ranked pages an index answers a query with
+  kapso experience search org-x "paged optimizers" --top 3
+  kapso experience show org-x Principle/Paged_Optimizers      # one page of the index, whole
   kapso experience share https://github.com/acme/kapso-bank.git
   kapso experience update                                     # pulls mine from its remote, re-fetches every bank you read
   kapso experience remove acme/kapso-bank                     # a bank you read, or an index by name
@@ -189,6 +200,15 @@ Examples:
     )
     listing = experience_sub.add_parser("list", help="Every source this machine has, with its state")
     listing.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+    search = experience_sub.add_parser("search", help="The ranked pages an ingested index answers a query with")
+    search.add_argument("index", type=str, help="An index name (`kapso experience list` shows them)")
+    search.add_argument("query", type=str, help="What to look for, as a session would ask it")
+    search.add_argument("--top", type=int, default=None, help="How many pages to print (default: the config's experience.search_top_k)")
+    search.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
+    show = experience_sub.add_parser("show", help="One page of an ingested index, whole")
+    show.add_argument("index", type=str, help="An index name (`kapso experience list` shows them)")
+    show.add_argument("page", type=str, help="A page id as search prints it, e.g. Principle/Paged_Optimizers")
+    show.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     share = experience_sub.add_parser("share", help="Attach a git remote to your bank and push it")
     share.add_argument("url", type=str, help="Git URL of the bank repository (https or ssh)")
     share.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")

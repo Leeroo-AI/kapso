@@ -482,6 +482,7 @@ experience:
   indexes: ~/.kapso/experience/indexes
   research_modes: [idea, implementation]
   research_depth: deep
+  search_top_k: 10
   session_sources: []
 ```
 
@@ -490,6 +491,7 @@ experience:
 | `banks` | Banks you read, one clone per `<slug>@<rev>` with a fetch record beside | `~/.kapso/experience/banks` |
 | `indexes` | Corpora you ingested with `kapso experience add --name <n>`, one directory each | `~/.kapso/experience/indexes` |
 | `research_modes`, `research_depth` | What a research ingest answers in (`idea`, `implementation`, `study`) and how deep it searches (`light`, `deep`) | `[idea, implementation]`, `deep` |
+| `search_top_k` | How many pages `kapso experience search` prints when `--top` is absent | `10` |
 | `session_sources` | What a host session (`kapso-mcp`, the plugin's server) is served when `--experience` is absent: references in the grammar `kapso experience list` shows. A listed source that does not exist leaves its gate off, named in the server's instructions; `kapso learn` offers `[mine:all]`. A build loads what its brief or `--experience` names, never this list | `[]` |
 
 Your own bank is `learning.bank.local_path`; the hosted gate is `gates.leeroopedia`. See [Experience](/docs/experience).

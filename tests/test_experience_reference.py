@@ -37,6 +37,7 @@ def settings_for(tmp_path: Path) -> dict:
         "probe_budget": 1,
         "research_modes": ["idea", "implementation"],
         "research_depth": "deep",
+        "search_top_k": 10,
     }
 
 

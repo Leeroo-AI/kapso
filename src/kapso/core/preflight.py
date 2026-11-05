@@ -554,18 +554,36 @@ def research_requirements(config: Dict[str, Any]) -> List[Requirement]:
     return requirements
 
 
+def index_store_requirements(config: Dict[str, Any], embeds: str, stores: str) -> List[Requirement]:
+    """What reading or writing an index's pages needs: the embeddings key
+    and both graph stores, at the endpoints the config names. `embeds` and
+    `stores` say why, for the report."""
+    return [
+        _embedding_requirement(embeds, config["knowledge_search"]["params"]),
+        *_kg_backend_requirements(stores, config["knowledge_search"]),
+    ]
+
+
 def experience_requirements(
     config: Dict[str, Any],
     *,
     research: bool = False,
     publish_workflows: Optional[bool] = None,
+    search: bool = False,
 ) -> List[Requirement]:
-    """`add_experience(repo=|research=)` ingests a corpus into an index:
+    """With `search=True` (`search_experience` on an ingested index) the
+    embeddings key, both graph stores and the reranker's session. Otherwise
+    `add_experience(repo=|research=)` ingests a corpus into an index:
     the ingestor and merger sessions, git for the clone, the embeddings
     key and both graph stores the index is written into; with
     `research=True` the web-search session too. Publishing the extracted
     workflows as repositories (`learner.ingestor.publish_workflows`)
     needs the token `gh` reads."""
+    if search:
+        specs = inference_role_specs(config, ["kg_rerank"])
+        return host_model_requirements(specs) + cli_requirements(specs) + index_store_requirements(
+            config, "the query is embedded", "the index's pages are read from the graph stores",
+        )
     learner = config["learner"]
     prefix = "learner"
 
@@ -589,13 +607,8 @@ def experience_requirements(
                 "account is logged in",
             origin=f"{prefix}.ingestor.publish_workflows",
         ))
-    requirements.append(_embedding_requirement(
-        "the index embeds every page",
-        config["knowledge_search"]["params"],
-    ))
-    requirements.extend(_kg_backend_requirements(
-        "the index is written into the graph stores",
-        config["knowledge_search"],
+    requirements.extend(index_store_requirements(
+        config, "the index embeds every page", "the index is written into the graph stores",
     ))
     return requirements
 
@@ -690,6 +703,20 @@ def host_model_requirements(specs: Sequence[SessionSpec]) -> List[Requirement]:
     return requirements
 
 
+def inference_role_specs(config: Dict[str, Any], roles: Sequence[str]) -> List[SessionSpec]:
+    """The engine's own inference sessions for `roles`, each its
+    `inference.roles` entry over `inference.default`."""
+    inference = config.get("inference") or {}
+    specs: List[SessionSpec] = []
+    for role in roles:
+        role_spec = deep_merge(
+            inference.get("default") or {},
+            (inference.get("roles") or {}).get(role) or {},
+        )
+        specs.extend(session_specs(role_spec, f"inference.roles.{role}", inference=True))
+    return specs
+
+
 def build_requirements(
     config: Dict[str, Any],
     *,
@@ -704,18 +731,10 @@ def build_requirements(
     params = build_params(config, coding_agent)
     specs = build_session_specs(config, params)
 
-    inference = config.get("inference") or {}
     roles = ["commit_message", "repo_memory"]
     if index:
         roles.extend(["kg_rerank", "kg_navigate"])
-    for role in roles:
-        role_spec = deep_merge(
-            inference.get("default") or {},
-            (inference.get("roles") or {}).get(role) or {},
-        )
-        specs.extend(session_specs(
-            role_spec, f"inference.roles.{role}", inference=True,
-        ))
+    specs.extend(inference_role_specs(config, roles))
 
     requirements = host_model_requirements(specs) + cli_requirements(specs)
     requirements.append(_git_requirement(
@@ -1047,9 +1066,11 @@ def _specs_for(
     per_verb: Dict[str, List[SessionSpec]] = {
         # Ingesting a corpus: the ingestor and merger sessions, and the
         # web-search session when a question is researched (the union a
-        # bare doctor reports includes it).
+        # bare doctor reports includes it); searching an index, the
+        # reranker's session alone.
         "experience": (
-            session_specs(config["learner"], "learner")
+            inference_role_specs(config, ["kg_rerank"]) if context.get("search")
+            else session_specs(config["learner"], "learner")
             + (research_specs if verb is None or context.get("research") else [])
         ),
         "build": build_session_specs(config, build_params(config, context.get("coding_agent"))),

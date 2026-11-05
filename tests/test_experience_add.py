@@ -211,7 +211,7 @@ def _build_with(tmp_path, monkeypatch, search):
             return result
 
     monkeypatch.setattr("kapso.kapso.OrchestratorAgent", FakeOrchestrator)
-    monkeypatch.setattr("kapso.kapso.search_for", lambda record, config: search)
+    monkeypatch.setattr("kapso.experience.browse.search_for", lambda record, config: search)
     monkeypatch.setattr("kapso.kapso.run_preflight", lambda *a, **k: None)
     monkeypatch.chdir(tmp_path)
     kapso = Kapso(config=config_path)
