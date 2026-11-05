@@ -35,6 +35,9 @@ benchmark:
     weaviate_url: "http://localhost:8080"
     weaviate_grpc_port: 50051
     weaviate_collection: "KapsoRetrievalEval"
+    # The index id kg_graph_search namespaces its Neo4j nodes and queries by;
+    # it is a required parameter, so a run without one cannot start.
+    corpus: "retrieval_eval"
     neo4j_uri: "bolt://localhost:7688"
     neo4j_user: "neo4j"
 

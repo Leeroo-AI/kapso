@@ -103,6 +103,25 @@ def test_load_labels_reads_well_formed_lines(tmp_path):
     ]
 
 
+def test_style_defaults_to_plain_and_reads_named(tmp_path):
+    path = write_labels(
+        tmp_path,
+        json.dumps({"id": "q1", "query": "how to X", "relevant": ["A"]}),
+        json.dumps(
+            {
+                "id": "n1",
+                "query": "X config",
+                "relevant": ["A"],
+                "style": "named",
+            }
+        ),
+    )
+
+    plain, named = load_labels(path, KNOWN)
+
+    assert (plain.style, named.style) == ("plain", "named")
+
+
 def test_a_malformed_label_line_raises_instead_of_being_skipped(tmp_path):
     good = json.dumps({"id": "q1", "query": "how to X", "relevant": ["A"]})
     path = write_labels(tmp_path, good, '{"id": "q2", "query": "oops"')
@@ -120,6 +139,10 @@ def test_a_malformed_label_line_raises_instead_of_being_skipped(tmp_path):
         (
             {"id": "q1", "query": "x", "relevant": ["A"], "stress": "yes"},
             "'stress' must be true or false",
+        ),
+        (
+            {"id": "q1", "query": "x", "relevant": ["A"], "style": "terse"},
+            "'style' must be",
         ),
     ],
 )

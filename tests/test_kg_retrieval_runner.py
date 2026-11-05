@@ -154,3 +154,36 @@ def test_a_local_config_overrides_only_what_it_names(tmp_path):
     local.write_text("retrieval_eval: {top_k: 5}\n")
     with pytest.raises(ConfigError, match="unknown key"):
         load_layers([str(base), str(local)])
+
+
+def test_plain_and_named_queries_are_scored_apart():
+    queries = [
+        LabeledQuery("q1", "first", ("C",)),
+        LabeledQuery("q2", "second", ("A",), stress=True),
+        LabeledQuery("n1", "named first", ("C",), style="named"),
+        LabeledQuery("n2", "named other", ("B",), style="named"),
+    ]
+
+    report = evaluate(
+        queries,
+        ARMS,
+        StandInRetriever(),
+        [1],
+        2,
+        3,
+        rerank_runs=1,
+    )
+
+    assert report["queries"] == {
+        "overall": 4,
+        "stress": 1,
+        "plain": 2,
+        "named": 2,
+    }
+    arms = report["arms"]
+    # off returns B,A: n2 hits at rank 1, n1 misses; on is C,A, the reverse
+    assert arms["off"]["named"]["mean"]["recall@1"] == 0.5
+    assert arms["on"]["named"]["mean"]["recall@1"] == 0.5
+    # q1 misses off and hits on; q2 misses at rank 1 both ways
+    assert arms["off"]["plain"]["mean"]["recall@1"] == 0.0
+    assert arms["on"]["plain"]["mean"]["recall@1"] == 0.5
