@@ -107,14 +107,21 @@ def test_ingesting_a_corpus_needs_the_stores_and_the_embeddings_key(packaged, fu
     assert "Weaviate (localhost:8080)" not in labels(requirements_for("learn", packaged))
 
 
-def test_searching_an_index_needs_only_the_stores_and_the_embeddings_key(packaged, full_machine):
+def test_searching_an_index_needs_the_stores_the_key_and_the_reranker(packaged, full_machine):
     """Reading an ingested index back asks nothing of the ingest's coding
-    agent sessions or git: the key and the stores, and nothing more."""
+    agent sessions or git: the key, the stores and the reranker's session,
+    which is also the only model the live tier probes."""
     assert labels(requirements_for("experience", packaged, search=True)) == [
+        "codex is asked for gpt-5.6-sol",
+        "node",
+        "codex CLI",
+        "codex authenticated",
         "OPENAI_API_KEY (embeddings: https://api.openai.com/v1)",
         "Weaviate (localhost:8080)",
         "Neo4j (localhost:7687)",
     ]
+    probed = [spec.origin for spec in preflight._specs_for("experience", packaged, search=True)]
+    assert probed == ["inference.roles.kg_rerank.model = gpt-5.6-sol"]
 
 
 def test_kg_store_rows_name_the_configured_endpoints(packaged, full_machine):
