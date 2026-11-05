@@ -39,6 +39,8 @@ Kapso(
 | [`update_experience()`](#update-experience-and-remove-experience) | `None` | Pull your bank from its remote and re-fetch the banks you read at moving references |
 | [`remove_experience()`](#update-experience-and-remove-experience) | `None` | Delete a bank you read or an index, with its backend namespace |
 | [`share_experience()`](#load-experience) | `None` | Attach a git remote to your bank and push it |
+| [`search_experience()`](#search-experience-and-show-experience) | `KGOutput` | Search an ingested index the way a build's gates do |
+| [`show_experience()`](#search-experience-and-show-experience) | `WikiPage` | One page of an ingested index, whole |
 | [`build()`](#build) | `Solution` (a `Launch` with `detach=True`) | Run an experiment campaign that meets a brief |
 | [`learn()`](#learn) | `LessonResult` (a `Launch` with `detach=True`) | Mine one finished campaign into the lesson bank |
 | [`deploy()`](#deploy) | `Software` | Turn a solution into running software |
@@ -134,6 +136,24 @@ remove_experience(ref: str) -> None
 kapso.update_experience()                      # every bank
 kapso.update_experience("acme/kapso-bank")     # one
 kapso.remove_experience("org-x")
+```
+
+## search_experience and show_experience
+
+Look inside an index `add_experience` made, without a build. Both are read-only and take an index name; a bank, the hosted gate or a path is refused.
+
+```python
+search_experience(ref: str, query: str, *, top_k: int | None = None) -> KGOutput
+show_experience(ref: str, page: str) -> WikiPage
+```
+
+`search_experience` embeds the query and returns the nearest pages ranked (reranked when `knowledge_search` asks for it), `top_k` defaulting to `experience.search_top_k`. An index whose stores are down or were wiped is refused, never answered with no match. `show_experience` reads the page by id (`Principle/Paged_Optimizers`) from the index's wiki files, so it needs no stores.
+
+```python
+hits = kapso.search_experience("qlora-paper", "paged optimizers", top_k=3)
+[(hit.id, hit.score, hit.overview) for hit in hits.results]
+page = kapso.show_experience("qlora-paper", hits.results[0].id)
+page.content, page.outgoing_links
 ```
 
 ## build

@@ -554,18 +554,33 @@ def research_requirements(config: Dict[str, Any]) -> List[Requirement]:
     return requirements
 
 
+def index_store_requirements(config: Dict[str, Any], embeds: str, stores: str) -> List[Requirement]:
+    """What reading or writing an index's pages needs: the embeddings key
+    and both graph stores, at the endpoints the config names. `embeds` and
+    `stores` say why, for the report."""
+    return [
+        _embedding_requirement(embeds, config["knowledge_search"]["params"]),
+        *_kg_backend_requirements(stores, config["knowledge_search"]),
+    ]
+
+
 def experience_requirements(
     config: Dict[str, Any],
     *,
     research: bool = False,
     publish_workflows: Optional[bool] = None,
+    search: bool = False,
 ) -> List[Requirement]:
-    """`add_experience(repo=|research=)` ingests a corpus into an index:
+    """With `search=True` (`search_experience` on an ingested index) only
+    the embeddings key and both graph stores. Otherwise
+    `add_experience(repo=|research=)` ingests a corpus into an index:
     the ingestor and merger sessions, git for the clone, the embeddings
     key and both graph stores the index is written into; with
     `research=True` the web-search session too. Publishing the extracted
     workflows as repositories (`learner.ingestor.publish_workflows`)
     needs the token `gh` reads."""
+    if search:
+        return index_store_requirements(config, "the query is embedded", "the index's pages are read from the graph stores")
     learner = config["learner"]
     prefix = "learner"
 
@@ -589,13 +604,8 @@ def experience_requirements(
                 "account is logged in",
             origin=f"{prefix}.ingestor.publish_workflows",
         ))
-    requirements.append(_embedding_requirement(
-        "the index embeds every page",
-        config["knowledge_search"]["params"],
-    ))
-    requirements.extend(_kg_backend_requirements(
-        "the index is written into the graph stores",
-        config["knowledge_search"],
+    requirements.extend(index_store_requirements(
+        config, "the index embeds every page", "the index is written into the graph stores",
     ))
     return requirements
 

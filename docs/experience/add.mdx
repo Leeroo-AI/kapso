@@ -90,6 +90,8 @@ A run stages its clone, phase reports and pages under `<index>/wiki/_staging/` a
 
 A build that loads an index mounts two tools in its ideation and implementation sessions, `wiki_idea_search` and `wiki_code_search`: a query is embedded, the nearest pages are retrieved from Weaviate, reranked when `use_llm_reranker` is on, and enriched with their linked pages from Neo4j. The `knowledge_search.preset` names how much of that work happens (`DEFAULT`, `FAST`, `RERANK_ONLY`). The intro tells the session the corpus is there and how it is searched; the session decides when to ask.
 
+To see what an index holds before a build spends anything on it, ask it yourself: `kapso experience search qlora-paper "paged optimizers"` prints the ranked pages the same query would bring a session (id, type, score and overview; `--top` sets how many, `experience.search_top_k` is the default), and `kapso experience show qlora-paper Principle/Paged_Optimizers` prints one of them whole, with its sources and the pages it links to. Both only read. `search` needs the stores and the embeddings key a build needs, and refuses an index whose stores are down or were wiped rather than answering with no match; `show` reads the index's wiki files and needs neither.
+
 ## Related
 
 <CardGroup cols={2}>

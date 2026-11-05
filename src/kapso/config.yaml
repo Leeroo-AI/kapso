@@ -138,6 +138,9 @@ experience:
   # deep); the findings are ingested as they come.
   research_modes: [idea, implementation]
   research_depth: deep
+  # `kapso experience search <index> "<query>"`: how many pages it prints
+  # when --top is absent.
+  search_top_k: 10
   # What a host session (`kapso-mcp`, the plugin's server) is served when
   # `--experience` is absent: references in the grammar `kapso experience
   # list` shows (mine, mine:all, a bank path or git reference, an index

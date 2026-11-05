@@ -11,6 +11,7 @@ import pytest
 
 import kapso.cli.experience as experience_cli
 from kapso.cli import main
+from kapso.knowledge_base.search import KGOutput, KGResultItem, WikiPage
 from kapso.learning.bank_remote import bank_origin
 from tests.handles_support import git
 from tests.test_experience_reference import bank_home, settings_for
@@ -46,7 +47,38 @@ def test_every_subcommand_and_flag_is_accounted_for():
         "share": {"url", "config"},
         "update": {"ref", "config"},
         "remove": {"ref", "config"},
+        "search": {"index", "query", "top", "config"},
+        "show": {"index", "page", "config"},
     }
+
+
+def test_search_and_show_print_what_the_facade_returns(settings, monkeypatch, capsys):
+    calls = []
+
+    class FakeKapso:
+        def __init__(self, config=None):
+            calls.append(("init", config))
+
+        def search_experience(self, ref, query, *, top_k=None):
+            calls.append(("search", ref, query, top_k))
+            return KGOutput(
+                query=query, filters=None,
+                results=[KGResultItem(id="Principle/Paged_Optimizers", score=0.9, page_type="Principle", overview="spills to CPU")],
+            )
+
+        def show_experience(self, ref, page):
+            calls.append(("show", ref, page))
+            return WikiPage(id=page, page_type="Principle", overview="o", content="the whole page")
+
+    monkeypatch.setattr(experience_cli, "Kapso", FakeKapso)
+    _run(monkeypatch, "search", "qlora", "paged optimizers", "--top", "3", "--config", "c.yaml")
+    assert "[1] Principle/Paged_Optimizers   Principle   score 0.90\nspills to CPU" in capsys.readouterr().out
+    _run(monkeypatch, "show", "qlora", "Principle/Paged_Optimizers")
+    assert "the whole page" in capsys.readouterr().out
+    assert calls == [
+        ("init", "c.yaml"), ("search", "qlora", "paged optimizers", 3),
+        ("init", None), ("show", "qlora", "Principle/Paged_Optimizers"),
+    ]
 
 
 def test_update_and_remove_go_through_the_facade(settings, monkeypatch):

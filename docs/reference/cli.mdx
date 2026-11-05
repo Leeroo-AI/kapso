@@ -137,7 +137,7 @@ The union of the harness's modules, each attachment once: for Claude Code `.clau
 
 ## kapso experience
 
-What a build is served that was measured before: your own bank (the one `learn()` writes), the hosted Leeroopedia gate, a bank you read, a corpus ingested under a name. A build loads sources at the call (`--experience mine,leeroopedia`, the brief's `Experience` line, `load_experience()`); this verb makes what must exist first, lists what exists, and shares your bank.
+What a build is served that was measured before: your own bank (the one `learn()` writes), the hosted Leeroopedia gate, a bank you read, a corpus ingested under a name. A build loads sources at the call (`--experience mine,leeroopedia`, the brief's `Experience` line, `load_experience()`); this verb makes what must exist first, lists what exists, shares your bank, and looks inside an index.
 
 | Subcommand | What it does |
 |------------|--------------|
@@ -146,6 +146,8 @@ What a build is served that was measured before: your own bank (the one `learn()
 | `share` | Attach a git remote to your bank and push it; `learn()` pushes there from then on |
 | `update` | The network step loading never takes: `mine` takes its remote's main, a bank you read at a moving reference is fetched again, a tag or a commit never moves; every bank when none is named. A running campaign keeps the pin it launched with |
 | `remove` | Delete a bank you read (its clone and record) or an index (its backend namespace, its pages and its record). Your bank, the hosted gate and a bank by path are not the store's to remove |
+| `search` | `search <index> "<query>"` prints the ranked pages an index answers the query with, the way a build's search gates do: each page's id, type, score and overview. `--top` sets how many (default `experience.search_top_k`). Read-only; an index whose stores are down or were wiped is refused, never answered with no match |
+| `show` | `show <index> <page>` prints one page of an index whole, by the id `search` prints (`Principle/Paged_Optimizers`): its text, domains, sources and the pages it links to. It reads the index's wiki files, so it needs no stores |
 
 Every subcommand takes `--config` for the config whose `experience` block names the homes.
 
@@ -160,6 +162,9 @@ kapso experience share https://github.com/acme/kapso-bank.git
 kapso experience update
 kapso experience update acme/kapso-bank
 kapso experience remove org-x
+kapso experience search org-x "paged optimizers"
+kapso experience search org-x "paged optimizers" --top 3
+kapso experience show org-x Principle/Paged_Optimizers
 ```
 
 ## kapso learn

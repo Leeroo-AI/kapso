@@ -60,7 +60,7 @@ from kapso.execution.iteration_evaluator import IterationEvaluator
 from kapso.handles import EXPERIENCE_RECORD_FIELDS, Brief, Budget, EvaluatorRef, ExperienceRef, Launch, Solution, SolutionError, chosen_attempt_line
 from kapso.execution.evaluation_integrity import launch_evaluation_manifest
 from kapso.environment.handlers.generic import GenericProblemHandler
-from kapso.knowledge_base.search import KnowledgeSearchFactory
+from kapso.knowledge_base.search import KGOutput, KGSearchFilters, KnowledgeSearchFactory, WikiPage
 from kapso.knowledge_base.search.workflow_search import WorkflowRepoSearch
 from kapso.core.agent_manifest import load_agent_manifest
 from kapso.core.config import PACKAGED_CONFIG_PATH, is_packaged, load_config
@@ -72,6 +72,7 @@ from kapso.experience import (
     ExperienceError,
     ExperienceSource,
     ExperienceStore,
+    IndexRecord,
     bank_head,
     has_origin,
     probe_hosted_gate,
@@ -80,6 +81,7 @@ from kapso.experience import (
     recorded_reference,
     resolve_source,
 )
+from kapso.experience.browse import index_page, open_search
 from kapso.experience.ingest import (
     check_name,
     ingest,
@@ -557,6 +559,37 @@ class Kapso:
                 "the hosted gate is a key in .env, a bank by path is read in place"
             )
         self._experience = [source for source in self._experience if source.reference != reference.raw]
+
+    def _index_record(self, ref: str, verb: str) -> IndexRecord:
+        """The record of the index `ref` names; `verb` is what was asked
+        of it, for the refusal of a reference that is not an index."""
+        reference = parse_experience_reference(ref, indexes_root=Path(self._experience_settings["indexes"]))
+        if reference.kind != "index":
+            raise ExperienceError(
+                f"`{ref}` is not an index: {verb} reads an index by name (`kapso experience list` shows them); "
+                "a bank is served to a build, which reads it"
+            )
+        store = ExperienceStore(self._experience_settings["banks"], self._experience_settings["indexes"])
+        return store.index_record(reference.name)
+
+    def search_experience(self, ref: str, query: str, *, top_k: Optional[int] = None) -> KGOutput:
+        """Search an ingested index the way a build's search gates do: the
+        query is embedded and the nearest pages come back ranked (reranked
+        when the config's knowledge search asks for it). `top_k` defaults
+        to `experience.search_top_k`. Read-only; an index whose stores are
+        down or wiped is refused, never answered with no match."""
+        record = self._index_record(ref, "search")
+        run_preflight("experience", self._config, search=True)
+        search = open_search(record, self._config)
+        output = search.search(query, KGSearchFilters(top_k=top_k if top_k is not None else self._experience_settings["search_top_k"]))
+        search.close()
+        return output
+
+    def show_experience(self, ref: str, page: str) -> WikiPage:
+        """One page of an ingested index, whole, by id
+        (`Principle/Paged_Optimizers`), read from the index's wiki files:
+        no stores are needed."""
+        return index_page(self._index_record(ref, "show"), page)
 
     # =========================================================================
     # Knowledge search
@@ -1463,14 +1496,7 @@ class Kapso:
                         f"then, {index_record.id} now); load it again to serve the new index"
                     )
                 self._close_knowledge_search()
-                self.knowledge_search = search_for(index_record, self._config)
-                if not self.knowledge_search.validate_backend_data():
-                    raise ExperienceError(
-                        f"the index `{index_record.name}` has no pages in its stores (collection "
-                        f"{index_record.backend_refs.get('weaviate_collection')} at "
-                        f"{index_record.backend_refs.get('weaviate_url')}); the stores were wiped since it was "
-                        f"added — `kapso experience remove {index_record.name}` and add it again"
-                    )
+                self.knowledge_search = open_search(index_record, self._config)
 
         # The engine's problem text: the brief, and where the evaluation
         # and the data live.

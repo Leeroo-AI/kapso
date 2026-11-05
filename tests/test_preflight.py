@@ -107,6 +107,16 @@ def test_ingesting_a_corpus_needs_the_stores_and_the_embeddings_key(packaged, fu
     assert "Weaviate (localhost:8080)" not in labels(requirements_for("learn", packaged))
 
 
+def test_searching_an_index_needs_only_the_stores_and_the_embeddings_key(packaged, full_machine):
+    """Reading an ingested index back asks nothing of the ingest's coding
+    agent sessions or git: the key and the stores, and nothing more."""
+    assert labels(requirements_for("experience", packaged, search=True)) == [
+        "OPENAI_API_KEY (embeddings: https://api.openai.com/v1)",
+        "Weaviate (localhost:8080)",
+        "Neo4j (localhost:7687)",
+    ]
+
+
 def test_kg_store_rows_name_the_configured_endpoints(packaged, full_machine):
     """A test stack beside production (other ports) is what the config names,
     so the rows must check those endpoints, not localhost:8080/7687."""
