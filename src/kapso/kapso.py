@@ -85,6 +85,8 @@ from kapso.experience.browse import index_page, open_search
 from kapso.experience.ingest import (
     check_name,
     ingest,
+    paper_location,
+    paper_sources,
     repository_source,
     research_sources,
     search_for,
@@ -433,21 +435,24 @@ class Kapso:
         *,
         repo: Optional[str] = None,
         research: Optional[str] = None,
+        paper: Optional[str] = None,
         name: Optional[str] = None,
     ) -> str:
         """Make a source that must exist before it can be loaded, and
         return its reference. `ref="mine"` creates your bank (a first
         learn() does too); `ref="leeroopedia"` checks the hosted gate's
         key is present. `repo=` ingests a repository, `research=` a
-        question answered on the web, into a new index under `name`:
-        the pages under the experience home, their own backend namespace,
-        the record `index.json` that pins the index at its id. An index
-        is never written again after this: a name that exists is refused
-        (`remove_experience` first). Exactly one of the three is given."""
-        given = [value for value in (ref, repo, research) if value]
+        question answered on the web, `paper=` a paper (a PDF, markdown
+        or text file, or a URL such as an arXiv link), into a new index
+        under `name`: the pages under the experience home, their own
+        backend namespace, the record `index.json` that pins the index
+        at its id. An index is never written again after this: a name
+        that exists is refused (`remove_experience` first). Exactly one
+        of the four is given."""
+        given = [value for value in (ref, repo, research, paper) if value]
         if len(given) != 1:
             raise ValueError(
-                "add_experience takes exactly one of ref (`mine` or `leeroopedia`), repo= or research="
+                "add_experience takes exactly one of ref (`mine` or `leeroopedia`), repo=, research= or paper="
             )
         if ref == MINE:
             home = Path(self._experience_settings["bank_home"]).expanduser()
@@ -464,15 +469,18 @@ class Kapso:
         if ref is not None:
             raise ValueError(
                 f"`{ref}` is not something to add: `mine` or `leeroopedia` by reference, a repository with "
-                "repo=, a question with research=; a bank by path or git reference needs no add"
+                "repo=, a question with research=, a paper with paper=; a bank by path or git reference needs no add"
             )
         store = ExperienceStore(self._experience_settings["banks"], self._experience_settings["indexes"])
         name = check_name(name, store)
         run_preflight("experience", self._config, research=research is not None)
-        sources = (
-            repository_source(repo) if repo
-            else research_sources(research, self._experience_settings, self.config_path)
-        )
+        if repo:
+            sources = repository_source(repo)
+        elif paper:
+            paper = paper_location(paper)
+            sources = paper_sources(paper, self._experience_settings)
+        else:
+            sources = research_sources(research, self._experience_settings, self.config_path)
         heartbeat_seconds = self._status_heartbeat_seconds()
         status = KnowledgeStatus(
             self._status_file("experience"),
@@ -482,7 +490,7 @@ class Kapso:
         print(f"status: {status.path}")
         try:
             record, result = ingest(
-                sources, name=name, origin=repo or research, store=store,
+                sources, name=name, origin=repo or research or paper, store=store,
                 config=self._config, config_path=self.config_path, status=status,
             )
         finally:

@@ -98,6 +98,9 @@ services:
       DEBOUNCE_MS: ${SYNC_DEBOUNCE_MS:-500}
       CONFLICT_MODE: ${SYNC_CONFLICT_MODE:-file}
       DELETE_MODE: ${SYNC_DELETE_MODE:-sync}
+      # start.sh sets polling on macOS, where inotify events don't cross
+      # the bind mount; events (inotify) is cheaper on Linux hosts
+      WATCH_MODE: ${SYNC_WATCH_MODE:-events}
     volumes:
       - ../../${WIKI_DIR:-data/wikis}:/wikis:rw
       - ./state:/state:rw

@@ -53,15 +53,15 @@ def cmd_experience(args) -> None:
 
 
 def _add(args) -> None:
-    given = [value for value in (args.ref, args.repo, args.research) if value]
+    given = [value for value in (args.ref, args.repo, args.research, args.paper) if value]
     if len(given) != 1:
         print(
-            f"Error: `add` takes exactly one of `{MINE}`, `{HOSTED}`, --repo <url> or --research <question> "
+            f"Error: `add` takes exactly one of `{MINE}`, `{HOSTED}`, --repo <url>, --research <question> or --paper <file or url> "
             "(an index needs --name <n>)",
             file=sys.stderr,
         )
         sys.exit(1)
-    if args.repo or args.research:
+    if args.repo or args.research or args.paper:
         if not args.name:
             print("Error: an index needs a name: --name <n> (`kapso experience list` shows the names taken)", file=sys.stderr)
             sys.exit(1)
@@ -78,10 +78,10 @@ def _add(args) -> None:
             return
         # The facade owns the ingestion (the preflight, the pipeline, the
         # record); it reads the config itself.
-        Kapso(config=args.config).add_experience(repo=args.repo, research=args.research, name=args.name)
+        Kapso(config=args.config).add_experience(repo=args.repo, research=args.research, paper=args.paper, name=args.name)
         return
     if args.detach:
-        print(f"Error: --detach goes with --repo or --research (an ingest); `{args.ref}` is instant", file=sys.stderr)
+        print(f"Error: --detach goes with --repo, --research or --paper (an ingest); `{args.ref}` is instant", file=sys.stderr)
         sys.exit(1)
     settings = experience_settings(load_config(args.config))
     home = Path(settings["bank_home"]).expanduser()
@@ -105,8 +105,8 @@ def _add(args) -> None:
         return
     print(
         f"Error: `add` creates what must exist before it is loaded: `{MINE}` or `{HOSTED}`; a bank by path "
-        "or git reference needs no add (load it), and an index is ingested with --repo <url> --name <n> "
-        "or --research <question> --name <n>",
+        "or git reference needs no add (load it), and an index is ingested with --repo <url> --name <n>, "
+        "--research <question> --name <n> or --paper <file or url> --name <n>",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -172,6 +172,7 @@ Examples:
   kapso experience add leeroopedia                            # checks the key in .env
   kapso experience add --repo https://github.com/org/x --name org-x      # ingests a repository into an index
   kapso experience add --research "QLoRA memory tricks" --name qlora     # researches the web, ingests the findings
+  kapso experience add --paper https://arxiv.org/abs/2305.14314 --name qlora-paper   # ingests a paper's whole text
   kapso experience list                                       # mine, the hosted gate, banks you read, indexes
   kapso experience search org-x "paged optimizers"            # the ranked pages an index answers a query with
   kapso experience search org-x "paged optimizers" --top 3
@@ -190,11 +191,12 @@ Examples:
     add.add_argument("ref", type=str, nargs="?", default=None, help="`mine` or `leeroopedia`")
     add.add_argument("--repo", type=str, default=None, help="A repository URL to ingest into the index --name")
     add.add_argument("--research", type=str, default=None, help="A question to research on the web and ingest into the index --name")
+    add.add_argument("--paper", type=str, default=None, help="A paper (a PDF, markdown or text file, or a URL such as an arXiv link) to ingest into the index --name")
     add.add_argument("--name", type=str, default=None, help="The index's name (letters, digits, dashes)")
     add.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     add.add_argument(
         "--detach", action="store_true",
-        help="Run an ingest (--repo or --research) in a session of its own and return at once with its pid, log and watch line",
+        help="Run an ingest (--repo, --research or --paper) in a session of its own and return at once with its pid, log and watch line",
     )
     listing = experience_sub.add_parser("list", help="Every source this machine has, with its state")
     listing.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")

@@ -122,6 +122,7 @@ An index owns its namespace in both stores: a name removed and added again never
 | `experience.banks` | `~/.kapso/experience/banks` | banks you read, one clone per `<slug>@<rev>` with a fetch record beside |
 | `experience.indexes` | `~/.kapso/experience/indexes` | indexes, one directory per name |
 | `experience.research_modes`, `.research_depth` | `[idea, implementation]`, `deep` | what `kapso experience add --research` asks the web for, and how deep |
+| `experience.paper_fetch_timeout_seconds` | `60` | how long `kapso experience add --paper <url>` waits for the download |
 | `experience.search_top_k` | `10` | how many pages `kapso experience search` prints when `--top` is absent |
 | `learning.bank.local_path` | `~/.kapso/bank.git` | your bank, `mine` (`Kapso(bank=)` overrides it) |
 | `learning.serving.session_root` | `~/.kapso/serving` | where `kapso-mcp` stages a host session, one directory per process, removed at exit |

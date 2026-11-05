@@ -138,6 +138,8 @@ experience:
   # deep); the findings are ingested as they come.
   research_modes: [idea, implementation]
   research_depth: deep
+  # `kapso experience add --paper <url>`: how long the download may take.
+  paper_fetch_timeout_seconds: 60
   # `kapso experience search <index> "<query>"`: how many pages it prints
   # when --top is absent.
   search_top_k: 10

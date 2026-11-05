@@ -5,9 +5,9 @@ dedicated Neo4j instance) with the repo's own indexer, fetches each
 query's candidate pool once, then scores every arm on that same pool: the
 reranker off and the reranker on. A reranking arm is sampled `rerank_runs`
 times on that same pool, since an LLM rerank varies from call to call. All
-metrics are reported over every query and over the stress subset (queries
-whose target page has a long overview), as a mean with its range across the
-runs.
+metrics are reported over every query, over the stress subset (queries
+whose target page has a long overview), and over the plain and the named
+queries, as a mean with its range across the runs.
 
 Run from the repository root; --config may be repeated, later files
 deep-merging over earlier ones:
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from benchmarks.kg_retrieval.labels import load_labels
+from benchmarks.kg_retrieval.labels import STYLES, load_labels
 from benchmarks.kg_retrieval.metrics import aggregate
 from kapso.core.config import RUNNER_KEY, deep_merge, load_config, read_yaml
 from kapso.knowledge_base.search import (
@@ -120,6 +120,15 @@ def ranks_by_query(queries, runs):
     return ranks
 
 
+def style_subsets(queries):
+    """The per-style subsets, once both styles are present."""
+    by_style = {
+        style: [i for i, query in enumerate(queries) if query.style == style]
+        for style in STYLES
+    }
+    return by_style if all(by_style.values()) else {}
+
+
 def evaluate(queries, arms, retriever, ks, top_k, pool_size, rerank_runs):
     """Score every arm on one candidate pool per query.
 
@@ -146,6 +155,7 @@ def evaluate(queries, arms, retriever, ks, top_k, pool_size, rerank_runs):
         "overall": list(range(len(queries))),
         "stress": [i for i, query in enumerate(queries) if query.stress],
     }
+    subsets.update(style_subsets(queries))
     report = {
         "rerank_runs": rerank_runs,
         "queries": {name: len(idx) for name, idx in subsets.items()},

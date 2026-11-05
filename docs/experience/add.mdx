@@ -27,20 +27,22 @@ kapso experience add leeroopedia
 
 [Leeroopedia](https://leeroopedia.com) is the hosted knowledge base of ML and AI frameworks: nothing to install, one key. Sign up at [app.leeroopedia.com](https://app.leeroopedia.com/dashboard), put `LEEROOPEDIA_API_KEY=kpsk_...` in `.env` beside where you run, and `add leeroopedia` confirms the key is set and sends the gate one MCP `initialize` with it, reporting the server's name; `--experience leeroopedia` then mounts the gate in the ideation and implementation sessions, at the address and timeout of the config the source was loaded with. Without the key, or with an empty one, the add says where the key goes and nothing else happens; a key the gate refuses stops the add with the HTTP status. The gate is an experience source, not a doctor row: a build needs it only when it loads it.
 
-## An index: a repository or a question
+## An index: a repository, a question or a paper
 
 ```bash
 kapso experience add --repo https://github.com/org/x --name org-x
 kapso experience add --research "QLoRA memory optimizations for 7B models on one GPU" --name qlora
+kapso experience add --paper https://arxiv.org/abs/2305.14314 --name qlora-paper
 ```
 
 ```python
 kapso.add_experience(repo="https://github.com/org/x", name="org-x")
 kapso.add_experience(research="QLoRA memory optimizations for 7B models on one GPU", name="qlora")
+kapso.add_experience(paper="https://arxiv.org/abs/2305.14314", name="qlora-paper")
 kapso.load_experience("org-x")
 ```
 
-An index is a corpus turned into pages a session can search. `--repo` clones the repository and reads it; `--research` runs one read-only coding-agent session with live web search (the `research` role of the config's `inference` block, Codex with its native search as shipped) that gathers what the question asks for in the modes and at the depth the config's `experience.research_modes` and `experience.research_depth` name (ideas and implementation references, deep, as shipped), then reads those. Either way the pages land under `experience.indexes` (`~/.kapso/experience/indexes/<name>/wiki/`), their vectors and links in the index's own namespace of the graph stores, and `index.json` beside them records the index at its id. The name is `[a-z0-9][a-z0-9-]*`; `mine` and `leeroopedia` are reserved. An index is never written again after this: a name that exists is refused, and `kapso experience remove <name>` clears it (its namespace, its pages, its record) before an add under the same name.
+An index is a corpus turned into pages a session can search. `--repo` clones the repository and reads it; `--research` runs one read-only coding-agent session with live web search (the `research` role of the config's `inference` block, Codex with its native search as shipped) that gathers what the question asks for in the modes and at the depth the config's `experience.research_modes` and `experience.research_depth` name (ideas and implementation references, deep, as shipped), then reads those; `--paper` reads one paper whole, a PDF, markdown or text file or a URL (an arXiv abstract link is fetched as its PDF, within `experience.paper_fetch_timeout_seconds`), and refuses one with no text, a scanned PDF for one. Whichever you add, the pages land under `experience.indexes` (`~/.kapso/experience/indexes/<name>/wiki/`), their vectors and links in the index's own namespace of the graph stores, and `index.json` beside them records the index at its id. The name is `[a-z0-9][a-z0-9-]*`; `mine` and `leeroopedia` are reserved. An index is never written again after this: a name that exists is refused, and `kapso experience remove <name>` clears it (its namespace, its pages, its record) before an add under the same name.
 
 Ingesting takes minutes to hours, with the material, not with the question; it is a foreground command that writes a status file, so follow it with `kapso watch` from another shell:
 

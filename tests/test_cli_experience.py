@@ -42,7 +42,7 @@ def _subparsers():
 
 def test_every_subcommand_and_flag_is_accounted_for():
     assert _subparsers() == {
-        "add": {"ref", "repo", "research", "name", "config", "detach"},
+        "add": {"ref", "repo", "research", "paper", "name", "config", "detach"},
         "list": {"config"},
         "share": {"url", "config"},
         "update": {"ref", "config"},
@@ -144,11 +144,14 @@ def test_add_ingests_a_repository_or_a_question_through_the_facade(settings, mon
 
     monkeypatch.setattr(experience_cli, "Kapso", FakeKapso)
     _run(monkeypatch, "add", "--repo", "https://github.com/org/x", "--name", "org-x")
-    assert calls == [("init", None), ("add", {"repo": "https://github.com/org/x", "research": None, "name": "org-x"})]
+    assert calls == [("init", None), ("add", {"repo": "https://github.com/org/x", "research": None, "paper": None, "name": "org-x"})]
     calls.clear()
     _run(monkeypatch, "add", "--research", "QLoRA memory", "--name", "qlora", "--config", "c.yaml")
-    assert calls == [("init", "c.yaml"), ("add", {"repo": None, "research": "QLoRA memory", "name": "qlora"})]
-    # exactly one of the three, and an index needs its name
+    assert calls == [("init", "c.yaml"), ("add", {"repo": None, "research": "QLoRA memory", "paper": None, "name": "qlora"})]
+    calls.clear()
+    _run(monkeypatch, "add", "--paper", "paper.pdf", "--name", "paper")
+    assert calls == [("init", None), ("add", {"repo": None, "research": None, "paper": "paper.pdf", "name": "paper"})]
+    # exactly one of the four, and an index needs its name
     for argv in (["add"], ["add", "mine", "--repo", "u"], ["add", "--repo", "u", "--research", "q"]):
         with pytest.raises(SystemExit):
             _run(monkeypatch, *argv)

@@ -27,6 +27,9 @@ class SyncConfig(BaseSettings):
     # Behavior
     conflict_mode: Literal["file", "wiki_wins", "local_wins"] = "file"
     delete_mode: Literal["log", "sync", "archive"] = "log"
+    # "polling" rescans wiki_dir every second instead of waiting for
+    # inotify events, which Docker Desktop on macOS does not deliver
+    watch_mode: Literal["events", "polling"] = "events"
 
     # Rate limiting
     edit_rate_limit: float = 1.0  # max edits per second to wiki
