@@ -47,8 +47,9 @@ class WikiSyncService:
         self._running = False
         self._poll_task: Optional[asyncio.Task] = None
 
-        # Track recently synced files to avoid echo
-        self._recently_synced_local: set[str] = set()
+        # Files just written from the wiki, so the watcher skips that write.
+        # The opposite echo (our own push showing up in RecentChanges) is
+        # skipped by the engine, which compares it with the recorded revid.
         self._recently_synced_wiki: set[str] = set()
 
         # Debounced cache refresh - waits for a quiet period after syncs
@@ -67,7 +68,6 @@ class WikiSyncService:
 
         logger.debug(f"Local file changed: {file_path}")
         if self.engine.sync_local_to_wiki(file_path):
-            self._recently_synced_local.add(rel_path)
             self._schedule_refresh()
 
     def _on_local_delete(self, file_path: Path) -> None:
@@ -108,12 +108,6 @@ class WikiSyncService:
 
     def _on_wiki_change(self, title: str, revid: int, content: str) -> None:
         """Handle wiki page change."""
-        # Check if this was just synced from local
-        file_path = self.engine.state.find_file_by_title(title)
-        if file_path and file_path in self._recently_synced_local:
-            self._recently_synced_local.discard(file_path)
-            return
-
         logger.debug(f"Wiki page changed: {title} (rev {revid})")
         if self.engine.sync_wiki_to_local(title, revid, content):
             from .transforms import title_to_path
@@ -148,6 +142,7 @@ class WikiSyncService:
         logger.info(f"  Refresh delay: {self.config.refresh_delay}s")
         logger.info(f"  Conflict mode: {self.config.conflict_mode}")
         logger.info(f"  Delete mode: {self.config.delete_mode}")
+        logger.info(f"  Watch mode: {self.config.watch_mode}")
 
         # Verify wiki directory exists
         if not self.config.wiki_dir.exists():
@@ -160,6 +155,7 @@ class WikiSyncService:
             debounce_ms=self.config.debounce_ms,
             on_change=self._on_local_change,
             on_delete=self._on_local_delete,
+            polling=self.config.watch_mode == "polling",
         )
 
         self._poller = WikiPoller(

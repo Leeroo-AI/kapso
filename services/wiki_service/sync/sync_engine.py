@@ -208,6 +208,13 @@ class SyncEngine:
         # Check current state
         file_state = self.state.get_file_state(rel_path)
 
+        # Skip revisions the file already has, such as the echo of our own
+        # local->wiki push, whose revid was recorded when it was made.
+        # Comparing revids instead of flagging "just pushed" keeps a newer
+        # human edit that arrives in the same poll from being skipped.
+        if file_state and revid <= file_state.wiki_revid:
+            return False
+
         # Check if local file exists and has changes
         if file_path.exists():
             try:

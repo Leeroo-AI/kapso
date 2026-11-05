@@ -82,7 +82,14 @@ WIKI_PORT=8080           # Access port
 MW_SITENAME=Local Wiki   # Wiki name
 MW_ADMIN_USER=admin      # Admin username
 MW_ADMIN_PASS=adminpass123  # Admin password
+SYNC_WATCH_MODE=events   # How sync notices local edits: events or polling
 ```
+
+`SYNC_WATCH_MODE` defaults to `events` (inotify). Docker Desktop on macOS
+does not pass inotify events from the Mac into containers, so `start.sh`
+switches to `polling` there unless you set the variable yourself. Polling
+rescans `data/wikis/` every second. If you start the stack with
+`docker compose up` on a Mac, set `SYNC_WATCH_MODE=polling` in `.env`.
 
 ## Test API Access
 

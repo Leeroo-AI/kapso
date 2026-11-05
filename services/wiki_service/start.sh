@@ -122,6 +122,14 @@ fi
 
 echo "Wiki data directory: $WIKI_DIR"
 
+# Docker Desktop on macOS does not pass inotify events from the host into
+# containers, so the sync would never see local file edits. Poll there
+# unless SYNC_WATCH_MODE is already set (e.g. in .env).
+if [ -z "${SYNC_WATCH_MODE:-}" ] && [ "$(uname -s)" = "Darwin" ]; then
+    export SYNC_WATCH_MODE=polling
+fi
+echo "Sync watch mode: ${SYNC_WATCH_MODE:-events}"
+
 # Remove import flag if --fresh specified (forces reimport)
 if [ "$FRESH_IMPORT" = true ]; then
     IMPORT_FLAG="../../${WIKI_DIR}/.wikis_imported"
@@ -209,6 +217,7 @@ while ((tries--)); do
         echo ""
         echo "   Sync:     Bidirectional sync enabled"
         echo "             Local files <-> Wiki pages"
+        echo "             Watch mode: ${SYNC_WATCH_MODE:-events}"
         echo "=========================================="
         echo ""
 
