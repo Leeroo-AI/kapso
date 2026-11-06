@@ -14,11 +14,11 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from kapso.core.prompt_loader import load_prompt, optional_block, render_prompt
 from kapso.harness.staging import StagedHarness
-from kapso.execution.inbox import Request, load_requests
+from kapso.execution.inbox import Note, Request, load_requests
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.core.roles import SessionRole
 from kapso.execution.coding_agents.factory import CodingAgentFactory
@@ -487,13 +487,15 @@ def build_implementation_prompt(
     knowledge_tools: str = "",
     domain_guidance: str = "",
     experience_intro: str = "",
+    campaign_notes: str = "",
 ) -> str:
     """Build the implementation prompt for Claude Code from the one template.
     ``evaluation_instructions`` is the mode's evaluation contract (build and
     run, the registered evaluator, or the cost mode's build-only session);
     ``knowledge_tools`` is the guidance of the gates this session mounted
     (empty for a session with none); with the inbox off (empty
-    ``inbox_section``) every inbox part renders empty."""
+    ``inbox_section``) every inbox part renders empty; ``campaign_notes``
+    is the rendered section of the person's notes (empty without notes)."""
     template = load_prompt(
         "execution/search_strategies/generic/prompts/implementation_claude_code.md"
     )
@@ -520,6 +522,8 @@ def build_implementation_prompt(
             "closing_line": (
                 CLOSING_LINE_WITH_INBOX if inbox_on else CLOSING_LINE_WITHOUT_INBOX
             ),
+            # Last, so nothing is substituted into the person's own words.
+            "campaign_notes": optional_block(campaign_notes),
         },
     )
 
@@ -636,6 +640,25 @@ def render_inbox_ideation(requests: Dict[int, Request]) -> str:
             "one they declined. Anything they provided can be assumed present."
         )
     return "\n\n" + render_prompt(template, {"answered_block": answered_block})
+
+
+def render_campaign_notes(notes: Sequence[Note]) -> str:
+    """The section every ideation, implementation and judge prompt carries
+    while the campaign has notes (`kapso inbox note`): all of them, oldest
+    first, each whole — a note is the person's own message and is never
+    cut on its way to a model. "" without notes, which leaves a prompt as
+    it was."""
+    if not notes:
+        return ""
+    template = load_prompt(
+        "execution/search_strategies/generic/prompts/campaign_notes.md"
+    )
+    return render_prompt(template, {
+        "notes": "\n\n".join(
+            f'<note number="{note.id}" written="{note.written_at}">\n{note.text}\n</note>'
+            for note in notes
+        ),
+    })
 
 
 def ensure_technical_difficulties(

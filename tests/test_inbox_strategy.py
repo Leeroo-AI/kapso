@@ -18,7 +18,10 @@ from kapso.execution.inbox import (
     InboxOpenError,
     file_requests,
     inbox_path,
+    leave_note,
     load_requests,
+    notes_path,
+    read_notes,
     record_reply,
     write_launch_record,
 )
@@ -26,6 +29,8 @@ from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.implementation import (
     Continuation,
     SuspendedSession,
+    render_campaign_notes,
+    render_follow_up,
 )
 from kapso.execution.search_strategies.generic.strategy import (
     GenericSearch,
@@ -157,6 +162,32 @@ def test_an_answered_request_continues_the_same_node(tmp_path):
     assert load_requests(harness.inbox)[1].state == "continued"
     assert node.phase_telemetry["implementation"]["cost_usd"] == pytest.approx(1.0)
     assert node.duration_seconds is not None and node.cost_usd == pytest.approx(1.1)
+
+
+def test_a_resumed_session_reads_the_notes_after_the_reply(tmp_path):
+    """The session that asked starts again after the note was left, so its
+    follow-up carries every note whole, after the reply; with no note the
+    follow-up is the reply's alone."""
+    harness = Harness(tmp_path)
+    strategy = harness.strategy
+    strategy.run("problem")
+    record_reply(harness.inbox, 1, "added the key")
+    reply_alone = render_follow_up([load_requests(harness.inbox)[1]])
+    note = "Use DEV_DB, never PROD.\n" + "\n".join(f"- table {index} is read-only" for index in range(300))
+    leave_note(notes_path(tmp_path), note)
+
+    strategy.run("problem")
+
+    follow_up = harness.implement_kwargs[1]["continuation"].follow_up
+    assert follow_up == reply_alone + "\n\n" + render_campaign_notes(read_notes(notes_path(tmp_path)))
+    assert note in follow_up
+
+    # The same pause with no note: nothing is added.
+    plain = Harness(tmp_path / "plain")
+    plain.strategy.run("problem")
+    record_reply(plain.inbox, 1, "added the key")
+    plain.strategy.run("problem")
+    assert plain.implement_kwargs[1]["continuation"].follow_up == reply_alone
 
 
 def test_a_continuation_that_dies_is_continued_again_with_the_reply(tmp_path):

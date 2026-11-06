@@ -63,7 +63,7 @@ If artifacts above are usable (after verification), your candidate solutions
 may ASSUME them and spend the budget on what they enable instead of
 rebuilding them — say so explicitly in the solution.{{inbox_ideation}}
 
-{{domain_guidance}}{{experience_intro}}## Your Process
+{{domain_guidance}}{{experience_intro}}{{campaign_notes}}## Your Process
 1. **Check experiment history FIRST** (when its tools are offered above): what
    worked best, what was tried recently; learn from past successes and failures.
 2. **Understand the codebase**: Read key files and use the repository memory

@@ -69,6 +69,7 @@ from kapso.execution.search_strategies.generic.implementation import (
     Continuation,
     build_implementation_prompt,
     ensure_technical_difficulties,
+    render_campaign_notes,
     render_follow_up,
     render_inbox_ideation,
     run_implementation,
@@ -79,7 +80,9 @@ from kapso.execution.inbox import (
     all_answered,
     inbox_path,
     load_requests,
+    notes_path,
     read_launch_record,
+    read_notes,
     record_continued,
     requests_for_ids,
     withdraw_orphaned_requests,
@@ -785,6 +788,11 @@ class GenericSearch(SearchStrategy):
         settings = self.inbox_settings
         requests = requests_for_ids(load_requests(settings["path"]), node.request_ids)
         follow_up = render_follow_up(requests)
+        # The resumed session starts now, so it reads the campaign's notes
+        # as every session that starts does, after the reply.
+        campaign_notes = self._render_campaign_notes()
+        if campaign_notes:
+            follow_up += "\n\n" + campaign_notes
         print(
             f"\n[GenericSearch] Continuing node {node.node_id} on "
             f"{node.branch_name} with the replies to requests "
@@ -1193,6 +1201,7 @@ class GenericSearch(SearchStrategy):
                 "ideation", ideation_dir, "lens_planner", self.ideation_lens_planner.cli,
             ).guidance,
             experience_intro=self.experience_intro(),
+            campaign_notes=self._render_campaign_notes(),
         )
 
     def _generate_solution_ensemble(
@@ -1254,6 +1263,7 @@ class GenericSearch(SearchStrategy):
             artifacts_dir=self._ideation_artifacts_dir(),
             note_session_spend=self._note_ideation_spend,
             stage_harness_for=self.stage_harness_for,
+            campaign_notes=self._render_campaign_notes(),
         )
 
     def _build_ideation_prompt(
@@ -1275,7 +1285,16 @@ class GenericSearch(SearchStrategy):
             knowledge_tools=knowledge_tools_block("ideation", allowed_tools),
             domain_guidance=domain_guidance,
             experience_intro=self.experience_intro(),
+            campaign_notes=self._render_campaign_notes(),
         )
+
+    def _render_campaign_notes(self) -> str:
+        """The notes the person left for this campaign (`kapso inbox
+        note`), as the section its ideation, implementation and judge
+        prompts carry. Read from the campaign directory each time a prompt
+        is built, so a session that starts after a note reads it; "" while
+        there are none."""
+        return render_campaign_notes(read_notes(notes_path(self.workspace_dir)))
 
     def experience_intro(self) -> str:
         """The intro the campaign's sessions read — what it is served,
@@ -1475,6 +1494,7 @@ class GenericSearch(SearchStrategy):
             knowledge_tools=knowledge_tools_block("implementation", allowed_tools),
             domain_guidance=domain_guidance,
             experience_intro=self.experience_intro(),
+            campaign_notes=self._render_campaign_notes(),
         )
 
     def _manifest_of_record(self, node: SearchNode) -> Optional[Dict[str, Any]]:
@@ -2008,6 +2028,7 @@ class GenericSearch(SearchStrategy):
             execution_valid=node.evaluation_valid if self._cost_enabled() else True,
             stage_harness_for=self.stage_harness_for,
             verification=node.verification,
+            campaign_notes=self._render_campaign_notes(),
         )
         # The deadline that cut the judge was the budget's when the run it
         # cut (the first, or the retry) had a room below the configured

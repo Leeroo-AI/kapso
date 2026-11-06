@@ -145,6 +145,7 @@ class FeedbackGenerator:
         domain_guidance: str = "",
         verification: str = "",
         retry_deadline: Optional[Callable[[], Tuple[Optional[float], Optional[str]]]] = None,
+        campaign_notes: str = "",
     ) -> FeedbackResult:
         """
         Generate feedback for the iteration.
@@ -158,6 +159,7 @@ class FeedbackGenerator:
             evaluation_script_path: Path to evaluation script in workspace (e.g., kapso_evaluation/evaluate.py)
             evaluation_result: Output from running the evaluation
             workspace_dir: Path to workspace directory (agent can access full code)
+            campaign_notes: The rendered section of the person's notes ("" without notes)
             
         Returns:
             FeedbackResult with:
@@ -187,6 +189,7 @@ class FeedbackGenerator:
             session_end_facts=session_end_facts,
             domain_guidance=domain_guidance,
             verification=verification,
+            campaign_notes=campaign_notes,
         )
 
         # Run the judge. The agent is persistent across iterations, so
@@ -260,6 +263,7 @@ class FeedbackGenerator:
         session_end_facts: str = "",
         domain_guidance: str = "",
         verification: str = "",
+        campaign_notes: str = "",
     ) -> str:
         """Build the prompt for the feedback generator."""
         template = load_prompt(self.PROMPT_PATH)
@@ -283,6 +287,8 @@ class FeedbackGenerator:
                 or "(not recorded)",
                 "domain_guidance": optional_block(domain_guidance),
                 "verification": optional_block(verification),
+                # Last, so nothing is substituted into the person's own words.
+                "campaign_notes": optional_block(campaign_notes),
             }
         )
     

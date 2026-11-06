@@ -19,7 +19,7 @@ their best parts — and output it.
 
 {{candidates}}
 
-{{domain_guidance}}## How to judge (stress-test every candidate)
+{{domain_guidance}}{{campaign_notes}}## How to judge (stress-test every candidate)
 
 - Time-fit: can it plausibly train AND evaluate inside the session budget the
   GOAL describes? Prefer plans that state their sizing arithmetic.

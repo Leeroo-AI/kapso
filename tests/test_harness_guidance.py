@@ -94,12 +94,14 @@ def test_the_judge_carries_the_feedback_page_before_its_task(harness, tmp_path):
 
 
 @pytest.mark.parametrize("template, variables", [
-    (GENERIC + "ideation_selector.md", {"problem": "p", "repo_memory_brief": "m", "campaign_state": "c", "candidates": "x"}),
+    (GENERIC + "ideation_selector.md", {"problem": "p", "repo_memory_brief": "m", "campaign_state": "c", "candidates": "x",
+                                        "campaign_notes": ""}),
     (GENERIC + "ideation_lens_planner.md", {"problem": "p", "member_roster": "r", "lens_count": "2", "shared_artifacts_brief": "", "axes": "a",
-                                            "experience_intro": ""}),
+                                            "experience_intro": "", "campaign_notes": ""}),
     (GENERIC + "ideation_lens_replanner.md", {"problem": "p", "member_roster": "r", "lens_count": "2", "shared_artifacts_brief": "", "axes": "a",
                                               "campaign_state": "c", "plan_iteration": "1", "previous_lenses": "l", "previous_sources": "s",
-                                              "previous_rationale": "r", "recent_feedback": "f", "champion_solution": "w", "experience_intro": ""}),
+                                              "previous_rationale": "r", "recent_feedback": "f", "champion_solution": "w", "experience_intro": "",
+                                              "campaign_notes": ""}),
     ("execution/evaluation_maintainer/prompts/setup_provided.md", {"goal": "g", "entrypoint_name": "e", "manifest_marker": "m", "fast_fraction": "0.1", "subsample_seed": "7"}),
     ("execution/evaluation_maintainer/prompts/setup_build.md", {"goal": "g", "data_dir": "d", "entrypoint_name": "e", "manifest_marker": "m", "fast_fraction": "0.1", "subsample_seed": "7"}),
     ("execution/evaluation_maintainer/prompts/change_request.md", {"requested_by": "x", "summary": "s", "evidence": "e", "provided_logic_immutable": "true", "entrypoint_name": "e", "manifest_marker": "m"}),

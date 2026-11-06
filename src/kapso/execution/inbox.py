@@ -16,9 +16,16 @@ record (``.kapso/launch.json`` — the build arguments the checkpoint does
 not hold) and the campaign registry (one line per launch, so ``kapso
 inbox`` with no campaign can list every campaign waiting on a person).
 
-Every read of the inbox file raises on a malformed line (Rule 2); a
-missing file is the documented "no requests" default. Only a line ending
-in a newline is an event: see ``_committed``.
+And the campaign's notes, ``.kapso/notes.jsonl``: what the person told
+the campaign that no session asked for (``kapso inbox note``), one line
+per note, never rewritten. Every ideation, implementation and judge
+prompt built afterwards carries all of them; they need no request tool,
+so they work with the inbox off.
+
+Every read of the inbox file or the notes file raises on a malformed
+line (Rule 2); a missing file is the documented "no requests" / "no
+notes" default. Only a line ending in a newline counts: see
+``_committed``.
 """
 
 import fcntl
@@ -41,6 +48,7 @@ class InboxOpenError(RuntimeError):
 
 
 INBOX_RELATIVE_PATH = Path(".kapso") / "inbox.jsonl"
+NOTES_RELATIVE_PATH = Path(".kapso") / "notes.jsonl"
 LAUNCH_RELATIVE_PATH = Path(".kapso") / "launch.json"
 RESUME_LOCK_RELATIVE_PATH = Path(".kapso") / "resume.lock"
 LAUNCH_SCHEMA_VERSION = 2
@@ -113,9 +121,10 @@ def _committed(text: str) -> str:
 
 @contextmanager
 def _locked(path: Path) -> Iterator[Any]:
-    """The inbox file opened for append-plus-read under an exclusive
-    lock, so a read-fold-append sequence sees and writes a consistent
-    file even with the gate, the CLI and the orchestrator all writing.
+    """The inbox file (or the notes file) opened for append-plus-read
+    under an exclusive lock, so a read-fold-append sequence sees and
+    writes a consistent file even with the gate, the CLI and the
+    orchestrator all writing.
     Holding the lock proves no write is in flight, so an unfinished tail
     is removed here, before an append could join it to the next event.
     What the caller wrote is on disk when this returns."""
@@ -515,6 +524,81 @@ def render_stop_text(results: Sequence[Tuple[int, Optional[str]]], keys: Sequenc
 
 
 # =============================================================================
+# THE NOTES
+# =============================================================================
+
+@dataclass(frozen=True)
+class Note:
+    """One thing the person told the campaign, unasked."""
+
+    id: int
+    written_at: str
+    text: str
+
+
+def notes_path(workspace_dir: str | Path) -> Path:
+    return Path(workspace_dir).resolve() / NOTES_RELATIVE_PATH
+
+
+def _parse_notes(text: str, source: str) -> List[Note]:
+    """The notes of the file's complete lines, oldest first. Ids only
+    increase: nothing rewrites a note, so a repeated or an earlier id is
+    a file something else wrote."""
+    notes: List[Note] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        note = json.loads(line)
+        if not isinstance(note, dict):
+            raise ValueError(f"{source}:{number}: a note must be an object")
+        latest = notes[-1].id if notes else 0
+        if type(note.get("id")) is not int or note["id"] <= latest:
+            raise ValueError(f"{source}:{number}: note id must be an integer above {latest}")
+        if (
+            not isinstance(note.get("ts"), str)
+            or not isinstance(note.get("text"), str)
+            or not note["text"].strip()
+        ):
+            raise ValueError(f"{source}:{number}: a note carries a ts and a non-empty text")
+        notes.append(Note(id=note["id"], written_at=note["ts"], text=note["text"]))
+    return notes
+
+
+def read_notes(path: str | Path) -> List[Note]:
+    """Every note in the file, oldest first. Missing file → no notes."""
+    path = Path(path)
+    if not path.is_file():
+        return []
+    return _parse_notes(_committed(path.read_text(encoding="utf-8")), str(path))
+
+
+def leave_note(path: str | Path, text: str, *, allow_secret: bool = False) -> Note:
+    """Append the person's note, its text exactly as given, under one lock
+    with the read that decides its id.
+
+    An empty note is refused. So is one shaped like a credential, for
+    every caller as with a reply, unless the caller says it knows
+    (`allow_secret=True`, the CLI's --yes): a note is stored in plain
+    text and handed to every later session, and nothing removes it. The
+    shapes also match hyphenated names (`mask-rcnn-resnet50-fpn`), which
+    is what the way out is for.
+    """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("a note needs text")
+    if looks_like_a_secret(text) and not allow_secret:
+        raise ValueError(
+            "note looks like a credential; notes are stored in plain text and "
+            "handed to every later session as text — put the value in the "
+            ".env the run loaded and leave a note that says where it is, or "
+            "pass allow_secret=True to store it anyway"
+        )
+    path = Path(path)
+    with _locked(path) as handle:
+        notes = _parse_notes(handle.read(), str(path))
+        note = Note(id=notes[-1].id + 1 if notes else 1, written_at=_utcnow(), text=text)
+        handle.write(json.dumps({"id": note.id, "ts": note.written_at, "text": note.text}) + "\n")
+        return note
+
+
+# =============================================================================
 # THE LAUNCH RECORD AND THE REGISTRY
 # =============================================================================
 
@@ -741,6 +825,18 @@ def render_awaiting_resume(requests: Sequence[Request], ideas: Dict[int, str]) -
             f"      for    node {request.node} · {idea}" if idea else f"      for    node {request.node}",
             f"      reply  {request.reply!r}",
         ]))
+    return "\n\n".join(blocks)
+
+
+def render_notes(notes: Sequence[Note]) -> str:
+    """The note rows of `kapso inbox`: each note's number, when it was
+    written and its whole text. Display only: the sessions read the
+    section their prompts carry."""
+    blocks = []
+    for note in notes:
+        rows = [f"  note {note.id}  {note.written_at}"]
+        rows.extend(f"      {line}" for line in note.text.splitlines())
+        blocks.append("\n".join(rows))
     return "\n\n".join(blocks)
 
 

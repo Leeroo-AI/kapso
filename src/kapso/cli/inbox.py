@@ -1,5 +1,6 @@
 """`kapso inbox`: what a campaign is waiting on you for, and how to answer it
-(docs/research/evolve-hub-design.md v4 §4.6)."""
+(docs/research/evolve-hub-design.md v4 §4.6); `kapso inbox note`: what you
+tell a campaign that it did not ask for."""
 
 import argparse
 import re
@@ -13,9 +14,13 @@ from kapso.kapso import Kapso, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.inbox import (
     launch_receipt_path,
+    leave_note,
     list_registered_campaigns,
     looks_like_a_secret,
+    notes_path,
+    read_notes,
     render_awaiting_resume,
+    render_notes,
     render_requests,
 )
 from kapso.execution.run_checkpoint import RunCheckpointStore
@@ -69,6 +74,22 @@ def _waiting_since(requests) -> str:
 
 
 def _render_campaign_inbox(campaign: Path) -> str:
+    """What `kapso inbox` shows for one campaign: what waits on the
+    person, then the notes they left for it."""
+    waiting = _render_waiting(campaign)
+    notes = read_notes(notes_path(campaign))
+    if not notes:
+        return waiting
+    return "\n".join([
+        waiting,
+        "",
+        "  your notes   every ideation, implementation and judging session that starts reads them",
+        "",
+        render_notes(notes),
+    ])
+
+
+def _render_waiting(campaign: Path) -> str:
     requests = Kapso.inbox(str(campaign))
     awaiting = Kapso.awaiting_resume(str(campaign))
     if not requests and not awaiting:
@@ -103,11 +124,16 @@ def _render_campaign_inbox(campaign: Path) -> str:
 
 
 def cmd_inbox(args) -> None:
-    """`kapso inbox [CAMPAIGN]` — what is waiting on you; `kapso inbox
-    reply [CAMPAIGN] [ID] [NOTE]` — answer it, and the campaign resumes."""
+    """`kapso inbox [CAMPAIGN]` — what is waiting on you, and the notes
+    you left; `kapso inbox reply [CAMPAIGN] [ID] [NOTE]` — answer it, and
+    the campaign resumes; `kapso inbox note [CAMPAIGN] TEXT` — tell the
+    campaign something it did not ask for."""
     words = list(args.words)
     if words and words[0] == "reply":
         cmd_inbox_reply(words[1:], yes=args.yes, detach=args.detach, log=args.log)
+        return
+    if words and words[0] == "note":
+        cmd_inbox_note(words[1:], yes=args.yes)
         return
     if len(words) > 1:
         print("Error: kapso inbox takes at most a campaign directory", file=sys.stderr)
@@ -193,6 +219,49 @@ def cmd_inbox_reply(
         _print_build_summary(solution)
 
 
+def cmd_inbox_note(words, *, yes: bool) -> None:
+    """Leave a note for a campaign: something no session asked for. The
+    campaign is the first word when that is a directory, else the one the
+    current directory is inside; the note is the one word after it, kept
+    exactly as given. Nothing is paused, resumed or interrupted: a session
+    reads the notes when it starts. A note cannot be taken back, so
+    anything that leaves the campaign or the text in doubt is refused, and
+    a text shaped like a credential needs --yes, as a reply does."""
+    words = list(words)
+    explicit = words.pop(0) if words and Path(words[0]).expanduser().is_dir() else None
+    if len(words) > 1:
+        problem = "the note is more than one argument" if explicit is not None else f"{words[0]} is not a directory"
+        print(
+            f'Error: {problem} — the form is kapso inbox note [campaign] "<text>", the text as one quoted argument',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    campaign = _inbox_campaign(explicit)
+    if campaign is None:
+        print('Error: not inside a campaign — name it: kapso inbox note <campaign> "<text>"', file=sys.stderr)
+        sys.exit(1)
+    if not (campaign / ".kapso").is_dir():
+        print(f"Error: {campaign} is not a campaign directory", file=sys.stderr)
+        sys.exit(1)
+    text = words[0] if words else ""
+    if not text.strip():
+        print('Error: a note needs text: kapso inbox note [campaign] "<text>"', file=sys.stderr)
+        sys.exit(1)
+    if looks_like_a_secret(text) and not yes:
+        print(
+            "This note looks like a credential. Notes are stored in plain "
+            "text and handed to every later session as text, and a note "
+            "cannot be removed; put the value in the .env the run loaded and "
+            "leave a note that says where it is. To store it anyway, add "
+            "--yes at the end."
+        )
+        sys.exit(1)
+    note = leave_note(notes_path(campaign), text, allow_secret=yes)
+    print(f"Note {note.id} left for {campaign}.")
+    print("A session that is running right now has already started and will not see it.")
+    print("Every ideation, implementation and judging session that starts from here on reads it.")
+
+
 def add_parser(subparsers):
     inbox_parser = subparsers.add_parser(
         "inbox",
@@ -203,26 +272,31 @@ def add_parser(subparsers):
             "A session that needs something only a person can provide asks "
             "through the inbox and the campaign pauses. `kapso inbox` shows "
             "what is waiting; `kapso inbox reply` answers one request and "
-            "resumes the campaign here, continuing the session that asked."
+            "resumes the campaign here, continuing the session that asked. "
+            "`kapso inbox note` tells a campaign something it did not ask "
+            "for: every ideation, implementation and judging session that "
+            "starts afterwards reads it."
         ),
         epilog="""
 Examples:
   kapso inbox                              # every campaign waiting on you (this one, inside a campaign)
-  kapso inbox ./campaign                   # this campaign's requests
+  kapso inbox ./campaign                   # this campaign's requests, and the notes you left for it
   kapso inbox reply 1 "added the key"      # answer request 1 here; the campaign resumes
   kapso inbox reply "added the key"        # the id may be left out when one request is open
   kapso inbox reply ./campaign 1           # answer from elsewhere; an empty note means done
   kapso inbox reply 1 "added the key" --detach   # resume in a session of its own; follow with kapso watch
   kapso inbox reply                        # retry a resume that failed; your reply is kept, a note replaces it
+  kapso inbox note "use DEV_DB"            # tell the campaign something it did not ask; sessions that start later read it
+  kapso inbox note ./campaign "skip ticket 14"   # the same from elsewhere; the text is one quoted argument
 """,
     )
     inbox_parser.add_argument(
         "words", nargs="*",
-        help="[CAMPAIGN]  or  reply [CAMPAIGN] [ID] [NOTE]",
+        help="[CAMPAIGN]  or  reply [CAMPAIGN] [ID] [NOTE]  or  note [CAMPAIGN] TEXT",
     )
     inbox_parser.add_argument(
         "--yes", action="store_true",
-        help="Store a reply that looks like a credential anyway",
+        help="Store a reply or a note that looks like a credential anyway",
     )
     inbox_parser.add_argument(
         "--detach", action="store_true",

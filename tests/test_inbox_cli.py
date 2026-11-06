@@ -5,7 +5,12 @@ with the idea line and the reply hint (the id left out when one request
 is open); from elsewhere a named directory or the registry is used;
 `kapso inbox reply` resolves the campaign and the id the same way,
 refuses a credential unless --yes, and prints the campaign's summary —
-COMPLETED, or WAITING ON YOU when it asked again.
+COMPLETED, or WAITING ON YOU when it asked again. `kapso inbox note`
+records the text exactly as given for the campaign named or the one the
+current directory is inside, says which sessions will read it, and
+writes nothing when the text is empty, shaped like a credential without
+--yes or not one argument, or when no campaign is meant; `kapso inbox`
+lists the notes below whatever waits, and still says when nothing does.
 """
 
 import shlex
@@ -18,7 +23,14 @@ import pytest
 from kapso.cli import main
 from kapso.cli.common import _print_build_summary
 from kapso.cli.inbox import _campaign_goal, cmd_inbox
-from kapso.execution.inbox import file_requests, inbox_path, record_reply, register_campaign
+from kapso.execution.inbox import (
+    file_requests,
+    inbox_path,
+    notes_path,
+    read_notes,
+    record_reply,
+    register_campaign,
+)
 from kapso.execution.run_checkpoint import RunCheckpoint, RunCheckpointStore, config_fingerprint
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.handles import Brief
@@ -259,10 +271,124 @@ def test_the_summary_says_waiting_on_you_when_the_campaign_asked_again(tmp_path,
     assert f"Any time:    kapso inbox {workspace}" in out
 
 
-def test_inbox_help_shows_both_forms(monkeypatch, capsys):
+def test_inbox_help_shows_every_form(monkeypatch, capsys):
     with pytest.raises(SystemExit) as stop:
         _run(monkeypatch, "inbox", "--help")
     assert stop.value.code == 0
     out = capsys.readouterr().out
     assert "reply [CAMPAIGN] [ID] [NOTE]" in out and "kapso inbox reply 1" in out
+    # argparse wraps the forms' line at the terminal's width.
+    assert "note [CAMPAIGN] TEXT" in " ".join(out.split()) and 'kapso inbox note ./campaign "skip ticket 14"' in out
     assert cmd_inbox.__doc__
+
+
+TOKEN = "sk-abcdefghijklmnopqrstuvwxyz0123"
+NOTE = "  The staging warehouse is read-only.\n\nWrite to DEV_DB;  keep  the double spaces.\n"
+
+
+def test_a_note_is_recorded_as_given_and_listed_below_what_waits(tmp_path, monkeypatch, capsys):
+    workspace = _paused_campaign(tmp_path)
+    monkeypatch.chdir(workspace)
+    _run(monkeypatch, "inbox", "note", NOTE)
+    assert capsys.readouterr().out == (
+        f"Note 1 left for {workspace.resolve()}.\n"
+        "A session that is running right now has already started and will not see it.\n"
+        "Every ideation, implementation and judging session that starts from here on reads it.\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "inbox", "note", str(workspace), "skip ticket 14")
+    assert capsys.readouterr().out.startswith(f"Note 2 left for {workspace.resolve()}.\n")
+    first, second = read_notes(notes_path(workspace))
+    assert (first.id, first.text, second.id, second.text) == (1, NOTE, 2, "skip ticket 14")
+
+    _run(monkeypatch, "inbox", str(workspace))
+    out = capsys.readouterr().out
+    assert "#1  env:OPENAI_API_KEY" in out
+    assert out.index("reply with") < out.index("your notes") < out.index("note 1") < out.index("note 2")
+    assert (
+        f"  note 1  {first.written_at}\n"
+        "        The staging warehouse is read-only.\n"
+        "      \n"
+        "      Write to DEV_DB;  keep  the double spaces.\n"
+        "\n"
+        f"  note 2  {second.written_at}\n"
+        "      skip ticket 14\n"
+    ) in out
+
+
+def test_notes_are_listed_when_nothing_is_waiting(tmp_path, monkeypatch, capsys):
+    """A campaign that never asked for anything (the inbox may be off)
+    still takes notes and shows them."""
+    workspace = tmp_path / "campaign"
+    (workspace / ".kapso").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "inbox", "note", str(workspace), "skip ticket 14")
+    capsys.readouterr()
+
+    _run(monkeypatch, "inbox", str(workspace))
+    out = capsys.readouterr().out
+    assert out.startswith(f"Nothing waiting on you in {workspace.resolve()}.\n\n  your notes   ")
+    assert out.rstrip().endswith("      skip ticket 14")
+
+
+@pytest.mark.parametrize("words, stream, message", [
+    ((), "err", "a note needs text"),
+    (("  \n",), "err", "a note needs text"),
+    (("{campaign}",), "err", "a note needs text"),          # the campaign named, the text forgotten
+    (("the key is {token}",), "out", "looks like a credential"),
+    (("skip", "ticket", "14"), "err", "skip is not a directory — the form is kapso inbox note [campaign]"),
+    (("{campaign}", "skip", "ticket", "14"), "err", "the note is more than one argument"),
+])
+def test_a_note_in_doubt_is_refused_and_nothing_is_written(tmp_path, monkeypatch, capsys, words, stream, message):
+    workspace = _paused_campaign(tmp_path)
+    monkeypatch.chdir(workspace)
+    words = [word.format(campaign=workspace, token=TOKEN) for word in words]
+    with pytest.raises(SystemExit) as stop:
+        _run(monkeypatch, "inbox", "note", *words)
+    assert stop.value.code == 1
+    assert message in getattr(capsys.readouterr(), stream)
+    assert not notes_path(workspace).exists()
+
+
+def test_a_credential_shaped_note_is_stored_with_yes(tmp_path, monkeypatch, capsys):
+    """The shapes also match hyphenated names, so the refusal names the
+    reply's way out and --yes takes it."""
+    workspace = _paused_campaign(tmp_path)
+    monkeypatch.chdir(workspace)
+    text = "start from mask-rcnn-resnet50-fpn-coco"
+    with pytest.raises(SystemExit):
+        _run(monkeypatch, "inbox", "note", text)
+    assert "To store it anyway, add --yes at the end." in capsys.readouterr().out
+    assert not notes_path(workspace).exists()
+
+    _run(monkeypatch, "inbox", "note", text, "--yes")
+    assert capsys.readouterr().out.startswith("Note 1 left for ")
+    assert [note.text for note in read_notes(notes_path(workspace))] == [text]
+
+
+def test_a_note_needs_a_campaign(tmp_path, monkeypatch, capsys):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(tmp_path)
+    for words, message in [
+        (("skip ticket 14",), "not inside a campaign"),
+        ((str(tmp_path / "nowhere"), "skip ticket 14"), "nowhere is not a directory"),
+        ((str(plain), "skip ticket 14"), "plain is not a campaign directory"),
+    ]:
+        with pytest.raises(SystemExit) as stop:
+            _run(monkeypatch, "inbox", "note", *words)
+        assert stop.value.code == 1
+        assert message in capsys.readouterr().err
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["plain"] and not any(plain.iterdir())
+
+
+def test_a_wrong_directory_never_sends_the_note_to_the_campaign_you_stand_in(tmp_path, monkeypatch, capsys):
+    """Inside one campaign, naming another that does not exist must not
+    file the path and the text as a note here: a note cannot be removed."""
+    workspace = _paused_campaign(tmp_path)
+    monkeypatch.chdir(workspace)
+    with pytest.raises(SystemExit) as stop:
+        _run(monkeypatch, "inbox", "note", "../campaign-b", "skip ticket 14")
+    assert stop.value.code == 1
+    assert "../campaign-b is not a directory" in capsys.readouterr().err
+    assert not notes_path(workspace).exists()
