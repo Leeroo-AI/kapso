@@ -1,4 +1,4 @@
-# Test Task 3: Developer Agent Loop
+# The developer agent loop with the feedback generator
 #
 # Tests for the new developer agent loop with feedback generator.
 

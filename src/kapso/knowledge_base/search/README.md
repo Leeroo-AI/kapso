@@ -183,5 +183,5 @@ source .env
 export NEO4J_PASSWORD="password123"
 
 # Run test
-python test_search.py
+python tests/manual/test_search.py
 ```

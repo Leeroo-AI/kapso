@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Task 1: Initialize Repo - Tests
+The initial repository a build starts from
 
 Tests for the initial_repo resolution logic in Kapso.build():
 1. Local path handling

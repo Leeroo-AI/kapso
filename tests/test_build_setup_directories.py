@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Task 2: Setup Directories - Tests
+The evaluation and data directories a build sets up
 
 Tests for the kapso_evaluation/ and kapso_datasets/ directory setup:
 1. Both directories provided

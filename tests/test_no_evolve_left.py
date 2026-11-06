@@ -1,9 +1,8 @@
 """The verb is `build`. Nothing under the code, the tests, the shipped
 skill, the examples or the bot names the old verb, the old result class or
 the old constructor keyword: the rename reached every executable contract
-and every text a model or a person reads. Two citations are not uses and
-stay until WP10 renames the documents: the design documents whose
-filenames carry the old verb (`evolve-hub-design.md`,
+and every text a model or a person reads. Two citations are not uses: the
+design documents whose filenames carry the old verb (`evolve-hub-design.md`,
 `evolve-observability-design.md`, excluded by the hyphen) and the published
 documentation paths under `docs/evolve/`."""
 
