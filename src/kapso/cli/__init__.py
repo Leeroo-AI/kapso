@@ -37,11 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     """The CLI's parser, every verb registered: what `main` parses with,
     and what a test parses a documented line against."""
     parser = argparse.ArgumentParser(
-        description="Kapso: turn coding-agent output into verified outcomes, not review debt. Plug in the harness for your domain, set the goal, every step traced",
+        description="Kapso: an engine that runs experiments, deploys the best solution and learns from every run. Smart experimentation, a learning loop, deployment, and domain adaptation through harnesses",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:
-  build      Build software that meets a brief, by experiment
+  build      Run the experiments a brief asks for and deliver the best solution
   harness    Author, check and fetch harnesses: the domain layer a build loads
   experience What a build is served that was measured before: your bank, the hosted gate, ingested corpora
   learn      Trajectory learning (store, mining, updating, grading)

@@ -12,6 +12,10 @@ trading example builds on. Install Kapso and log the coding-agent CLIs in
 first (`kapso doctor build` must pass), then run from the example's
 directory.
 
+Every example runs the experimentation loop; `full-loop` adds the learning
+loop and the deployment, and `trading` runs on a harness, the domain
+adaptation.
+
 | Example | Minutes | What it shows | The one command | Result |
 |---|---|---|---|---|
 | [churn-first-build](churn-first-build/README.md) | 45 | your first build: an evaluator present, a baseline, a target, the record | `kapso build --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output campaign --detach` | recorded in its README |

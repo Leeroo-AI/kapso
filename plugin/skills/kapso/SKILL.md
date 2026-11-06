@@ -1,12 +1,12 @@
 ---
 name: kapso
-description: Operate Kapso (PyPI leeroo-kapso), which turns coding-agent output into verified outcomes against a measurable objective, from a coding session — launch a build and hand it off, follow it with kapso watch, answer a campaign that is WAITING ON YOU, tell a slow run from a dead one and stop or resume it, learn from a finished campaign into your bank, serve a build or this session the experience it should start from, deploy the winner, and run the harness and experience verbs. Use when the user mentions Kapso or kapso build, watch, inbox, resume, stop, learn, experience, harness, deploy or doctor, asks how a campaign is doing, or says a run died. Do not use for ordinary code edits, for writing the objective and its evaluation (kapso-build does that), for reading a finished run's result (kapso-review does that), or inside a Kapso campaign session, which never launches another campaign.
+description: Operate Kapso (PyPI leeroo-kapso), the engine that runs experiments toward a measurable objective, deploys the best solution and learns from every run, from a coding session — launch a build and hand it off, follow it with kapso watch, answer a campaign that is WAITING ON YOU, tell a slow run from a dead one and stop or resume it, learn from a finished campaign into your bank, serve a build or this session the experience it should start from, deploy the winner, and run the harness and experience verbs. Use when the user mentions Kapso or kapso build, watch, inbox, resume, stop, learn, experience, harness, deploy or doctor, asks how a campaign is doing, or says a run died. Do not use for ordinary code edits, for writing the objective and its evaluation (kapso-build does that), for reading a finished run's result (kapso-review does that), or inside a Kapso campaign session, which never launches another campaign.
 ---
 
 # Kapso
 
-Kapso runs experiment campaigns: propose a candidate, implement it on its own git
-branch, score it with the judge, keep the best, repeat. These facts are written for
+Kapso runs experiment campaigns: propose a candidate from the bank of lessons and past
+experiments, build it on its own branch, score it, keep the best, deploy, learn. These facts are written for
 leeroo-kapso 0.8, the version this plugin pins. Prefer them and the docs links at
 the end over reading the package source; a session that greps it runs out of turns.
 

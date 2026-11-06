@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "Kapso by Leeroo",
-  "description": "Turn coding-agent output into verified outcomes, not review debt: plug in the harness for your domain, set the goal, every step traced. State an objective and Kapso runs a campaign with coding agents against an evaluation they cannot touch; it learns from finished campaigns and from repositories and papers. pip install leeroo-kapso.",
+  "description": "An engine that runs experiments, deploys the best solution and learns from every run. State an objective with its success criteria and evaluation; Kapso runs the experiments on a tree of experiments, choosing each next idea from previous experiments and its bank of lessons, deploys the best solution on your stack, and learns from the run into lessons with a credence score and a boundary. Domain knowledge goes in through a harness. pip install leeroo-kapso.",
   "folders": [
     "docs"
   ],

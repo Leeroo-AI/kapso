@@ -45,14 +45,30 @@
             ]
           },
           {
-            "group": "Harnesses",
+            "group": "The experimentation loop",
             "pages": [
-              "docs/harnesses/index",
-              "docs/harnesses/use",
-              "docs/harnesses/bundled/predictive-modelling",
-              "docs/harnesses/bundled/competitive-programming",
-              "docs/harnesses/write",
-              "docs/harnesses/example-trading"
+              "docs/evolve/overview",
+              "docs/evolve/architecture",
+              "docs/evolve/execution-flow",
+              "docs/evolve/evaluation-integrity",
+              "docs/evolve/external-evaluation",
+              "docs/evolve/orchestrator",
+              "docs/evolve/search-strategies",
+              "docs/evolve/parent-selection",
+              "docs/evolve/cost-aware-selection",
+              "docs/evolve/mcp-gates",
+              "docs/evolve/model-routing-retries",
+              "docs/evolve/coding-agents",
+              "docs/evolve/feedback-generator",
+              "docs/evolve/experiment-lifecycle",
+              "docs/evolve/repo-memory"
+            ]
+          },
+          {
+            "group": "Learn",
+            "pages": [
+              "docs/learn/what-learn-produces",
+              "docs/learn/development-mode"
             ]
           },
           {
@@ -72,30 +88,14 @@
             ]
           },
           {
-            "group": "Learn",
+            "group": "Harnesses",
             "pages": [
-              "docs/learn/what-learn-produces",
-              "docs/learn/development-mode"
-            ]
-          },
-          {
-            "group": "How it works",
-            "pages": [
-              "docs/evolve/overview",
-              "docs/evolve/architecture",
-              "docs/evolve/execution-flow",
-              "docs/evolve/evaluation-integrity",
-              "docs/evolve/external-evaluation",
-              "docs/evolve/orchestrator",
-              "docs/evolve/search-strategies",
-              "docs/evolve/parent-selection",
-              "docs/evolve/cost-aware-selection",
-              "docs/evolve/mcp-gates",
-              "docs/evolve/model-routing-retries",
-              "docs/evolve/coding-agents",
-              "docs/evolve/feedback-generator",
-              "docs/evolve/experiment-lifecycle",
-              "docs/evolve/repo-memory"
+              "docs/harnesses/index",
+              "docs/harnesses/use",
+              "docs/harnesses/bundled/predictive-modelling",
+              "docs/harnesses/bundled/competitive-programming",
+              "docs/harnesses/write",
+              "docs/harnesses/example-trading"
             ]
           },
           {
