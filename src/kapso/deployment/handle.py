@@ -20,12 +20,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
+import git
+
 from kapso.core.config import load_config
 from kapso.deployment.errors import DeployError
 from kapso.deployment.record import DeploymentRecord, RUNNING, STOPPED, now, open_record
 from kapso.deployment.targets import FUNCTION, HTTP, RUN_SCRIPT, SCRIPTS_DIR
 
 START, STOP, HEALTH, LOGS = "start.sh", "stop.sh", "health.sh", "logs.sh"
+SOURCE_REMOTE = "origin"
 # A lifecycle script's stdout lines that write back into the record.
 ENDPOINT_LINE = "KAPSO_ENDPOINT="
 VALUE_LINE = "KAPSO_VALUE_"
@@ -34,6 +37,40 @@ ENGINE_LOG = "engine.log"
 ENV_FILE = ".env"
 # A dead worker's error is the end of its log: enough for a traceback.
 _LOG_TAIL_LINES = 30
+
+
+def source_remote(campaign: Path) -> Optional[str]:
+    """Where the solution's code came from: the campaign repository's
+    `origin`, followed through clones on this machine to the first URL
+    that is not one (a campaign is often a clone of a working copy whose
+    own origin is the host); None when the campaign has no origin."""
+    where, url, seen = Path(campaign).resolve(), None, set()
+    while (where / ".git").exists() and where not in seen:
+        seen.add(where)
+        remotes = {remote.name: remote.url for remote in git.Repo(where).remotes}
+        if SOURCE_REMOTE not in remotes:
+            break
+        url = remotes[SOURCE_REMOTE]
+        local = Path(url) if Path(url).is_absolute() else where / url   # git reads a relative URL from the repository
+        if not local.is_dir():
+            break
+        where = local.resolve()
+    return url
+
+
+def provenance(record: DeploymentRecord) -> Dict[str, str]:
+    """What a deployment was made from, as its session and its scripts
+    see it: `KAPSO_SOURCE_REMOTE`, where the solution's code came from,
+    and `KAPSO_VERIFICATION_DIR`, what verification wrote about the
+    delivered attempt (the record's `verification`); each only when
+    there is one."""
+    variables: Dict[str, str] = {}
+    remote = source_remote(record.campaign)
+    if remote is not None:
+        variables["KAPSO_SOURCE_REMOTE"] = remote
+    if record.data["verification"] is not None:
+        variables["KAPSO_VERIFICATION_DIR"] = str((record.directory / record.data["verification"]).resolve())
+    return variables
 
 
 def _end_group(process: subprocess.Popen) -> None:
@@ -403,6 +440,7 @@ class Software:
             "KAPSO_RECORD_DIR": str(self._record.directory),
             "KAPSO_TARGET_DIR": str(self._record.target_dir),
             "KAPSO_INTERPRETER": data["interpreter"],
+            **provenance(self._record),
         }
         if data["endpoint"]:
             env["KAPSO_ENDPOINT"] = data["endpoint"]

@@ -22,13 +22,14 @@ import git
 from kapso.core.prompt_loader import load_prompt, optional_block, render_prompt
 from kapso.core.roles import deployment_role
 from kapso.deployment.errors import DeployError
-from kapso.deployment.handle import Software
+from kapso.deployment.handle import Software, provenance
 from kapso.deployment.record import FAILED, RUNNING, DeploymentRecord, now, start_record
 from kapso.deployment.targets import (
     AUTO, BUNDLED, FUNCTION, HTTP, RUN_KINDS, RUN_SCRIPT, SCRIPT, SCRIPTS_DIR, TargetSkill, readiness, resolve_target,
 )
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 from kapso.harness.staging import check_harness_unchanged, host_for, open_skill_instruction, skills_dir, stage_harness
+from kapso.harness.verdict import verification_dir
 
 RESULT_FILE = "kapso_deployment.json"
 ENV_FILE = ".env"
@@ -209,8 +210,21 @@ def _prompt(solution: Any, record: DeploymentRecord, target: Optional[TargetSkil
         + "; ".join(f"{name} = {value}" for name, value in options.items())
         if options else "The call passed no options."
     )
+    made_from = provenance(record)
+    provenance_lines = []
+    if "KAPSO_SOURCE_REMOTE" in made_from:
+        provenance_lines.append(
+            f"- `KAPSO_SOURCE_REMOTE` = `{made_from['KAPSO_SOURCE_REMOTE']}`: where the solution's code came from (the "
+            f"campaign repository's origin, followed through local clones); a target that delivers back to that repository reads it."
+        )
+    if "KAPSO_VERIFICATION_DIR" in made_from:
+        provenance_lines.append(
+            f"- `KAPSO_VERIFICATION_DIR` = `{made_from['KAPSO_VERIFICATION_DIR']}`: what verification wrote about the "
+            f"delivered attempt (its verdict and the files beside it); read it, never change it."
+        )
     result_path = workspace / RESULT_FILE
     return render_prompt(load_prompt(DEPLOYMENT_PROMPT), {
+        "provenance_block": "".join(line + "\n" for line in provenance_lines),   # the variables list goes on, or nothing
         "objective": solution.brief.objective,
         "origin": "Delivered" if solution.chosen_attempt is None else "Chosen by the person, not delivered by the engine",
         "branch": solution.branch,
@@ -239,6 +253,7 @@ def _variables(record: DeploymentRecord, workspace: Path, env_file: Optional[Pat
         "KAPSO_WORKSPACE": str(workspace),
         "KAPSO_RECORD_DIR": str(record.directory),
         "KAPSO_INTERPRETER": record.data["interpreter"],
+        **provenance(record),
     }
     if env_file is not None:
         variables["KAPSO_ENV_FILE"] = str(env_file)
@@ -392,6 +407,9 @@ def run_deployment(
     )
     if chosen is not None:
         record_target(record, chosen)   # before the session: a failed one is still reachable
+    verified = None if solution.branch is None else verification_dir(campaign, solution.branch)
+    if verified is not None and verified.is_dir():
+        record.update(verification=os.path.relpath(verified, record.directory))
     workspace = make_workspace(campaign, record)
     env_file = write_env_file(workspace, env)
     # The engine's own targets are staged as its skills; a harness target
