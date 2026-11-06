@@ -7,7 +7,7 @@ description: Operate Kapso (PyPI leeroo-kapso), the engine that runs experiments
 
 Kapso runs experiment campaigns: propose a candidate from the bank of lessons and past
 experiments, build it on its own branch, score it, keep the best, deploy, learn. These facts are written for
-leeroo-kapso 0.8, the version this plugin pins. Prefer them and the docs links at
+leeroo-kapso 0.9, the version this plugin pins. Prefer them and the docs links at
 the end over reading the package source; a session that greps it runs out of turns.
 
 ## Facts that prevent the common mistakes
