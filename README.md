@@ -13,7 +13,7 @@
   <a href="https://pypi.org/project/leeroo-kapso/"><img src="https://img.shields.io/pypi/v/leeroo-kapso?color=blue" alt="PyPI"></a>
   <a href="https://discord.gg/hqVbPNNEZM"><img src="https://dcbadge.limes.pink/api/server/hqVbPNNEZM?style=flat" alt="Discord"></a>
   <a href="https://github.com/leeroo-ai/kapso"><img src="https://img.shields.io/github/commit-activity/m/leeroo-ai/kapso" alt="GitHub commit activity"></a>
-  <a href="https://www.ycombinator.com/companies/leeroo"><img src="https://img.shields.io/badge/Y%20Combinator-X25-orange?logo=ycombinator&logoColor=white" alt="Y Combinator X25"></a>
+  <a href="https://www.ycombinator.com/companies/leeroo"><img src="https://img.shields.io/badge/Y%20Combinator-P25-orange?logo=ycombinator&logoColor=white" alt="Y Combinator P25"></a>
 </p>
 
 <p align="center">
@@ -309,15 +309,15 @@ Every example is a task: a brief, a starting repository, the data or how to get 
 
 | Example | What it shows |
 |---------|---------------|
-| [**churn-first-build**](examples/churn-first-build/README.md) | Your first build: an evaluator present, a baseline, a target, the record |
-| [**fraud-no-evaluator**](examples/fraud-no-evaluator/README.md) | No evaluator: the campaign's first node builds one from the brief's protocol and every candidate is measured against it |
-| [**pipeline-dbt**](examples/pipeline-dbt/README.md) | A dbt pipeline on DuckDB whose exports carry defects: the data contract made to hold |
+| [**churn first build**](examples/churn-first-build/README.md) | Your first build: an evaluator present, a baseline, a target, the record |
+| [**fraud no evaluator**](examples/fraud-no-evaluator/README.md) | No evaluator: the campaign's first node builds one from the brief's protocol and every candidate is measured against it |
+| [**pipeline dbt**](examples/pipeline-dbt/README.md) | A dbt pipeline on DuckDB whose exports carry defects: the data contract made to hold |
 | [**trading**](examples/trading/README.md) | A harness on the build: a setup session, pages and hooks in every session, verification per attempt |
-| [**full-loop**](examples/full-loop/README.md) | Build, the review, learn, build again served the lesson, deploy: a Kaggle tabular model end to end |
-| [**prompt-harness**](examples/prompt-harness/README.md) | The prompt as the thing under test, scored on AIME problems |
-| [**agent-scaffold**](examples/agent-scaffold/README.md) | A vision-language extractor, scored against ground-truth tables |
-| [**torch-performance**](examples/torch-performance/README.md) | A faster module on CUDA under a numerical tolerance |
-| [**gpu-kernels**](examples/gpu-kernels/README.md) | Multi-head attention on CUDA: flash attention or Triton |
+| [**full loop**](examples/full-loop/README.md) | Build, the review, learn, build again served the lesson, deploy: a Kaggle tabular model end to end |
+| [**prompt harness**](examples/prompt-harness/README.md) | The prompt as the thing under test, scored on AIME problems |
+| [**agent scaffold**](examples/agent-scaffold/README.md) | A vision-language extractor, scored against ground-truth tables |
+| [**torch performance**](examples/torch-performance/README.md) | A faster module on CUDA under a numerical tolerance |
+| [**gpu kernels**](examples/gpu-kernels/README.md) | Multi-head attention on CUDA: flash attention or Triton |
 
 ## Supported Benchmarks
 
