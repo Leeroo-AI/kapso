@@ -1,12 +1,15 @@
 cff-version: 1.2.0
 message: "If you use Kapso in your work, please cite it as below."
 type: software
-title: "Kapso: long-running agents that optimize AI and Data systems"
+title: "Kapso: an engine that runs experiments, deploys the best solution and learns from every run"
 abstract: >-
-  Kapso is a team of long-running agents that optimize AI and Data systems, and
-  learn from every experience. Give it an objective and it autonomously builds the
-  best solution, deploys it, and keeps what moved the metric, with the evidence
-  that earned it; it also learns from public repositories and papers.
+  Kapso is an open-source engine that runs experiments, deploys the best
+  solution and learns from every run. Given an objective, initial success
+  criteria and evaluation metrics, it runs experiments on a tree of
+  experiments, choosing each next idea from previous experiments and its bank
+  of lessons, deploys the best solution on the desired stack, and learns from
+  each run into lessons with a credence score and a boundary on where they
+  apply; domain knowledge goes in through a harness.
 authors:
   - name: "Leeroo"
     email: alireza@leeroo.com
