@@ -9,9 +9,10 @@ with and a credential-shaped one are refused before anything is written,
 the last unless the caller says it knows. Every ideation, implementation
 and judge prompt built while notes exist carries all of them whole,
 oldest first, in one section before the role's own task, and a prompt
-built with none is the prompt as it was; the strategy reads the file each
-time it builds a prompt, with the inbox off as well as on; no other
-session's template takes the section.
+built with none is the prompt as it was; no other session's template
+takes the section. Over one real iteration, with the inbox off, each
+session reads the notes left before it started and not the one left while
+it ran: what the command tells the person.
 """
 
 import json
@@ -26,15 +27,15 @@ import kapso.execution.coding_agents.factory as factory_module
 from kapso.core.prompt_loader import optional_block
 from kapso.execution.coding_agents.base import CodingAgentConfig
 from kapso.execution.inbox import Note, leave_note, notes_path, read_notes
-from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.feedback_generator.feedback_generator import FeedbackGenerator
 from kapso.execution.search_strategies.generic.ideation import build_ideation_prompt
 from kapso.execution.search_strategies.generic.implementation import (
     build_implementation_prompt,
     render_campaign_notes,
 )
-from kapso.execution.search_strategies.generic.strategy import GenericSearch
 from strategy_support import every_prompt_slot
+from tests.handles_support import git_workspace
+from tests.harness_support import real_orchestrator
 
 SOURCE = Path(__file__).resolve().parent.parent / "src" / "kapso"
 HEADING = "## Notes from the person running this campaign"
@@ -254,73 +255,87 @@ def test_the_slot_is_in_the_role_templates_only_and_adds_nothing_when_empty():
 
 
 # =============================================================================
-# THE STRATEGY
+# ONE REAL ITERATION
 # =============================================================================
 
-class RecordingJudgeAgent:
-    """The judge's session: keeps the prompt it was given, answers with tags."""
+# Each session of an iteration, by the line its prompt opens with, and what
+# its agent answers.
+SESSIONS = [
+    (
+        "You are a world-class ML researcher", "ideation",
+        "<solution># Core Idea\nMove the ranking threshold and measure the change on the held-out "
+        "questions, keeping the baseline's features as they are.</solution>",
+    ),
+    (
+        "You are a world class developer", "implementation",
+        "<code_changes_summary>moved the threshold</code_changes_summary>"
+        "<evaluation_script_path>kapso_evaluation/evaluate.py</evaluation_script_path>"
+        "<evaluation_output>score: 0.5</evaluation_output><score>0.5</score>"
+        "<technical_difficulties>none</technical_difficulties>",
+    ),
+    (
+        "# Feedback Generator", "judge",
+        "<stop>false</stop><evaluation_valid>true</evaluation_valid><score>0.5</score><feedback>go on</feedback>",
+    ),
+]
 
-    def __init__(self):
-        self.prompts = []
 
-    def initialize(self, workspace):
-        pass
+def test_each_session_of_a_real_iteration_reads_the_notes_left_before_it_started(tmp_path, monkeypatch):
+    """What the command tells the person, on the real strategy over a real
+    workspace: the session running when a note is left does not see it,
+    the session that starts next does. Only the agent processes are
+    fakes; while each one runs, the person leaves the next note. The
+    inbox is off: notes need no request tool."""
+    workspace = tmp_path / "campaign"
+    git_workspace(workspace)
+    strategy = real_orchestrator(monkeypatch, workspace).search_strategy
+    assert not (strategy.inbox_settings or {}).get("enabled")
+    strategy.llm.embedding_model = None   # the support's inference fake names none
+    left = [
+        LONG_NOTE,
+        "Left while the ideation session ran: write to DEV_DB, never to PROD.",
+        "Left while the implementation session ran: ticket 14 is fixed upstream.",
+    ]
+    started = {}
 
-    def generate_code(self, prompt, debug_mode=False, timeout_seconds=None):
-        self.prompts.append(prompt)
-        return SimpleNamespace(
-            success=True, error=None, metadata={"cli_session_id": "judge-1"},
-            output="<stop>false</stop><evaluation_valid>true</evaluation_valid><score>0.5</score><feedback>go on</feedback>",
-        )
+    class SessionAgent:
+        def __init__(self, config):
+            pass
 
-    def get_cumulative_cost(self):
-        return 0.0
+        def initialize(self, folder):
+            pass
 
+        def supports_native_git(self):
+            return False
 
-def test_the_strategy_reads_the_notes_each_time_it_builds_a_prompt(tmp_path, monkeypatch):
-    """A note left while the campaign runs reaches the next prompt of every
-    role, through the real judge as well, and needs no request tool: the
-    inbox is off here."""
-    judge_agent = RecordingJudgeAgent()
-    monkeypatch.setattr(factory_module.CodingAgentFactory, "create", classmethod(lambda cls, config: judge_agent))
-    monkeypatch.setattr(GenericSearch, "_evaluation_instructions", lambda self: "evaluate")
-    judge = FeedbackGenerator.__new__(FeedbackGenerator)
-    judge.coding_agent_config = CodingAgentConfig(agent_type="claude_code", model="judge", debug_model="judge", agent_specific={})
-    judge._own_agent_specific = {}
+        def generate_code(self, prompt, debug_mode=False, timeout_seconds=None):
+            role, output = next((role, output) for opening, role, output in SESSIONS if prompt.startswith(opening))
+            started[role] = prompt
+            if len(started) < len(left):
+                leave_note(notes_path(workspace), left[len(started)])
+            return SimpleNamespace(
+                success=True, error=None, output=output, metadata={"tool_calls": [], "cli_session_id": "session-1"},
+            )
 
-    strategy = GenericSearch.__new__(GenericSearch)
-    strategy.harness = None
-    strategy.workspace_dir = str(tmp_path)
-    strategy.inbox_settings = {"enabled": False}
-    strategy.experience_intro_path = None
-    strategy.hosted = None
-    strategy.shared_artifacts_brief = "none"
-    strategy.iteration_count = 1
-    strategy.goal = "the goal"
-    strategy.budget_snapshot = None
-    strategy.budget_snapshot_monotonic = None
-    strategy.registered_evaluation_command = ""
-    strategy.feedback_generator = judge
+        def get_cumulative_cost(self):
+            return 0.0
 
-    def prompts_built_now():
-        strategy._generate_feedback(
-            SearchNode(node_id=0, branch_name="candidate", parent_branch_name="main", workspace_dir=str(tmp_path))
-        )
-        return {
-            "ideation": strategy._build_ideation_prompt("the problem", "the memory"),
-            "implementation": strategy._build_implementation_prompt(
-                solution="s", problem="p", branch_name="b", repo_memory_brief="m",
-                repo_memory_detail_access_instructions="i", previous_errors="",
-            ),
-            "judge": judge_agent.prompts[-1],
-        }
+        def cleanup(self):
+            pass
 
-    for role, prompt in prompts_built_now().items():
-        assert HEADING not in prompt, role
+    monkeypatch.setattr(factory_module.CodingAgentFactory, "create", staticmethod(lambda config: SessionAgent(config)))
+    strategy.feedback_generator = FeedbackGenerator(
+        CodingAgentConfig(agent_type="claude_code", model="judge", debug_model="judge", agent_specific={})
+    )
+    strategy.goal = "Improve support"
+    leave_note(notes_path(workspace), left[0])
 
-    leave_note(notes_path(tmp_path), LONG_NOTE)
-    leave_note(notes_path(tmp_path), SECOND_NOTE)
+    node = strategy.run("Improve the ranking of support answers.")
 
-    for role, prompt in prompts_built_now().items():
+    assert list(started) == ["ideation", "implementation", "judge"]
+    carried = {role: [text for text in left if text in prompt] for role, prompt in started.items()}
+    assert carried == {"ideation": left[:1], "implementation": left[:2], "judge": left[:3]}
+    for role, prompt in started.items():
         assert prompt.count(HEADING) == 1, role
-        assert prompt.index(HEADING) < prompt.index(LONG_NOTE) < prompt.index(SECOND_NOTE), role
+    assert started["judge"].index(left[0]) < started["judge"].index(left[1]) < started["judge"].index(left[2])
+    assert (node.score, node.feedback) == (0.5, "go on")

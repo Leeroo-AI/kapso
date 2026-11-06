@@ -60,6 +60,17 @@ def _is_campaign_root(directory: Path) -> bool:
     return (state / "status.json").is_file() or (state / "run_state.json").is_file()
 
 
+def _campaign_root_here(start: Path) -> Optional[Path]:
+    """The nearest ancestor of `start` that is a campaign root: where a
+    note left from inside a campaign goes. The same rule as for a named
+    directory, so a campaign in its setup minutes (a status file, no
+    checkpoint yet) is found, and never passed over for one around it."""
+    for candidate in (start, *start.parents):
+        if _is_campaign_root(candidate):
+            return candidate
+    return None
+
+
 def _campaign_goal(campaign: Path) -> str:
     """The goal's first line. A campaign launched through build() holds
     the rendered brief, whose first line starts with the field name; one
@@ -247,7 +258,7 @@ def cmd_inbox_note(words, *, yes: bool) -> None:
     named = bool(words) and os.path.isdir(os.path.expanduser(words[0]))
     campaign = (
         Path(os.path.expanduser(words.pop(0))).resolve() if named
-        else _campaign_here(Path.cwd().resolve())
+        else _campaign_root_here(Path.cwd().resolve())
     )
     if len(words) > 1:
         problem = "the note is more than one argument" if named else f"{words[0]} is not a directory"

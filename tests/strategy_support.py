@@ -19,11 +19,14 @@ def every_prompt_slot() -> str:
     line. A text that must reach a prompt unaltered carries it in a test:
     `render_prompt` substitutes the slots in the order of its variables,
     so any variable substituted after that text would rewrite the line."""
-    return " ".join(sorted({
+    slots = sorted({
         slot
         for template in GENERIC_STRATEGY.rglob("*.md")
         for slot in re.findall(r"\{\{\w+\}\}", template.read_text(encoding="utf-8"))
-    }))
+    })
+    # A floor: templates that moved would leave the line empty and the tests that lean on it guarding nothing.
+    assert {"{{problem}}", "{{goal}}", "{{solution}}", "{{candidates}}", "{{campaign_notes}}"} <= set(slots), slots
+    return " ".join(slots)
 
 
 def generic_params(**overrides: Any) -> Dict[str, Any]:

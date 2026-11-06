@@ -421,10 +421,37 @@ def test_a_note_needs_a_campaign(tmp_path, monkeypatch, capsys):
     assert not any(plain.iterdir()) and sorted(path.name for path in (clone / ".kapso").iterdir()) == ["repo_memory.json"]
 
 
+def test_a_campaign_in_its_setup_minutes_takes_a_note_by_either_form(tmp_path, monkeypatch, capsys):
+    """The status file is there from the workspace's setup on, the
+    checkpoint only after the setup sessions: both forms go by either, so
+    a note left from inside a campaign that is still setting up is filed
+    there, never in a campaign around it."""
+    outer = _quiet_campaign(tmp_path, "outer")
+    inner = outer / "inner"
+    (inner / ".kapso").mkdir(parents=True)
+    (inner / ".kapso" / "status.json").write_text('{"state": "starting", "phase": "setup"}')
+    monkeypatch.chdir(inner)
+    _run(monkeypatch, "inbox", "note", "left by the short form")
+    _run(monkeypatch, "inbox", "note", ".", "left by naming it")
+    assert capsys.readouterr().out.count(f"left for {inner.resolve()}.") == 2
+    assert [note.text for note in read_notes(notes_path(inner))] == ["left by the short form", "left by naming it"]
+    assert not notes_path(outer).exists()
+
+
+def test_a_campaign_named_with_a_tilde_is_found(tmp_path, monkeypatch, capsys):
+    """A quoted `~/campaign` reaches the command unexpanded."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    workspace = _quiet_campaign(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "inbox", "note", "~/campaign", "skip ticket 14")
+    assert capsys.readouterr().out.startswith(f"Note 1 left for {workspace.resolve()}.\n")
+    assert [note.text for note in read_notes(notes_path(workspace))] == ["skip ticket 14"]
+
+
 def test_a_note_from_inside_a_session_clone_reaches_its_campaign(tmp_path, monkeypatch, capsys):
     """With no directory named, the campaign is the one the current
-    directory is inside: the nearest one with a checkpoint, not the
-    clone's own `.kapso/`."""
+    directory is inside: the nearest campaign root, not the clone's own
+    `.kapso/`."""
     workspace = _quiet_campaign(tmp_path)
     clone = workspace / "sessions" / "generic_exp_3"
     (clone / ".kapso").mkdir(parents=True)
