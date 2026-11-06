@@ -143,19 +143,19 @@ writing a status` means the launch died, and the log says why.
 
 ## Inbox: the campaign is waiting on you
 
-A session that needs something only a person can provide (a credential, access, a
-file) records a request and the campaign pauses.
+A session that needs something only a person can provide (a credential, access, a file) records a request and the campaign pauses.
 
 ```bash
 kapso inbox ./campaign --config kapso-config.yaml                                    # the open requests: key, hit, tried, fix, next
 kapso inbox reply ./campaign 1 "added the key to .env" --detach --config kapso-config.yaml
+kapso inbox note ./campaign "the staging schema is read-only" --config kapso-config.yaml   # no request needed; pauses nothing
 ```
 
-- The id may be omitted when one request is open; an empty note means done.
-- The reply resumes the very session that asked, in a session of its own with
-  `--detach`; hand off with the `watch` line it prints.
-- A credential-shaped reply is refused: put the value where `fix` says (usually
-  `.env`) and reply with a note. Never carry a value through your reply.
+- The id may be omitted when one request is open; an empty reply means done. The reply resumes the very session that
+  asked, in a session of its own with `--detach`; hand off with the `watch` line it prints.
+- `inbox note` is for when the user wants to tell a running campaign something it did not ask. The session running now
+  does not see it; every ideation, implementation and judging session that starts afterwards reads every note in full.
+- Never carry a value through a reply or a note; a credential-shaped one is refused. Put the value where `fix` says (usually `.env`) and say so.
 
 ## Slow, stalled, dead: diagnose, then stop or resume
 

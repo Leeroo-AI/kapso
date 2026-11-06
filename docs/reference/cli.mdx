@@ -406,16 +406,17 @@ A campaign still running renders `partial` with the reason; a directory with no 
 
 ## kapso inbox
 
-What a paused campaign is waiting on you for, and the reply that resumes it. Inside a campaign directory both forms act on that campaign; elsewhere, name it first. See [the inbox](/docs/build/inbox).
+What a paused campaign is waiting on you for, the reply that resumes it, and the note that tells a campaign something it did not ask. Inside a campaign directory every form acts on that campaign; elsewhere, name it first. See [the inbox](/docs/build/inbox).
 
 | Form | What it does |
 |------|--------------|
 | `kapso inbox [CAMPAIGN]` | The open requests, and the replies a failed resume did not deliver, of the campaign named, else of the one the current directory is inside, else of every registered campaign that is waiting |
 | `kapso inbox reply [CAMPAIGN] [ID] [NOTE]` | Record the reply and resume the campaign in the foreground. The id may be left out when one request is open or a failed resume left one to retry; an empty note means done, or on a retry keeps the reply |
+| `kapso inbox note [CAMPAIGN] TEXT` | Record a note for the campaign, the text as one quoted argument. Every ideation, implementation and judging session that starts afterwards reads every note; nothing is paused or resumed, and `kapso inbox [CAMPAIGN]` lists the notes below what is waiting. An empty note is refused |
 
 | Flag | What it does | Default |
 |------|--------------|---------|
-| `--yes` | Store a reply shaped like a credential anyway. Put it at the end of the line | off |
+| `--yes` | Store a reply or a note shaped like a credential anyway. Put it at the end of the line | off |
 | `--detach` | Check the reply here, then resume the campaign in a session of its own and return at once with the log and the `watch` command | off |
 | `--log` | Where a detached resume's output goes | `<campaign>.log`, beside the campaign directory |
 | `--config` | Config whose `inbox.registry` lists the campaigns | packaged `config.yaml` |
@@ -426,6 +427,7 @@ kapso inbox ./campaign
 kapso inbox reply 1 "added the key"
 kapso inbox reply ./campaign 1
 kapso inbox reply 1 "added the key" --detach
+kapso inbox note ./campaign "ticket 14 is fixed upstream, skip it"
 ```
 
 ## kapso report
