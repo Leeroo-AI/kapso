@@ -1,7 +1,7 @@
 ---
 title: "Evaluation: how a Kapso build measures every candidate"
 sidebarTitle: "Evaluation"
-description: "The evaluator contract, and the three states an evaluation can be in: provided by you and protected, proposed by the campaign from the brief's protocol, or versioned by the maintainer."
+description: "The evaluator contract, and the three states an evaluation can be in: provided by you and protected, proposed by the campaign from the brief's protocol, or versioned by the maintainer, and how a run proposes a change to the success criteria."
 keywords: ["kapso evaluation", "evaluator", "kapso_evaluation", "evaluation integrity", "protected evaluator", "hold-out", "metric"]
 ---
 
@@ -89,6 +89,22 @@ Without the maintainer, `solution.evaluator` is `None` for a provided
 evaluator too; the provided evaluator is still protected by the integrity
 check above.
 
+## Evolving the success criteria: change requests
+
+Success criteria and tests can evolve during a run. A module that finds a
+defect in the evaluation (a leaking split, a metric that rewards the wrong
+thing, a validation window that is not representative) does not edit the
+evaluator; it files a justified change request in its final response, an
+`<evaluation_change_request>` tag with the defect, measured evidence and a
+concrete remedy, and still reports the results of the run it attempted.
+The verifier triages the request against its evidence and approves or
+rejects it; a few requests are admitted per campaign, and a change
+accepted late in the budget is refused so that the final selection keeps
+one evaluator version. An approved change is a new evaluator version in the
+registry, and scores never cross versions. The evaluation maintainer runs
+the registry: turn on the config's `evaluation_maintainer` block to use it
+([Configuration](/docs/reference/configuration)).
+
 ## Your own evaluator in Python
 
 A caller-owned evaluator can also run once per finalized candidate, in an
@@ -117,4 +133,4 @@ contract and failure policy.
 
 Related pages: [The brief](/docs/build/brief) · [Evaluation integrity](/docs/evolve/evaluation-integrity) · [External evaluation](/docs/evolve/external-evaluation) · [Review the result](/docs/build/review)
 
-Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).
+Kapso is an open-source engine by [Leeroo](https://leeroo.com) that runs experiments toward an objective, deploys the best solution and learns from every run. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

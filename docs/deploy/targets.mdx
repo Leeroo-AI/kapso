@@ -5,8 +5,10 @@ description: "What kapso deploy does with a finished build: the target it deploy
 keywords: ["kapso deploy", "deployment target", "Software.open", "docker", "modal", "bentoml", "langgraph", "paper trading"]
 ---
 
-`deploy()` turns the solution a build delivered into running software on a
-target. One session adapts a copy of the solution to the target, deploys it
+`deploy()` turns the best solution in the tree of experiments into running
+software on a target, by a shorter loop of the same shape as the
+experimentation loop. One session adapts a copy of the solution to the
+target, deploys it
 with the target's own scripts, proves one call, and writes a result the
 engine checks; the deployment is recorded under the campaign, and you get
 a `Software` handle that runs, stops, starts and reads it, from this
@@ -247,4 +249,4 @@ See [Configuration](/docs/reference/configuration#deployment).
 
 Related pages: [Write a target skill](/docs/deploy/write-a-target-skill) · [Review the result](/docs/build/review) · [Use a harness](/docs/harnesses/use) · [Configuration](/docs/reference/configuration#deployment) · [CLI](/docs/reference/cli#kapso-deploy) · [Python API](/docs/reference/kapso-api#deploy)
 
-Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).
+Kapso is an open-source engine by [Leeroo](https://leeroo.com) that runs experiments toward an objective, deploys the best solution and learns from every run. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

@@ -60,35 +60,9 @@ Every published page with its rendered address, grouped as in the sidebar. Kept 
 - [Read the record](https://docs.leeroo.com/docs/build/trace) — `docs/build/trace.mdx`
 - [Resume and budgets](https://docs.leeroo.com/docs/build/resume-and-budgets) — `docs/build/resume-and-budgets.mdx`
 
-**Harnesses**
+**The experimentation loop**
 
-- [What a harness is](https://docs.leeroo.com/docs/harnesses) — `docs/harnesses/index.mdx`
-- [Use a harness](https://docs.leeroo.com/docs/harnesses/use) — `docs/harnesses/use.mdx`
-- [Predictive modelling](https://docs.leeroo.com/docs/harnesses/bundled/predictive-modelling) — `docs/harnesses/bundled/predictive-modelling.mdx`
-- [Competitive programming](https://docs.leeroo.com/docs/harnesses/bundled/competitive-programming) — `docs/harnesses/bundled/competitive-programming.mdx`
-- [Write a harness](https://docs.leeroo.com/docs/harnesses/write) — `docs/harnesses/write.mdx`
-- [The trading example](https://docs.leeroo.com/docs/harnesses/example-trading) — `docs/harnesses/example-trading.mdx`
-
-**Experience**
-
-- [What experience is](https://docs.leeroo.com/docs/experience) — `docs/experience/index.mdx`
-- [Your bank on a build](https://docs.leeroo.com/docs/experience/use) — `docs/experience/use.mdx`
-- [Add a bank, Leeroopedia, an index](https://docs.leeroo.com/docs/experience/add) — `docs/experience/add.mdx`
-- [Share a bank](https://docs.leeroo.com/docs/experience/share) — `docs/experience/share.mdx`
-
-**Deploy**
-
-- [Targets](https://docs.leeroo.com/docs/deploy/targets) — `docs/deploy/targets.mdx`
-- [Write a target skill](https://docs.leeroo.com/docs/deploy/write-a-target-skill) — `docs/deploy/write-a-target-skill.mdx`
-
-**Learn**
-
-- [What learn produces](https://docs.leeroo.com/docs/learn/what-learn-produces) — `docs/learn/what-learn-produces.mdx`
-- [Development mode](https://docs.leeroo.com/docs/learn/development-mode) — `docs/learn/development-mode.mdx`
-
-**How it works**
-
-- [The engine](https://docs.leeroo.com/docs/evolve/overview) — `docs/evolve/overview.mdx`
+- [The experimentation loop](https://docs.leeroo.com/docs/evolve/overview) — `docs/evolve/overview.mdx`
 - [Architecture](https://docs.leeroo.com/docs/evolve/architecture) — `docs/evolve/architecture.mdx`
 - [Execution flow](https://docs.leeroo.com/docs/evolve/execution-flow) — `docs/evolve/execution-flow.mdx`
 - [Evaluation integrity](https://docs.leeroo.com/docs/evolve/evaluation-integrity) — `docs/evolve/evaluation-integrity.mdx`
@@ -103,6 +77,32 @@ Every published page with its rendered address, grouped as in the sidebar. Kept 
 - [Feedback generator](https://docs.leeroo.com/docs/evolve/feedback-generator) — `docs/evolve/feedback-generator.mdx`
 - [Experiment lifecycle](https://docs.leeroo.com/docs/evolve/experiment-lifecycle) — `docs/evolve/experiment-lifecycle.mdx`
 - [Repo memory](https://docs.leeroo.com/docs/evolve/repo-memory) — `docs/evolve/repo-memory.mdx`
+
+**Learn**
+
+- [What learn produces](https://docs.leeroo.com/docs/learn/what-learn-produces) — `docs/learn/what-learn-produces.mdx`
+- [Development mode](https://docs.leeroo.com/docs/learn/development-mode) — `docs/learn/development-mode.mdx`
+
+**Experience**
+
+- [What experience is](https://docs.leeroo.com/docs/experience) — `docs/experience/index.mdx`
+- [Your bank on a build](https://docs.leeroo.com/docs/experience/use) — `docs/experience/use.mdx`
+- [Add a bank, Leeroopedia, an index](https://docs.leeroo.com/docs/experience/add) — `docs/experience/add.mdx`
+- [Share a bank](https://docs.leeroo.com/docs/experience/share) — `docs/experience/share.mdx`
+
+**Deploy**
+
+- [Targets](https://docs.leeroo.com/docs/deploy/targets) — `docs/deploy/targets.mdx`
+- [Write a target skill](https://docs.leeroo.com/docs/deploy/write-a-target-skill) — `docs/deploy/write-a-target-skill.mdx`
+
+**Harnesses**
+
+- [What a harness is](https://docs.leeroo.com/docs/harnesses) — `docs/harnesses/index.mdx`
+- [Use a harness](https://docs.leeroo.com/docs/harnesses/use) — `docs/harnesses/use.mdx`
+- [Predictive modelling](https://docs.leeroo.com/docs/harnesses/bundled/predictive-modelling) — `docs/harnesses/bundled/predictive-modelling.mdx`
+- [Competitive programming](https://docs.leeroo.com/docs/harnesses/bundled/competitive-programming) — `docs/harnesses/bundled/competitive-programming.mdx`
+- [Write a harness](https://docs.leeroo.com/docs/harnesses/write) — `docs/harnesses/write.mdx`
+- [The trading example](https://docs.leeroo.com/docs/harnesses/example-trading) — `docs/harnesses/example-trading.mdx`
 
 **Benchmarks**
 

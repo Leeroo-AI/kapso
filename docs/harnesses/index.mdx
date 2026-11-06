@@ -1,11 +1,11 @@
 ---
 title: "Harnesses: the domain layer a build loads"
 sidebarTitle: "What a harness is"
-description: "A harness is one directory per domain: instruction pages, skills, tool servers, delegates and hooks, listed per module. A build loads one and every session of the campaign is staged from it."
+description: "A harness is Kapso's domain package, one directory per domain: instruction pages, skills, tool servers, delegates and hooks, listed per module. A build loads one and every session of the campaign is staged from it."
 keywords: ["Kapso harness", "domain layer", "harness.yaml", "skills", "MCP servers", "hooks", "delegates", "verification"]
 ---
 
-Kapso runs the same campaign in every domain: propose a candidate, implement it on its own branch, measure it, judge it, keep the best. What differs between domains is how the work is done well: what to pin before the first experiment, which disciplines every implementer must keep, what a verifier checks, which tools and scripts exist. A harness holds that. It is one directory, written once per domain, and a build loads it.
+A harness is Kapso's domain package: the knowledge and workflows of one area, such as predictive modelling, so a build there does not experiment and learn from scratch. Kapso runs the same campaign in every domain: propose a candidate, implement it on its own branch, measure it, judge it, keep the best. What differs between domains is how the work is done well: what to pin before the first experiment, which disciplines every implementer must keep, what a verifier checks, which tools and scripts exist. A harness holds that. It is one directory, written once per domain, and a build loads it.
 
 ## Three layers
 
@@ -68,4 +68,4 @@ A build with no harness runs as before: no setup session, no staged file, no gui
 
 Related pages: [Use a harness](/docs/harnesses/use) · [Predictive modelling](/docs/harnesses/bundled/predictive-modelling) · [Competitive programming](/docs/harnesses/bundled/competitive-programming) · [Write a harness](/docs/harnesses/write) · [The trading example](/docs/harnesses/example-trading) · [Harness reference](/docs/reference/harness) · [The brief](/docs/build/brief)
 
-Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).
+Kapso is an open-source engine by [Leeroo](https://leeroo.com) that runs experiments toward an objective, deploys the best solution and learns from every run. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

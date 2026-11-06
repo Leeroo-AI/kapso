@@ -1,11 +1,13 @@
 ---
-title: "What learn produces: cards with receipts"
+title: "What learn produces: lessons with a credence score and a boundary"
 sidebarTitle: "What learn produces"
-description: "learn() turns a finished campaign into evidence-priced cards in your bank: what a card is, how a campaign becomes one, and how the next campaign reads them."
+description: "learn() turns a finished campaign into lessons in your bank, each a card with a credence score, a boundary on where it applies and the evidence behind it: what a card is, what a learn run does, and how the next campaign reads them."
 keywords: ["kapso learn", "lesson bank", "evidence-priced cards", "reliability state", "bank serving", "mine"]
 ---
 
 A campaign starts out knowing its [experience](/docs/experience): what was measured before, by you, by your team, or by others. What you measured yourself comes from your own runs. Every finished campaign is a record of what was tried, what it scored and what happened next, and `learn()` mines that record into **cards with receipts** in your bank, so the next campaign that loads the bank starts knowing what the last one measured.
+
+Each lesson is a card with a credence score (the card's reliability score), boundary conditions on where it applies (its scope and the conditions in its body) and the evidence behind every update, so the next build's ideation and implementation can decide how far to rely on it rather than simply retrieving it.
 
 ```bash
 kapso learn ./campaign
@@ -64,6 +66,15 @@ One finished campaign moves through four stages. Each is bounded by a **frame** 
 
 Grading before learning is the `exam` argument of [`learn()`](/docs/reference/kapso-api#learn); it defaults to `True`, and `False` is for development replays only. The stages, the graders and the learner's own development are on [Development mode](/docs/learn/development-mode).
 
+## What a learn run does
+
+After each run, `learn()`:
+
+1. updates the credence and the boundaries of the lessons the run used, from their effect on the result (the evidence ledger's verdicts: `confirm`, `weaken`, `refine`, `refute`);
+2. induces lessons from similar traces, or deduces one from a single piece of evidence and its mechanism;
+3. merges lessons that overlap, the successor linked to what it generalises;
+4. A/B tests the updated lessons by running the same build with and without them, so an update is measured rather than guessed ([Development mode](/docs/learn/development-mode) has the arms and their verdict).
+
 ## Where the bank lives
 
 ```bash
@@ -107,4 +118,4 @@ Every bank read is logged. The pull log is the bank tools' record: which cards t
   </Card>
 </CardGroup>
 
-Kapso is an open-source framework by [Leeroo](https://leeroo.com) that builds software toward measurable goals through experiment campaigns. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).
+Kapso is an open-source engine by [Leeroo](https://leeroo.com) that runs experiments toward an objective, deploys the best solution and learns from every run. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).
