@@ -59,8 +59,10 @@ the fence.
   judge warned about, what the hooks blocked.
 - **The spend.** Minutes, dollars (with the coverage the record states: a Codex
   session reports no cost), experiments run and rejected.
-- **The next action, one line.** Merge the branch; cherry-pick the one change;
-  resume with more budget (`kapso build --output ../churn-campaign --resume
+- **The next action, one line.** Deploy it (`kapso deploy ../churn-campaign --target
+  <t> --config kapso-config.yaml`; when the build's harness has a delivery target such
+  as pull requests, that target is how the result ships); merge the branch; cherry-pick
+  the one change; resume with more budget (`kapso build --output ../churn-campaign --resume
   --budget-minutes 120 --detach --config kapso-config.yaml`); or learn from it
   (`kapso learn ../churn-campaign --detach --config kapso-config.yaml`), with the
   reason.
