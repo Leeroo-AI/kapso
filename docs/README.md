@@ -31,6 +31,9 @@ npx mint@4 broken-links   # what CI runs
 
 - **CI fails on warnings, not just errors.** A page referenced in `docs.json`
   that does not exist is only a warning, and it is the bug this gate exists for.
+- **`docs/translations/` is the README in other languages,** generated with
+  `scripts/translate_readme.py` and excluded from the build; it is not part of
+  this site.
 - **Drafts do not belong in `docs/`.** Everything here is parsed by the build.
   Internal notes live under `docs/plans/` and `docs/research/*.md`, which
   `/.mintignore` excludes; anything else new is fair game for the build.

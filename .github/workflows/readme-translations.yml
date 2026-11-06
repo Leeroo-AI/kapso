@@ -1,0 +1,31 @@
+name: README translations
+
+# docs/translations/README.<lang>.md are translations of README.md, generated
+# with scripts/translate_readme.py and kept in step in the same commit. Prose
+# cannot be checked, but links, numbers, code and the language switcher can:
+# the check fails when a translation disagrees with README.md on any of them.
+# Stdlib only; runs only when a README or the check itself changes.
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docs/translations/**'
+      - 'scripts/check_readme_translations.py'
+      - '.github/workflows/readme-translations.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'docs/translations/**'
+      - 'scripts/check_readme_translations.py'
+      - '.github/workflows/readme-translations.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Translations agree with README.md on links, numbers, code and the switcher
+        run: python3 scripts/check_readme_translations.py
