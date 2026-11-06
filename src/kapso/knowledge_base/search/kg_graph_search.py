@@ -582,6 +582,8 @@ class KGGraphSearch(KnowledgeSearch):
                 - embedding_provider: "openai" or "vertex" (see embeddings.py)
                 - embedding_model: Embedding model of that provider
                 - weaviate_collection: Weaviate collection name
+                - hybrid_alpha: Weight of the vector side in the hybrid
+                  query (1 is vector only, 0 is keyword only)
                 - include_connected_pages: Whether to include graph connections
                 - use_llm_reranker: Whether to use LLM reranker
         """
@@ -594,6 +596,7 @@ class KGGraphSearch(KnowledgeSearch):
         self.neo4j_user = self.params["neo4j_user"]
         self.embedding_model = self.params.get("embedding_model")
         self.weaviate_collection = self.params.get("weaviate_collection")
+        self.hybrid_alpha = float(self.params["hybrid_alpha"])
         # The index's namespace in Neo4j (its id): every node and query of
         # this backend carries it, so two indexes holding a page of the
         # same id never share a node or an edge (the Weaviate side is the
@@ -1171,13 +1174,14 @@ Only include pages that would actually help answer the query.
             weaviate_filters = self._build_weaviate_filters(filters)
             
             # Hybrid search: combines vector similarity + BM25 keyword matching.
-            # alpha=0.75 leans toward semantic, boosted by keyword matches.
+            # hybrid_alpha above 0.5 leans toward semantic, boosted by
+            # keyword matches.
             # BM25 searches description, overview, and content properties.
             response = collection.query.hybrid(
                 query=query,
                 vector=query_embedding,
                 target_vector="default",
-                alpha=0.75,
+                alpha=self.hybrid_alpha,
                 query_properties=["description", "overview", "content"],
                 fusion_type=wvc.query.HybridFusion.RELATIVE_SCORE,
                 limit=filters.top_k,
