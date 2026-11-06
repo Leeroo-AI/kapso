@@ -1,13 +1,10 @@
 # Custom
 *.swp
-git_issues/
 .DS_Store
 Pipfile
 public
 release-notes.md
 typescript*
-
-services/wiki_backend/
 
 # Byte-compiled / optimized / DLL files
 *__pycache__*
@@ -164,45 +161,30 @@ git_ignore_folder/
 *.db
 
 # Docker
-factor_template/mlruns/
-env_tpl
 mlruns/
 
 # possible output from coder or runner
 *.pth
-*qlib_res.csv
 
 # shell script
 *.out
 /*.sh
 .aider*
-rdagent/app/benchmark/factor/example.json
 
 # UI Server resources
 videos/
 static/
 *tmp*
-!tmp/developer_workspace/
 
 #*.json
 !kg_data.json
 
-# Project specific ignores
-expert_agent.egg-info/
-mle-bench/
-ALE-Bench/
-
-
 # Cognitive Memory generated files
 .kapso_state.md
 .memory_store.json
-data/wikis/.wikis_imported
 
 # Data indexes (generated locally)
 data/indexes/
-
-# Paper directory (private/unpublished work)
-paper/
 
 # Data directory (local data files); the benchmarks' data directories are
 # committed files (provided evaluation suites, seeded baselines, vocabularies)
@@ -211,9 +193,6 @@ data/
 
 # An arm's working copy of the benchmark machine script (benchmark_machine.<run-id>.sh)
 scripts/redesign/benchmark_machine.*.sh
-
-# Developer docs (internal documentation)
-developer_docs/
 
 # =============================================================================
 # Moltbook Bot - Secrets
@@ -233,13 +212,6 @@ scripts/evaluate_repos.py
 repos.json
 scripts/tmux_log.sh
 
-# Separate repos (not tracked in kapso)
-leeroopedia-mcp/
-leeroopedia_mcp/
-leeroopedia_mcp_backend/
-services/leeroopedia-mcp/
-services/backend_search/
-services/wiki-service-backend/
 # fetched run artifacts (large, regenerable from GCS)
 
 # Claim prediction arrays: multi-hundred-MB float dumps that breach GitHub's
