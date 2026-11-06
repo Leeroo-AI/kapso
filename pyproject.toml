@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "leeroo-kapso"
 version = "0.8.0"
-description = "Turn coding-agent output into verified outcomes, not review debt: plug in the harness for your domain, set the goal, every step traced"
+description = "An engine that runs experiments, deploys the best solution and learns from every run: smart experimentation, a learning loop, deployment and domain adaptation through harnesses"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -23,7 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-keywords = ["ai", "ml", "optimization", "code-generation", "llm", "agents"]
+keywords = ["experimentation", "autoresearch", "ai-agents", "machine-learning", "deployment", "continual-learning", "harness", "llm"]
 
 # Core dependencies — deliberately lean (onboarding audit 2026-08-26):
 # inference runs through the npm coding-agent CLIs, so the pip core is

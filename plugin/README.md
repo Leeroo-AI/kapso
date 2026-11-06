@@ -1,9 +1,11 @@
 # The Kapso plugin
 
-Kapso builds and verifies software toward a measurable objective: it
-designs candidate solutions, has coding agents implement them on branches
-of their own, measures each against your evaluation and keeps the best.
-This plugin is how you meet it from the coding agent you already work in.
+Kapso is an engine that runs experiments, deploys the best solution and
+learns from every run: it proposes candidate solutions from previous
+experiments and its bank of lessons, has coding agents implement them on
+branches of their own, measures each against your evaluation, keeps the
+best, deploys it on your stack and learns from the run. This plugin is
+how you meet it from the coding agent you already work in.
 It carries the skills (the procedures for setting up, stating an
 objective with its evaluation, operating a campaign, reviewing a result,
 authoring a harness), the commands that start each one, and the MCP

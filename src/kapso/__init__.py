@@ -1,6 +1,6 @@
 # Kapso Agent
 #
-# Turn coding-agent output into verified outcomes, not review debt: plug in the harness for your domain, set the goal, every step traced.
+# An engine that runs experiments, deploys the best solution and learns from every run: smart experimentation, a learning loop, deployment and domain adaptation through harnesses.
 #
 # Usage:
 #     from kapso import Kapso
@@ -13,7 +13,7 @@
 #     result = software.run({"symptoms": "headache"})
 #
 # CLI:
-#     kapso --goal "Build a web scraper"
+#     kapso build --brief kapso-brief.md --output ../campaign --detach
 
 # Suppress deprecation warnings from third-party dependencies (e.g., pydub's audioop)
 import warnings

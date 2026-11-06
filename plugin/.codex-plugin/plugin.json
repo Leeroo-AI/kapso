@@ -1,7 +1,7 @@
 {
   "name": "kapso",
   "version": "0.8.0",
-  "description": "Turn coding-agent output into verified outcomes against a measurable objective with Kapso, from this session: set up, state the objective, launch and follow the campaign, review and deploy the result, author a harness for your domain.",
+  "description": "Run Kapso, the engine that runs experiments, deploys the best solution and learns from every run, from this session: set up, state the objective with its evaluation, launch and follow the experiments, review and deploy the winner, learn from the run, author a harness for your domain.",
   "author": {
     "name": "Leeroo",
     "url": "https://leeroo.com"
@@ -13,8 +13,8 @@
   "mcpServers": "./hosts/codex/mcp.json",
   "interface": {
     "displayName": "Kapso",
-    "shortDescription": "Build and verify software toward an objective",
-    "longDescription": "Kapso runs experiment campaigns: it designs candidate solutions, has coding agents implement them, measures each one against your evaluation, and keeps the best. The plugin sets Kapso up, writes the objective and its evaluation with you, launches and follows the campaign, reviews and deploys the result, and authors a harness for your domain.",
+    "shortDescription": "Run experiments toward an objective, deploy the winner, learn from the run",
+    "longDescription": "Kapso is an engine that runs experiments, deploys the best solution and learns from every run: it proposes candidate solutions from previous experiments and its bank of lessons, implements each on its own branch, measures it against your evaluation, keeps the best, deploys it on your stack and learns from the run. The plugin sets Kapso up, writes the objective and its evaluation with you, launches and follows the campaign, reviews and deploys the result, learns from it, and authors a harness for your domain.",
     "developerName": "Leeroo",
     "category": "Developer tools",
     "capabilities": ["Interactive", "Read", "Write"],

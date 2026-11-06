@@ -5,7 +5,7 @@ description: Turn what the user wants built into a Kapso campaign — discover t
 
 # From a wish to a launched campaign
 
-Kapso builds and verifies an objective end to end: it is not a metric-improvement
+Kapso runs experiments toward an objective and delivers the best solution: it is not a metric-improvement
 tool, and "improve the AUC" is one shape of objective among "build a pipeline that
 produces X and prove it" or "make this pass the benchmark". The objective is the
 user's; your job is to make it buildable and verifiable with as little talking as

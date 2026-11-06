@@ -1,5 +1,5 @@
 ---
-description: "Build and verify what you want with a Kapso campaign: the brief, the evaluation, the detached launch"
+description: "Run the experiments for what you want with a Kapso campaign: the brief, the evaluation, the detached launch"
 argument-hint: "<what you want built, and how you would know it is done>"
 ---
 Follow the `kapso-build` skill (`/kapso:kapso-build`) for: $ARGUMENTS
