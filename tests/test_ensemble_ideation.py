@@ -22,7 +22,7 @@ from kapso.execution.search_strategies.generic.ideation import (
     normalize_ensemble_time_split,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
-from strategy_support import generic_params, packaged_hosts
+from strategy_support import every_prompt_slot, generic_params, packaged_hosts
 
 HOSTS = {**packaged_hosts(), "oss_claude_code": {"model": "m", "base_url": "http://x", "auth_token_env": "K"}}
 
@@ -280,7 +280,8 @@ def test_every_member_and_the_selector_read_the_campaigns_notes(tmp_path, monkey
         codex_output=f"<solution>{_plan('codex A')}</solution>",
         selector_output=f"<solution>{_plan('winner')}</solution>",
     )
-    note = "Prefer the cheaper candidate from here on.\nThe GPU box goes away at 18:00 UTC."
+    # Every slot by name: a variable substituted after the notes would rewrite them.
+    note = "Prefer the cheaper candidate from here on.\nThe GPU box goes away at 18:00 UTC.\n" + every_prompt_slot()
     leave_note(notes_path(strategy.workspace_dir), note)
 
     strategy._generate_solution("problem", "main")

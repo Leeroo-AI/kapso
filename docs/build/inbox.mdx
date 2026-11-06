@@ -115,7 +115,7 @@ kapso inbox note "the staging warehouse is read-only; write to DEV_DB"
 kapso inbox note ./campaign "ticket 14 is fixed upstream, skip it"
 ```
 
-The note is added to `.kapso/notes.jsonl` under the next number, with the UTC time and your text exactly as you gave it, as one quoted argument. A session that is running has already started and does not see the note. Every ideation, implementation and judging session that starts afterwards reads every note in full, oldest first, in a prompt section headed "Notes from the person running this campaign"; a session that a reply resumes reads the notes after the reply. A later note overrides an earlier one, and a note never changes the evaluation or the task's own rules. `kapso inbox ./campaign` lists the notes below whatever is waiting.
+The note is added to `.kapso/notes.jsonl` under the next number, with the UTC time and your text exactly as you gave it; give the text as one quoted argument. A session that is running has already started and does not see the note. Every ideation, implementation and judging session that starts afterwards reads every note in full, oldest first, in a prompt section headed "Notes from the person running this campaign"; a session that a reply resumes reads the notes after the reply. A later note overrides an earlier one, and a note never changes the evaluation or the task's own rules. `kapso inbox ./campaign` lists the notes below whatever is waiting.
 
 Notes do not use the `request_from_user` tool, so they work with the inbox off. A note cannot be edited or removed: correct a note with another note. A note shaped like a token is refused unless you add `--yes` at the end of the line, as a reply is; put a real value in the `.env` the run loaded and say where the value is.
 

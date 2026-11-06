@@ -250,18 +250,11 @@ def run_implementation(
         "Fallback: open `.kapso/repo_memory.json` and read `book.sections[section_id]`."
     )
     
-    if continuation is not None:
-        prompt = continuation.follow_up
-        if defer_evaluation:
-            prompt += (
-                "\n\nThis is still a build-only session. Do not run the candidate "
-                "or evaluation, train models, submit platform jobs, or perform "
-                "paid platform operations. Complete the implementation and "
-                "return empty evaluation output and a null score. Kapso "
-                "estimates the finalized candidate and grants execution later."
-            )
-    else:
-        prompt = build_prompt(
+    def build_fresh_prompt() -> str:
+        """The implementation prompt as of this moment: each session that
+        starts, the crash retry included, reads the campaign's notes as
+        they stand when it starts."""
+        return build_prompt(
             solution=solution,
             problem=problem,
             branch_name=branch_name,
@@ -279,6 +272,19 @@ def run_implementation(
                 if inbox_on else {}
             ),
         )
+
+    if continuation is not None:
+        prompt = continuation.follow_up
+        if defer_evaluation:
+            prompt += (
+                "\n\nThis is still a build-only session. Do not run the candidate "
+                "or evaluation, train models, submit platform jobs, or perform "
+                "paid platform operations. Complete the implementation and "
+                "return empty evaluation output and a null score. Kapso "
+                "estimates the finalized candidate and grants execution later."
+            )
+    else:
+        prompt = build_fresh_prompt()
     
     # 6. Run the implementation session
     print(f"[GenericSearch] Running {implementation_role.label} implementation...")
@@ -394,7 +400,7 @@ def run_implementation(
                 agent.initialize(session.session_folder)
                 note_session_started()
                 fallback_result = agent.generate_code(
-                    prompt
+                    build_fresh_prompt()
                     + "\n\nNOTE: a previous session on this lane ended "
                     f"prematurely ({result.error}). Its partial work is in "
                     "the branch; continue from there and finish the "

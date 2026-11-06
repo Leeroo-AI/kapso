@@ -308,7 +308,7 @@ def test_a_note_is_recorded_as_given_and_listed_below_what_waits(tmp_path, monke
     assert (
         f"  note 1  {first.written_at}\n"
         "        The staging warehouse is read-only.\n"
-        "      \n"
+        "\n"
         "      Write to DEV_DB;  keep  the double spaces.\n"
         "\n"
         f"  note 2  {second.written_at}\n"
@@ -316,11 +316,22 @@ def test_a_note_is_recorded_as_given_and_listed_below_what_waits(tmp_path, monke
     ) in out
 
 
+def _quiet_campaign(root: Path, name: str = "campaign") -> Path:
+    """A campaign that never asked for anything (its inbox may be off)."""
+    workspace = root / name
+    workspace.mkdir(parents=True)
+    RunCheckpointStore(str(workspace)).save(RunCheckpoint.create(
+        strategy_type="generic", goal="Predict churn", config_fingerprint=config_fingerprint({"m": 1}),
+        status="running", completed_iterations=0, cumulative_cost=0.0, current_feedback=None,
+        strategy_state={"node_history": []},
+    ))
+    return workspace
+
+
 def test_notes_are_listed_when_nothing_is_waiting(tmp_path, monkeypatch, capsys):
-    """A campaign that never asked for anything (the inbox may be off)
-    still takes notes and shows them."""
-    workspace = tmp_path / "campaign"
-    (workspace / ".kapso").mkdir(parents=True)
+    """A campaign that never asked for anything still takes notes and
+    shows them."""
+    workspace = _quiet_campaign(tmp_path)
     monkeypatch.chdir(tmp_path)
     _run(monkeypatch, "inbox", "note", str(workspace), "skip ticket 14")
     capsys.readouterr()
@@ -336,18 +347,38 @@ def test_notes_are_listed_when_nothing_is_waiting(tmp_path, monkeypatch, capsys)
     (("  \n",), "err", "a note needs text"),
     (("{campaign}",), "err", "a note needs text"),          # the campaign named, the text forgotten
     (("the key is {token}",), "out", "looks like a credential"),
+    (("ticket {undecodable} is fixed",), "err", "bytes that are not UTF-8 text"),
+    (("ticket {undecodable} is fixed", "--yes"), "err", "bytes that are not UTF-8 text"),
     (("skip", "ticket", "14"), "err", "skip is not a directory — the form is kapso inbox note [campaign]"),
     (("{campaign}", "skip", "ticket", "14"), "err", "the note is more than one argument"),
 ])
 def test_a_note_in_doubt_is_refused_and_nothing_is_written(tmp_path, monkeypatch, capsys, words, stream, message):
     workspace = _paused_campaign(tmp_path)
     monkeypatch.chdir(workspace)
-    words = [word.format(campaign=workspace, token=TOKEN) for word in words]
+    # A byte that was not UTF-8 on the command line: Python holds it as a lone surrogate.
+    words = [word.format(campaign=workspace, token=TOKEN, undecodable=chr(0xDCE9)) for word in words]
     with pytest.raises(SystemExit) as stop:
         _run(monkeypatch, "inbox", "note", *words)
     assert stop.value.code == 1
     assert message in getattr(capsys.readouterr(), stream)
     assert not notes_path(workspace).exists()
+
+
+@pytest.mark.parametrize("text", [
+    # Longer than a file name may be: asking the file system whether the
+    # note is a directory must not raise.
+    "The staging warehouse was rebuilt this morning and every nightly model must stay under its row budget. " * 12,
+    # A leading tilde opens a user's home directory, and there is no such user.
+    "~10% of orders rows have a null customer_id",
+], ids=["a long paragraph", "a leading tilde"])
+def test_the_short_form_takes_any_text(tmp_path, monkeypatch, capsys, text):
+    """Inside the campaign the note is the only word, so the question "is
+    the first word a directory" is put to the note itself."""
+    workspace = _quiet_campaign(tmp_path)
+    monkeypatch.chdir(workspace)
+    _run(monkeypatch, "inbox", "note", text)
+    assert capsys.readouterr().out.startswith(f"Note 1 left for {workspace.resolve()}.\n")
+    assert [note.text for note in read_notes(notes_path(workspace))] == [text]
 
 
 def test_a_credential_shaped_note_is_stored_with_yes(tmp_path, monkeypatch, capsys):
@@ -367,19 +398,41 @@ def test_a_credential_shaped_note_is_stored_with_yes(tmp_path, monkeypatch, caps
 
 
 def test_a_note_needs_a_campaign(tmp_path, monkeypatch, capsys):
+    """A directory is a campaign by its status file or its checkpoint. A
+    bare `.kapso/` is not one: a session's clone has it (the repository
+    memory) and so does the home directory (the registry), and a note
+    filed there would be promised to sessions that never read it."""
     plain = tmp_path / "plain"
     plain.mkdir()
-    monkeypatch.chdir(tmp_path)
+    clone = tmp_path / "campaign" / "sessions" / "generic_exp_3"
+    (clone / ".kapso").mkdir(parents=True)
+    (clone / ".kapso" / "repo_memory.json").write_text("{}")
+    monkeypatch.chdir(clone)
     for words, message in [
         (("skip ticket 14",), "not inside a campaign"),
         ((str(tmp_path / "nowhere"), "skip ticket 14"), "nowhere is not a directory"),
         ((str(plain), "skip ticket 14"), "plain is not a campaign directory"),
+        ((".", "skip ticket 14"), "generic_exp_3 is not a campaign directory"),
     ]:
         with pytest.raises(SystemExit) as stop:
             _run(monkeypatch, "inbox", "note", *words)
         assert stop.value.code == 1
         assert message in capsys.readouterr().err
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["plain"] and not any(plain.iterdir())
+    assert not any(plain.iterdir()) and sorted(path.name for path in (clone / ".kapso").iterdir()) == ["repo_memory.json"]
+
+
+def test_a_note_from_inside_a_session_clone_reaches_its_campaign(tmp_path, monkeypatch, capsys):
+    """With no directory named, the campaign is the one the current
+    directory is inside: the nearest one with a checkpoint, not the
+    clone's own `.kapso/`."""
+    workspace = _quiet_campaign(tmp_path)
+    clone = workspace / "sessions" / "generic_exp_3"
+    (clone / ".kapso").mkdir(parents=True)
+    monkeypatch.chdir(clone)
+    _run(monkeypatch, "inbox", "note", "skip ticket 14")
+    assert capsys.readouterr().out.startswith(f"Note 1 left for {workspace.resolve()}.\n")
+    assert [note.text for note in read_notes(notes_path(workspace))] == ["skip ticket 14"]
+    assert not notes_path(clone).exists()
 
 
 def test_a_wrong_directory_never_sends_the_note_to_the_campaign_you_stand_in(tmp_path, monkeypatch, capsys):

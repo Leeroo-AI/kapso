@@ -3,6 +3,7 @@
 tell a campaign that it did not ask for."""
 
 import argparse
+import os
 import re
 import shlex
 import sys
@@ -13,6 +14,7 @@ from typing import Optional
 from kapso.kapso import Kapso, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
 from kapso.execution.inbox import (
+    has_undecodable_bytes,
     launch_receipt_path,
     leave_note,
     list_registered_campaigns,
@@ -46,6 +48,16 @@ def _inbox_campaign(explicit: Optional[str]) -> Optional[Path]:
             raise FileNotFoundError(f"{explicit} is not a directory")
         return path.resolve()
     return _campaign_here(Path.cwd().resolve())
+
+
+def _is_campaign_root(directory: Path) -> bool:
+    """Whether a build runs, ran or will resume in this directory: its
+    status file is there from the workspace's setup on, its checkpoint
+    from the first save. A bare `.kapso/` does not say so: every session
+    clone has one (the repository memory) and so does the home directory
+    (the registry), and nothing reads a note filed there."""
+    state = directory / ".kapso"
+    return (state / "status.json").is_file() or (state / "run_state.json").is_file()
 
 
 def _campaign_goal(campaign: Path) -> str:
@@ -228,24 +240,41 @@ def cmd_inbox_note(words, *, yes: bool) -> None:
     anything that leaves the campaign or the text in doubt is refused, and
     a text shaped like a credential needs --yes, as a reply does."""
     words = list(words)
-    explicit = words.pop(0) if words and Path(words[0]).expanduser().is_dir() else None
+    # The first word names the campaign when it is a directory. `os.path`
+    # asks without raising: the word may be the note itself, and pathlib
+    # raises on a long one (the file-name limit) and on one that starts
+    # with a tilde (no such user).
+    named = bool(words) and os.path.isdir(os.path.expanduser(words[0]))
+    campaign = (
+        Path(os.path.expanduser(words.pop(0))).resolve() if named
+        else _campaign_here(Path.cwd().resolve())
+    )
     if len(words) > 1:
-        problem = "the note is more than one argument" if explicit is not None else f"{words[0]} is not a directory"
+        problem = "the note is more than one argument" if named else f"{words[0]} is not a directory"
         print(
             f'Error: {problem} — the form is kapso inbox note [campaign] "<text>", the text as one quoted argument',
             file=sys.stderr,
         )
         sys.exit(1)
-    campaign = _inbox_campaign(explicit)
     if campaign is None:
         print('Error: not inside a campaign — name it: kapso inbox note <campaign> "<text>"', file=sys.stderr)
         sys.exit(1)
-    if not (campaign / ".kapso").is_dir():
-        print(f"Error: {campaign} is not a campaign directory", file=sys.stderr)
+    if not _is_campaign_root(campaign):
+        print(
+            f"Error: {campaign} is not a campaign directory (no status file or checkpoint under .kapso/)",
+            file=sys.stderr,
+        )
         sys.exit(1)
     text = words[0] if words else ""
     if not text.strip():
         print('Error: a note needs text: kapso inbox note [campaign] "<text>"', file=sys.stderr)
+        sys.exit(1)
+    if has_undecodable_bytes(text):
+        print(
+            "Error: the note carries bytes that are not UTF-8 text, which no session's "
+            "prompt can hold; type it again as plain text",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if looks_like_a_secret(text) and not yes:
         print(

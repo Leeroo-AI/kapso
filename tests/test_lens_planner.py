@@ -29,7 +29,7 @@ from kapso.execution.search_strategies.generic.lens_planning import (
     validate_lens_planner,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
-from strategy_support import generic_params, packaged_hosts
+from strategy_support import every_prompt_slot, generic_params, packaged_hosts
 
 HOSTS = packaged_hosts()
 PARAMS = generic_params()
@@ -323,7 +323,8 @@ def test_the_planner_and_the_replanner_read_the_campaigns_notes(tmp_path, fake_p
     """The lenses aim the whole ensemble, so what the person told the
     campaign (`kapso inbox note`) reaches the session that writes them, at
     the first plan and at every keep-or-revise after it."""
-    note = "Stop exploring ratings features.\nTry a pretrained family next."
+    # Every slot by name: a variable substituted after the notes would rewrite them.
+    note = "Stop exploring ratings features.\nTry a pretrained family next.\n" + every_prompt_slot()
     leave_note(notes_path(tmp_path), note)
     strategy = make_stub(tmp_path)
     fake_planner.outputs = [
