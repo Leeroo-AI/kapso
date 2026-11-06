@@ -2,8 +2,7 @@
 
 *Started 2026-10-21; the positioning reset on 2026-11-06 to the launch
 story: an experiment-to-delivery engine, with learning. The positioning
-is settled first; the interface and architecture changes follow from it.
-Companion to `docs/plans/kapso-plugin-mental-model.md` (the module map).*
+is settled first; the interface and architecture changes follow from it.*
 
 ## 1. One-liner (settled 2026-11-06)
 
