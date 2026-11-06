@@ -3,6 +3,16 @@
 <h4 align="center">An engine that runs experiments, deploys the best solution, and learns from every run</h4>
 <p align="center"><sub>smart experimentation · learning loop · deployment · domain adaptation</sub></p>
 
+<div align="center">
+<!-- translations:start -->
+<details><summary><b>Read this in other languages</b></summary>
+
+<b>English</b> | <a href="docs/translations/README.zh-CN.md">简体中文</a> | <a href="docs/translations/README.ja-JP.md">日本語</a> | <a href="docs/translations/README.ko-KR.md">한국어</a> | <a href="docs/translations/README.de-DE.md">Deutsch</a> | <a href="docs/translations/README.fr-FR.md">Français</a> | <a href="docs/translations/README.es-ES.md">Español</a> | <a href="docs/translations/README.hi-IN.md">हिन्दी</a> | <a href="docs/translations/README.pt-BR.md">Português</a> | <a href="docs/translations/README.ru-RU.md">Русский</a> | <a href="docs/translations/README.zh-TW.md">繁體中文</a>
+
+</details>
+<!-- translations:end -->
+</div>
+
 <p align="center">
   <a href="https://docs.leeroo.com/docs">Learn more</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Join Discord</a> ·
@@ -365,6 +375,10 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
 ## Kapso for Enterprise
 
 Our enterprise product is built on top of this engine and has been deployed inside messy enterprises, where no human can investigate and understand the whole data estate: we moved a company off its old data platform onto a new lakehouse, across more than 30 source-system families, thousands of tables and transformations, and hundreds of BI reports. Every task it works feeds the bank of lessons about your systems, your data and your hard-won rules, so it gets better at your company the longer it works. To onboard Kapso for your challenging enterprise tasks, [talk to us](https://leeroo.com/contact-us).
+
+## Translations
+
+The README is available in other languages: use the switcher at the top, or browse [`docs/translations/`](docs/translations/). Each translation is generated from README.md with `scripts/translate_readme.py` and kept in step by `scripts/check_readme_translations.py`, which fails when a translation disagrees with README.md on a link, a number or a line of code. To improve one, open a pull request against the file in that folder.
 
 ## Contributing
 
