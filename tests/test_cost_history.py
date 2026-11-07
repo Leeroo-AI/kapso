@@ -137,7 +137,7 @@ def test_mcp_reports_whole_campaign_cost_once_above_subset(
         assert arguments["query"] in rendered
 
 
-def test_disabled_history_keeps_ranking_and_prompt_bytes(tmp_path):
+def test_disabled_history_ranks_by_the_problem_direction_and_keeps_prompt_bytes(tmp_path):
     store = ExperimentHistoryStore(
         str(tmp_path / "history.json"), maximize_scoring=False
     )
@@ -146,7 +146,7 @@ def test_disabled_history_keeps_ranking_and_prompt_bytes(tmp_path):
         candidate(1, 1.0, 0.0),
     ])
 
-    assert [record.node_id for record in store.get_top_experiments()] == [0, 1]
+    assert [record.node_id for record in store.get_top_experiments()] == [1, 0]
     assert format_experiments(store.experiments[:1]) == (
         "\n## Experiment 0 (score=3.0)\n\n**Solution:**\nCandidate 0"
         "\n\n**Feedback:**\nUse the measured result."
@@ -156,12 +156,32 @@ def test_disabled_history_keeps_ranking_and_prompt_bytes(tmp_path):
     response = asyncio.run(gate.handle_call("get_top_experiments", {"k": 1}))
     assert response[0].text == (
         "# Top 1 Experiments by Score\n\n"
-        + format_experiments(store.experiments[:1])
+        + format_experiments(store.experiments[1:])
     )
     # A history opened outside a campaign has no checkpoint beside it and
     # gets the documented default: cost off.
     outside = open_campaign_history(store.json_path, goal=None, llm=None)
     assert outside.cost_config["enabled"] is False and outside.maximize_scoring is True
+
+
+@pytest.mark.parametrize(
+    ("maximize_scoring", "expected"), [(True, [0, 2, 1]), (False, [1, 2, 0])]
+)
+def test_top_experiments_follow_the_problem_direction_without_cost(
+    tmp_path, maximize_scoring, expected
+):
+    store = ExperimentHistoryStore(
+        str(tmp_path / "history.json"), maximize_scoring=maximize_scoring
+    )
+    store.reconcile([
+        candidate(0, 0.9, 0.0),
+        candidate(1, 0.1, 0.0),
+        candidate(2, 0.5, 0.0),
+    ])
+
+    assert store.cost_config["enabled"] is False
+    assert [record.node_id for record in store.get_top_experiments(3)] == expected
+    assert [record.node_id for record in store.get_top_experiments(1)] == expected[:1]
 
 
 def test_history_preserves_complete_cost_refusal_and_prompt_content(tmp_path):

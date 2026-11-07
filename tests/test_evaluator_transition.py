@@ -27,6 +27,7 @@ from tests.test_evaluation_maintainer_wiring import (
     write_entrypoint,
 )
 from tests.test_run_checkpoint import (
+    FakeProblemHandler,
     _init_git_workspace,
     _orchestrator,
     _patch_orchestrator,
@@ -395,6 +396,57 @@ def test_failed_bridges_anchor_an_empty_frontier(tmp_path, monkeypatch):
     assert strategy.evaluator_transition["status"] == "anchored"
     assert len(strategy.refreshed_classes) == 1
     assert strategy.scores_evaluator_id == strategy.registered_evaluator_id
+
+
+@pytest.mark.parametrize(
+    ("maximize_scoring", "expected_order"), [(True, [0, 2, 1]), (False, [1, 2, 0])]
+)
+def test_bridge_tries_the_best_candidate_first_in_the_problems_direction(
+    tmp_path, monkeypatch, maximize_scoring, expected_order
+):
+    monkeypatch.setattr(
+        FakeProblemHandler, "maximize_scoring", maximize_scoring, raising=False
+    )
+    workspace = tmp_path / "workspace"
+    _init_git_workspace(workspace)
+    _patch_orchestrator(monkeypatch)
+    patch_maintainer_environment(
+        monkeypatch, ScriptedMaintainerAgent(write_entrypoint)
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "load_config", maintainer_config
+    )
+    first = _orchestrator(workspace)
+    first.search_strategy.score_queue = [0.9, 0.1, 0.5]
+    first.solve(experiment_max_iter=3)
+
+    store = RunCheckpointStore(str(workspace))
+    checkpoint = store.load()
+    state = dict(checkpoint.strategy_state)
+    state["scores_evaluator_id"] = "stale-head"
+    store.save(
+        RunCheckpoint.create(
+            strategy_type=checkpoint.strategy_type,
+            goal=checkpoint.goal,
+            config_fingerprint=checkpoint.config_fingerprint,
+            status="running",
+            completed_iterations=checkpoint.completed_iterations,
+            cumulative_cost=checkpoint.cumulative_cost,
+            current_feedback=checkpoint.current_feedback,
+            strategy_state=state,
+            elapsed_seconds=checkpoint.elapsed_seconds,
+            cost_by_component=checkpoint.cost_by_component,
+            maximize_scoring=maximize_scoring,
+        )
+    )
+
+    resumed = _orchestrator(workspace, resume=True)
+    resumed.search_strategy.bridge_result = False
+    resumed.solve(experiment_max_iter=3)
+
+    assert [
+        call["node_id"] for call in resumed.search_strategy.bridge_calls
+    ] == expected_order
 
 
 def test_accepted_request_bridges_the_requester_first(tmp_path, monkeypatch):
