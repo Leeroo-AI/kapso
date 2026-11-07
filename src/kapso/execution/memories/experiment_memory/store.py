@@ -132,7 +132,7 @@ class ExperimentHistoryStore:
             cost_config: Platform cost policy the ranking uses. The MCP
                  process takes it from the campaign checkpoint, see
                  open_campaign_history.
-            maximize_scoring: Problem direction used by cost-aware ranking.
+            maximize_scoring: Problem direction used by get_top_experiments.
         """
         self.json_path = json_path
         self.goal = goal
@@ -265,9 +265,7 @@ class ExperimentHistoryStore:
         ]
         ranking_config = {
             "cost": self.cost_config,
-            "maximize_scoring": (
-                self.maximize_scoring if self.cost_config["enabled"] else True
-            ),
+            "maximize_scoring": self.maximize_scoring,
         }
         return sorted(
             valid,
