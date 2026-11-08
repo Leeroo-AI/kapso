@@ -74,6 +74,12 @@ def test_a_missing_host_or_model_is_refused_by_name():
         resolve_role(HOSTS, {"judge": {}}, "judge")
     with pytest.raises(ValueError, match="timeout must be a positive number"):
         resolve_role(HOSTS, params(judge={"timeout": 0}), "judge")
+    # A nan lexically passes `<= 0` but would poison the session's deadline
+    # arithmetic; infinity has no deadline meaning either.
+    for timeout in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ConfigError, match=r"ideation\.timeout must be a positive number of seconds"):
+            resolve_role(HOSTS, params(ideation={"timeout": timeout}), "ideation")
+    assert resolve_role(HOSTS, params(ideation={"timeout": 900}), "ideation").timeout == 900.0
 
 
 def test_members_selector_and_planner_are_specs_of_their_own():
