@@ -61,7 +61,13 @@
 
 ## What is Kapso?
 
-Kapso is the engine we built for this. It starts from a domain harness and an empty bank of lessons; given an objective and success criteria, it runs a tree of experiments, proposing hypotheses, then implementing and verifying each one, and deploys the best solution on the target stack. It then learns from the run, assigning credit to each hypothesis and implementation by its impact on the outcome and updating the bank, where every lesson carries a credence score and a boundary on where it applies. Over time the domain harness carries a bank of lessons that accumulated experimented best practices in that environment. The system is model-agnostic and coding-agent-agnostic: open source, by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
+Kapso is an open-source engine that runs experiments, deploys the best solution, and learns from every run. It starts from a domain harness and an empty bank of lessons, and given an objective and success criteria it:
+
+- **runs a tree of experiments**: proposes hypotheses, then implements and verifies each one;
+- **deploys the best solution** on the target stack;
+- **learns from the run**: credit goes to each hypothesis and implementation by its impact on the outcome, and the bank is updated, every lesson carrying a credence score and a boundary on where it applies.
+
+Over time the domain harness carries a bank of lessons: the experimented best practices of that environment. Kapso is model-agnostic and coding-agent-agnostic, by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
 
 ### The four parts
 
