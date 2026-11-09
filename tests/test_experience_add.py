@@ -109,6 +109,50 @@ def test_a_repository_is_ingested_into_a_new_index_with_its_own_namespace(tmp_pa
         kapso.add_experience(repo="https://github.com/org/y", name="org-x")
 
 
+def test_an_add_that_failed_leaves_no_pages_in_the_next_one(tmp_path, ingestion, monkeypatch):
+    # The pages are written before they are indexed, so an add whose
+    # indexing fails leaves them under the index with no record; the next
+    # add of the name indexes only its own pages, and the staging a
+    # stopped run resumes from is kept.
+    indexed = []
+
+    class PagePerSourcePipeline:
+        def __init__(self, wiki_dir, ingestor_params, merger_params, index_builder):
+            self.wiki_dir, self.index_builder = Path(wiki_dir), index_builder
+
+        def run(self, *sources, status=None):
+            repo = sources[0].url.rsplit("/", 1)[1]
+            (self.wiki_dir / "_staging" / repo).mkdir(parents=True, exist_ok=True)
+            (self.wiki_dir / "workflows").mkdir(parents=True, exist_ok=True)
+            (self.wiki_dir / "workflows" / f"{repo}.md").write_text("a page\n")
+            self.index_builder(wiki_dir=str(self.wiki_dir), save_to=str(self.wiki_dir / ".index"))
+            return SimpleNamespace(total_pages_extracted=1, created=1, edited=0, errors=[])
+
+    class UnreachableStores(FakeSearch):
+        def index(self, data):
+            raise ConnectionError("weaviate is unreachable")
+
+    class RecordingSearch(FakeSearch):
+        def index(self, data):
+            indexed.extend(sorted(p.name for p in (Path(data.wiki_dir) / "workflows").iterdir()))
+
+    searches = iter([UnreachableStores, RecordingSearch])
+    monkeypatch.setattr(ingest_module, "KnowledgePipeline", PagePerSourcePipeline)
+    monkeypatch.setattr(
+        ingest_module, "KnowledgeSearchFactory",
+        SimpleNamespace(create=lambda search_type, params, preset=None: next(searches)(params)),
+    )
+    kapso = _kapso(tmp_path)
+    with pytest.raises(ConnectionError):
+        kapso.add_experience(repo="https://github.com/org/old", name="org-x")
+    assert not (Path(settings_for(tmp_path)["indexes"]) / "org-x" / "index.json").exists()
+    assert kapso.add_experience(repo="https://github.com/org/new", name="org-x") == "org-x"
+    assert indexed == ["new.md"]
+    wiki = Path(settings_for(tmp_path)["indexes"]) / "org-x" / "wiki"
+    assert sorted(p.name for p in (wiki / "workflows").iterdir()) == ["new.md"]
+    assert sorted(p.name for p in (wiki / "_staging").iterdir()) == ["new", "old"]
+
+
 def test_a_question_is_researched_then_ingested(tmp_path, ingestion, monkeypatch):
     asked = []
 

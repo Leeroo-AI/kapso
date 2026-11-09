@@ -86,7 +86,7 @@ flowchart LR
 
 **Merging** is one session over the proposed pages, sub-graph by sub-graph: it searches the index for a page of the same kind to merge each root into, decides for the children under that decision, writes bottom up (environments and heuristics first, principles last), and audits that every page and link it planned exists. Into a fresh index, every page is new and the index is built from them; into an existing one, pages are merged, edges only ever added. What the run extracted and merged is in the status file and the add's last line.
 
-A run stages its clone, phase reports and pages under `<index>/wiki/_staging/` and marks each finished phase, so a run that stopped, on a failed phase or a killed process, continues from the first unfinished phase when the same source is added again under the same name before the index was written; `learner.ingestor.cleanup` removes the clone when a run completes and `cleanup_staging` the whole directory. A phase that fails stops the run with its reason: an add never returns a partial index as a success.
+A run stages its clone, phase reports and pages under `<index>/wiki/_staging/` and marks each finished phase, so a run that stopped, on a failed phase or a killed process, continues from the first unfinished phase when the same source is added again under the same name before the index was written; `learner.ingestor.cleanup` removes the clone when a run completes and `cleanup_staging` the whole directory. A phase that fails stops the run with its reason: an add never returns a partial index as a success. The pages an add wrote before it failed (its indexing, say) are not kept: the next add under the name writes and indexes its own, and only the staging carries over.
 
 ### Searching it
 
