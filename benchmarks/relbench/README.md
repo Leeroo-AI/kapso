@@ -10,10 +10,10 @@ trials, and in v2 also SAP sales orders and ICU records) and 66 prediction tasks
 what sells, which trial succeeds, what to recommend next. The official leaderboard scores 31
 of those tasks, all from the seven v1 databases.
 
-Kapso attacks each task the way a research team would: an experimentation loop of
+Kapso attacks each task the way a research team would: a campaign of
 **ideation → implementation → judged feedback**, every iteration scored on the official
 validation metric, every lesson compounding into the next round. Ideas are grounded in two
-knowledge sources: a **knowledge bank** of measured lessons from its own past campaigns,
+knowledge sources: a **bank of lessons** of measured lessons from its own past campaigns,
 and **Leeroopedia**, Leeroo's curated ML knowledge base.
 
 ## Results

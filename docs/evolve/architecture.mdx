@@ -1,11 +1,11 @@
 ---
 title: "Kapso Evolve architecture: components and how they connect"
 sidebarTitle: "Architecture"
-description: "The orchestration loop and the pluggable parts around it: search strategy, coding agent, feedback generator and memory, and the factories that wire them up."
+description: "The orchestrator and the pluggable parts around it: search strategy, coding agent, feedback generator and memory, and the factories that wire them up."
 keywords: ["Kapso architecture", "orchestrator", "pluggable components", "search strategy", "system design"]
 ---
 
-Kapso is a set of pluggable components wired together by factories around a central orchestration loop. Swapping a coding agent, a search strategy or a knowledge backend is a config change, not a code change.
+Kapso is a set of pluggable components wired together by factories around a central orchestrator. Swapping a coding agent, a search strategy or a knowledge backend is a config change, not a code change.
 
 ```mermaid
 flowchart TB
@@ -80,7 +80,7 @@ class Kapso:
 
 ### OrchestratorAgent
 
-The central coordinator. Each iteration it computes budget progress, hands the strategy the problem statement plus the previous iteration's feedback, runs one search iteration, and stops when the judge's verdict says the goal is met (and the handler's task semantics honor that vote) or a budget dial reaches 100%. The faithful loop sketch lives on the [orchestrator page](/docs/evolve/orchestrator#what-happens-in-one-iteration); `solve()` returns a `SolveResult` with the deliverable experiment and the stop reason.
+The central coordinator. Each iteration it computes budget progress, hands the strategy the problem statement plus the previous iteration's feedback, runs one search iteration, and stops when the judge's verdict says the goal is met (and the handler's task semantics honor that vote) or a budget dial reaches 100%. The faithful sketch of the cycle lives on the [orchestrator page](/docs/evolve/orchestrator#what-happens-in-one-iteration); `solve()` returns a `SolveResult` with the deliverable experiment and the stop reason.
 
 ### Pluggable components
 

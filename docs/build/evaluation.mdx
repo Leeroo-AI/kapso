@@ -108,7 +108,7 @@ the registry: turn on the config's `evaluation_maintainer` block to use it
 ## Your own evaluator in Python
 
 A caller-owned evaluator can also run once per finalized candidate, in an
-isolated worktree, with its metrics kept out of the search loop:
+isolated worktree, with its metrics kept out of the search:
 `build(..., iteration_evaluator=callback)`. The metrics of the delivered
 candidate are `solution.callback_metrics`. See
 [External evaluation](/docs/evolve/external-evaluation) for the callback's

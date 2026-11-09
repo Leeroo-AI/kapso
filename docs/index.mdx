@@ -5,9 +5,11 @@ description: "Kapso, by Leeroo, is an open-source engine that runs experiments t
 keywords: ["Kapso", "experimentation engine", "tree of experiments", "bank of lessons", "deployment", "harness", "MLE-Bench", "RelBench"]
 ---
 
-Kapso is an engine that runs experiments, deploys the best solution, and learns from every run. Given an objective, initial success criteria and evaluation metrics, it investigates, runs experiments by choosing the best ideas, sometimes provides feedback to improve the evaluation metrics and success criteria, deploys the best solution on the desired stack, and learns from each run. It keeps a bank of lessons, each with a credence score and a boundary on where it applies, so the knowledge compounds rather than only accumulates over time.
+Delivering an AI or data outcome inside a company means learning two things by experiment. No individual or AI agent knows how a data estate is connected and operated; the only way to learn it is to investigate the company's artifacts (repos, pipelines, documentation, data sources), propose hypotheses, run experiments and learn from them, until each system's behaviour and its conditions are understood. And once that understanding exists, the best solution still can't be picked in advance, whether the job is optimizing a warehouse or predicting churn, so you experiment and learn until one fits the environment. The know-how that fits the environment accumulates, much as in RL. RAG does the opposite: it feeds the agent general knowledge that was never tested in this environment, all of it carrying the same weight, and that knowledge has little value until it has been tried there.
 
-Four parts, in the order a run meets them: smart experimentation, the learning loop, deployment, and domain adaptation through a harness. Each is a section below and a verb on the `Kapso` object.
+Kapso is the engine we built for this. It starts from a domain harness and an empty bank of lessons; given an objective and success criteria, it runs a tree of experiments, proposing hypotheses, then implementing and verifying each one, and deploys the best solution on the target stack. It then learns from the run, assigning credit to each hypothesis and implementation by its impact on the outcome and updating the bank, where every lesson carries a credence score and a boundary on where it applies. Over time the domain harness carries a bank of lessons that accumulated experimented best practices in that environment. The system is model-agnostic and coding-agent-agnostic.
+
+Four parts, in the order a run meets them: smart experimentation, learning, deployment, and domain adaptation through a harness. Each is a section below and a verb on the `Kapso` object.
 
 Kapso is open source, by [Leeroo](https://leeroo.com). The source lives at [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) and the package installs with `pip install leeroo-kapso`.
 
@@ -34,16 +36,16 @@ The same from a shell: `kapso build --brief kapso-brief.md --evaluation evaluati
 
 <CardGroup cols={2}>
   <Card title="Smart experimentation" icon="hammer" href="/docs/build/brief">
-    **`build()`** runs the experimentation loop on a tree of experiments: each node records the hypothesis, the implementation on its own branch, the budget used and the distance to the objective. Ideation proposes ideas from previous experiments and the bank of lessons, a reranker ranks them by expected return weighed against time and budget, the implementor builds on a branch forked from the parent, and a verifier decides whether the score is valid and the objective met. When a session needs a credential or a file only you can provide, the campaign asks and pauses until you reply.
+    **`build()`** runs a tree of experiments: each node records the hypothesis, the implementation on its own branch, the budget used and the distance to the objective. For each experiment, an ideation module proposes ideas from earlier experiments and the bank of lessons, re-ranks them by expected return against the budget each would use, and sends the top-ranked ones to the implementor; a fingerprinted evaluator that no experiment can access verifies the result, and the modules can propose updates to the metrics and criteria for the verifier to approve. When a session needs a credential or a file only you can provide, the campaign asks and pauses until you reply.
   </Card>
-  <Card title="Learning loop" icon="brain" href="/docs/learn/what-learn-produces">
-    **`learn()`** updates the credence and boundaries of the lessons a run used, induces lessons from similar traces or deduces one from a single piece of evidence and its mechanism, merges overlapping lessons, and A/B tests the updated lessons by running the same build with and without them. **`load_experience()`** names what the next build is served: your bank, a bank your team shares, Leeroopedia, or a corpus **`add_experience()`** ingested from a repository or a researched question.
+  <Card title="Learning" icon="brain" href="/docs/learn/what-learn-produces">
+    **`learn()`** turns a finished run into lessons: each is induced or deduced from the run's traces, carries a credence score, a boundary on where it applies and its evidence, and is updated from its effect on the outcome; every change to the bank is A/B tested by running the same build with and without it, so an improvement is measured, not guessed. **`load_experience()`** names what the next build is served: your bank, a bank your team shares, Leeroopedia, or a corpus **`add_experience()`** ingested from a repository or a researched question. The bank is built on git, so `kapso experience share`, `list` and `update` pass it around.
   </Card>
   <Card title="Deployment" icon="rocket" href="/docs/deploy/targets">
-    **`deploy()`** turns the best solution in the tree into running software on the target stack, by a shorter loop of the same shape: a session adapts a copy of the node, deploys it, and demonstrates health checks and a working call. Docker, Modal, BentoCloud and LangGraph Platform ship; a harness adds a target.
+    **`deploy()`** runs a shorter experimentation of the same kind to adapt the best solution to the target stack: a session adapts a copy of the node, deploys it, and demonstrates health checks and a working call. Docker, Modal, BentoCloud and LangGraph Platform ship; a harness adds a target.
   </Card>
   <Card title="Domain adaptation" icon="puzzle-piece" href="/docs/harnesses">
-    A harness is Kapso's domain package: the knowledge and workflows of an area such as predictive modelling, so a build does not experiment and learn from scratch. Write your own through the harness interface, your instructions, code, guardrails and checks, with `/kapso:harness` in the plugin or `kapso harness` in the CLI.
+    A harness is Kapso's domain package: the knowledge and workflows of an area such as predictive modelling, so a build does not experiment and learn from scratch. A run starts from a domain harness and an empty bank of lessons, and over time the harness carries the bank that accumulated what worked in that environment. Write your initial domain harness, your instructions, code, guardrails and checks, with `/kapso:harness` in the plugin or `kapso harness` in the CLI.
   </Card>
 </CardGroup>
 
@@ -58,7 +60,7 @@ The same from a shell: `kapso build --brief kapso-brief.md --evaluation evaluati
     In two unattended sessions of the AI Model Track, Kapso scored 536.07, graded by the organizers on their hardware, above every one of the 471 human contestants, and took the IOAI² Grand Master Trophy, top 3 among all AI systems entered.
   </Card>
   <Card title="RelBench" icon="database" href="/docs/benchmarks/relbench">
-    First on all three official leaderboards of Stanford's benchmark for predictive ML over relational data: classification, regression and recommendations, ahead of Stanford STAR's RT-J and KumoRFM-v2.
+    First on all three official leaderboards of Stanford's benchmark for predictive ML over relational data: classification, regression and recommendations, ahead of Stanford STAR's RT-J and KumoRFM-v2. Learning kept in the harness beat learning baked into model weights, and updating a bank of lessons costs far less than retraining a tabular foundation model.
   </Card>
   <Card title="MLE-Bench" icon="chart-line" href="/docs/benchmarks/mle-bench">
     Top ranking among open-source systems on Kaggle machine-learning competitions.
@@ -75,8 +77,6 @@ The same from a shell: `kapso build --brief kapso-brief.md --evaluation evaluati
   />
 </Frame>
 
-The [technical report](https://arxiv.org/abs/2601.21526) describes the system in full.
-
 ## What is inside
 
 | Component | What it does |
@@ -84,7 +84,7 @@ The [technical report](https://arxiv.org/abs/2601.21526) describes the system in
 | `Kapso` | The public API: `build`, `deploy`, `learn`, and the knowledge verbs |
 | `Brief`, `Budget`, `Solution` | What a build takes and what it hands back, as objects and as files |
 | Harness | The domain layer a build loads: pages, skills, tool servers, delegates and hooks, staged into every session |
-| Orchestrator | Runs the experiment loop and tracks the budget |
+| Orchestrator | Runs the experimentation and tracks the budget |
 | Search strategy | Explores candidate solutions as a tree |
 | Coding agents | Pluggable implementers: Claude Code, Codex, Gemini, OpenHands, OSS Claude Code |
 | Feedback generator | Validates each evaluation against the brief and decides when to stop |

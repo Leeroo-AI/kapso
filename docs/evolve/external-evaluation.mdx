@@ -1,7 +1,7 @@
 ---
 title: "Score Kapso candidates with your own external evaluator"
 sidebarTitle: "External evaluation"
-description: "Run a caller-owned evaluator once for every finalized candidate, keeping your metrics out of the search loop, with a defined result contract and failure policy."
+description: "Run a caller-owned evaluator once for every finalized candidate, keeping your metrics out of the search, with a defined result contract and failure policy."
 keywords: ["external evaluation", "IterationEvaluator", "custom metrics", "candidate scoring", "evaluation hook"]
 ---
 
@@ -140,7 +140,7 @@ missing baseline is reported explicitly. `improved`, `regressed`, and
 `kapso trace ./campaign` shows every attempt's comparison, including after
 a restart. These are observational reports, not promotion
 decisions. Search ranking, stopping, and final selection still use internal
-scores. This keeps holdout measurements out of the optimization loop.
+scores. This keeps holdout measurements out of the search.
 
 ## Lifecycle and persistence
 
@@ -174,7 +174,7 @@ and in durable run records without becoming feedback for later ideas.
 
 ## Failure policy
 
-The default `record` policy keeps the experiment loop running:
+The default `record` policy keeps the campaign running:
 
 ```python
 solution = kapso.build(

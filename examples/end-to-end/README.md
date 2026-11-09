@@ -1,10 +1,10 @@
-# The full loop: Spaceship Titanic
+# End to end: Spaceship Titanic
 
 A 45-minute build that takes `repo/train.py` from a DummyClassifier at
 about 0.50 accuracy toward the brief's 0.78 on the Kaggle Spaceship Titanic
 data, with the repository's own `evaluate.py` as the judge, on the bundled
 `predictive-modelling` harness the brief names, and then the rest of the
-loop on what it delivered: the review, a lesson learned into
+sequence on what it delivered: the review, a lesson learned into
 your bank, a second build served that bank, and the delivered model
 deployed as running software.
 
@@ -37,8 +37,8 @@ python run.py
 
 Without the Kaggle CLI, download `train.csv` and `test.csv` from
 https://www.kaggle.com/competitions/spaceship-titanic/data into `repo/data/`.
-`run.py` is the loop in twelve lines: build, the review, learn, the bank
-loaded, build again, deploy. The same loop from the shell:
+`run.py` is the whole sequence in twelve lines: build, the review, learn,
+the bank loaded, build again, deploy. The same sequence from the shell:
 
 ```bash
 kapso build --brief kapso-brief.md --repo repo --output campaign --detach

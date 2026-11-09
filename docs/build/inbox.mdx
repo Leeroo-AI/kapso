@@ -2,7 +2,7 @@
 title: "The inbox: when a campaign needs something only you can provide"
 sidebarTitle: "Inbox"
 description: "The inbox is how a Kapso campaign asks you for a credential, access or a file, pauses, and continues the same coding session once you reply."
-keywords: ["kapso inbox", "waiting_for_user", "request_from_user", "human in the loop", "pause and resume", "kapso inbox reply", "coding agent asks for API key", "blocked campaign"]
+keywords: ["kapso inbox", "waiting_for_user", "request_from_user", "human input", "pause and resume", "kapso inbox reply", "coding agent asks for API key", "blocked campaign"]
 ---
 
 The inbox is how a campaign asks you for something only a person can provide, and how your reply continues the very coding session that asked. A session that needs an API key that is not in `.env`, access to a private bucket or a file that exists only on your laptop records a request, the campaign pauses and exits with `stopped_reason: waiting_for_user`, and `kapso inbox reply` resumes that session with your answer and its context intact.

@@ -163,7 +163,7 @@ A section whose evidence cites a file the experiment changed must be
 returned with refreshed line numbers (or removed), so a stale section
 is never carried over. A malformed patch, such as removing a `core.*`
 section or omitting such a section, is an invalid response and goes
-through the same repair loop.
+through the same repair attempts.
 
 When the changed files' line-numbered text passes
 `repo_memory_update_payload_max_chars` (a search-strategy param, 400,000

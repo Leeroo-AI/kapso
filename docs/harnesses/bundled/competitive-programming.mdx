@@ -41,7 +41,7 @@ Two pages reach every session: `instructions/guardrails.md`, the standing rules 
 |---|---|
 | `contest-economics` | How a leaderboard contest's budget is spent: the insurance submission, the round trip, predicting a score before spending one, the calibration gap, the shared board's protocol |
 | `contest-preflight` | What a complete, self-contained task root for a leaderboard contest holds, so a solver never has to visit the contest's site |
-| `cpp-performance` | How a contest program spends its time limit: input and output, the margin, exact operation counts, compiler pragmas, no allocation in loops, the precompute step |
+| `cpp-performance` | How a contest program spends its time limit: input and output, the margin, exact operation counts, compiler pragmas, no allocation in the hot path, the precompute step |
 | `cv-protocol` | How a change is accepted and a score is read: the official validation number as the selection signal and never the tuning target, folds grouped by the repeated unit |
 | `eda-discipline` | What a run prints so the next session can read it: an exploration block at the start, an error-analysis block at the end, timings per stage, a debug mode over a sample |
 | `ensembling` | How a final ensemble is built and judged: members chosen for decorrelation, the blend that fits the metric, measured against the plain combination |

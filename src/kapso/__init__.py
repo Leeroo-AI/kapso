@@ -1,6 +1,6 @@
 # Kapso Agent
 #
-# An engine that runs experiments, deploys the best solution and learns from every run: smart experimentation, a learning loop, deployment and domain adaptation through harnesses.
+# An engine that runs experiments, deploys the best solution and learns from every run: smart experimentation, learning, deployment and domain adaptation through harnesses.
 #
 # Usage:
 #     from kapso import Kapso

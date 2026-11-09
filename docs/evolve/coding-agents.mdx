@@ -5,7 +5,7 @@ description: "Claude Code, Codex, Gemini, OpenHands and OSS Claude Code: the int
 keywords: ["coding agents", "Claude Code", "Codex", "CodingAgentFactory", "custom agent"]
 ---
 
-A coding agent is what actually writes the code during an experiment. Kapso drives them as subprocesses through a common interface, so the agent is a config choice rather than something the rest of the system knows about.
+A coding agent is what actually writes the code during an experiment. Kapso drives them as subprocesses through a common interface, so the agent is a config choice rather than something the rest of the system knows about. The system is model-agnostic and coding-agent-agnostic: every model Kapso uses is named in the config, and the host that runs a role is one row of its `hosts` table.
 
 ## Which agents can I use?
 

@@ -175,7 +175,7 @@ kapso harness check ./trading
 
 `check` fails on what cannot load (an unknown module or field, a name that resolves to nothing, a skill or delegate without front matter (a page has none), a malformed `mcp.json` or `hook.json`, a hook with an unknown event, a script that does not exist, a credential literal, a missing requirements file), warns on what should be looked at (a file no module lists, a skill its module's page never mentions, a long page, a long opaque value) and reports what the machine lacks. It runs no script and reads no path a `SKILL.md` quotes. The [reference](/docs/reference/harness#check) lists every rule.
 
-Then run a task on it and read the campaign: `kapso_task.md`, each session's `session.json` and `stream.jsonl`, the verdicts. A hook that never fired, a skill no session used, a page a session contradicted, a verdict without evidence: each is a sentence to add or a file to cut. The [trading example](/docs/harnesses/example-trading) is that loop, with a task tuned so the shipped strategy has room to improve.
+Then run a task on it and read the campaign: `kapso_task.md`, each session's `session.json` and `stream.jsonl`, the verdicts. A hook that never fired, a skill no session used, a page a session contradicted, a verdict without evidence: each is a sentence to add or a file to cut. The [trading example](/docs/harnesses/example-trading) is that cycle, with a task tuned so the shipped strategy has room to improve.
 
 ## Version and share
 

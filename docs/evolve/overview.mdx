@@ -1,15 +1,15 @@
 ---
-title: "The experimentation loop: the engine behind build(), end to end"
-sidebarTitle: "The experimentation loop"
-description: "The engine runs the experimentation loop on a tree of experiments: each node a hypothesis implemented on its own branch, scored and verified, the best refined until the objective is met or the budget is spent."
-keywords: ["Kapso engine", "experimentation loop", "tree of experiments", "experiment campaign", "tree search", "iterative experimentation"]
+title: "Smart experimentation: the engine behind build(), end to end"
+sidebarTitle: "Smart experimentation"
+description: "The engine runs a campaign on a tree of experiments: each node a hypothesis implemented on its own branch, scored and verified, the best refined until the objective is met or the budget is spent."
+keywords: ["Kapso engine", "smart experimentation", "tree of experiments", "experiment campaign", "tree search", "iterative experimentation"]
 ---
 
-The engine behind `build()`: the experimentation loop. Give it a brief it can score and it runs a campaign: propose a candidate, implement it on its own git branch, evaluate it, judge the result, and repeat with what it learned, until the objective is met or the budget is spent.
+The engine behind `build()`: smart experimentation. Give it a brief it can score and it runs a campaign: propose a candidate, implement it on its own git branch, evaluate it, judge the result, and repeat with what it learned, until the objective is met or the budget is spent.
 
 ## The tree of experiments
 
-The loop is a set of specialised modules sharing one data structure, a tree of experiments. Each node records the hypothesis, the implementation (the git branch `generic_exp_N` and the technical difficulties the implementor met), the budget used, the score as the distance to the objective, the verdict and the judge's feedback, and its parent node. The modules read the tree and write back to it:
+The engine is a set of specialised modules sharing one data structure, a tree of experiments. Each node records the hypothesis, the implementation (the git branch `generic_exp_N` and the technical difficulties the implementor met), the budget used, the score as the distance to the objective, the verdict and the judge's feedback, and its parent node. The modules read the tree and write back to it:
 
 | Module | Reads | Writes |
 |---|---|---|
@@ -52,7 +52,7 @@ The system works by:
 
 <CardGroup cols={2}>
   <Card title="Orchestrator" icon="sitemap" href="/docs/evolve/orchestrator">
-    Central coordinator that manages the experimentation loop, budget tracking, and component lifecycle
+    Central coordinator that manages the campaign, budget tracking, and component lifecycle
   </Card>
   <Card title="Search Strategies" icon="magnifying-glass" href="/docs/evolve/search-strategies">
     The generic strategy: how candidates are generated, run and recorded
