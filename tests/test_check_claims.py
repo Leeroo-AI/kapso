@@ -187,7 +187,8 @@ def test_a_tag_line_is_read_for_words_and_not_as_a_paragraph(tmp_path, monkeypat
     figure = page(tmp_path, "docs/a.mdx", (
         "Runs by Leeroo, recorded on 2026-10-11: a rating of 1909 Elo.\n\n"
         '<Frame caption="A rating of 1909 Elo by a team of agents">\n  <img\n    src="/x.png"\n    alt="Kapso at 1909 Elo"\n  />\n</Frame>\n\n'
-        "![Kapso at 1909 Elo](x.png)\n"
+        "![Kapso at 1909 Elo](x.png)\n\n"
+        '<p align="center"><img src="/x.png" alt="Kapso at 1909 Elo" width="574"></p>\n'
     ))
     assert findings(figure) == ["words-out 'team of agents' in a heading or a tag's text"]
 

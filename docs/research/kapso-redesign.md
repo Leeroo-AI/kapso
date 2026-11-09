@@ -90,8 +90,9 @@ Smart experimentation · Learning · Deployment · Domain adaptation
 - Words out: "loop" (readers hear a coding-agent loop; say experimentation,
   campaign, cycle or learning), "with a number", "judge" (say evaluation),
   "trust", "applied research", "iteration engine", "long-running agents",
-  "self-improving", "autonomous", "software factory", "team of agents",
-  "always-on".
+  "self-improving", "software factory", "team of agents", "always-on".
+  (The word autonomous left the list on 2026-11-09: the IOAI track's own
+  term for its format is the one fact that needs it.)
 - Every number travels with who ran it, on what evaluator, and when.
 - Learning is told as the launch post tells it (2026-11-09): everything in
   the bank comes from experiments, the lessons carry a credence score and
