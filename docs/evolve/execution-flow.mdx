@@ -2,10 +2,10 @@
 title: "What happens inside one Kapso experiment, step by step"
 sidebarTitle: "Execution flow"
 description: "Follow a single call to build() from brief to solution: candidate generation, implementation on a branch, evaluation, judged feedback, and the decision to stop."
-keywords: ["execution flow", "evolve loop", "experiment steps", "budget tracking", "Kapso internals"]
+keywords: ["execution flow", "evolve cycle", "experiment steps", "budget tracking", "Kapso internals"]
 ---
 
-One call to `build()` runs a loop: gather context, propose a candidate, implement it on a branch, evaluate it, judge the result, and either continue or stop. This page follows a single pass through it.
+One call to `build()` repeats one cycle: gather context, propose a candidate, implement it on a branch, evaluate it, judge the result, and either continue or stop. This page follows a single pass through it.
 
 ```mermaid
 flowchart LR
@@ -38,7 +38,7 @@ solution = kapso.build(
 | Component | Module | Role |
 |-----------|--------|------|
 | **ProblemHandler** | `kapso.environment.handlers` | Wraps goal and problem context |
-| **OrchestratorAgent** | `kapso.execution.orchestrator` | Runs the solve loop |
+| **OrchestratorAgent** | `kapso.execution.orchestrator` | Runs the solve cycle |
 | **SearchStrategy** | `kapso.execution.search_strategies` | Generates and selects solutions |
 | **ExperimentWorkspace** | `kapso.execution.experiment_workspace` | Manages Git branches |
 | **CodingAgent** | `kapso.execution.coding_agents` | Writes code and runs evaluation |
@@ -58,9 +58,9 @@ class ContextData:
     kg_code_results: str   # Code examples from KG
 ```
 
-### Step 3: The solve loop
+### Step 3: The solve cycle
 
-**OrchestratorAgent.solve()** runs the main loop: compute budget progress, hand the strategy the problem plus the previous iteration's feedback, run one search iteration, and stop on a judged goal-achieved vote or an exhausted budget. The faithful sketch lives on the [orchestrator page](/docs/evolve/orchestrator#what-happens-in-one-iteration).
+**OrchestratorAgent.solve()** runs the cycle: compute budget progress, hand the strategy the problem plus the previous iteration's feedback, run one search iteration, and stop on a judged goal-achieved vote or an exhausted budget. The faithful sketch lives on the [orchestrator page](/docs/evolve/orchestrator#what-happens-in-one-iteration).
 
 ### Step 4: Generate solution ideas
 
@@ -172,7 +172,7 @@ callback contract, isolation model, and failure policies.
 
 ### Step 10: Return result
 
-When the loop ends, **Kapso** returns the best solution:
+When the run ends, **Kapso** returns the best solution:
 
 ```python
 # Checkout to best solution branch
@@ -193,7 +193,7 @@ if solution.goal_achieved:
 
 ## How is the budget tracked?
 
-Budget progress is the maximum of the time, iteration and cost dials; the loop stops when any of them reaches 100% or the judge's stop vote is honored. The formula and dials are on the [orchestrator page](/docs/evolve/orchestrator#how-is-the-budget-tracked).
+Budget progress is the maximum of the time, iteration and cost dials; the run stops when any of them reaches 100% or the judge's stop vote is honored. The formula and dials are on the [orchestrator page](/docs/evolve/orchestrator#how-is-the-budget-tracked).
 
 ---
 
@@ -218,7 +218,7 @@ class SearchNode:
     error_message: str = ""
 ```
 
-There is no in-iteration debug loop: an error lands in the node's tags and the judge's verdict, and the next iteration's prompt opens with that feedback.
+Nothing is retried inside an iteration: an error lands in the node's tags and the judge's verdict, and the next iteration's prompt opens with that feedback.
 
 ---
 

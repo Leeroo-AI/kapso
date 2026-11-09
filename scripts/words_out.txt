@@ -19,7 +19,7 @@ autonomous
 software factory
 team of agents
 always-on
-AI and data systems
+loop
 [front]
 judge
 trust

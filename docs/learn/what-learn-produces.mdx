@@ -9,6 +9,8 @@ A campaign starts out knowing its [experience](/docs/experience): what was measu
 
 Each lesson is a card with a credence score (the card's reliability score), boundary conditions on where it applies (its scope and the conditions in its body) and the evidence behind every update, so the next build's ideation and implementation can decide how far to rely on it rather than simply retrieving it.
 
+Everything in the bank comes from experiments: each lesson is induced or deduced from the traces of experimentation runs, and after every run `learn()` updates its credence and boundaries from the lesson's effect on the final outcome. Changes to the bank are experiments too: every updated lesson is A/B tested by running the same build with and without it, so an improvement is measured, not guessed. The bank is a git repository, so you can [share it, list the banks available to you and update them](/docs/experience/share) with `kapso experience share`, `kapso experience list` and `kapso experience update`.
+
 ```bash
 kapso learn ./campaign
 kapso learn ./campaign --harness ./harnesses/trading     # when the campaign's record names none

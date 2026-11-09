@@ -1,8 +1,11 @@
 # Kapso redesign: positioning and interfaces
 
 *Started 2026-10-21; the positioning reset on 2026-11-06 to the launch
-story: an experiment-to-delivery engine, with learning. The positioning
-is settled first; the interface and architecture changes follow from it.*
+story: an experiment-to-delivery engine, with learning, and on 2026-11-09
+to the final post: the premise (two things learned by experiment), the
+engine paragraph, and the vocabulary (the word "loop" is out). The
+positioning is settled first; the interface and architecture changes
+follow from it.*
 
 ## 1. One-liner (settled 2026-11-06)
 
@@ -12,82 +15,99 @@ Why this one: it names the three things the engine does, in the order a
 run does them, and nothing else. The previous one-liner (2026-10-21,
 "turn coding-agent output into verified outcomes, not review debt") put
 Kapso beside the coding agents; this one puts it where the founders' own
-work was: the experiment loop that ends in a delivered, measured result,
+work was: the experimentation that ends in a delivered, measured result,
 and the lessons kept for the next run. It still names no category:
 "applied research", "auto-research", "iteration engine", "software
 factory" and "long-running agents" stay rejected.
 
-## 2. TL;DR (settled 2026-11-06; the README's "What is Kapso?" and the docs index carry it)
+## 2. TL;DR (settled 2026-11-09 from the final launch post; the README's "What is Kapso?" and the docs index carry it)
 
-Given an objective, initial success criteria and evaluation metrics,
-Kapso investigates, runs experiments by choosing the best ideas, sometimes
-provides feedback to improve the evaluation metrics and success criteria,
-deploys the best solution on the desired stack, and learns from each run.
-It keeps a bank of lessons, each with a credence score and a boundary on
-where it applies, so the knowledge compounds rather than only accumulates
-over time.
+The premise. Delivering an AI or data outcome inside a company means
+learning two things by experiment. First, the environment: no individual
+or AI agent knows how a data estate is connected and operated, and the
+only way to learn it is to investigate the company's artifacts (repos,
+pipelines, documentation, data sources), propose hypotheses, run
+experiments and learn from them, until each system's behaviour and its
+conditions are understood. Second, the solution: the best one cannot be
+picked in advance, whether the job is optimizing a warehouse or
+predicting churn, so you experiment and learn until one fits the
+environment. The know-how that fits the environment accumulates, much as
+in RL. RAG does the opposite: it feeds the agent general knowledge that
+was never tested in this environment, all of it carrying the same weight,
+and that knowledge has little value until it has been tried there.
+
+The engine. Kapso starts from a domain harness and an empty bank of
+lessons. Given an objective and success criteria, it runs a tree of
+experiments, proposing hypotheses, then implementing and verifying each
+one, and deploys the best solution on the target stack. It then learns
+from the run, assigning credit to each hypothesis and implementation by
+its impact on the outcome and updating the bank, where every lesson
+carries a credence score and a boundary on where it applies. Over time
+the domain harness carries a bank of lessons that accumulated
+experimented best practices in that environment. The system is
+model-agnostic and coding-agent-agnostic.
 
 Four parts, in the order a run meets them:
 
-1. **Smart experimentation.** Specialised modules share one data
-   structure, a tree of experiments: each node records the hypothesis, the
-   implementation (the branch and the technical difficulties), the budget
-   used and the distance to the objective. Ideation draws on previous
-   experiments and the bank of lessons to propose ideas, each saying how it
-   differs from specific earlier experiments and which lessons it adopts; a
-   reranker ranks them by expected return against the target, weighed
-   against time and budget. The implementor builds on a branch forked from
-   the parent node; a verifier checks the node against the safety rules and
-   the success criteria, decides whether the score is valid and whether the
-   objective is met. Success criteria and tests can evolve during a run:
-   modules propose justified updates, and the verifier approves or rejects
-   them.
-2. **Learning loop.** Each lesson records a piece of knowledge, a credence
-   score, boundary conditions on where it applies and the evidence behind
-   its updates. After each run, `learn()` updates the credence and
-   boundaries of the lessons used from their effect on the result, induces
-   lessons from similar traces or deduces one from a single piece of
-   evidence and its mechanism, merges overlapping lessons, and A/B tests the
-   updated lessons by running the same build with and without them. The
-   next build's ideation and implementation read each lesson's credence and
-   boundaries to decide when to rely on it, rather than simply RAGing the
-   knowledge.
-3. **Deployment.** `deploy()` turns the best solution in the tree into
-   running software on the target stack, by a shorter version of the
-   experimentation loop: a session adapts a copy of the node, deploys it,
-   and demonstrates health checks and a working call. Docker, Modal,
-   BentoCloud and LangGraph Platform ship; a harness adds a target.
-4. **Domain adaptation.** Harnesses are Kapso's domain packages: knowledge
-   and workflows for an area such as predictive modelling, so a build does
-   not experiment and learn from scratch. Your own domain knowledge goes in
-   through the harness interface (instructions, code, guardrails and
-   checks), authored with `/kapso:harness` in the plugin or `kapso harness`
-   in the CLI.
+1. **Smart experimentation.** For each experiment, an ideation module
+   proposes ideas from earlier experiments and the bank of lessons,
+   re-ranks them by expected return against the budget each would use,
+   and sends the top-ranked ones to the implementor. Because the bank
+   keeps learning what works in that exact environment, the ideas become
+   specific to it, rather than the generic ones a bare LLM or RAG would
+   offer. Results are verified by a fingerprinted evaluator that no
+   experiment can access, and the evaluation evolves too: the
+   experimentation modules can propose updates to the metrics and
+   criteria for the verifier to approve.
+2. **Learning.** Everything in the bank comes from experiments: each
+   lesson is induced or deduced from the traces of experimentation runs,
+   carries a credence score, boundary conditions on where it applies and
+   the evidence behind it, and after every run `learn()` updates those
+   from the lesson's effect on the final outcome. Changes to the bank are
+   experiments too: every updated lesson is A/B tested by running the
+   same build with and without it, so an improvement is measured, not
+   guessed. The bank is built on git, so you can share your experience
+   with others (`kapso experience share`), list the banks available to
+   you (`kapso experience list`) and update them (`kapso experience
+   update`).
+3. **Deployment.** `deploy()` runs a shorter experimentation of the same
+   kind to adapt the best solution to the target stack (Docker, Modal,
+   BentoCloud, LangGraph Platform, or a target a harness adds): a session
+   adapts a copy of the node, deploys it, and demonstrates health checks
+   and a working call.
+4. **Domain adaptation.** Harnesses are Kapso's domain packages:
+   knowledge and workflows for an area such as predictive modelling, so a
+   build does not experiment and learn from scratch. Your initial domain
+   harness (instructions, code, guardrails and checks) is written with
+   `/kapso:harness` in the plugin or `kapso harness` in the CLI.
 
-## 3. Tags (settled 2026-11-06)
+## 3. Tags (settled 2026-11-09)
 
-Smart experimentation · Learning loop · Deployment · Domain adaptation
+Smart experimentation · Learning · Deployment · Domain adaptation
 
 ## 4. Rules for every public sentence
 
-- Words out: "with a number", "judge" (say evaluation), "trust",
-  "applied research", "iteration engine", "long-running agents",
+- Words out: "loop" (readers hear a coding-agent loop; say experimentation,
+  campaign, cycle or learning), "with a number", "judge" (say evaluation),
+  "trust", "applied research", "iteration engine", "long-running agents",
   "self-improving", "autonomous", "software factory", "team of agents",
-  "always-on", "AI and data systems".
+  "always-on".
 - Every number travels with who ran it, on what evaluator, and when.
-- Learning is told as the launch post tells it (2026-11-06): the lessons
-  carry a credence score and a boundary, and the knowledge compounds
-  rather than only accumulates; a number for the gain travels with the
-  A/B that measured it.
+- Learning is told as the launch post tells it (2026-11-09): everything in
+  the bank comes from experiments, the lessons carry a credence score and
+  a boundary, and every change to the bank is A/B tested, so an
+  improvement is measured, not guessed; a number for the gain travels with
+  the A/B that measured it.
 - The engineer stays in charge: their goal, their evaluation when they have
   one, their merge.
 
 ## 5. The product shape the one-liner implies
 
-- **Engine**: the four parts as one loop: the tree of experiments and the
+- **Engine**: the four parts as one run: the tree of experiments and the
   modules that read and write it (ideation, implementation, verification,
   feedback), the isolated and versioned evaluation, the trace, deployment
-  by a shorter loop of the same shape, learning into the bank of lessons.
+  by a shorter experimentation of the same kind, learning into the bank of
+  lessons.
 - **Harness**: the domain package, a plug-in for one kind of work: the handler (scoring
   direction, stop semantics, task context), per-module instructions
   (propose, build, judge, deploy, the entrance's evaluation templates),
@@ -114,10 +134,12 @@ experience = kapso.learn(solution)
 
 - The TL;DR and the tags: settled 2026-11-06 from the launch post and
   carried to the README, `docs/index.mdx`, the PyPI summary, the CLI's
-  help line, the plugin's manifests and the Context7 file in one change.
-  The claims lint still holds every public sentence to section 4, so the
-  front pages say "decide when to rely on it" where the post says "judge
-  when to trust it".
+  help line, the plugin's manifests and the Context7 file in one change;
+  reset 2026-11-09 to the final post (the premise and the engine paragraph
+  above, "Learning" for the second part, "loop" out of every public
+  sentence) and carried the same way, with the hero figure's captions and
+  the README translations regenerated. The claims lint still holds every
+  public sentence to section 4.
 - The entrance when there is no evaluation (the engine proposes one, the
   judge checks it is fair): keep the three-case design from
   `docs/plans/kapso-plugin-user-flow.md` §4.

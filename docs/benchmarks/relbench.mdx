@@ -27,6 +27,8 @@ links — with every feature and neighborhood censored at each row's seed time.
 | Regression · 9 tasks | NMAE, lower is better | 0.2711 (RT-J; KumoRFM-v2 0.2847) | **0.2476** |
 | Recommendations · 10 tasks | MAP, higher is better | 9.3 (ID-GNN) | **18.4** |
 
+Learning kept in the harness beat learning baked into model weights: KumoRFM-v2 carries what it learned in its parameters, Kapso in the predictive-modelling harness and its bank of lessons, and updating a bank of lessons costs far less than retraining a tabular foundation model.
+
 All Kapso scores come from the official RelBench evaluator on the official task sets; the
 comparison numbers are the methods' own entries on the
 [official RelBench leaderboard](https://star-project.stanford.edu/relbench/leaderboard/), read on
@@ -56,7 +58,7 @@ provided grader scores every experiment:
    `$KAPSO_RUN_DATA_DIR` (contract validated: shapes, dtypes, ranges).
 3. The grader computes the **official validation metrics** — the search score, oriented
    so that higher is better — and archives every full run; test metrics are never
-   computed in the loop.
+   computed during the search.
 4. After the campaign the runner selects among the archive's registered finals, scores
    the winner **once** on test, runs the harness's leakage scan over its code, and writes
    `final_report.json`.

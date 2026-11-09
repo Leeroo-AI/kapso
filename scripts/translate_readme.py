@@ -70,6 +70,7 @@ Rules:
 5. Keep the structure: the same headings in the same order and at the same level, the same tables with the same columns, the same lists, the same paragraph breaks.
 6. Render these terms with their standard equivalent in {name} and use each consistently: objective, success criteria, evaluation, experiment, tree of experiments, hypothesis, candidate, campaign, lesson, bank of lessons, credence score, boundary, evidence, deployment, target stack, trajectory, coding agent, plugin. Keep the English word "harness", and keep the CLI verbs (build, learn, deploy, experience, harness, watch, inbox, trace, report, doctor) in English where they name a command.
 7. No emojis beyond those already in the input, no em dashes, no translator's notes.
+8. A number the input spells as a word (one, two, three, twelve, hundreds) stays a word in {name}; never write it as a digit, and never add a digit the input does not have, because the check counts every digit in the translation against the input.
 """
 
 

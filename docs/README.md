@@ -65,7 +65,7 @@ Every published page with its rendered address, grouped as in the sidebar. Kept 
 
 **The experimentation loop**
 
-- [The experimentation loop](https://docs.leeroo.com/docs/evolve/overview) — `docs/evolve/overview.mdx`
+- [Smart experimentation](https://docs.leeroo.com/docs/evolve/overview) — `docs/evolve/overview.mdx`
 - [Architecture](https://docs.leeroo.com/docs/evolve/architecture) — `docs/evolve/architecture.mdx`
 - [Execution flow](https://docs.leeroo.com/docs/evolve/execution-flow) — `docs/evolve/execution-flow.mdx`
 - [Evaluation integrity](https://docs.leeroo.com/docs/evolve/evaluation-integrity) — `docs/evolve/evaluation-integrity.mdx`

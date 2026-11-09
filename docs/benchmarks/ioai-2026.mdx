@@ -34,7 +34,7 @@ Once a session starts, no human may solve, correct, or improve anything. Fourtee
 The scores are the organizers': every submission was scored on the track's standardized single-GPU
 hardware during the two unattended six-hour sessions of IOAI 2026 in Astana, and the totals are the
 olympiad's published results for the AI Model Track. Kapso's sessions were launched by Leeroo and ran
-without a human in the loop, as the track requires; the contest sessions' own records are not in
+without human input, as the track requires; the contest sessions' own records are not in
 this repository. The runner as it ships (below) routes every submission through the task root's
 procedure, which records it in the campaign's ledger (the procedure and the organizers' rules are in
 the [benchmark directory](https://github.com/Leeroo-AI/kapso/tree/main/benchmarks/ioai2026)).
@@ -44,10 +44,10 @@ the [benchmark directory](https://github.com/Leeroo-AI/kapso/tree/main/benchmark
 Three stages, with the campaign clock starting at brief-in.
 
 1. **Preflight.** One agent session ingests the official task brief, downloads the data, and writes the task statement.
-2. **Campaign.** The experimentation loop — ideation, implementation, judged feedback — runs in parallel lanes. Each lane cycles submit-and-learn rounds through the official submission system: predict the score, submit, bank the result, study the gap, go again.
+2. **Campaign.** The experimentation — ideation, implementation, judged feedback — runs in parallel lanes. Each lane cycles submit-and-learn rounds through the official submission system: predict the score, submit, bank the result, study the gap, go again.
 3. **Shared learning.** Lanes learn from every sibling submission on the board, and ideas are grounded in a bank of past olympiad solutions served as experience: each card a past task's winning idea with its code, its score reported by others and marked so, promoted only once a campaign runs it.
 
-The submit-and-learn loop is what the format rewards. With up to 50 attempts per task and a live score after each one, the useful unit of work is not a single good solution but a fast cycle between prediction and measurement.
+The submit-and-learn cycle is what the format rewards. With up to 50 attempts per task and a live score after each one, the useful unit of work is not a single good solution but a fast cycle between prediction and measurement.
 
 ## Usage
 

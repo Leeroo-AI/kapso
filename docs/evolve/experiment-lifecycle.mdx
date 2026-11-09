@@ -23,7 +23,7 @@ flowchart TB
     end
 ```
 
-There is no separate debug loop: a failed evaluation surfaces in the session's tags, the judge marks the evaluation invalid or writes corrective feedback, and the **next** iteration addresses it.
+There is no separate debugging step: a failed evaluation surfaces in the session's tags, the judge marks the evaluation invalid or writes corrective feedback, and the **next** iteration addresses it.
 
 ## Git branch model
 
@@ -131,7 +131,7 @@ The session folder is the only copy of the experiment's commits until the push s
 
 <CardGroup cols={2}>
   <Card title="Execution flow" icon="diagram-project" href="/docs/evolve/execution-flow">
-    The loop around one experiment
+    The cycle around one experiment
   </Card>
   <Card title="Coding agents" icon="robot" href="/docs/evolve/coding-agents">
     Who writes the code
