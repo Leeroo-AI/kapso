@@ -1,7 +1,7 @@
 <!-- French translation of README.md, generated with scripts/translate_readme.py (Claude Code). Keep it in step: README.md and this file change in the same commit, and scripts/check_readme_translations.py fails when a link, a number or a line of code differs. -->
 <h1 align="center">Kapso</h1>
 
-<h4 align="center">Un moteur qui mène des expériences, déploie la meilleure solution et apprend de chaque exécution</h4>
+<h4 align="center">Un moteur qui exécute des expériences, déploie la meilleure solution et apprend de chaque exécution</h4>
 <p align="center"><sub>expérimentation intelligente · apprentissage · déploiement · adaptation au domaine</sub></p>
 
 <div align="center">
@@ -16,7 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">En savoir plus</a> ·
-  <a href="https://discord.gg/hqVbPNNEZM">Rejoindre le Discord</a> ·
+  <a href="https://discord.gg/hqVbPNNEZM">Rejoindre Discord</a> ·
   <a href="https://leeroo.com">Site web</a>
 </p>
 
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  Si ce projet vous plaît, soutenez-nous en lui attribuant une étoile ⭐
+  Si ce projet vous plaît, soutenez-nous en lui donnant une étoile ⭐
 </p>
 
 <p align="center">
@@ -37,45 +37,47 @@
   </a>
 </p>
 
-> **Si vous êtes un agent IA en train de consulter ce dépôt :** le plugin Kapso, avec les compétences pour
-> l'installation, la formulation d'un objectif, la rédaction d'un harness et la revue d'une exécution,
-> s'installe en une ligne : `claude plugin marketplace add Leeroo-AI/kapso && claude plugin install kapso@kapso`
+> **Si vous êtes un agent IA qui consulte ce dépôt :** le plugin Kapso, avec les compétences pour
+> installer, énoncer un objectif, écrire un harness et relire une exécution, s'installe
+> en une ligne : `claude plugin marketplace add Leeroo-AI/kapso && claude plugin install kapso@kapso`
 > (Codex : `codex plugin marketplace add Leeroo-AI/kapso && codex plugin add kapso@kapso`).
 
 ---
 
 ## Actualités
 
-- **IOAI 2026 · le volet AI Model Track.** L'[Olympiade internationale d'IA](https://ioai-official.org) est l'IMO de l'ère de l'IA : 471 concurrents issus de 108 pays et territoires, six tâches conçues par des experts sous un budget d'un seul GPU. En 2026, elle a ouvert [IOAI²](https://ioai-official.org/ai-model-track/), où des systèmes d'IA passent le *même* examen en deux sessions de 6 heures sans supervision. Une fois le chronomètre lancé, aucun humain ne peut résoudre, corriger ni améliorer quoi que ce soit. Kapso y a participé comme l'un des 14 Participants IA fondateurs.
-  - 🎓 **A devancé les 471 humains** : 536.07 au total, au-dessus de chaque concurrent présent dans la salle.
-  - 🏆 **Trophée IOAI² Grand Master** : top 3 parmi tous les systèmes d'IA engagés. [Résultats complets →](../../benchmarks/ioai2026/README.md) · [Le bilan du volet par l'IOAI →](https://ioai-official.org/what-happens-when-autonomous-ai-takes-on-the-same-tasks-as-the-worlds-top-young-ai-talents/)
-- **Premier sur les trois classements [RelBench](../../benchmarks/relbench/README.md)** : sur le benchmark de Stanford pour le ML prédictif sur données relationnelles, Kapso mène le classement officiel en classification (81.2 d'AUROC sur 12 tâches, contre 79.3 pour [KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview) et 79.0 pour [RT-J](https://star-project.stanford.edu/rt-j) de Stanford STAR), en régression (0.2476 de NMAE sur 9 tâches, contre 0.2711 pour RT-J et 0.2847 pour KumoRFM-v2, soit 8.7% d'erreur en moins) et en recommandation (18.4 de MAP sur 10 tâches, contre 9.3 pour ID-GNN, la meilleure autre entrée). Chaque chiffre est une entrée du [classement officiel RelBench](https://star-project.stanford.edu/relbench/leaderboard/). L'apprentissage conservé dans le harness a battu l'apprentissage figé dans les poids du modèle, et mettre à jour une banque de leçons coûte bien moins cher que réentraîner un modèle de fondation tabulaire.
+- **IOAI 2026 · le volet AI Model Track.** L'[Olympiade internationale d'IA](https://ioai-official.org) est l'IMO de l'ère de l'IA : 471 concurrents, six tâches conçues par des experts, un budget d'un seul GPU. Son volet [IOAI²](https://ioai-official.org/ai-model-track/) de 2026 a soumis des systèmes d'IA au même examen en une seule session autonome. Kapso, l'un des 14 participants IA fondateurs, a obtenu 536.07 points selon la notation des organisateurs, au-dessus de chaque concurrent humain, et a remporté l'IOAI² Grand Master Trophy, dans le top 3 des systèmes d'IA engagés. [Résultats complets →](../../benchmarks/ioai2026/README.md) · [Le compte rendu de l'IOAI sur le volet →](https://ioai-official.org/what-happens-when-autonomous-ai-takes-on-the-same-tasks-as-the-worlds-top-young-ai-talents/)
+- **Premier sur les trois classements [RelBench](../../benchmarks/relbench/README.md).** Sur le benchmark de Stanford pour le ML prédictif sur données relationnelles, Kapso mène le [classement officiel](https://star-project.stanford.edu/relbench/leaderboard/) en classification (81.2 AUROC contre 79.3 pour [KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview) et 79.0 pour [RT-J](https://star-project.stanford.edu/rt-j) de Stanford STAR), en régression (0.2476 NMAE contre 0.2711 et 0.2847) et en recommandation (18.4 MAP contre 9.3 pour ID-GNN, la meilleure autre entrée).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/relbench.png" alt="RelBench, three panels: classification, Kapso 81.2 AUROC against KumoRFM-v2's 79.3 and RT-J's 79.0; regression, Kapso 0.2476 NMAE against RT-J's 0.2711 and KumoRFM-v2's 0.2847, lower being better; recommendations, Kapso 18.4 MAP against the official leaderboard's best other entry, ID-GNN, at 9.3. The first two panels are drawn from a truncated axis, the third from zero" width="574">
+  <p align="center"><img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/relbench.png" alt="RelBench, three panels: Kapso 81.2 AUROC against KumoRFM-v2's 79.3 and RT-J's 79.0 in classification; 0.2476 NMAE against 0.2711 and 0.2847 in regression, lower being better; 18.4 MAP against ID-GNN's 9.3 in recommendations. The first two panels use a truncated axis, the third starts at zero" width="574"></p>
 
-- **[Leeroopedia](https://leeroopedia.com)** : un wiki de nos leçons dans les domaines des données et du ML, environ 100k pages extraites en expérimentant sur des articles et des dépôts, servant environ 6M de requêtes par mois, dont environ 28% proviennent d'agents IA. Kapso s'y connecte via MCP : ses sessions l'utilisent pendant l'idéation et l'implémentation pour rechercher des connaissances, bâtir des plans et diagnostiquer des échecs.
-- **N° 1 sur [MLE-Bench](../../benchmarks/mle/README.md)** : KAPSO a obtenu le meilleur classement parmi les systèmes open source sur les compétitions de ML Kaggle (MLE Benchmark).
+- **[Leeroopedia](https://leeroopedia.com)** : notre banque de leçons publique dans les domaines de la donnée et du ML, environ 100k pages extraites en expérimentant sur des articles et des dépôts, servant environ 6M de requêtes par mois, dont environ 28% proviennent d'agents IA. Les sessions de Kapso l'interrogent via MCP pendant l'idéation et l'implémentation.
+- **N° 1 sur [MLE-Bench](../../benchmarks/mle/README.md)** : KAPSO a obtenu la première place parmi les systèmes open source sur les compétitions de ML Kaggle (MLE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.png" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="574">
+  <p align="center"><img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.png" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="574"></p>
 
-- **N° 1 sur [ALE-Bench](../../benchmarks/ale/README.md)** : KAPSO a obtenu le meilleur classement sur des problèmes de découverte algorithmique à long horizon (ALE Benchmark).
+- **N° 1 sur [ALE-Bench](../../benchmarks/ale/README.md)** : KAPSO a obtenu la première place sur des problèmes de découverte algorithmique à long horizon (ALE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Kapso reaches a final rating of 1909 Elo against ALE Agent's 1879, above a breakdown across ten AtCoder Heuristic Contest problems; every row is drawn from its own truncated Elo origin, and the per-problem bar gaps share one scale" width="574">
+  <p align="center"><img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Kapso reaches a final rating of 1909 Elo against ALE Agent's 1879, above a breakdown across ten AtCoder Heuristic Contest problems; every row is drawn from its own truncated Elo origin, and the per-problem bar gaps share one scale" width="574"></p>
 
 ## Qu'est-ce que Kapso ?
 
-Livrer un résultat d'IA ou de données au sein d'une entreprise suppose d'apprendre deux choses par l'expérimentation. Aucun individu ni agent IA ne sait comment un patrimoine de données est connecté et exploité ; la seule façon de l'apprendre est d'examiner les artefacts de l'entreprise (dépôts, pipelines, documentation, sources de données), de proposer des hypothèses, de mener des expériences et d'en tirer des leçons, jusqu'à ce que le comportement de chaque système et ses conditions soient compris. Et une fois cette compréhension acquise, la meilleure solution ne peut toujours pas être choisie à l'avance, qu'il s'agisse d'optimiser un entrepôt ou de prédire l'attrition, alors on expérimente et on apprend jusqu'à ce qu'une solution convienne à l'environnement. Le savoir-faire qui convient à l'environnement s'accumule, un peu comme en RL. Le RAG fait l'inverse : il fournit à l'agent des connaissances générales qui n'ont jamais été testées dans cet environnement, toutes avec le même poids, et ces connaissances ont peu de valeur tant qu'elles n'y ont pas été éprouvées.
+Kapso est un moteur open source qui exécute des expériences, déploie la meilleure solution et apprend de chaque exécution. Il part d'un harness de domaine et d'une banque de leçons vide, et, à partir d'un objectif et de critères de réussite, il :
 
-Kapso est le moteur que nous avons construit pour cela. Il part d'un harness de domaine et d'une banque de leçons vide ; étant donné un objectif et des critères de réussite, il exécute un arbre d'expériences, en proposant des hypothèses puis en implémentant et en vérifiant chacune d'elles, et déploie la meilleure solution sur la pile cible. Il apprend ensuite de l'exécution, en attribuant à chaque hypothèse et implémentation un crédit selon son impact sur le résultat et en mettant à jour la banque, où chaque leçon porte un score de crédence et une frontière délimitant où elle s'applique. Avec le temps, le harness de domaine porte une banque de leçons qui a accumulé les bonnes pratiques éprouvées par l'expérimentation dans cet environnement. Le système est indépendant du modèle et de l'agent de codage : open source, par [Leeroo](https://leeroo.com), publié sur PyPI sous le nom [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
+- **exécute un arbre d'expériences** : propose des hypothèses, puis implémente et vérifie chacune d'elles ;
+- **déploie la meilleure solution** sur la stack cible ;
+- **apprend de l'exécution** : le crédit revient à chaque hypothèse et à chaque implémentation selon son impact sur le résultat, et la banque est mise à jour, chaque leçon portant un score de crédence et une frontière délimitant où elle s'applique.
 
-### Les quatre composants
+Avec le temps, le harness de domaine porte une banque de leçons : les bonnes pratiques expérimentées de cet environnement. Kapso est indépendant du modèle et de l'agent de codage, conçu par [Leeroo](https://leeroo.com) et publié sur PyPI sous le nom [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
 
-| Composant | Verbe | Ce qu'il fait |
+### Les quatre parties
+
+| Partie | Verbe | Ce qu'elle fait |
 |------|------|--------------|
-| [**Expérimentation intelligente**](https://docs.leeroo.com/docs/build/brief) | `.build()` | Des modules spécialisés partagent une même structure de données, un arbre d'expériences : chaque nœud enregistre l'hypothèse, l'implémentation (branche git et difficultés techniques), le budget consommé et la distance à l'objectif. Pour chaque expérience, un module d'idéation propose des idées à partir des expériences antérieures et de la banque de leçons, les reclasse selon le rendement attendu rapporté au budget que chacune consommerait, et envoie les mieux classées à l'implémenteur, qui construit sur une branche dérivée du nœud parent. Parce que la banque continue d'apprendre ce qui fonctionne dans cet environnement précis, les idées lui deviennent spécifiques, plutôt que les idées génériques qu'un LLM nu ou un RAG proposerait. Les résultats sont vérifiés par un évaluateur à empreinte numérique auquel aucune expérience ne peut accéder, et l'évaluation évolue elle aussi : les modules d'expérimentation peuvent proposer des mises à jour des métriques et des critères, que le vérificateur approuve. [Comment ça marche →](https://docs.leeroo.com/docs/evolve/overview) |
-| [**Apprentissage**](https://docs.leeroo.com/docs/learn/what-learn-produces) | `.learn()` / `.load_experience()` | Tout ce que contient la banque provient d'expériences : chaque leçon est induite ou déduite des traces des exécutions d'expérimentation, porte un score de crédence, des conditions de frontière sur les cas où elle s'applique et les preuves qui la fondent, et après chaque exécution `learn()` les met à jour d'après l'effet de la leçon sur le résultat final. Les modifications de la banque sont elles aussi des expériences : chaque leçon mise à jour est testée en A/B en exécutant le même build avec et sans elle, de sorte qu'une amélioration est mesurée, et non supposée. La banque repose sur git, vous pouvez donc partager votre expérience avec d'autres (`kapso experience share`), lister les banques qui vous sont accessibles (`kapso experience list`) et les mettre à jour (`kapso experience update`). [Expérience →](https://docs.leeroo.com/docs/experience) nomme ce qui est servi à un build : votre banque, une banque partagée par votre équipe, Leeroopedia, ou un corpus ingéré depuis un dépôt ou issu d'une recherche sur une question. |
-| [**Déploiement**](https://docs.leeroo.com/docs/deploy/targets) | `.deploy()` | Lance une expérimentation plus courte du même type pour adapter la meilleure solution à la pile cible : une session adapte une copie du nœud, la déploie et démontre des contrôles de santé et un appel fonctionnel. Docker, Modal, BentoCloud et LangGraph Platform sont fournis, et vous pouvez ajouter votre propre pile cible au harness. |
-| [**Adaptation au domaine**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | Les harness sont les paquets de domaine de Kapso : des connaissances et des flux de travail pour un domaine tel que la modélisation prédictive, afin qu'un build n'expérimente pas et n'apprenne pas à partir de zéro ; la modélisation prédictive et la programmation compétitive sont fournies avec Kapso. Une exécution part d'un harness de domaine et d'une banque de leçons vide, et avec le temps le harness porte la banque qui a accumulé ce qui a fonctionné dans cet environnement. Rédigez votre harness de domaine initial, vos instructions, votre code, vos garde-fous et vos vérifications, avec `/kapso:harness` dans le plugin ou `kapso harness` dans la CLI. |
+| [**Expérimentation intelligente**](https://docs.leeroo.com/docs/build/brief) | `.build()` | Chaque expérience est une hypothèse implémentée sur sa propre branche et notée, dans un arbre. L'idéation s'appuie sur les expériences antérieures et sur la banque de leçons, et reclasse les idées selon le rendement attendu rapporté au budget, pour qu'elles conviennent à cet environnement plutôt que d'être les idées génériques d'un simple LLM ou d'un RAG ; un évaluateur doté d'une empreinte, qu'aucune expérience ne peut toucher, vérifie le résultat, et des modules peuvent proposer des mises à jour de l'évaluation que le vérificateur approuve. [Comment ça marche →](https://docs.leeroo.com/docs/evolve/overview) |
+| [**Apprentissage**](https://docs.leeroo.com/docs/learn/what-learn-produces) | `.learn()` / `.load_experience()` | Chaque leçon est induite ou déduite des traces d'expérimentation et porte un score de crédence, une frontière délimitant où elle s'applique et ses preuves ; `learn()` les met à jour à partir du résultat de chaque exécution et teste chaque changement en A/B en reconstruisant avec et sans lui, de sorte que l'amélioration est mesurée, et non devinée. La banque repose sur git : `kapso experience share`, `list` et `update`. [Expérience →](https://docs.leeroo.com/docs/experience) désigne ce qui est servi à un build. |
+| [**Déploiement**](https://docs.leeroo.com/docs/deploy/targets) | `.deploy()` | Une expérimentation plus courte du même type adapte la meilleure solution à la stack cible, la déploie et prouve les contrôles de santé et un appel fonctionnel. Docker, Modal, BentoCloud et LangGraph Platform sont fournis ; un harness peut ajouter une cible. |
+| [**Adaptation au domaine**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | Un harness est le paquet de domaine de Kapso : les connaissances et les flux de travail d'un domaine tel que la modélisation prédictive, pour qu'un build ne parte jamais de zéro, et l'endroit où la banque de leçons s'accumule. La modélisation prédictive et la programmation compétitive sont fournies ; écrivez le vôtre avec `/kapso:harness` dans le plugin ou `kapso harness` dans la CLI. |
 
 ## 🚀 Démarrage rapide
 
@@ -89,12 +91,12 @@ claude plugin marketplace add Leeroo-AI/kapso && claude plugin install kapso@kap
 codex plugin marketplace add Leeroo-AI/kapso && codex plugin add kapso@kapso         # Codex
 ```
 
-Ensuite `/kapso:setup` installe et vérifie, et `/kapso:build <what you want>`
+Ensuite, `/kapso:setup` installe et vérifie, et `/kapso:build <what you want>`
 lance la première campagne (sur Codex : `$kapso-setup`, `$kapso-build <what you want>`). Voir [Le plugin Kapso](https://docs.leeroo.com/docs/coding-agent-skills).
 
 **1. Prérequis.** Kapso exécute son inférence via les CLI d'agents de codage
-(il n'y a pas de repli vers une API directe), vous avez donc besoin de Node.js et des deux
-CLI d'agents connectées avant que quoi que ce soit ne fonctionne :
+(il n'y a pas de repli vers une API directe), vous avez donc besoin de Node.js et des deux CLI
+d'agent connectées avant que quoi que ce soit ne fonctionne :
 
 ```bash
 # Node.js 18+ (https://nodejs.org), puis :
@@ -106,19 +108,18 @@ claude auth login
 ```
 
 Une clé OpenAI est facultative : seuls le graphe de connaissances et la recherche sémantique
-sur les expériences passées (`models.embedding` dans votre config) calculent des embeddings de texte, et
+sur les expériences passées (`models.embedding` dans votre configuration) vectorisent du texte, et
 la génération ne l'utilise jamais. Quand vous activez l'un ou l'autre :
 
 ```bash
 echo 'OPENAI_API_KEY=sk-...' >> .env
 ```
 
-**2. Connectez Leeroopedia (recommandé).** Une seule clé donne à chaque session de
-campagne [Leeroopedia](https://leeroopedia.com), une base de connaissances hébergée sur les
-frameworks de ML et d'IA : comment un framework se comporte réellement, des revues de plan,
-des plages d'hyperparamètres documentées, des diagnostics de pannes. Rien à installer ;
-un nouveau compte sur le [tableau de bord Leeroopedia](https://app.leeroopedia.com/dashboard)
-est livré avec 20 $ de crédit gratuit.
+**2. Connectez Leeroopedia (recommandé).** Une seule clé donne à chaque session
+[Leeroopedia](https://leeroopedia.com), notre banque de leçons hébergée sur les frameworks de ML et
+d'IA. Rien à installer ; un nouveau compte sur le
+[tableau de bord Leeroopedia](https://app.leeroopedia.com/dashboard) vient avec
+20 $ de crédit gratuit.
 
 ```bash
 echo 'LEEROOPEDIA_API_KEY=kpsk_...' >> .env
@@ -130,27 +131,23 @@ echo 'LEEROOPEDIA_API_KEY=kpsk_...' >> .env
 pip install leeroo-kapso
 ```
 
-Le paquet s'appelle `leeroo-kapso`. Le paquet PyPI nommé `kapso` est un outil WhatsApp
-sans rapport qui installe sa propre commande `kapso` et masque celle-ci ;
-s'il est présent, exécutez d'abord `pip uninstall kapso`.
-
 **4. Vérifiez l'installation :**
 
 ```bash
 kapso doctor
 ```
 
-`doctor` indique ce dont **votre config** a réellement besoin, et nomme le correctif
-exact pour tout ce qui manque. Les prérequis suivent la config, de sorte qu'une installation
-tout-codex ne se voit jamais demander `claude`. Restreignez-le à un seul verbe pour ne voir
-que les prérequis de ce verbe :
+`doctor` indique ce dont **votre configuration** a réellement besoin, et nomme le correctif
+exact pour tout ce qui manque. Les prérequis suivent la configuration, de sorte qu'une installation
+tout-codex ne se voit jamais demander `claude`. Restreignez-le à un seul verbe pour ne voir que
+les prérequis de ce verbe :
 
 ```bash
 kapso doctor build             # ou learn / deploy / experience
 ```
 
 Ce sont les mêmes vérifications que le verbe lui-même exécute avant tout travail :
-`kapso.build(...)` échoue en quelques secondes sur une CLI manquante plutôt qu'au fin fond
+`kapso.build(...)` échoue en quelques secondes sur une CLI manquante plutôt qu'au fond
 d'une session. Les éléments marqués `[-- ]` sont facultatifs ; ils limitent des fonctionnalités
 dont vous n'aurez peut-être pas besoin (docker, Weaviate, Neo4j, les cibles de déploiement).
 
@@ -158,12 +155,12 @@ dont vous n'aurez peut-être pas besoin (docker, Weaviate, Neo4j, les cibles de 
 [prompt d'installation](https://docs.leeroo.com/docs/installation#set-up-through-your-coding-agent)
 dans Claude Code, Codex ou OpenCode.
 
-**Les stockages dont un index a besoin (facultatif)** : `kapso experience add --repo`
+**Les magasins de données dont un index a besoin (facultatif)** : `kapso experience add --repo`
 et `--research` ingèrent un corpus dans des instances locales de Weaviate + Neo4j. Depuis une
 copie des sources :
 
 ```bash
-bash scripts/start_infra.sh   # démarre les deux via docker
+bash scripts/start_infra.sh   # lance les deux via docker
 ```
 
 **Depuis les sources (pour le développement)**
@@ -176,36 +173,36 @@ conda create -n kapso python=3.12 && conda activate kapso
 pip install -e .
 ```
 
-L'adaptateur aider hérité est un extra (`pip install "leeroo-kapso[aider]"`,
+L'ancien adaptateur aider est un extra (`pip install "leeroo-kapso[aider]"`,
 Python <3.13) ; les agents claude/codex par défaut n'ont besoin d'aucun extra.
 
 ### Utilisation de base
 
-Les verbes de base n'ont besoin de rien au-delà des prérequis ci-dessus :
+Les verbes de base ne demandent rien de plus que les prérequis ci-dessus :
 
 ```python
 from kapso import Kapso, Budget
 
-kapso = Kapso()   # aucun graphe de connaissances nécessaire pour démarrer
+kapso = Kapso()   # aucun graphe de connaissances n'est nécessaire pour commencer
 
 # Build : une solution par l'expérimentation. La campagne affiche
 # `status: <path>` au lancement ; suivez-la en direct depuis un autre terminal avec
 #     kapso watch ./campaign
-# Si une session a besoin de quelque chose que vous seul pouvez fournir (une clé d'API, un fichier),
+# Si une session a besoin de quelque chose qui ne peut venir que de vous (une clé d'API, un fichier),
 # la campagne se met en pause et `kapso inbox reply` la reprend :
 #     https://docs.leeroo.com/docs/build/inbox
 # Partagez le résultat en Markdown pour une pull request ou une issue avec
 #     kapso report ./campaign -o report.md
 solution = kapso.build(
     "Optimize the model in train.py; target accuracy > 0.80 on evaluate.py",
-    repo="./my_project",                 # ou omettez pour partir de zéro
+    repo="./my_project",                 # ou omettez-le pour partir de zéro
     output="./campaign",
     budget=Budget(minutes=120),
 )
 print(solution.explain())
 
 # Apprenez de la campagne que vous venez d'exécuter : extrayez la trajectoire, notez les
-# leçons et versez à la banque des cartes de connaissance valorisées selon leurs preuves. La banque (un dépôt
+# leçons et mettez en banque des fiches de connaissances évaluées par leurs preuves. La banque (un dépôt
 # git local) est créée automatiquement à la première utilisation ; les leçons restent sur votre
 # machine jusqu'à ce que vous les partagiez :
 #     kapso experience share <git-url>
@@ -213,34 +210,34 @@ print(solution.explain())
 lesson = kapso.learn(solution)
 print(lesson.explain())
 
-# Lancez un nouveau build, servi des cartes qu'il vient de gagner : un build reçoit exactement
+# Reconstruisez, en servant les fiches qu'il vient de gagner : un build se voit servir exactement
 # l'expérience qu'il charge.
 kapso.load_experience("mine")
 solution2 = kapso.build("...", output="./campaign2")
 ```
 
-Avec les stockages en marche, vous pouvez aussi ingérer des connaissances extérieures dans un
-index et les servir de la même façon :
+Une fois les magasins de données lancés, vous pouvez aussi ingérer des connaissances externes dans un
+index et les servir de la même manière :
 
 ```python
 from kapso import Kapso
 
 kapso = Kapso()
 
-# Une seule fois : un dépôt, ou le web exploré pour une question, dans un index
+# Une fois : un dépôt, ou le web exploré pour une question, dans un index
 kapso.add_experience(repo="https://github.com/huggingface/trl", name="trl")
 kapso.add_experience(research="RLHF and DPO fine-tuning for legal contract analysis", name="dpo-legal")
 
-# Chaque build qui charge l'index y effectue des recherches ; Leeroopedia s'appuie sur sa clé
+# Chaque build qui charge l'index y effectue une recherche ; Leeroopedia s'appuie sur sa clé
 kapso.load_experience("trl")
 kapso.load_experience("leeroopedia")
 solution = kapso.build("Fine-tune Llama-3.1-8B for clause risk classification")
 ```
 
-Une remarque sur le budget : une ingestion extrait tout ce que le matériau permet d'extraire.
+Une remarque sur le budget : une ingestion extrait tout ce que le matériau permet.
 Une seule question peut devenir des dizaines de pages liées et une ingestion de plusieurs
 heures ; le temps d'ingestion croît avec la substance extractible, ajoutez donc les
-sources que vous allez interroger, pas toutes celles que vous possédez.
+sources que vous interrogerez, et non toutes celles que vous possédez.
 
 Et pour transformer une solution en logiciel en fonctionnement :
 
@@ -252,17 +249,17 @@ software.stop()
 
 ### Comment borner une campagne ?
 
-Utilisez `max_iterations`, `time_budget_minutes` et `cost_budget` pour borner les itérations, le temps écoulé et la dépense de modèle estimée au mieux, en USD.
-Pour les coûts de plateforme, activez la [sélection sensible aux coûts](https://docs.leeroo.com/docs/evolve/cost-aware-selection) dans `search_strategy.params.cost` avec votre estimateur, `cap_per_candidate` et `campaign_budget` ; son `weight` permet aussi à la sélection de préférer les candidats les moins chers.
+Utilisez `max_iterations`, `time_budget_minutes` et `cost_budget` pour borner les itérations, le temps écoulé et, au mieux, la dépense de modèle en USD.
+Pour les coûts de plateforme, activez la [sélection sensible au coût](https://docs.leeroo.com/docs/evolve/cost-aware-selection) dans `search_strategy.params.cost` avec votre estimateur, `cap_per_candidate` et `campaign_budget` ; son `weight` permet aussi à la sélection de préférer des candidats moins chers.
 
 ### Choisir les modèles
 
-Chaque modèle utilisé par Kapso est nommé dans un seul fichier de config. La configuration par défaut
-fournie exécute les sessions de build sur `claude-opus-5`, les équipes d'apprentissage sur
+Chaque modèle qu'utilise Kapso est nommé dans un seul fichier de configuration. La configuration
+empaquetée par défaut exécute les sessions de build sur `claude-opus-5`, les équipes d'apprentissage sur
 `claude-fable-5` et les rôles codex sur `gpt-5.6-sol`, mais l'accès aux modèles dépend de
-l'abonnement (un forfait peut plafonner un modèle tout en en servant un autre).
-Pour utiliser d'autres modèles, copiez la config fournie, modifiez-la et pointez
-Kapso vers la vôtre :
+l'abonnement (une offre peut plafonner un modèle tout en en servant un autre).
+Pour utiliser d'autres modèles, copiez la configuration empaquetée, modifiez-la et indiquez
+la vôtre à Kapso :
 
 ```python
 from pathlib import Path
@@ -279,36 +276,36 @@ kapso = Kapso(config="kapso-config.yaml")
 ```
 
 Les rôles d'inférence purement textuels peuvent opter pour les Chat Completions `openai_compatible`.
-Définissez le modèle et le point de terminaison dans votre config ; les identifiants restent dans l'environnement.
-Chargez la config avec `Kapso(config=...)` ou `kapso build --config ...`.
-Le codage et la recherche web nécessitent toujours des agents dotés des outils correspondants.
-Voir l'[exemple de configuration et les limites](https://docs.leeroo.com/docs/evolve/coding-agents#openai-compatible-api).
+Définissez le modèle et le point de terminaison dans votre configuration ; les identifiants restent dans l'environnement.
+Chargez la configuration avec `Kapso(config=...)` ou `kapso build --config ...`.
+Le codage et la recherche web exigent toujours des agents dotés des outils correspondants.
+Voir l'[exemple de configuration et ses limites](https://docs.leeroo.com/docs/evolve/coding-agents#openai-compatible-api).
 
-Avant une longue exécution, sondez chaque modèle nommé dans votre config contre vos
-abonnements réels : un modèle que votre compte ne peut pas servir échoue ici en quelques
-secondes au lieu d'échouer des heures après le début d'une exécution. Un plafond d'utilisation
-sur un modèle que vous pouvez servir n'est pas visible pour une sonde d'un seul token :
+Avant une longue exécution, sondez chaque modèle que nomme votre configuration par rapport à vos
+abonnements réels : un modèle que votre connexion ne peut pas servir échoue ici en
+quelques secondes au lieu d'échouer des heures après le début d'une exécution. Un plafond d'utilisation sur un modèle que vous pouvez
+servir n'est pas visible pour une sonde à un jeton :
 
 ```bash
-kapso doctor --models                            # config fournie
+kapso doctor --models                            # configuration empaquetée
 kapso doctor --models --config kapso-config.yaml # la vôtre
 kapso doctor learn --models                      # seulement les équipes d'apprentissage
 ```
 
-Pour faire de cette sonde une partie de chaque appel plutôt qu'une chose dont il faut se
-souvenir, activez-la dans votre config. Elle coûte un token jetable par paire
+Pour intégrer cette sonde à chaque appel plutôt que d'avoir à penser à la lancer,
+activez-la dans votre configuration. Elle coûte un jeton jetable par paire
 `{cli, model}` distincte, ce qui en vaut la peine avant un `learn()` de plusieurs heures
 sans surveillance :
 
 ```yaml
 preflight:
   enabled: true            # vérifications statiques avant chaque verbe (par défaut)
-  live_model_probe: true   # + sondes de modèle d'un token (par défaut : false)
+  live_model_probe: true   # + sondes de modèle à un jeton (par défaut : false)
 ```
 
 Changer de modèle modifie aussi le *rythme* : les plafonds `timeout_minutes` des équipes dans la
-config ont été calibrés sur les modèles par défaut, et un modèle de remplacement qui
-raisonne plus longtemps peut nécessiter de les relever.
+configuration ont été calibrés sur les modèles par défaut, et un modèle de remplacement qui
+raisonne plus longtemps peut exiger de les relever.
 
 Pour les étapes d'intégration détaillées, voir les guides [Démarrage rapide](https://docs.leeroo.com/docs/first-build) et [Installation](https://docs.leeroo.com/docs/installation).
 
@@ -319,9 +316,9 @@ Pour les étapes d'intégration détaillées, voir les guides [Démarrage rapide
 | [**MLE-Bench**](../../benchmarks/mle/README.md) | Le benchmark d'ingénierie ML d'OpenAI : des compétitions complètes en tabulaire, vision, texte et audio, des données brutes à la soumission notée |
 | [**ALE-Bench**](../../benchmarks/ale/README.md) | Le benchmark d'optimisation algorithmique de Sakana AI : concevoir, implémenter et itérer des heuristiques de concours au fil de recherches de plusieurs heures |
 | [**RelBench**](../../benchmarks/relbench/README.md) | Le benchmark de Stanford pour le ML prédictif sur données relationnelles : classification, régression et recommandation directement depuis les bases de données multi-tables d'Amazon, H&M, Stack Exchange, d'essais cliniques et plus encore |
-| [**IOAI 2026**](../../benchmarks/ioai2026/README.md) | Du ML d'olympiade chronométré en vision, langage et optimisation : des tâches conçues par des experts, le matériel du concours, zéro aide humaine |
+| [**IOAI 2026**](../../benchmarks/ioai2026/README.md) | Du ML d'olympiade chronométré en vision, langage et optimisation : des tâches fixées par des experts, le matériel du concours, aucune aide humaine |
 
-Chaque benchmark dispose aussi d'une page de documentation décrivant comment l'exécuter, ses options de CLI et ce que contient la sortie :
+Chaque benchmark a aussi une page de documentation qui couvre comment l'exécuter, ses options de CLI et ce que contient la sortie :
 [IOAI 2026](https://docs.leeroo.com/docs/benchmarks/ioai-2026) ·
 [MLE-Bench](https://docs.leeroo.com/docs/benchmarks/mle-bench) ·
 [ALE-Bench](https://docs.leeroo.com/docs/benchmarks/ale-bench) ·
@@ -329,30 +326,29 @@ Chaque benchmark dispose aussi d'une page de documentation décrivant comment l'
 
 ## Exemples
 
-Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou la façon de les obtenir, et un script pilote d'au plus douze lignes ; [examples/README.md](../../examples/README.md) donne la durée en minutes, la commande unique et indique si un résultat est enregistré.
+Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou la façon de les obtenir, et un pilote d'au plus douze lignes ; [examples/README.md](../../examples/README.md) donne les minutes, la commande unique et si un résultat est enregistré.
 
-| Exemple | Ce qu'il montre |
-|---------|---------------|
-| [**churn first build**](../../examples/churn-first-build/README.md) | Votre premier build : un évaluateur présent, une base de référence, une cible, le compte rendu |
-| [**fraud no evaluator**](../../examples/fraud-no-evaluator/README.md) | Pas d'évaluateur : le premier nœud de la campagne en construit un à partir du protocole du brief et chaque candidat est mesuré par rapport à lui |
-| [**pipeline dbt**](../../examples/pipeline-dbt/README.md) | Un pipeline dbt sur DuckDB dont les exports comportent des défauts : le contrat de données rendu contraignant |
-| [**trading**](../../examples/trading/README.md) | Un harness sur le build : une session d'installation, des pages et des hooks dans chaque session, une vérification par tentative |
-| [**end to end**](../../examples/end-to-end/README.md) | Build, la revue, learn, build à nouveau servi de la leçon, deploy : un modèle tabulaire Kaggle de bout en bout |
-| [**prompt harness**](../../examples/prompt-harness/README.md) | Le prompt comme objet du test, noté sur des problèmes AIME |
-| [**agent scaffold**](../../examples/agent-scaffold/README.md) | Un extracteur vision-langage, noté par rapport à des tables de vérité terrain |
-| [**torch performance**](../../examples/torch-performance/README.md) | Un module plus rapide sur CUDA sous une tolérance numérique |
-| [**gpu kernels**](../../examples/gpu-kernels/README.md) | Attention multi-têtes sur CUDA : flash attention ou Triton |
+| Exemple | La tâche |
+|---------|----------|
+| [**Modélisation prédictive (attrition client)**](../../examples/churn-first-build/README.md) | Prédire quels clients partiront : faire monter le ROC AUC hors échantillon d'un modèle d'attrition vers la cible, sous un évaluateur que la campagne ne peut pas modifier. |
+| [**Détection de fraude**](../../examples/fraud-no-evaluator/README.md) | Noter des transactions pour la fraude quand le dépôt n'a pas d'évaluateur : le brief énonce le protocole, la campagne construit d'abord l'évaluateur, puis améliore le scoreur. |
+| [**Ingénierie des données (modèle dbt)**](../../examples/pipeline-dbt/README.md) | Un entrepôt de données de distribution sur dbt et DuckDB dont les exports nocturnes arrivent avec des défauts. |
+| [**Finance quantitative**](../../examples/trading/README.md) | Une stratégie de trading quotidienne sur des instruments synthétiques : faire monter le Sharpe hors échantillon sur le harness de trading, avec ses vérifications à chaque tentative. Un exemple de recherche, pas un conseil financier. |
+| [**ML tabulaire**](../../examples/end-to-end/README.md) | Une compétition Kaggle de bout en bout : Spaceship Titanic d'un classifieur factice à un vrai modèle, puis passer en revue, apprendre, reconstruire avec la leçon et déployer. |
+| [**Ingénierie de prompt**](../../examples/prompt-harness/README.md) | Réécrire un gabarit de prompt de LLM jusqu'à ce que l'exactitude sur les problèmes de mathématiques d'AIME 2024 augmente. |
+| [**Optimisation PyTorch**](../../examples/torch-performance/README.md) | Rendre un module PyTorch plus rapide sur CUDA dans une tolérance numérique : fusion, compilation, moins de trafic mémoire. |
+| [**Optimisation de noyaux GPU**](../../examples/gpu-kernels/README.md) | Accélérer l'auto-attention multi-têtes sur CUDA avec flash attention ou un noyau Triton, dans une tolérance numérique. |
 
-## 📚 Documentation & support
+## 📚 Documentation et support
 
 - **Documentation complète** : [docs.leeroo.com](https://docs.leeroo.com/docs)
   - [Installation](https://docs.leeroo.com/docs/installation) : les CLI d'agents de codage, le paquet et `kapso doctor`
   - [Démarrage rapide](https://docs.leeroo.com/docs/first-build) : votre première campagne
-  - [Référence CLI](https://docs.leeroo.com/docs/reference/cli) : chaque commande, option et valeur par défaut
+  - [Référence de la CLI](https://docs.leeroo.com/docs/reference/cli) : chaque commande, option et valeur par défaut
   - [API Python](https://docs.leeroo.com/docs/reference/kapso-api) : chaque méthode publique de `Kapso`
   - [Configuration](https://docs.leeroo.com/docs/reference/configuration) : chaque clé de `config.yaml`
   - [Ce que produit learn](https://docs.leeroo.com/docs/learn/what-learn-produces) : la banque de leçons, chacune avec un score de crédence, une frontière et ses preuves, et le [mode développement](https://docs.leeroo.com/docs/learn/development-mode)
-  - [Expérimentation intelligente](https://docs.leeroo.com/docs/evolve/overview) : l'arbre d'expériences et ses modules, et [ce qui se passe au sein d'une expérience](https://docs.leeroo.com/docs/evolve/execution-flow)
+  - [Expérimentation intelligente](https://docs.leeroo.com/docs/evolve/overview) : l'arbre d'expériences et ses modules, et [ce qui se passe dans une expérience](https://docs.leeroo.com/docs/evolve/execution-flow)
   - [Expérience](https://docs.leeroo.com/docs/experience) : votre banque, Leeroopedia, des dépôts et des articles transformés en connaissances interrogeables
   - [Déploiement](https://docs.leeroo.com/docs/deploy/targets) : local, Docker, Modal et les autres cibles
   - [Le plugin Kapso](https://docs.leeroo.com/docs/coding-agent-skills) : les commandes, les compétences et le serveur MCP pour Claude Code, Codex et Cursor
@@ -361,8 +357,8 @@ Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou
   claude mcp add --transport http kapso-docs https://docs.leeroo.com/mcp   # Claude Code
   codex mcp add kapso-docs --url https://docs.leeroo.com/mcp              # Codex CLI
   ```
-- **Laissez votre agent de codage piloter Kapso** : le plugin sous [`plugin/`](https://github.com/Leeroo-AI/kapso/tree/main/plugin) contient dix commandes, six compétences et le serveur MCP, une ligne d'installation par hôte (étape 0 ci-dessus) ; OpenCode charge les compétences sous forme de dossier (`ln -s <clone>/plugin/skills .opencode/skills`). Voir [Le plugin Kapso](https://docs.leeroo.com/docs/coding-agent-skills).
-- **Donnez à votre agent de codage les outils de connaissance de Kapso** : `kapso-mcp`, installé avec le paquet, sert la recherche web, la mémoire du dépôt, l'historique des expériences de la campagne et la banque de leçons à la session dans laquelle vous travaillez ; voir [Portes MCP](https://docs.leeroo.com/docs/evolve/mcp-gates#use-the-gates-from-your-own-coding-agent).
+- **Laissez votre agent de codage piloter Kapso** : le plugin sous [`plugin/`](https://github.com/Leeroo-AI/kapso/tree/main/plugin) comprend dix commandes, six compétences et le serveur MCP, une ligne d'installation par hôte (étape 0 ci-dessus) ; OpenCode charge les compétences sous forme de dossier (`ln -s <clone>/plugin/skills .opencode/skills`). Voir [Le plugin Kapso](https://docs.leeroo.com/docs/coding-agent-skills).
+- **Donnez à votre agent de codage les outils de connaissance de Kapso** : `kapso-mcp`, installé avec le paquet, sert la recherche web, la mémoire du dépôt, l'historique d'expériences de la campagne et la banque de leçons à la session dans laquelle vous travaillez ; voir [Portes MCP](https://docs.leeroo.com/docs/evolve/mcp-gates#use-the-gates-from-your-own-coding-agent).
   ```bash
   claude mcp add kapso -- kapso-mcp   # Claude Code
   codex mcp add kapso -- kapso-mcp    # Codex CLI ; puis `startup_timeout_sec = 60` sous [mcp_servers.kapso] dans ~/.codex/config.toml (les dix secondes de Codex sont courtes sur une machine chargée)
@@ -373,11 +369,11 @@ Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou
 
 ## Kapso pour l'entreprise
 
-En entreprise, les agents Kapso sont livrés avec des harness initiaux d'ingénierie des données et de l'IA et une banque de leçons, et transforment par eux-mêmes des objectifs métier en systèmes d'IA et de données opérationnels, en explorant les artefacts de l'entreprise, dépôts, pipelines, sources de données et plus encore, pour bâtir au fil de l'eau le patrimoine de données de l'entreprise. Pour adopter Kapso pour vos tâches d'entreprise, [contactez-nous](https://leeroo.com/contact-us).
+En entreprise, les agents Kapso sont livrés avec des harness initiaux d'ingénierie des données et de l'IA et une banque de leçons, et transforment par eux-mêmes des objectifs métier en systèmes d'IA et de données opérationnels, en explorant les artefacts, dépôts, pipelines, sources de données de l'entreprise et plus encore, pour bâtir au fil de l'eau le patrimoine de données de l'entreprise. Pour adopter Kapso pour vos tâches d'entreprise, [parlez-nous](https://leeroo.com/contact-us).
 
 ## Contribuer
 
-Les contributions sont les bienvenues ! Consultez notre [guide de contribution](../../CONTRIBUTING.md) pour savoir comment démarrer.
+Les contributions sont les bienvenues ! Consultez notre [guide de contribution](../../CONTRIBUTING.md) pour savoir comment commencer.
 
 ## Contributeurs
 
