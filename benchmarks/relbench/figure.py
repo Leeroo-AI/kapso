@@ -5,7 +5,11 @@ leaderboard entries of Stanford STAR and Kumo AI, one panel per board.
 
 The numbers are the leaderboard means (star-project.stanford.edu/relbench/
 leaderboard, data file leaderboard.json); the Stanford STAR and Kumo marks are
-drawn as vector shapes, the Leeroo mark comes from docs/logo/logo-transparent.png.
+drawn as vector shapes, the Leeroo mark comes from docs/logo/logo-transparent.png,
+and the NVIDIA wordmark beside Kumo's (NVIDIA acquired Kumo AI) from
+nvidia-wordmark.png next to this script, the Wikimedia Commons rendering of the
+public-domain logo file, recoloured to the brand green. Every mark is used
+nominatively, to say whose system each bar is.
 """
 import sys
 from pathlib import Path
@@ -18,6 +22,7 @@ from matplotlib.patches import FancyBboxPatch
 
 OUT = sys.argv[1]
 LEEROO_MARK = Path(__file__).resolve().parents[2] / "docs" / "logo" / "logo-transparent.png"
+NVIDIA_MARK = Path(__file__).resolve().parent / "nvidia-wordmark.png"
 GREY, ORANGE, INK, MUTED = "#d4d8e0", "#F5A623", "#1a1a1a", "#555a63"
 KUMO_PINK = "#E6007E"
 MONO = "DejaVu Sans Mono"
@@ -25,17 +30,17 @@ MONO = "DejaVu Sans Mono"
 PANELS = [  # title, metric, bars [(name, affiliation, mark, value, text, kind)], delta, ylim
     ("Classification", "AUROC · 12 tasks · higher is better",
      [("RT-J (fine-tuned)", "Stanford STAR", "star", 79.02, "79.0", "grey"),
-      ("KumoRFM-v2", "Kumo AI", "kumo", 79.26, "79.3", "grey"),
+      ("KumoRFM-v2", "Kumo AI · NVIDIA", "kumo+nvidia", 79.26, "79.3", "grey"),
       ("Kapso", "Leeroo", "leeroo", 81.19, "81.2", "orange")],
      "+2.4%", (76.0, 83.0)),
     ("Regression", "error (NMAE) · 9 tasks · lower is better",
      [("RT-J (fine-tuned)", "Stanford STAR", "star", 0.2711, "0.2711", "grey"),
-      ("KumoRFM-v2", "Kumo AI", "kumo", 0.2847, "0.2847", "grey"),
+      ("KumoRFM-v2", "Kumo AI · NVIDIA", "kumo+nvidia", 0.2847, "0.2847", "grey"),
       ("Kapso", "Leeroo", "leeroo", 0.2476, "0.2476", "orange")],
      "−8.7% error", (0.20, 0.31)),
     ("Recommendations", "MAP · 10 tasks · higher is better",
      [("ID-GNN", "Stanford STAR", "star", 9.33, "9.3", "grey"),
-      ("KumoRFM-v2", "Kumo AI", "kumo", None, "no entry", "none"),
+      ("KumoRFM-v2", "Kumo AI · NVIDIA", "kumo+nvidia", None, "no entry", "none"),
       ("Kapso", "Leeroo", "leeroo", 18.37, "18.4", "orange")],
      "+97%", (0.0, 22.5)),
 ]
@@ -51,17 +56,36 @@ fig.text(0.5, 0.878, "e-commerce reviews · classified ads · event recommendati
          ha="center", va="center", fontsize=15, color=MUTED)
 
 mark = Image.open(LEEROO_MARK).convert("RGBA")
-raster = {"leeroo": np.asarray(mark.crop(mark.getchannel("A").getbbox()))}
+nvidia = Image.open(NVIDIA_MARK).convert("RGBA")
+raster = {"leeroo": np.asarray(mark.crop(mark.getchannel("A").getbbox())), "nvidia": np.asarray(nvidia)}
+
+def draw_wordmark_tile(kind, cx, cy, width, height):
+    """A wide tile for a wordmark, centred at figure (cx, cy), with the square
+    tiles' border and corner radius; width and height are figure fractions."""
+    ax = fig.add_axes([cx - width / 2, cy - height / 2, width, height]); ax.set_axis_off()
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+    aspect = (width * 19.2) / (height * 9.6)  # inches wide per inch tall, so the corners stay round
+    ax.add_patch(FancyBboxPatch((0.05, 0.08), 0.90, 0.84, boxstyle="round,pad=0,rounding_size=0.11",
+                                mutation_aspect=aspect, facecolor="white", edgecolor="#d9dce2", linewidth=1.0))
+    image = raster[kind]
+    wordmark_height = 0.84 * aspect * image.shape[0] / image.shape[1]
+    ax.imshow(image, extent=(0.08, 0.92, 0.5 - wordmark_height / 2, 0.5 + wordmark_height / 2),
+              interpolation="antialiased", aspect="auto", zorder=2)  # above the tile: images draw under patches by default
 
 def draw_mark(kind, cx, cy, size=0.052):
     """A logo tile of one size for every entry, centred at figure (cx, cy)."""
+    if kind == "kumo+nvidia":  # under one bar: Kumo's mark and, beside it, its owner's wordmark on a wide tile
+        draw_mark("kumo", cx - 0.034, cy, size=0.038)
+        draw_wordmark_tile("nvidia", cx + 0.019, cy, width=0.064, height=0.076)
+        return
     h = size * 2  # figure is 2:1, so equal width/height in inches
     ax = fig.add_axes([cx - size / 2, cy - h / 2, size, h]); ax.set_axis_off()
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
     if kind == "kumo":
         ax.add_patch(FancyBboxPatch((0.08, 0.08), 0.84, 0.84, boxstyle="round,pad=0,rounding_size=0.14",
                                     facecolor="white", edgecolor="#d9dce2", linewidth=1.0))
-        ax.text(0.5, 0.47, "ku", ha="center", va="center", fontsize=23, fontweight="bold", color=KUMO_PINK)
+        ax.text(0.5, 0.47, "ku", ha="center", va="center", fontsize=23 * size / 0.052, fontweight="bold",
+                color=KUMO_PINK)
     elif kind == "star":  # the STAR favicon, redrawn from its SVG (32-unit grid, rx 7 tile, 5-unit cells)
         u = 0.84 / 32
         ax.add_patch(FancyBboxPatch((0.08, 0.08), 0.84, 0.84, boxstyle=f"round,pad=0,rounding_size={7*u}",
