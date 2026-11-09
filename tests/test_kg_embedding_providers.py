@@ -291,6 +291,8 @@ def test_the_stores_are_config_and_travel_with_the_index(monkeypatch):
     assert refs["weaviate_grpc_port"] == 50052
     assert refs["neo4j_uri"] == "bolt://localhost:17687"
     assert refs["weaviate_collection"] == "KapsoLearnTest"
+    # The stubs have no close() for the destructor to call.
+    search._neo4j_driver = search._weaviate_client = None
 
 
 def test_index_build_stops_on_an_embedding_failure(vertex_session, offline_backend, monkeypatch):
