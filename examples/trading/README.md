@@ -1,5 +1,7 @@
 # Trading: a task on the trading harness
 
+This example is research software on synthetic data. It is not financial advice, and nothing in it is a recommendation to trade.
+
 The author's example: a harness (`../harnesses/trading`), a task on it, and
 the probe run an author reads to improve the harness. The task is a daily
 strategy on three synthetic instruments with a trend in them; the shipped

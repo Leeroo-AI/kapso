@@ -85,11 +85,13 @@ _CARD_TAG = re.compile(r"\s*</?Card(?:Group)?\b")
 # The visible strings of a tag: a card's or frame's title, description or caption, an image's alt text.
 _ATTRIBUTE = re.compile(r"\b(?:title|description|caption|alt)=\"([^\"]*)\"")
 _PROSE_FENCES = ("text", "md", "markdown", "")
-# A line that is only a tag, a tag's attributes, a tag's close or a Markdown
-# image: its visible text is read for the words-out rule by visible_strings;
-# it is not a paragraph, since the paragraph with the provenance is the one
-# the picture or frame illustrates.
-_TAG_LINE = re.compile(r"^\s*(?:<[^>]*>?|[\w-]+=\"[^\"]*\"|/>|!\[[^\]]*\]\([^)]*\))\s*$")
+# A line that is only tags (one, or several with nothing but space between
+# them, as a centred image: <p align="center"><img …></p>), a tag's
+# attributes, a tag's close or a Markdown image: its visible text is read
+# for the words-out rule by visible_strings; it is not a paragraph, since
+# the paragraph with the provenance is the one the picture or frame
+# illustrates.
+_TAG_LINE = re.compile(r"^\s*(?:(?:<[^>]*>?\s*)+|[\w-]+=\"[^\"]*\"|/>|!\[[^\]]*\]\([^)]*\))\s*$")
 # A clause: a mark (a target, a rule) covers the numbers in its own clause.
 # A period between digits is a decimal point, not a boundary.
 _CLAUSE_BOUNDARY = re.compile(r"(?<!\d)\.|\.(?!\d)|[;:,()\[\]]")

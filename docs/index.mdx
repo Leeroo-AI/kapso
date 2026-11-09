@@ -5,9 +5,13 @@ description: "Kapso, by Leeroo, is an open-source engine that runs experiments t
 keywords: ["Kapso", "experimentation engine", "tree of experiments", "bank of lessons", "deployment", "harness", "MLE-Bench", "RelBench"]
 ---
 
-Delivering an AI or data outcome inside a company means learning two things by experiment. No individual or AI agent knows how a data estate is connected and operated; the only way to learn it is to investigate the company's artifacts (repos, pipelines, documentation, data sources), propose hypotheses, run experiments and learn from them, until each system's behaviour and its conditions are understood. And once that understanding exists, the best solution still can't be picked in advance, whether the job is optimizing a warehouse or predicting churn, so you experiment and learn until one fits the environment. The know-how that fits the environment accumulates, much as in RL. RAG does the opposite: it feeds the agent general knowledge that was never tested in this environment, all of it carrying the same weight, and that knowledge has little value until it has been tried there.
+Kapso is an open-source engine that runs experiments, deploys the best solution, and learns from every run. It starts from a domain harness and an empty bank of lessons, and given an objective and success criteria it:
 
-Kapso is the engine we built for this. It starts from a domain harness and an empty bank of lessons; given an objective and success criteria, it runs a tree of experiments, proposing hypotheses, then implementing and verifying each one, and deploys the best solution on the target stack. It then learns from the run, assigning credit to each hypothesis and implementation by its impact on the outcome and updating the bank, where every lesson carries a credence score and a boundary on where it applies. Over time the domain harness carries a bank of lessons that accumulated experimented best practices in that environment. The system is model-agnostic and coding-agent-agnostic.
+- **runs a tree of experiments**: proposes hypotheses, then implements and verifies each one;
+- **deploys the best solution** on the target stack;
+- **learns from the run**: credit goes to each hypothesis and implementation by its impact on the outcome, and the bank is updated, every lesson carrying a credence score and a boundary on where it applies.
+
+Over time the domain harness carries a bank of lessons: the experimented best practices of that environment. Kapso is model-agnostic and coding-agent-agnostic.
 
 Four parts, in the order a run meets them: smart experimentation, learning, deployment, and domain adaptation through a harness. Each is a section below and a verb on the `Kapso` object.
 
@@ -57,10 +61,10 @@ The same from a shell: `kapso build --brief kapso-brief.md --evaluation evaluati
 
 <CardGroup cols={2}>
   <Card title="IOAI 2026" icon="trophy" href="/docs/benchmarks/ioai-2026">
-    In two unattended sessions of the AI Model Track, Kapso scored 536.07, graded by the organizers on their hardware, above every one of the 471 human contestants, and took the IOAI² Grand Master Trophy, top 3 among all AI systems entered.
+    In one autonomous session of the AI Model Track, Kapso scored 536.07, graded by the organizers on their hardware, above every one of the 471 human contestants, and took the IOAI² Grand Master Trophy, top 3 among all AI systems entered.
   </Card>
   <Card title="RelBench" icon="database" href="/docs/benchmarks/relbench">
-    First on all three official leaderboards of Stanford's benchmark for predictive ML over relational data: classification, regression and recommendations, ahead of Stanford STAR's RT-J and KumoRFM-v2. Learning kept in the harness beat learning baked into model weights, and updating a bank of lessons costs far less than retraining a tabular foundation model.
+    First on all three official leaderboards of Stanford's benchmark for predictive ML over relational data: classification, regression and recommendations, ahead of Stanford STAR's RT-J and KumoRFM-v2.
   </Card>
   <Card title="MLE-Bench" icon="chart-line" href="/docs/benchmarks/mle-bench">
     Top ranking among open-source systems on Kaggle machine-learning competitions.

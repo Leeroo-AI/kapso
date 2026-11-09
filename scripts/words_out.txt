@@ -15,7 +15,6 @@ iteration engine
 long-running agent
 self-improving
 self-improvement
-autonomous
 software factory
 team of agents
 always-on

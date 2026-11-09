@@ -45,36 +45,38 @@
 
 ## News
 
-- **IOAI 2026 · the AI Model Track.** The [International Olympiad in AI](https://ioai-official.org) is the IMO of the AI era — 471 contestants from 108 countries and territories, six expert-designed tasks under a single-GPU budget. In 2026 it opened [IOAI²](https://ioai-official.org/ai-model-track/), where AI systems sit the *same* exam in two unattended 6-hour sessions. Once the clock starts, no human may solve, correct, or improve anything. Kapso entered as one of 14 Founding AI Participants.
-  - 🎓 **Outscored all 471 humans** — 536.07 total, above every contestant in the hall.
-  - 🏆 **IOAI² Grand Master Trophy** — top 3 among all AI systems entered. [Full results →](benchmarks/ioai2026/README.md) · [IOAI's review of the track →](https://ioai-official.org/what-happens-when-autonomous-ai-takes-on-the-same-tasks-as-the-worlds-top-young-ai-talents/)
-- **First on all three [RelBench](benchmarks/relbench/README.md) leaderboards**: on Stanford's benchmark for predictive ML over relational data, Kapso leads the official leaderboard in classification (81.2 AUROC over 12 tasks, against 79.3 for [KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview) and 79.0 for Stanford STAR's [RT-J](https://star-project.stanford.edu/rt-j)), regression (0.2476 NMAE over 9 tasks, against 0.2711 for RT-J and 0.2847 for KumoRFM-v2, 8.7% less error) and recommendations (18.4 MAP over 10 tasks, against 9.3 for ID-GNN, the best other entry). Every number is an entry on the [official RelBench leaderboard](https://star-project.stanford.edu/relbench/leaderboard/). Learning kept in the harness beat learning baked into model weights, and updating a bank of lessons costs far less than retraining a tabular foundation model.
+- **IOAI 2026 · the AI Model Track.** The [International Olympiad in AI](https://ioai-official.org) is the IMO of the AI era: 471 contestants, six expert-designed tasks, a single-GPU budget. Its 2026 [IOAI²](https://ioai-official.org/ai-model-track/) track gave AI systems the same exam in one autonomous session. Kapso, one of 14 Founding AI Participants, scored 536.07 as graded by the organizers, above every human contestant, and took the IOAI² Grand Master Trophy, top 3 among the AI systems entered. [Full results →](benchmarks/ioai2026/README.md) · [IOAI's review of the track →](https://ioai-official.org/what-happens-when-autonomous-ai-takes-on-the-same-tasks-as-the-worlds-top-young-ai-talents/)
+- **First on all three [RelBench](benchmarks/relbench/README.md) leaderboards.** On Stanford's benchmark for predictive ML over relational data, Kapso leads the [official leaderboard](https://star-project.stanford.edu/relbench/leaderboard/) in classification (81.2 AUROC against 79.3 for [KumoRFM-v2](https://docs.nvidia.com/sdgm/rfm/overview) and 79.0 for Stanford STAR's [RT-J](https://star-project.stanford.edu/rt-j)), regression (0.2476 NMAE against 0.2711 and 0.2847) and recommendations (18.4 MAP against 9.3 for ID-GNN, the best other entry).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/relbench.png" alt="RelBench, three panels: classification, Kapso 81.2 AUROC against KumoRFM-v2's 79.3 and RT-J's 79.0; regression, Kapso 0.2476 NMAE against RT-J's 0.2711 and KumoRFM-v2's 0.2847, lower being better; recommendations, Kapso 18.4 MAP against the official leaderboard's best other entry, ID-GNN, at 9.3. The first two panels are drawn from a truncated axis, the third from zero" width="574">
+  <p align="center"><img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/relbench.png" alt="RelBench, three panels: Kapso 81.2 AUROC against KumoRFM-v2's 79.3 and RT-J's 79.0 in classification; 0.2476 NMAE against 0.2711 and 0.2847 in regression, lower being better; 18.4 MAP against ID-GNN's 9.3 in recommendations. The first two panels use a truncated axis, the third starts at zero" width="574"></p>
 
-- **[Leeroopedia](https://leeroopedia.com)**: a wiki of our lessons in the data and ML domains, around 100k pages extracted by experimenting on papers and repositories, serving about 6M requests a month, around 28% of them from AI agents. Kapso connects to it over MCP: its sessions use it during ideation and implementation to search knowledge, build plans and diagnose failures.
+- **[Leeroopedia](https://leeroopedia.com)**: our public bank of lessons in the data and ML domains, around 100k pages extracted by experimenting on papers and repositories, serving about 6M requests a month, around 28% of them from AI agents. Kapso's sessions query it over MCP during ideation and implementation.
 - **#1 on [MLE-Bench](benchmarks/mle/README.md)**: KAPSO achieved top ranking among open-source systems on Kaggle ML competitions (MLE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.png" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="574">
+  <p align="center"><img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/mle-bench.png" alt="MLE-Bench: medal rate by difficulty split against R&amp;D-Agent, AIRA-dojo, ML-Master and AIDE" width="574"></p>
 
 - **#1 on [ALE-Bench](benchmarks/ale/README.md)**: KAPSO achieved top ranking on long-horizon algorithmic discovery problems (ALE Benchmark).
 
-  <img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Kapso reaches a final rating of 1909 Elo against ALE Agent's 1879, above a breakdown across ten AtCoder Heuristic Contest problems; every row is drawn from its own truncated Elo origin, and the per-problem bar gaps share one scale" width="574">
+  <p align="center"><img src="https://raw.githubusercontent.com/Leeroo-AI/kapso/main/docs/images/ale-bench.png" alt="ALE-Bench: Kapso reaches a final rating of 1909 Elo against ALE Agent's 1879, above a breakdown across ten AtCoder Heuristic Contest problems; every row is drawn from its own truncated Elo origin, and the per-problem bar gaps share one scale" width="574"></p>
 
 ## What is Kapso?
 
-Delivering an AI or data outcome inside a company means learning two things by experiment. No individual or AI agent knows how a data estate is connected and operated; the only way to learn it is to investigate the company's artifacts (repos, pipelines, documentation, data sources), propose hypotheses, run experiments and learn from them, until each system's behaviour and its conditions are understood. And once that understanding exists, the best solution still can't be picked in advance, whether the job is optimizing a warehouse or predicting churn, so you experiment and learn until one fits the environment. The know-how that fits the environment accumulates, much as in RL. RAG does the opposite: it feeds the agent general knowledge that was never tested in this environment, all of it carrying the same weight, and that knowledge has little value until it has been tried there.
+Kapso is an open-source engine that runs experiments, deploys the best solution, and learns from every run. It starts from a domain harness and an empty bank of lessons, and given an objective and success criteria it:
 
-Kapso is the engine we built for this. It starts from a domain harness and an empty bank of lessons; given an objective and success criteria, it runs a tree of experiments, proposing hypotheses, then implementing and verifying each one, and deploys the best solution on the target stack. It then learns from the run, assigning credit to each hypothesis and implementation by its impact on the outcome and updating the bank, where every lesson carries a credence score and a boundary on where it applies. Over time the domain harness carries a bank of lessons that accumulated experimented best practices in that environment. The system is model-agnostic and coding-agent-agnostic: open source, by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
+- **runs a tree of experiments**: proposes hypotheses, then implements and verifies each one;
+- **deploys the best solution** on the target stack;
+- **learns from the run**: credit goes to each hypothesis and implementation by its impact on the outcome, and the bank is updated, every lesson carrying a credence score and a boundary on where it applies.
+
+Over time the domain harness carries a bank of lessons: the experimented best practices of that environment. Kapso is model-agnostic and coding-agent-agnostic, by [Leeroo](https://leeroo.com), published on PyPI as [`leeroo-kapso`](https://pypi.org/project/leeroo-kapso/).
 
 ### The four parts
 
 | Part | Verb | What it does |
 |------|------|--------------|
-| [**Smart experimentation**](https://docs.leeroo.com/docs/build/brief) | `.build()` | Specialised modules share one data structure, a tree of experiments: each node records the hypothesis, the implementation (git branch and technical difficulties), the budget used and the distance to the objective. For each experiment, an ideation module proposes ideas from earlier experiments and the bank of lessons, re-ranks them by expected return against the budget each would use, and sends the top-ranked ones to the implementor, which builds on a branch forked from the parent node. Because the bank keeps learning what works in that exact environment, the ideas become specific to it, rather than the generic ones a bare LLM or RAG would offer. Results are verified by a fingerprinted evaluator that no experiment can access, and the evaluation evolves too: the experimentation modules can propose updates to the metrics and criteria for the verifier to approve. [How it works →](https://docs.leeroo.com/docs/evolve/overview) |
-| [**Learning**](https://docs.leeroo.com/docs/learn/what-learn-produces) | `.learn()` / `.load_experience()` | Everything in the bank comes from experiments: each lesson is induced or deduced from the traces of experimentation runs, carries a credence score, boundary conditions on where it applies and the evidence behind it, and after every run `learn()` updates those from the lesson's effect on the final outcome. Changes to the bank are experiments too: every updated lesson is A/B tested by running the same build with and without it, so an improvement is measured, not guessed. The bank is built on git, so you can share your experience with others (`kapso experience share`), list the banks available to you (`kapso experience list`) and update them (`kapso experience update`). [Experience →](https://docs.leeroo.com/docs/experience) names what a build is served: your bank, a bank your team shares, Leeroopedia, or a corpus ingested from a repository or a researched question. |
-| [**Deployment**](https://docs.leeroo.com/docs/deploy/targets) | `.deploy()` | Runs a shorter experimentation of the same kind to adapt the best solution to the target stack: a session adapts a copy of the node, deploys it, and demonstrates health checks and a working call. Docker, Modal, BentoCloud and LangGraph Platform ship, and you can add your own target stack to the harness. |
-| [**Domain adaptation**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | Harnesses are Kapso's domain packages: knowledge and workflows for an area such as predictive modelling, so a build does not experiment and learn from scratch; predictive modelling and competitive programming ship with Kapso. A run starts from a domain harness and an empty bank of lessons, and over time the harness carries the bank that accumulated what worked in that environment. Write your initial domain harness, your instructions, code, guardrails and checks, with `/kapso:harness` in the plugin or `kapso harness` in the CLI. |
+| [**Smart experimentation**](https://docs.leeroo.com/docs/build/brief) | `.build()` | Each experiment is a hypothesis implemented on its own branch and scored, in a tree. Ideation draws on earlier experiments and the bank of lessons and re-ranks ideas by expected return against budget, so they fit this environment rather than a bare LLM's or RAG's generic ones; a fingerprinted evaluator no experiment can touch verifies the result, and modules can propose evaluation updates for the verifier to approve. [How it works →](https://docs.leeroo.com/docs/evolve/overview) |
+| [**Learning**](https://docs.leeroo.com/docs/learn/what-learn-produces) | `.learn()` / `.load_experience()` | Every lesson is induced or deduced from experimentation traces and carries a credence score, a boundary on where it applies and its evidence; `learn()` updates them from each run's outcome and A/B tests every change by rebuilding with and without it, so improvement is measured, not guessed. The bank is built on git: `kapso experience share`, `list` and `update`. [Experience →](https://docs.leeroo.com/docs/experience) names what a build is served. |
+| [**Deployment**](https://docs.leeroo.com/docs/deploy/targets) | `.deploy()` | A shorter experimentation of the same kind adapts the best solution to the target stack, deploys it and proves health checks and a working call. Docker, Modal, BentoCloud and LangGraph Platform ship; a harness can add a target. |
+| [**Domain adaptation**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | A harness is Kapso's domain package: the knowledge and workflows of an area such as predictive modelling, so a build never starts from scratch, and where the bank of lessons accumulates. Predictive modelling and competitive programming ship; write yours with `/kapso:harness` in the plugin or `kapso harness` in the CLI. |
 
 ## 🚀 Quickstart
 
@@ -112,12 +114,11 @@ generation never uses it. When you turn either on:
 echo 'OPENAI_API_KEY=sk-...' >> .env
 ```
 
-**2. Connect Leeroopedia (recommended).** One key gives every campaign
-session [Leeroopedia](https://leeroopedia.com), a hosted knowledge base of
-ML and AI frameworks: how a framework actually behaves, plan reviews,
-documented hyperparameter ranges, failure diagnoses. Nothing to install;
-a new account at the [Leeroopedia dashboard](https://app.leeroopedia.com/dashboard)
-comes with $20 of free credit.
+**2. Connect Leeroopedia (recommended).** One key gives every session
+[Leeroopedia](https://leeroopedia.com), our hosted bank of lessons on ML and
+AI frameworks. Nothing to install; a new account at the
+[Leeroopedia dashboard](https://app.leeroopedia.com/dashboard) comes with
+$20 of free credit.
 
 ```bash
 echo 'LEEROOPEDIA_API_KEY=kpsk_...' >> .env
@@ -128,10 +129,6 @@ echo 'LEEROOPEDIA_API_KEY=kpsk_...' >> .env
 ```bash
 pip install leeroo-kapso
 ```
-
-The package is `leeroo-kapso`. The PyPI package named `kapso` is an unrelated
-WhatsApp tool that installs a `kapso` command of its own and shadows this one;
-if it is present, `pip uninstall kapso` first.
 
 **4. Verify the setup:**
 
@@ -330,17 +327,16 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
 
 Every example is a task: a brief, a starting repository, the data or how to get it, and a driver of at most twelve lines; [examples/README.md](examples/README.md) has the minutes, the one command and whether a result is recorded.
 
-| Example | What it shows |
-|---------|---------------|
-| [**churn first build**](examples/churn-first-build/README.md) | Your first build: an evaluator present, a baseline, a target, the record |
-| [**fraud no evaluator**](examples/fraud-no-evaluator/README.md) | No evaluator: the campaign's first node builds one from the brief's protocol and every candidate is measured against it |
-| [**pipeline dbt**](examples/pipeline-dbt/README.md) | A dbt pipeline on DuckDB whose exports carry defects: the data contract made to hold |
-| [**trading**](examples/trading/README.md) | A harness on the build: a setup session, pages and hooks in every session, verification per attempt |
-| [**end to end**](examples/end-to-end/README.md) | Build, the review, learn, build again served the lesson, deploy: a Kaggle tabular model end to end |
-| [**prompt harness**](examples/prompt-harness/README.md) | The prompt as the thing under test, scored on AIME problems |
-| [**agent scaffold**](examples/agent-scaffold/README.md) | A vision-language extractor, scored against ground-truth tables |
-| [**torch performance**](examples/torch-performance/README.md) | A faster module on CUDA under a numerical tolerance |
-| [**gpu kernels**](examples/gpu-kernels/README.md) | Multi-head attention on CUDA: flash attention or Triton |
+| Example | The task |
+|---------|----------|
+| [**Predictive modelling (customer churn)**](examples/churn-first-build/README.md) | Predict which customers will leave: raise a churn model's out-of-sample ROC AUC toward the target, under an evaluator the campaign cannot edit. |
+| [**Fraud detection**](examples/fraud-no-evaluator/README.md) | Score transactions for fraud when the repository has no evaluator: the brief states the protocol, the campaign builds the evaluator first, then improves the scorer. |
+| [**Data engineering (dbt model)**](examples/pipeline-dbt/README.md) | A retail warehouse on dbt and DuckDB whose nightly exports arrive with defects. |
+| [**Quant finance**](examples/trading/README.md) | A daily trading strategy over synthetic instruments: raise out-of-sample Sharpe on the trading harness, with its checks on every attempt. A research example, not financial advice. |
+| [**Tabular ML**](examples/end-to-end/README.md) | A Kaggle competition end to end: Spaceship Titanic from a dummy classifier to a real model, then review, learn, build again with the lesson, and deploy. |
+| [**Prompt engineering**](examples/prompt-harness/README.md) | Rewrite an LLM prompt template until accuracy on AIME 2024 math problems rises. |
+| [**PyTorch optimization**](examples/torch-performance/README.md) | Make a PyTorch module faster on CUDA within a numerical tolerance: fusion, compilation, less memory traffic. |
+| [**GPU kernel optimization**](examples/gpu-kernels/README.md) | Speed up multi-head self-attention on CUDA with flash attention or a Triton kernel, within a numerical tolerance. |
 
 ## 📚 Documentation & Support
 
