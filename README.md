@@ -114,12 +114,11 @@ generation never uses it. When you turn either on:
 echo 'OPENAI_API_KEY=sk-...' >> .env
 ```
 
-**2. Connect Leeroopedia (recommended).** One key gives every campaign
-session [Leeroopedia](https://leeroopedia.com), a hosted knowledge base of
-ML and AI frameworks: how a framework actually behaves, plan reviews,
-documented hyperparameter ranges, failure diagnoses. Nothing to install;
-a new account at the [Leeroopedia dashboard](https://app.leeroopedia.com/dashboard)
-comes with $20 of free credit.
+**2. Connect Leeroopedia (recommended).** One key gives every session
+[Leeroopedia](https://leeroopedia.com), our hosted bank of lessons on ML and
+AI frameworks. Nothing to install; a new account at the
+[Leeroopedia dashboard](https://app.leeroopedia.com/dashboard) comes with
+$20 of free credit.
 
 ```bash
 echo 'LEEROOPEDIA_API_KEY=kpsk_...' >> .env
@@ -130,10 +129,6 @@ echo 'LEEROOPEDIA_API_KEY=kpsk_...' >> .env
 ```bash
 pip install leeroo-kapso
 ```
-
-The package is `leeroo-kapso`. The PyPI package named `kapso` is an unrelated
-WhatsApp tool that installs a `kapso` command of its own and shadows this one;
-if it is present, `pip uninstall kapso` first.
 
 **4. Verify the setup:**
 
