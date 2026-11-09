@@ -257,7 +257,9 @@ def resolve_spec(
     if not isinstance(model, str) or not model.strip():
         raise ConfigError(f"{origin}.model must be a non-empty string")
     timeout = spec.get("timeout")
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0
+    ):
         raise ConfigError(f"{origin}.timeout must be a positive number of seconds")
     settings = {key: value for key, value in entry.items() if key not in HOST_KEYS}
     effort = spec.get("effort")
