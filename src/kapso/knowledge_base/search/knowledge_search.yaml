@@ -83,6 +83,9 @@ searches:
       embedding_backoff_seconds: 1
       embedding_timeout_seconds: 30
       weaviate_collection: "KapsoKG"
+      # The hybrid query's weight on the vector side: 1 is vector only, 0 is
+      # keyword (BM25) only. Presets inherit it.
+      hybrid_alpha: 0.75
       include_connected_pages: true
       use_llm_reranker: false
       # No embedding truncation -- full description text is sent to the embedding model.
