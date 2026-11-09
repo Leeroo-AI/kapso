@@ -311,6 +311,21 @@ reasons longer may need them raised.
 
 For detailed integration steps, see the [Quickstart](https://docs.leeroo.com/docs/first-build) and [Installation](https://docs.leeroo.com/docs/installation) guides.
 
+## Supported Benchmarks
+
+| Benchmark | Description |
+|-----------|-------------|
+| [**MLE-Bench**](benchmarks/mle/README.md) | OpenAI's ML-engineering benchmark — full competitions across tabular, vision, text, and audio, from raw data to graded submission |
+| [**ALE-Bench**](benchmarks/ale/README.md) | Sakana AI's algorithmic-optimization benchmark — design, implement, and iterate contest heuristics over hours-long searches |
+| [**RelBench**](benchmarks/relbench/README.md) | Stanford's benchmark for predictive ML over relational data — classification, regression, and recommendation straight from the multi-table databases of Amazon, H&M, Stack Exchange, clinical trials, and more |
+| [**IOAI 2026**](benchmarks/ioai2026/README.md) | Timed olympiad ML across vision, language, and optimization — expert-set tasks, contest hardware, zero human help |
+
+Each benchmark also has a documentation page covering how to run it, its CLI options and what the output holds:
+[IOAI 2026](https://docs.leeroo.com/docs/benchmarks/ioai-2026) ·
+[MLE-Bench](https://docs.leeroo.com/docs/benchmarks/mle-bench) ·
+[ALE-Bench](https://docs.leeroo.com/docs/benchmarks/ale-bench) ·
+[RelBench](https://docs.leeroo.com/docs/benchmarks/relbench)
+
 ## Examples
 
 Every example is a task: a brief, a starting repository, the data or how to get it, and a driver of at most twelve lines; [examples/README.md](examples/README.md) has the minutes, the one command and whether a result is recorded.
@@ -326,21 +341,6 @@ Every example is a task: a brief, a starting repository, the data or how to get 
 | [**agent scaffold**](examples/agent-scaffold/README.md) | A vision-language extractor, scored against ground-truth tables |
 | [**torch performance**](examples/torch-performance/README.md) | A faster module on CUDA under a numerical tolerance |
 | [**gpu kernels**](examples/gpu-kernels/README.md) | Multi-head attention on CUDA: flash attention or Triton |
-
-## Supported Benchmarks
-
-| Benchmark | Description |
-|-----------|-------------|
-| [**MLE-Bench**](benchmarks/mle/README.md) | OpenAI's ML-engineering benchmark — full competitions across tabular, vision, text, and audio, from raw data to graded submission |
-| [**ALE-Bench**](benchmarks/ale/README.md) | Sakana AI's algorithmic-optimization benchmark — design, implement, and iterate contest heuristics over hours-long searches |
-| [**RelBench**](benchmarks/relbench/README.md) | Stanford's benchmark for predictive ML over relational data — classification, regression, and recommendation straight from the multi-table databases of Amazon, H&M, Stack Exchange, clinical trials, and more |
-| [**IOAI 2026**](benchmarks/ioai2026/README.md) | Timed olympiad ML across vision, language, and optimization — expert-set tasks, contest hardware, zero human help |
-
-Each benchmark also has a documentation page covering how to run it, its CLI options and what the output holds:
-[IOAI 2026](https://docs.leeroo.com/docs/benchmarks/ioai-2026) ·
-[MLE-Bench](https://docs.leeroo.com/docs/benchmarks/mle-bench) ·
-[ALE-Bench](https://docs.leeroo.com/docs/benchmarks/ale-bench) ·
-[RelBench](https://docs.leeroo.com/docs/benchmarks/relbench)
 
 ## 📚 Documentation & Support
 
