@@ -10,6 +10,7 @@ docs/plans/redesign/wp3-experience.md (change 7).
 
 import io
 import re
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from kapso.experience.store import ExperienceStore, IndexRecord
 from kapso.knowledge_base.learners import KnowledgePipeline, Source
 from kapso.knowledge_base.learners.defaults import learner_defaults
 from kapso.knowledge_base.search import KGIndexInput, KnowledgeSearchFactory
+from kapso.knowledge_base.search.kg_graph_search import _TYPE_SUBDIRS
 from kapso.researcher import Researcher
 
 GRAPH_SEARCH = "kg_graph_search"
@@ -180,6 +182,13 @@ def ingest(
     index_id = uuid.uuid4().hex[:12]
     directory = store.index_dir(name)
     wiki_dir = directory / WIKI_DIR
+    # The name has no record, so pages under it were written by an add
+    # that failed before its record (the merger writes them before the
+    # builder indexes them), maybe from another source. The builder reads
+    # every page there, so they go; `_staging/`, the resume, stays.
+    for subdir in _TYPE_SUBDIRS:
+        if (wiki_dir / subdir).is_dir():
+            shutil.rmtree(wiki_dir / subdir)
     learner = config["learner"]
     ingestor_params = dict(learner.get("ingestor") or {})
     ingestor_params.setdefault("publish_workflows", learner_defaults("ingestor")["publish_workflows"])
