@@ -901,9 +901,7 @@ class OrchestratorAgent:
             ),
             key=lambda node: selection_score(node, {
                 "cost": self.cost_config,
-                "maximize_scoring": (
-                    self.maximize_scoring if self.cost_config["enabled"] else True
-                ),
+                "maximize_scoring": self.maximize_scoring,
             }),
             reverse=True,
         )
