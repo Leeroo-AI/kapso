@@ -327,17 +327,16 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
 
 Every example is a task: a brief, a starting repository, the data or how to get it, and a driver of at most twelve lines; [examples/README.md](examples/README.md) has the minutes, the one command and whether a result is recorded.
 
-| Example | What it shows |
-|---------|---------------|
-| [**churn first build**](examples/churn-first-build/README.md) | Your first build: an evaluator present, a baseline, a target, the record |
-| [**fraud no evaluator**](examples/fraud-no-evaluator/README.md) | No evaluator: the campaign's first node builds one from the brief's protocol and every candidate is measured against it |
-| [**pipeline dbt**](examples/pipeline-dbt/README.md) | A dbt pipeline on DuckDB whose exports carry defects: the data contract made to hold |
-| [**trading**](examples/trading/README.md) | A harness on the build: a setup session, pages and hooks in every session, verification per attempt |
-| [**end to end**](examples/end-to-end/README.md) | Build, the review, learn, build again served the lesson, deploy: a Kaggle tabular model end to end |
-| [**prompt harness**](examples/prompt-harness/README.md) | The prompt as the thing under test, scored on AIME problems |
-| [**agent scaffold**](examples/agent-scaffold/README.md) | A vision-language extractor, scored against ground-truth tables |
-| [**torch performance**](examples/torch-performance/README.md) | A faster module on CUDA under a numerical tolerance |
-| [**gpu kernels**](examples/gpu-kernels/README.md) | Multi-head attention on CUDA: flash attention or Triton |
+| Example | The task |
+|---------|----------|
+| [**Predictive modelling (customer churn)**](examples/churn-first-build/README.md) | Predict which customers will leave: raise a churn model's out-of-sample ROC AUC toward the target, under an evaluator the campaign cannot edit. |
+| [**Fraud detection**](examples/fraud-no-evaluator/README.md) | Score transactions for fraud when the repository has no evaluator: the brief states the protocol, the campaign builds the evaluator first, then improves the scorer. |
+| [**Data engineering (dbt model)**](examples/pipeline-dbt/README.md) | A retail warehouse on dbt and DuckDB whose nightly exports arrive with defects. |
+| [**Quant finance**](examples/trading/README.md) | A daily trading strategy over synthetic instruments: raise out-of-sample Sharpe on the trading harness, with its checks on every attempt. A research example, not financial advice. |
+| [**Tabular ML**](examples/end-to-end/README.md) | A Kaggle competition end to end: Spaceship Titanic from a dummy classifier to a real model, then review, learn, build again with the lesson, and deploy. |
+| [**Prompt engineering**](examples/prompt-harness/README.md) | Rewrite an LLM prompt template until accuracy on AIME 2024 math problems rises. |
+| [**PyTorch optimization**](examples/torch-performance/README.md) | Make a PyTorch module faster on CUDA within a numerical tolerance: fusion, compilation, less memory traffic. |
+| [**GPU kernel optimization**](examples/gpu-kernels/README.md) | Speed up multi-head self-attention on CUDA with flash attention or a Triton kernel, within a numerical tolerance. |
 
 ## 📚 Documentation & Support
 
