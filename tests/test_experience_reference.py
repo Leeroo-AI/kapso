@@ -103,6 +103,12 @@ def test_what_matches_nothing_lists_the_forms_and_the_add_line(tmp_path):
     # written as a path, it is a path: a missing one is never read as a git reference
     with pytest.raises(ExperienceReferenceError, match="a reference written as a path must exist"):
         parse_experience_reference("./ghost/bank@v2", indexes_root=indexes, cwd=tmp_path)
+    # a revision does not make a git reference of what is not owner/repo:
+    # a URL without its scheme, or a path past the repository, lists the
+    # forms like any other miss
+    for text in ("github.com/acme/kapso-bank@v2", "acme/kapso-bank/cards#insights", "acme/team bank@v2"):
+        with pytest.raises(ExperienceReferenceError, match="not a reserved name, a git reference or an index name"):
+            parse_experience_reference(text, indexes_root=indexes, cwd=tmp_path)
 
 
 # ------------------------------------------------------------ the sources

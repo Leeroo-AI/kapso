@@ -6,12 +6,12 @@ docs/plans/redesign/wp3-experience.md ("The reference").
 Five forms, tried in this order: the two reserved names (`mine` with or
 without `:all`, which lifts the scope rule); a path, written as one
 (`./`, `../`, `/`, `~`), which must exist; a string with a scheme,
-`git+`, an `@` or a `#`, or an `owner/repo` shorthand, as a git
-reference; an index name that exists under the indexes home. A bare
-name is never a path: a directory of the same name beside the run (the
-checkout an index was made from, say) cannot shadow the index. A string
-that matches none lists the forms; loading never ingests and never
-creates.
+`git+` or an scp-like `user@host:`, or an `owner/repo` shorthand (with
+`@rev`, `#subdirectory` or neither), as a git reference; an index name
+that exists under the indexes home. A bare name is never a path: a
+directory of the same name beside the run (the checkout an index was
+made from, say) cannot shadow the index. A string that matches none
+lists the forms; loading never ingests and never creates.
 """
 
 import re
@@ -125,7 +125,7 @@ def parse_experience_reference(
     if looks_like_git(raw):
         parsed = parse_git_reference(raw[4:] if raw.startswith("git+") else raw)
         return ExperienceReference(raw=raw, kind="git", url=parsed.url, rev=parsed.rev, scope=SCOPE_ALL)
-    if is_shorthand(raw) or ("/" in raw and ("@" in raw or "#" in raw)):
+    if is_shorthand(raw):
         parsed = parse_git_reference(shorthand_spec(raw))
         return ExperienceReference(raw=raw, kind="git", url=parsed.url, rev=parsed.rev, scope=SCOPE_ALL)
     index = Path(indexes_root).expanduser() / raw
