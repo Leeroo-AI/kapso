@@ -1,0 +1,18 @@
+# The models our Kapso builds run on, merged over Kapso's packaged defaults
+# (`kapso doctor --config kapso-config.yaml --show-config` prints the result).
+hosts:
+  claude_code:
+    model: "claude-opus-5-5"
+search_strategy:
+  params:
+    ideation:
+      model: "claude-fable-5-1"
+    # The judge's "achieved" vote ends the campaign: the bar is checked on a run of
+    # the development conversations and the sealed set is the team's final check.
+    honor_agent_stop: true
+harness:
+  # The harness's setup session reads the runner's documentation and the reference runs, and each
+  # verification session runs the full check once more (about 45 minutes): both need more than the
+  # packaged twenty and ten minutes.
+  setup_minutes: 45
+  verification_minutes: 75

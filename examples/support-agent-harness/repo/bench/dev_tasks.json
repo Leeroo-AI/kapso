@@ -1,0 +1,31 @@
+{
+  "development": [
+    "task_004",
+    "task_005",
+    "task_017",
+    "task_020",
+    "task_023",
+    "task_025",
+    "task_027",
+    "task_035",
+    "task_040",
+    "task_054",
+    "task_055",
+    "task_061",
+    "task_064",
+    "task_066",
+    "task_070",
+    "task_072",
+    "task_081",
+    "task_087",
+    "task_101",
+    "task_102"
+  ],
+  "fast": [
+    "task_004",
+    "task_023",
+    "task_061",
+    "task_081",
+    "task_005"
+  ]
+}

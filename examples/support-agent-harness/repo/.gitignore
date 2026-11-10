@@ -1,0 +1,5 @@
+results/
+.env
+bench/runs/
+__pycache__/
+*.pyc

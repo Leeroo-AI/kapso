@@ -1,0 +1,10 @@
+{
+  "protected_paths": [
+    "@RUNNER_DIR@/tau2-bench-2.0.0/data/tau2/domains/banking_knowledge/tasks.json",
+    "@RUNNER_DIR@/tau2-bench-2.0.0/data/tau2/domains/banking_knowledge/tasks",
+    "@RUNNER_DIR@/tau2-bench-2.0.0/data/tau2/domains/banking_knowledge/tasks_voice.json",
+    "@RUNNER_DIR@/tau2-bench-2.0.0/data/simulations",
+    "@RUNNER_DIR@/split.json"
+  ],
+  "forbidden_patterns": ["evaluation_criteria", "reward_basis", "action_checks", "db_check", "env_assertions", "initial_state"]
+}

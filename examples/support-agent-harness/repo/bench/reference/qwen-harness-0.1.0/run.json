@@ -1,0 +1,42 @@
+{
+  "save_name": "greywell_full_20261108T110903Z",
+  "fast": false,
+  "tasks": [
+    "task_004",
+    "task_005",
+    "task_017",
+    "task_020",
+    "task_023",
+    "task_025",
+    "task_027",
+    "task_035",
+    "task_040",
+    "task_054",
+    "task_055",
+    "task_061",
+    "task_064",
+    "task_066",
+    "task_070",
+    "task_072",
+    "task_081",
+    "task_087",
+    "task_101",
+    "task_102"
+  ],
+  "trials": 1,
+  "harness": {
+    "version": "0.1.0",
+    "settings": {
+      "request_timeout_seconds": 900
+    }
+  },
+  "upstream": "http://localhost:18000/v1",
+  "upstream_models": [
+    "qwen"
+  ],
+  "retrieval_config": "alltools",
+  "max_concurrency": 6,
+  "runner_output": "<runner>/tau2-bench-2.0.0/data/simulations/greywell_full_20261108T110903Z/results.json",
+  "started": "2026-11-08T11:09:03+00:00",
+  "finished": "2026-11-08T12:05:42+00:00"
+}

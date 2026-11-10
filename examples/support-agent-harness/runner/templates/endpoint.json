@@ -1,0 +1,12 @@
+{
+  "chat_base_url": "@CHAT_BASE_URL@",
+  "model": "qwen",
+  "runner": "@RUNNER_DIR@/run_conversations.py",
+  "simulations_dir": "@RUNNER_DIR@/tau2-bench-2.0.0/data/simulations",
+  "retrieval_config": "alltools",
+  "trials": 1,
+  "max_concurrency": 6,
+  "endpoint_wait_seconds": 600,
+  "endpoint_poll_seconds": 15,
+  "service_wait_seconds": 60
+}

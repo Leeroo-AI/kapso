@@ -1,0 +1,111 @@
+{
+  "evaluation_script_path": "kapso_evaluation/evaluate.py",
+  "evaluation_output": "evaluate.py: mode full, workspace <a copy of this repository>, started 2026-11-08T11:09:03+00:00\nintegrity: ok; bench/ files identical to the protected copies, 4 runner files and 3 trees as fixed.json records, endpoint serves Qwen/Qwen3.8-27B-FP8 at max_model_len 262144\nharness 0.1.0 on port 49755, upstream http://localhost:18000/v1; 20 tasks x 1 trial(s), save greywell_full_20261108T110903Z\ntasks 20  trials 1  episodes 20  errors 1\nper task: task_004=1/1, task_005=1/1, task_017=1/1, task_020=0/1, task_023=1/1, task_025=1/1, task_027=0/1, task_035=1/1, task_040=0/1, task_054=0/1, task_055=0/1, task_061=0/1, task_064=1/1, task_066=0/1, task_070=0/1, task_072=1/1, task_081=0/1, task_087=0/1, task_101=0/1, task_102=0/1\nagainst Fable 5.1, the current agent (10 of 20, recorded 2026-11-02): gained task_005; lost task_055, task_070, task_101; flips 4, net -2\nagainst Opus 5.5 (8 of 20, recorded 2026-11-02): gained task_005, task_023; lost task_055, task_101; flips 4, net +0\nfull: 20 conversations x 1 trial, harness 0.1.0, 56.6 min, finished 2026-11-08T12:05:42+00:00\npass_1: 0.4000",
+  "score": 0.4,
+  "metric": "pass_1",
+  "mode": "full",
+  "harness": {
+    "version": "0.1.0",
+    "settings": {
+      "request_timeout_seconds": 900
+    }
+  },
+  "save_name": "greywell_full_20261108T110903Z",
+  "started": "2026-11-08T11:09:03+00:00",
+  "finished": "2026-11-08T12:05:42+00:00",
+  "minutes": 56.6,
+  "summary": {
+    "tasks": 20,
+    "trials": 1,
+    "trial_ids": [
+      0
+    ],
+    "k": 1,
+    "pass_1": 0.4,
+    "pass_k": 0.4,
+    "pass_1_task_se": 0.1124,
+    "mean_score": null,
+    "passes_total": 8,
+    "episodes": 20,
+    "errors": 1,
+    "per_task": {
+      "task_004": 1,
+      "task_005": 1,
+      "task_017": 1,
+      "task_020": 0,
+      "task_023": 1,
+      "task_025": 1,
+      "task_027": 0,
+      "task_035": 1,
+      "task_040": 0,
+      "task_054": 0,
+      "task_055": 0,
+      "task_061": 0,
+      "task_064": 1,
+      "task_066": 0,
+      "task_070": 0,
+      "task_072": 1,
+      "task_081": 0,
+      "task_087": 0,
+      "task_101": 0,
+      "task_102": 0
+    },
+    "cost": {
+      "input_tokens": {
+        "mean": 1258118.6,
+        "median": 863078,
+        "p90": 3873431
+      },
+      "output_tokens": {
+        "mean": 18759.6,
+        "median": 18019,
+        "p90": 30351
+      },
+      "tool_calls": {
+        "mean": 29.9,
+        "median": 27,
+        "p90": 52
+      },
+      "steps": {
+        "mean": 21.1,
+        "median": 20,
+        "p90": 37
+      },
+      "seconds": {
+        "mean": 666.9,
+        "median": 670.4,
+        "p90": 1157.2
+      }
+    }
+  },
+  "comparison": {
+    "fable-5.1": {
+      "reference_passes": 10,
+      "passes": 8,
+      "gained": [
+        "task_005"
+      ],
+      "lost": [
+        "task_055",
+        "task_070",
+        "task_101"
+      ],
+      "flips": 4,
+      "net": -2
+    },
+    "opus-5.5": {
+      "reference_passes": 8,
+      "passes": 8,
+      "gained": [
+        "task_005",
+        "task_023"
+      ],
+      "lost": [
+        "task_055",
+        "task_101"
+      ],
+      "flips": 4,
+      "net": 0
+    }
+  }
+}
