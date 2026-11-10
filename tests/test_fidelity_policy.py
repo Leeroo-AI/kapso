@@ -72,6 +72,7 @@ def validated_node(node_id, fast_score, full_score):
 def make_policy(
     full_eval_upper_seconds=100.0,
     fast_eval_upper_seconds=20.0,
+    maximize=True,
     **spec_overrides,
 ):
     spec_kwargs = dict(
@@ -107,7 +108,8 @@ def make_policy(
 
     maintainer_stub = SimpleNamespace(timing=timing)
     return FidelityPolicy(
-        spec=spec, strategy=strategy_stub, maintainer=maintainer_stub
+        spec=spec, strategy=strategy_stub, maintainer=maintainer_stub,
+        maximize=maximize,
     )
 
 
@@ -323,6 +325,41 @@ def test_reserve_run_targets_the_committed_candidate():
     assert decision.profile == PROFILE_FULL
     assert decision.reserve_run is True
     assert decision.target_node_id == 0
+
+
+def test_grants_follow_a_minimize_problems_direction():
+    # Lower is better (RMSE, loss): the fast leader is the lowest probe,
+    # it clears the margin by being lower, and the reserve run builds on
+    # the committed candidate with the lowest full score.
+    policy = make_policy(maximize=False)
+    nodes = [validated_node(0, 0.45, 0.40), probe_node(1, 0.42), probe_node(2, 0.60)]
+    decision = policy.decide(
+        nodes=nodes, remaining_after_reserve=1000.0,
+        probe_estimate_seconds=60.0,
+    )
+    assert decision.profile == PROFILE_VALIDATE
+    assert decision.target_node_id == 1
+
+    # A higher probe never clears the margin on a minimize problem.
+    worse = [validated_node(0, 0.45, 0.40), probe_node(2, 0.60)]
+    assert policy.decide(
+        nodes=worse, remaining_after_reserve=1000.0,
+        probe_estimate_seconds=60.0,
+    ).profile == PROFILE_PROBE
+
+    committed = [validated_node(0, 0.45, 0.40), validated_node(1, 0.50, 0.30)]
+    reserve = policy.decide(
+        nodes=committed, remaining_after_reserve=10.0,
+        probe_estimate_seconds=60.0, reserve_run=True,
+    )
+    assert reserve.target_node_id == 1
+
+    # With nothing committed yet, the reserve run takes the lowest probe.
+    probes_only = [probe_node(0, 0.60), probe_node(1, 0.42)]
+    assert policy.decide(
+        nodes=probes_only, remaining_after_reserve=10.0,
+        probe_estimate_seconds=60.0, reserve_run=True,
+    ).target_node_id == 1
 
 
 # =========================================================================

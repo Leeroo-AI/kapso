@@ -1585,6 +1585,7 @@ class OrchestratorAgent:
                     spec=self.fidelity_spec,
                     strategy=self.search_strategy,
                     maintainer=self.evaluation_maintainer,
+                    maximize=self.maximize_scoring,
                 )
                 # Auto mode prices a full run from restored history: a fresh
                 # campaign is conservatively tiered; every resume re-prices.
