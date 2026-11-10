@@ -330,12 +330,12 @@ Cada exemplo é uma tarefa: um brief, um repositório inicial, os dados ou como 
 
 | Exemplo | A tarefa |
 |---------|----------|
+| [**Engenharia de dados (modelos dbt no Snowflake)**](../../examples/dbt-snowflake/README.md) | Corrigir os modelos dbt com problemas de qualidade de dados e construir os novos que um backlog de dezessete tickets pede, em um warehouse de varejo no Snowflake, até que cada ticket passe em seus testes de produção; depois entregar um pull request por ticket e liberá-los em produção. |
+| [**Otimização do harness (agente de suporte ao cliente)**](../../examples/support-agent-harness/README.md) | Otimizar o harness de um agente de suporte ao cliente para trocar o LLM subjacente do Fable 5.1 por um Qwen 27B local sem perder resolução nas conversas com clientes, depois implantá-lo em Docker e aprender com a execução. |
 | [**Modelagem preditiva (churn de clientes)**](../../examples/churn-first-build/README.md) | Prever quais clientes vão sair: elevar o ROC AUC fora da amostra de um modelo de churn em direção à meta, sob um avaliador que a campanha não pode editar. |
 | [**Detecção de fraude**](../../examples/fraud-no-evaluator/README.md) | Pontuar transações quanto a fraude quando o repositório não tem avaliador: o brief declara o protocolo, a campanha constrói o avaliador primeiro e depois melhora o pontuador. |
-| [**Engenharia de dados (modelo dbt)**](../../examples/pipeline-dbt/README.md) | Um warehouse de varejo em dbt e DuckDB cujas exportações noturnas chegam com defeitos. |
 | [**Finanças quantitativas**](../../examples/trading/README.md) | Uma estratégia de trading diária sobre instrumentos sintéticos: elevar o Sharpe fora da amostra no harness de trading, com suas verificações em cada tentativa. Um exemplo de pesquisa, não aconselhamento financeiro. |
 | [**ML tabular**](../../examples/end-to-end/README.md) | Uma competição do Kaggle de ponta a ponta: Spaceship Titanic de um classificador dummy a um modelo real, depois review, learn, build de novo com a lição, e deploy. |
-| [**Engenharia de prompt**](../../examples/prompt-harness/README.md) | Reescrever um template de prompt de LLM até que a acurácia em problemas de matemática do AIME 2024 suba. |
 | [**Otimização de PyTorch**](../../examples/torch-performance/README.md) | Tornar um módulo PyTorch mais rápido em CUDA dentro de uma tolerância numérica: fusão, compilação, menos tráfego de memória. |
 | [**Otimização de kernels de GPU**](../../examples/gpu-kernels/README.md) | Acelerar a self-attention multi-head em CUDA com flash attention ou um kernel Triton, dentro de uma tolerância numérica. |
 

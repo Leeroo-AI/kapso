@@ -1,0 +1,7 @@
+# The platform service (checks, development reset, releases) and the Snowflake setup scripts.
+# The versions we ran, on Python 3.12.
+snowflake-connector-python==3.18.1
+cryptography==46.0.0
+# The release service builds what is merged with dbt as the release identity.
+dbt-core==1.10.22
+dbt-snowflake==1.10.3

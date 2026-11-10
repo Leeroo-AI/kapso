@@ -166,6 +166,7 @@ def start_record(
         "offered": [],
         "commit": commit,
         "branch": branch,
+        "verification": None,   # the deployed attempt's verification directory, once the session's caller found one
         # Set when a person named the attempt (`Solution.chosen_attempt`);
         # null is the engine's deliverable.
         "chosen_attempt": chosen_attempt,

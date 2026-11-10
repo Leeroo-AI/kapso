@@ -1,0 +1,69 @@
+{
+  "source": "results/episodes.jsonl",
+  "against": null,
+  "summary": {
+    "tasks": 20,
+    "trials": 1,
+    "trial_ids": [
+      0
+    ],
+    "k": 1,
+    "pass_1": 0.4,
+    "pass_k": 0.4,
+    "pass_1_task_se": 0.1124,
+    "mean_score": null,
+    "passes_total": 8,
+    "episodes": 20,
+    "errors": 1,
+    "per_task": {
+      "task_004": 1,
+      "task_005": 1,
+      "task_017": 1,
+      "task_020": 0,
+      "task_023": 1,
+      "task_025": 1,
+      "task_027": 0,
+      "task_035": 1,
+      "task_040": 0,
+      "task_054": 0,
+      "task_055": 0,
+      "task_061": 0,
+      "task_064": 1,
+      "task_066": 0,
+      "task_070": 0,
+      "task_072": 1,
+      "task_081": 0,
+      "task_087": 0,
+      "task_101": 0,
+      "task_102": 0
+    },
+    "cost": {
+      "input_tokens": {
+        "mean": 1258118.6,
+        "median": 863078,
+        "p90": 3873431
+      },
+      "output_tokens": {
+        "mean": 18759.6,
+        "median": 18019,
+        "p90": 30351
+      },
+      "tool_calls": {
+        "mean": 29.9,
+        "median": 27,
+        "p90": 52
+      },
+      "steps": {
+        "mean": 21.1,
+        "median": 20,
+        "p90": 37
+      },
+      "seconds": {
+        "mean": 666.9,
+        "median": 670.4,
+        "p90": 1157.2
+      }
+    }
+  },
+  "comparison": null
+}

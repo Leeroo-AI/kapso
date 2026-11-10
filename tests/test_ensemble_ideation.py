@@ -15,13 +15,14 @@ import kapso.execution.coding_agents.factory as factory_module
 import kapso.execution.search_strategies.generic.codex_ideation as codex_module
 import kapso.execution.search_strategies.generic.ideation as ideation_module
 from kapso.core.roles import resolve_members, resolve_optional, resolve_role
+from kapso.execution.inbox import leave_note, notes_path
 from kapso.execution.memories.repo_memory import RepoMemoryManager
 from kapso.execution.search_strategies.generic.ideation import (
     ENSEMBLE_SPLIT_SELECTOR_MIN_SECONDS,
     normalize_ensemble_time_split,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
-from strategy_support import generic_params, packaged_hosts
+from strategy_support import every_prompt_slot, generic_params, packaged_hosts
 
 HOSTS = {**packaged_hosts(), "oss_claude_code": {"model": "m", "base_url": "http://x", "auth_token_env": "K"}}
 
@@ -265,6 +266,34 @@ def test_member_prompts_describe_only_the_gates_each_member_mounts(tmp_path, mon
     assert "Leeroopedia" not in codex_prompt
     assert "MCP Tools" not in codex_prompt
     assert "{{knowledge_tools}}" not in codex_prompt
+
+
+def test_every_member_and_the_selector_read_the_campaigns_notes(tmp_path, monkeypatch):
+    """A note the person left (`kapso inbox note`) reaches each member's
+    prompt, whatever its host, and the selector's: the selector writes the
+    solution that gets built."""
+    strategy, events = make_ensemble_strategy(
+        tmp_path, monkeypatch,
+        ensemble=[dict(CODEX_MEMBER), dict(CLAUDE_MEMBER)],
+        selector=dict(SELECTOR),
+        claude_output=f"<solution>{_plan('claude A')}</solution>",
+        codex_output=f"<solution>{_plan('codex A')}</solution>",
+        selector_output=f"<solution>{_plan('winner')}</solution>",
+    )
+    # Every slot by name: a variable substituted after the notes would rewrite them.
+    note = "Prefer the cheaper candidate from here on.\nThe GPU box goes away at 18:00 UTC.\n" + every_prompt_slot()
+    leave_note(notes_path(strategy.workspace_dir), note)
+
+    strategy._generate_solution("problem", "main")
+
+    prompts = {
+        "codex member": events["codex_calls"][0]["prompt"],
+        **{("selector" if is_selector else "claude member"): prompt for is_selector, prompt in events["claude_prompts"]},
+    }
+    assert sorted(prompts) == ["claude member", "codex member", "selector"]
+    for session, prompt in prompts.items():
+        assert prompt.count("## Notes from the person running this campaign") == 1, session
+        assert note in prompt, session
 
 
 def test_selector_failure_falls_back_to_first_claude_candidate(tmp_path, monkeypatch):

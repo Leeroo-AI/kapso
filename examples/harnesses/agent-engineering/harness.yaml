@@ -1,0 +1,20 @@
+schema_version: 1
+name: agent-engineering
+version: 0.7.0
+description: Build agent harnesses (the done-check, the tool layer, the loop and its bounds, the context policy, the guards) that make a fixed model do a job a task runner can score, such as coding tickets, customer conversations, data work or browsing; written from the harness builder's mental model, with customer support on a local model as the worked bias.
+
+modules:
+  setup:
+    skills: [local-model-serving]
+  ideation:
+    skills: [scaffold-components, episode-triage, support-conversations]
+  implementation:
+    skills: [scaffold-components, tool-layer, verification-and-stop, action-review, context-policy, grounding, deterministic-guards, local-model-serving, done-check-and-eval, episode-triage, support-conversations]
+    agents: [episode-auditor]
+  verification:
+    skills: [done-check-and-eval, episode-triage, verification-and-stop]
+    agents: [scaffold-integrity-auditor, episode-auditor]
+  feedback:
+    skills: [done-check-and-eval]
+  deployment:
+    skills: [local-model-serving, deterministic-guards]

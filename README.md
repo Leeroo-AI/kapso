@@ -329,12 +329,12 @@ Every example is a task: a brief, a starting repository, the data or how to get 
 
 | Example | The task |
 |---------|----------|
+| [**Data engineering (dbt models on Snowflake)**](examples/dbt-snowflake/README.md) | Fix the dbt models with data quality issues and build the new ones that a backlog of seventeen tickets asks for, on a retail warehouse on Snowflake, until every ticket passes its production tests; then deliver one pull request per ticket and release them to production. |
+| [**Harness optimization (customer support agent)**](examples/support-agent-harness/README.md) | Optimize the harness of a customer support agent to switch the underlying LLM from Fable 5.1 to a local Qwen 27B without losing resolution on the customer conversations, then deploy it in Docker and learn from the run. |
 | [**Predictive modelling (customer churn)**](examples/churn-first-build/README.md) | Predict which customers will leave: raise a churn model's out-of-sample ROC AUC toward the target, under an evaluator the campaign cannot edit. |
 | [**Fraud detection**](examples/fraud-no-evaluator/README.md) | Score transactions for fraud when the repository has no evaluator: the brief states the protocol, the campaign builds the evaluator first, then improves the scorer. |
-| [**Data engineering (dbt model)**](examples/pipeline-dbt/README.md) | A retail warehouse on dbt and DuckDB whose nightly exports arrive with defects. |
 | [**Quant finance**](examples/trading/README.md) | A daily trading strategy over synthetic instruments: raise out-of-sample Sharpe on the trading harness, with its checks on every attempt. A research example, not financial advice. |
 | [**Tabular ML**](examples/end-to-end/README.md) | A Kaggle competition end to end: Spaceship Titanic from a dummy classifier to a real model, then review, learn, build again with the lesson, and deploy. |
-| [**Prompt engineering**](examples/prompt-harness/README.md) | Rewrite an LLM prompt template until accuracy on AIME 2024 math problems rises. |
 | [**PyTorch optimization**](examples/torch-performance/README.md) | Make a PyTorch module faster on CUDA within a numerical tolerance: fusion, compilation, less memory traffic. |
 | [**GPU kernel optimization**](examples/gpu-kernels/README.md) | Speed up multi-head self-attention on CUDA with flash attention or a Triton kernel, within a numerical tolerance. |
 

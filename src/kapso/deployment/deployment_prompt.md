@@ -26,7 +26,7 @@ These variables are set in your environment and in every script you run:
 - `KAPSO_NUMBER` = `{{number}}`, `KAPSO_WORKSPACE`, `KAPSO_RECORD_DIR` = `{{record_dir}}`.
 - `KAPSO_INTERPRETER` = `{{interpreter}}`: the Python the engine runs the deployed software with; install the solution's requirements into it (`"$KAPSO_INTERPRETER" -m pip install -r requirements.txt`, or `uv pip install --python "$KAPSO_INTERPRETER" -r requirements.txt` when it has no pip).
 - `KAPSO_TARGET_DIR`: the target's skill directory, whose `scripts/` you run (`bash "$KAPSO_TARGET_DIR/scripts/deploy.sh"`).
-
+{{provenance_block}}
 {{env_block}}
 
 {{options_block}}

@@ -1,6 +1,0 @@
-{
-  "metric": "tests_passing",
-  "score": 0.1538,
-  "assertions_passing": "2/13",
-  "note": "the shipped staging models pass the exports through untouched; measured by evaluation/evaluate.py in the workspace layout"
-}

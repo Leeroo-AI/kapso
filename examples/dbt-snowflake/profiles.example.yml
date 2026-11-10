@@ -1,0 +1,37 @@
+# The engineer's dbt profile on the build machine: copy it to ~/.dbt/profiles.yml and fill in the account and
+# the path of the engineer's private key. Both dbt projects of the repository use it. The role builds in the
+# development database only; production and staging are read-only for it. The targets are named in full on
+# purpose: the warehouse project's generate_schema_name macro sends a target called `prod` to other schemas.
+retail_dw_master:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: ORGNAME-ACCOUNTNAME
+      user: BRIGHTMERE_ENGINEER
+      role: BRIGHTMERE_ENGINEER
+      private_key_path: /ABSOLUTE/PATH/TO/brightmere_engineer_rsa_key.p8
+      warehouse: BRIGHTMERE_DEV_WH
+      database: RETAIL_DW_DEV
+      schema: main
+      threads: 8
+    production:
+      type: snowflake
+      account: ORGNAME-ACCOUNTNAME
+      user: BRIGHTMERE_ENGINEER
+      role: BRIGHTMERE_ENGINEER
+      private_key_path: /ABSOLUTE/PATH/TO/brightmere_engineer_rsa_key.p8
+      warehouse: BRIGHTMERE_DEV_WH
+      database: RETAIL_DW
+      schema: main
+      threads: 8
+    staging:
+      type: snowflake
+      account: ORGNAME-ACCOUNTNAME
+      user: BRIGHTMERE_ENGINEER
+      role: BRIGHTMERE_ENGINEER
+      private_key_path: /ABSOLUTE/PATH/TO/brightmere_engineer_rsa_key.p8
+      warehouse: BRIGHTMERE_DEV_WH
+      database: RETAIL_DW_STAGING
+      schema: main
+      threads: 8

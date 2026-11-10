@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "python3 ${PLUGIN_ROOT}/hooks/session-brief/session_brief.py"}
+        ]
+      }
+    ]
+  }
+}

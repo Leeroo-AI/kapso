@@ -1,0 +1,105 @@
+{
+  "image": "ghcr.io/snowflake-labs/data-eng-bench-base:1.0.0",
+  "tasks_dir": "/ABSOLUTE/PATH/TO/data-eng-bench/tasks",
+  "tickets_file": "/ABSOLUTE/PATH/TO/platform/service/tickets.json",
+  "recipes_dir": "/ABSOLUTE/PATH/TO/platform/service/recipes",
+  "runs_dir": "/ABSOLUTE/PATH/TO/platform-state/runs",
+  "snowflake": {
+    "account": "ORGNAME-ACCOUNTNAME",
+    "source_database": "DBT_BENCH_RETAIL",
+    "schema": "main",
+    "admin": {
+      "login_file": "/ABSOLUTE/PATH/TO/platform-secrets/snowflake-admin.env",
+      "warehouse": "COMPUTE_WH"
+    },
+    "warehouses": {
+      "size": "XSMALL",
+      "auto_suspend_seconds": 60,
+      "statement_timeout_seconds": 1800
+    },
+    "checks": {
+      "user": "BRIGHTMERE_CHECKS",
+      "role": "BRIGHTMERE_CHECKS",
+      "warehouse": "BRIGHTMERE_CHECKS_WH",
+      "private_key_file": "/ABSOLUTE/PATH/TO/platform-secrets/brightmere_checks_rsa_key.p8"
+    },
+    "pool": {
+      "user": "BRIGHTMERE_PLATFORM",
+      "role": "SYSADMIN",
+      "warehouse": "BRIGHTMERE_CHECKS_WH",
+      "private_key_file": "/ABSOLUTE/PATH/TO/platform-secrets/brightmere_platform_rsa_key.p8"
+    },
+    "release": {
+      "user": "BRIGHTMERE_RELEASE",
+      "role": "BRIGHTMERE_RELEASE",
+      "warehouse": "BRIGHTMERE_CHECKS_WH",
+      "private_key_file": "/ABSOLUTE/PATH/TO/platform-secrets/brightmere_release_rsa_key.p8"
+    },
+    "engineer": {
+      "user": "BRIGHTMERE_ENGINEER",
+      "role": "BRIGHTMERE_ENGINEER",
+      "warehouse": "BRIGHTMERE_DEV_WH",
+      "private_key_file": "/ABSOLUTE/PATH/TO/platform-secrets/brightmere_engineer_rsa_key.p8"
+    }
+  },
+  "mirrors": {
+    "production_database": "RETAIL_DW",
+    "lock_dir": "/ABSOLUTE/PATH/TO/platform-state/runs/locks",
+    "development": {
+      "database": "RETAIL_DW_DEV",
+      "schema_owners": {
+        "MAIN": "BRIGHTMERE_ENGINEER"
+      },
+      "default_owner": "SYSADMIN",
+      "readers": [
+        "BRIGHTMERE_ENGINEER"
+      ]
+    },
+    "staging": {
+      "database": "RETAIL_DW_STAGING",
+      "schema_owners": {
+        "MAIN": "BRIGHTMERE_RELEASE"
+      },
+      "default_owner": "SYSADMIN",
+      "readers": [
+        "BRIGHTMERE_ENGINEER",
+        "BRIGHTMERE_RELEASE"
+      ]
+    },
+    "restore_parallel": 8
+  },
+  "release": {
+    "repository": "YOUR-ORG/retail-dw",
+    "base_branch": "main",
+    "repository_cache": "/ABSOLUTE/PATH/TO/platform-state/runs/release-repo.git",
+    "state_file": "/ABSOLUTE/PATH/TO/platform-state/runs/production_state.json",
+    "releases_dir": "/ABSOLUTE/PATH/TO/platform-state/runs/releases",
+    "dbt": "/ABSOLUTE/PATH/TO/platform-venv/bin/dbt",
+    "profile_name": "retail_dw_master",
+    "threads": 8,
+    "build_timeout_seconds": 1800
+  },
+  "pool": {
+    "clone_prefix": "RETAIL_CLONE_",
+    "databases": 10,
+    "max_new_clones_per_day": 10,
+    "clone_ledger_file": "/ABSOLUTE/PATH/TO/platform-state/runs/clones_created.json",
+    "stale_in_use_minutes": 60,
+    "connection_max_age_seconds": 300,
+    "acquire_poll_seconds": 5,
+    "acquire_wait_seconds": 3600,
+    "lock_file": "/ABSOLUTE/PATH/TO/platform-state/runs/pool.lock"
+  },
+  "container": {
+    "cpus": 2,
+    "memory": "8g",
+    "build_timeout_seconds": 1500,
+    "test_timeout_seconds": 1500
+  },
+  "max_parallel_checks": 8,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "max_upload_bytes": 50000000
+  }
+}

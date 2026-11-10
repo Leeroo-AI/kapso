@@ -1,0 +1,19 @@
+# What a build, a check or the configure step writes here.
+campaign/
+campaign.log
+campaign.learn.log
+data/
+learning/
+greywell-heldout/
+heldout-check/
+repo/results/
+repo/bench/runs/
+evaluation/result.json
+# The files that name a machine: runner/configure.py writes them from runner/templates/.
+repo/bench/endpoint.json
+repo/bench/protection.json
+evaluation/fixed.json
+evaluation/protected/endpoint.json
+evaluation/protected/protection.json
+__pycache__/
+*.pyc

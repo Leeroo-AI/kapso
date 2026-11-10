@@ -178,10 +178,37 @@ def test_a_named_target_deploys_and_the_record_runs(solution, agent):
     assert env["KAPSO_DEPLOYMENT_NAME"] == record.data["deployment_name"] and env["KAPSO_PORT"] == str(record.data["port"])
     assert env["KAPSO_TARGET_DIR"] == str(workspace / ".claude" / "skills" / "local") and env["KAPSO_ENV_FILE"] == str(env_file)
     assert env["KAPSO_OPTION_SCHEDULE"] == "daily" and call["config"].agent_specific["timeout"] == 600
+    # A campaign with no origin and no verification names neither.
+    assert "KAPSO_SOURCE_REMOTE" not in env and "KAPSO_VERIFICATION_DIR" not in env
+    assert "KAPSO_SOURCE_REMOTE" not in call["prompt"] and "KAPSO_VERIFICATION_DIR" not in call["prompt"]
     # The handle returned is the one that proved the deployment: its
     # worker is alive, and no other was left behind.
     assert software._worker is not None and software._worker.poll() is None
     assert software.run({"b": 2}) == {"status": "success", "output": {"ok": {"b": 2}, "state": "running"}} and software.proof["inputs"] == {"a": 1}
+
+
+def test_a_deployment_is_told_where_the_code_came_from_and_what_verification_wrote(solution, agent, tmp_path):
+    """The campaign is a clone of a working copy whose origin is the
+    host: the session and the target's scripts get the host's URL, not
+    the path in between, and the delivered attempt's verification
+    directory."""
+    campaign = solution.campaign
+    working_copy = tmp_path / "working-copy"
+    git_workspace(working_copy)
+    git(working_copy, "remote", "add", "origin", "https://github.com/acme/churn.git")
+    git(campaign, "remote", "add", "origin", str(working_copy))
+    verification = campaign / ".kapso" / "verification" / "generic_exp_0"
+    verification.mkdir(parents=True)
+    (verification / "verdict.json").write_text('{"verdict": "valid", "summary": "holds", "findings": []}')
+    software = deploy(solution, agent)
+    [call] = agent.calls
+    env = call["config"].agent_specific["env_overrides"]
+    assert env["KAPSO_SOURCE_REMOTE"] == "https://github.com/acme/churn.git" and env["KAPSO_VERIFICATION_DIR"] == str(verification)
+    assert "`KAPSO_SOURCE_REMOTE` = `https://github.com/acme/churn.git`" in call["prompt"]
+    assert f"`KAPSO_VERIFICATION_DIR` = `{verification}`" in call["prompt"]
+    scripts_see = software._environment()
+    assert scripts_see["KAPSO_SOURCE_REMOTE"] == "https://github.com/acme/churn.git" and scripts_see["KAPSO_VERIFICATION_DIR"] == str(verification)
+    software.close()
     assert software.logs().count("Traceback") == 0
     software.stop()
 

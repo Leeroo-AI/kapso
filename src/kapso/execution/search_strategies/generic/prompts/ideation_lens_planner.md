@@ -70,7 +70,7 @@ uncarded — and never make it all-supported either; ground the bank has
 not visited is how the bank grows. An empty or irrelevant map makes
 every lens honestly `uncarded`, and this section cost you one call.
 
-{{domain_guidance}}{{experience_intro}}## How to work
+{{domain_guidance}}{{experience_intro}}{{campaign_notes}}## How to work
 
 1. **Research before you write.** Use WebSearch/WebFetch to survey how this
    problem's FAMILY is attacked: the algorithmic literature, known failure

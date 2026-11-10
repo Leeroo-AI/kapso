@@ -55,6 +55,7 @@ def generate_feedback(
     execution_valid: bool = True,
     stage_harness_for: Callable[..., Any],
     verification: Optional[Dict[str, Any]] = None,
+    campaign_notes: str = "",
 ) -> SearchNode:
     """
     Generate feedback for a node using the FeedbackGenerator.
@@ -97,6 +98,7 @@ def generate_feedback(
             verification=render_verification(verification),
             timeout_seconds=deadline_seconds,
             retry_deadline=retry_deadline,
+            campaign_notes=campaign_notes,
         )
         if feedback_result.unjudged:
             # No verdict: the attempt is unjudged, by reason, keeping its

@@ -8,6 +8,7 @@ from kapso.execution.experiment_workspace.experiment_workspace import (
     ExperimentWorkspace,
     WorkspaceCheckoutError,
 )
+from kapso.execution.inbox import leave_note, notes_path
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
 
@@ -309,6 +310,25 @@ def test_session_mcp_config_never_enters_an_experiment_branch(tmp_path: Path) ->
     mcp_dir = Path(workspace.workspace_dir, ".claude_mcp")
     mcp_dir.mkdir()
     (mcp_dir / "mcp_config.json").write_text('{"mcpServers": {"x": {"env": {"OPENAI_API_KEY": "sk-leak"}}}}')
+    workspace.repo.git.add("-A")
+    assert workspace.repo.git.status("--porcelain") == ""
+
+
+def test_a_note_for_the_campaign_never_enters_an_experiment_branch(tmp_path: Path) -> None:
+    """`kapso inbox note` writes `.kapso/notes.jsonl` into the campaign
+    while its sessions run: campaign state like the inbox record, which a
+    branch's `git add -A` must not pick up."""
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "main.py").write_text("print('hi')\n")
+    workspace = ExperimentWorkspace(
+        coding_agent_config=_agent_config(),
+        workspace_dir=str(tmp_path / "workspace"),
+        initial_repo=str(seed),
+    )
+
+    workspace.repo.git.checkout("-b", "exp_0")
+    leave_note(notes_path(workspace.workspace_dir), "the staging warehouse is read-only")
     workspace.repo.git.add("-A")
     assert workspace.repo.git.status("--porcelain") == ""
 

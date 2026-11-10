@@ -45,7 +45,6 @@ Generated data is never committed.
 | `examples/fraud-no-evaluator` | labelled data and a protocol, no evaluator | built (WP1), not yet run |
 | `empty-wish` | a README and nothing else | the driver writes it (a directory holding one README is no example); run in WP7's round |
 | `examples/harnesses/trading` | the author's fixture (the design's `trading-strategy`) | built (WP2); the interview, the probe and the improve pass run in WP7's round |
-| `examples/pipeline-dbt` | the third domain for the guide's test (dbt on DuckDB, shipped 2/13) | built (WP9); the author test's domain |
 
 The evaluator contract every fixture meets: one command from the workspace
 root; the metric on its own line as the last line, `name: value`; a

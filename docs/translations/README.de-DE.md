@@ -330,12 +330,12 @@ Jedes Beispiel ist eine Aufgabe: ein Briefing, ein Start-Repository, die Daten o
 
 | Beispiel | Die Aufgabe |
 |---------|----------|
+| [**Data Engineering (dbt-Modelle auf Snowflake)**](../../examples/dbt-snowflake/README.md) | Die dbt-Modelle mit Datenqualitätsproblemen reparieren und die neuen bauen, die ein Backlog von siebzehn Tickets verlangt, auf einem Einzelhandels-Warehouse auf Snowflake, bis jedes Ticket seine Produktionstests besteht; dann pro Ticket einen Pull Request liefern und sie in die Produktion freigeben. |
+| [**Harness-Optimierung (Kundensupport-Agent)**](../../examples/support-agent-harness/README.md) | Den Harness eines Kundensupport-Agenten optimieren, um das zugrunde liegende LLM von Fable 5.1 auf ein lokales Qwen 27B umzustellen, ohne bei den Kundengesprächen an Lösungsquote zu verlieren, ihn dann in Docker bereitstellen und aus dem Lauf lernen. |
 | [**Prädiktive Modellierung (Kundenabwanderung)**](../../examples/churn-first-build/README.md) | Vorhersagen, welche Kunden gehen werden: die Out-of-Sample-ROC-AUC eines Abwanderungsmodells in Richtung Ziel steigern, unter einem Evaluator, den die Kampagne nicht bearbeiten kann. |
 | [**Betrugserkennung**](../../examples/fraud-no-evaluator/README.md) | Transaktionen auf Betrug bewerten, wenn das Repository keinen Evaluator hat: Das Briefing legt das Protokoll fest, die Kampagne baut zuerst den Evaluator und verbessert dann den Scorer. |
-| [**Data Engineering (dbt-Modell)**](../../examples/pipeline-dbt/README.md) | Ein Einzelhandels-Warehouse auf dbt und DuckDB, dessen nächtliche Exporte mit Defekten ankommen. |
 | [**Quantitative Finanzen**](../../examples/trading/README.md) | Eine tägliche Handelsstrategie über synthetische Instrumente: die Out-of-Sample-Sharpe-Ratio auf dem Trading-Harness steigern, mit dessen Prüfungen bei jedem Versuch. Ein Forschungsbeispiel, keine Finanzberatung. |
 | [**Tabellarisches ML**](../../examples/end-to-end/README.md) | Ein Kaggle-Wettbewerb von Anfang bis Ende: Spaceship Titanic vom Dummy-Klassifikator zu einem echten Modell, dann prüfen, lernen, mit der Lektion erneut bauen und bereitstellen. |
-| [**Prompt Engineering**](../../examples/prompt-harness/README.md) | Eine LLM-Prompt-Vorlage umschreiben, bis die Genauigkeit bei Mathematikaufgaben der AIME 2024 steigt. |
 | [**PyTorch-Optimierung**](../../examples/torch-performance/README.md) | Ein PyTorch-Modul auf CUDA innerhalb einer numerischen Toleranz schneller machen: Fusion, Kompilierung, weniger Speicherverkehr. |
 | [**GPU-Kernel-Optimierung**](../../examples/gpu-kernels/README.md) | Multi-Head-Self-Attention auf CUDA mit Flash Attention oder einem Triton-Kernel beschleunigen, innerhalb einer numerischen Toleranz. |
 

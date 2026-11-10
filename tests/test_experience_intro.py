@@ -53,10 +53,12 @@ def test_the_intro_rides_after_the_guidance_and_before_the_module_section():
 
 
 @pytest.mark.parametrize("template, variables", [
-    (GENERIC + "ideation_lens_planner.md", {"problem": "p", "member_roster": "r", "lens_count": "2", "shared_artifacts_brief": "", "axes": "a"}),
+    (GENERIC + "ideation_lens_planner.md", {"problem": "p", "member_roster": "r", "lens_count": "2", "shared_artifacts_brief": "", "axes": "a",
+                                            "campaign_notes": ""}),
     (GENERIC + "ideation_lens_replanner.md", {"problem": "p", "member_roster": "r", "lens_count": "2", "shared_artifacts_brief": "", "axes": "a",
                                               "campaign_state": "c", "plan_iteration": "1", "previous_lenses": "l", "previous_sources": "s",
-                                              "previous_rationale": "r", "recent_feedback": "f", "champion_solution": "w"}),
+                                              "previous_rationale": "r", "recent_feedback": "f", "champion_solution": "w",
+                                              "campaign_notes": ""}),
 ])
 def test_the_lens_planner_templates_take_the_block_and_render_clean_without_it(template, variables):
     text = load_prompt(template)

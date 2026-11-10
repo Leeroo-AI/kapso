@@ -76,6 +76,8 @@ variables set:
 | `KAPSO_OPTION_<NAME>` | Each option of the call |
 | `KAPSO_VALUE_<KEY>` | Each value the session recorded in the result (`container_port`, `app`, …): what `start.sh` needs to recreate the same deployment |
 | `KAPSO_HARNESS_ROOT` | The harness directory, for a harness target |
+| `KAPSO_SOURCE_REMOTE` | Where the solution's code came from: the campaign repository's `origin`, followed through clones on the machine to the first URL that is not one. Set when the campaign has an origin; a target that delivers back to the repository (pull requests) reads it |
+| `KAPSO_VERIFICATION_DIR` | What verification wrote about the deployed attempt (its verdict and the files beside it). Set when the harness verified the attempt; read it, never change it |
 
 A script's non-zero exit is an error with its stderr (`stop.sh` is the
 exception: its failure is noted, and the deployment is stopped all the

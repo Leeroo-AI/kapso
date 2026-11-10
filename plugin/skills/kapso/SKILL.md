@@ -1,6 +1,6 @@
 ---
 name: kapso
-description: Operate Kapso (PyPI leeroo-kapso), the engine that runs experiments toward a measurable objective, deploys the best solution and learns from every run, from a coding session — launch a build and hand it off, follow it with kapso watch, answer a campaign that is WAITING ON YOU, tell a slow run from a dead one and stop or resume it, learn from a finished campaign into your bank, serve a build or this session the experience it should start from, deploy the winner, and run the harness and experience verbs. Use when the user mentions Kapso or kapso build, watch, inbox, resume, stop, learn, experience, harness, deploy or doctor, asks how a campaign is doing, or says a run died. Do not use for ordinary code edits, for writing the objective and its evaluation (kapso-build does that), for reading a finished run's result (kapso-review does that), or inside a Kapso campaign session, which never launches another campaign.
+description: Operate Kapso (PyPI leeroo-kapso), the engine that runs experiments toward a measurable objective, deploys the best solution and learns from every run, from a coding session — launch a build and hand it off, follow it with kapso watch, answer a campaign that is WAITING ON YOU or leave it a note, tell a slow run from a dead one and stop or resume it, learn from a finished campaign into your bank, serve a build or this session the experience it should start from, deploy the winner or ship it through a harness's target (pull requests), and run the harness and experience verbs. Use when the user mentions Kapso or kapso build, watch, inbox, resume, stop, learn, experience, harness, deploy or doctor, asks how a campaign is doing or to ship its result, or says a run died. Do not use for ordinary code edits, for writing the objective and its evaluation (kapso-build does that), for reading a finished run's result (kapso-review does that), or inside a Kapso campaign session, which never launches another campaign.
 ---
 
 # Kapso
@@ -126,8 +126,8 @@ kapso watch --config kapso-config.yaml                   # every campaign of thi
 ```
 
 Answer "how is it going" in three lines from `--json`: the state and phase with the
-iteration, the best score and its branch against the brief's baseline and target, the
-budget left — the launch's minutes and experiments less what the status shows used,
+iteration, the best score and its branch against the brief's target (and its baseline
+when the brief states one), the budget left — the launch's minutes and experiments less what the status shows used,
 read from the launch record when the status does not carry them, never "not
 reported"; add what the last attempt consulted when the user asks what it is doing.
 Each line is a fact the user did not have, with its figure. A number you state — a
@@ -142,19 +142,18 @@ writing a status` means the launch died, and the log says why.
 
 ## Inbox: the campaign is waiting on you
 
-A session that needs something only a person can provide (a credential, access, a
-file) records a request and the campaign pauses.
+A session that needs something only a person can provide (a credential, access, a file) records a request and the campaign pauses.
 
 ```bash
 kapso inbox ./campaign --config kapso-config.yaml                                    # the open requests: key, hit, tried, fix, next
 kapso inbox reply ./campaign 1 "added the key to .env" --detach --config kapso-config.yaml
+kapso inbox note ./campaign "the staging schema is read-only" --config kapso-config.yaml   # when the user wants to tell a running campaign something
 ```
 
-- The id may be omitted when one request is open; an empty note means done.
-- The reply resumes the very session that asked, in a session of its own with
-  `--detach`; hand off with the `watch` line it prints.
-- A credential-shaped reply is refused: put the value where `fix` says (usually
-  `.env`) and reply with a note. Never carry a value through your reply.
+- The id may be omitted when one request is open; an empty reply means done. The reply resumes the very session that
+  asked, in a session of its own with `--detach`; hand off with the `watch` line it prints.
+- A note pauses nothing. The session running now does not see it; every ideation, implementation and judging session that starts afterwards reads every note.
+- Never carry a value through a reply or a note; a credential-shaped one is refused. Put the value where `fix` says (usually `.env`) and say so.
 
 ## Slow, stalled, dead: diagnose, then stop or resume
 
@@ -274,13 +273,11 @@ verdicts and judgments; `--json` is the same as data.
 
 ## Deploy
 
-Deploy runs one session that adapts a copy of the solution to a target, deploys it
-with the target's scripts, proves one call, and returns when the engine has checked
-the result. It takes minutes (up to thirty, the session's deadline). Run it in the
-foreground when your tool's timeout allows; when it does not (Claude Code's Bash tool
-stops at ten minutes), run it once in the background writing to a log and wait for
-the summary to appear there, never a second time. The record is written when the
-deploy starts, so `--status` says what is deploying even while the call runs.
+Deploy runs one session that adapts a copy of the solution to a target, deploys it with the target's scripts, proves one
+call, and returns when the engine has checked the result. It takes minutes (up to thirty, the session's deadline). Run it
+in the foreground when your tool's timeout allows; when it does not (Claude Code's Bash tool stops at ten minutes), run it
+once in the background writing to a log and wait for the summary to appear there, never a second time. The record is
+written when the deploy starts, so `--status` says what is deploying even while the call runs.
 
 ```bash
 kapso doctor deploy --json --config kapso-config.yaml
@@ -292,9 +289,8 @@ kapso deploy ../churn-campaign --stop --number 1 --config kapso-config.yaml
 kapso deploy ../churn-campaign --start --number 1 --config kapso-config.yaml
 ```
 
-The summary names the deployment's number, how `run()` calls it, the call the
-session proved (the example of what it takes), the engine's own answer to it, and
-the next actions pinned to that number. To call what was deployed, reopen that
+The summary names the deployment's number, how `run()` calls it, the call the session proved (the example of what it
+takes), the engine's own answer to it, and the next actions pinned to that number. To call what was deployed, reopen that
 number from Python:
 
 ```python
@@ -305,13 +301,16 @@ print(software.run(software.proof["inputs"]))       # the same call; your own in
 software.stop()
 ```
 
-A scheduled target (the trading example's `paper-trading`) runs on its own; read
-`--logs`, and `run()` runs one cycle on demand. The original solution is untouched:
-the deployment lives under `<campaign>/.kapso/deployments/<n>/`. `--target auto` lets
-the session choose among the targets this machine can serve and records why. The
-local target runs the function in the engine's own interpreter: upgrading the
-`leeroo-kapso` package replaces it, so the solution's requirements are reinstalled
-there after an upgrade.
+A harness can bring delivery targets of its own: its deployment skills that carry `scripts/deploy.sh` (an unknown
+`--target` is refused with the list). Shipping, delivering, opening pull requests for or releasing what a campaign built
+is `kapso deploy` with such a target, never branches, pushes or pull requests made by hand: the target cuts them from the
+delivered commit, checks and records them. Merging stays the user's act: relay the summary's merge order, and follow it.
+
+A scheduled target (the trading example's `paper-trading`) runs on its own; read `--logs`, and `run()` runs one cycle on
+demand. The original solution is untouched: the deployment lives under `<campaign>/.kapso/deployments/<n>/`. `--target
+auto` lets the session choose among the targets this machine can serve and records why. The local target runs the
+function in the engine's own interpreter: upgrading the `leeroo-kapso` package replaces it, so the solution's
+requirements are reinstalled there after an upgrade.
 
 ## Models and config
 

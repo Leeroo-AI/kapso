@@ -329,12 +329,12 @@ preflight:
 
 | 範例 | 任務 |
 |---------|----------|
+| [**資料工程（Snowflake 上的 dbt 模型）**](../../examples/dbt-snowflake/README.md) | 在 Snowflake 上的零售資料倉儲中，修正有資料品質問題的 dbt 模型，並建立一份含十七張工單的待辦清單所要求的新模型，直到每張工單都通過其正式環境測試；接著為每張工單交付一個 pull request，並將它們發布到正式環境。 |
+| [**Harness 最佳化（客戶支援代理）**](../../examples/support-agent-harness/README.md) | 最佳化客戶支援代理的 harness，將底層 LLM 從 Fable 5.1 切換為本機的 Qwen 27B，同時不降低客戶對話的解決率，接著在 Docker 中部署它，並從這次執行中學習。 |
 | [**預測式建模（客戶流失）**](../../examples/churn-first-build/README.md) | 預測哪些客戶將會離開：在戰役無法編輯的評估器下，將流失模型的樣本外 ROC AUC 提升至目標。 |
 | [**詐欺偵測**](../../examples/fraud-no-evaluator/README.md) | 在儲存庫沒有評估器的情況下為交易評定詐欺分數：簡報陳述協定，戰役先建立評估器，再改進評分器。 |
-| [**資料工程（dbt 模型）**](../../examples/pipeline-dbt/README.md) | 一個建立在 dbt 與 DuckDB 上的零售資料倉儲，其每夜匯出的資料帶有缺陷。 |
 | [**量化金融**](../../examples/trading/README.md) | 針對合成金融商品的每日交易策略：在交易 harness 上提升樣本外 Sharpe 值，每次嘗試都經過其檢查。這是研究範例，並非財務建議。 |
 | [**表格式機器學習**](../../examples/end-to-end/README.md) | 一場 Kaggle 競賽從頭到尾：Spaceship Titanic 從虛擬分類器到真正的模型，然後審閱、學習、帶著教訓再次 build，並部署。 |
-| [**提示詞工程**](../../examples/prompt-harness/README.md) | 改寫 LLM 提示詞範本，直到在 AIME 2024 數學題上的準確率提升。 |
 | [**PyTorch 最佳化**](../../examples/torch-performance/README.md) | 在數值容差內讓 PyTorch 模組在 CUDA 上更快：融合、編譯、更少的記憶體流量。 |
 | [**GPU 核心最佳化**](../../examples/gpu-kernels/README.md) | 以 flash attention 或 Triton 核心在 CUDA 上加速多頭自注意力，並保持在數值容差內。 |
 

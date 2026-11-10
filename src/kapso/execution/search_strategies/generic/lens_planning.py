@@ -293,6 +293,7 @@ def resolve_member_lenses(
     run_planner_session: Callable[[str, str], tuple],
     domain_guidance: str = "",
     experience_intro: str = "",
+    campaign_notes: str = "",
 ) -> tuple:
     """Task-aware lenses, replanned per iteration; returns (lenses, cost).
 
@@ -344,6 +345,7 @@ def resolve_member_lenses(
                 "shared_artifacts_brief": shared_artifacts_brief,
                 "domain_guidance": optional_block(domain_guidance),
                 "experience_intro": optional_block(experience_intro),
+                "campaign_notes": optional_block(campaign_notes),
             },
         )
         result, cost = run_planner_session(prompt, ideation_dir)
@@ -410,6 +412,7 @@ def resolve_member_lenses(
             "champion_solution": champion_solution,
             "domain_guidance": optional_block(domain_guidance),
             "experience_intro": optional_block(experience_intro),
+            "campaign_notes": optional_block(campaign_notes),
         },
     )
     result, cost = run_planner_session(prompt, ideation_dir)

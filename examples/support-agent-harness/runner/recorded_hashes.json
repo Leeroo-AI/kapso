@@ -1,0 +1,29 @@
+{
+  "recorded": "2026-11-08",
+  "note": "The runner-side conditions this example was made with, as its evaluation fixed them: paths relative to the runner's source, tau2-bench-2.0.0. runner/configure.py compares your runner with these and says which differ; the run script and its settings are yours and are not compared.",
+  "files": {
+    "pyproject.toml": "0067cd39afe2954f2d857c88dbbc5e36a5268d8f618c567313515ada0a5ae3bb",
+    "uv.lock": "fd02822de6c65187053a1499e58b5bcbce7513d6f21cbb144750413f7b2d715a",
+    "data/tau2/domains/banking_knowledge/db.json": "e692feb797c659f0e21ff7380aa87beb4e95a0694d7bb7945f073102f0293d28"
+  },
+  "trees": {
+    "src/tau2": {
+      "pattern": "*.py",
+      "exclude": ["__pycache__"],
+      "files": 393,
+      "sha256": "606b1060c202f6fd78f331ab441455d22e8e019844f9b25cfbd913058e7f708a"
+    },
+    "data/tau2/domains/banking_knowledge/prompts": {
+      "pattern": "*",
+      "exclude": ["__pycache__"],
+      "files": 17,
+      "sha256": "22d16063902063fa63a71e559a8dfda9bd7c1a249ee8dd2406ad7c4cd369257c"
+    },
+    "data/tau2/domains/banking_knowledge/documents": {
+      "pattern": "*",
+      "exclude": ["__pycache__"],
+      "files": 698,
+      "sha256": "962d81c8736c0e6dffd18a07ba99d84c6c49952660261c0aadc93b12f948c3be"
+    }
+  }
+}

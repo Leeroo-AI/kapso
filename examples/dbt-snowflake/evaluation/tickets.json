@@ -1,0 +1,22 @@
+{
+  "tickets": [
+    {"key": "daily-revenue", "area": "revenue", "title": "Daily revenue report: missing days and a wrong running total"},
+    {"key": "category-revenue", "area": "revenue", "title": "Category performance report: suspicious numbers"},
+    {"key": "midnight-sales", "area": "revenue", "title": "Daily sales are wrong around midnight"},
+    {"key": "return-reconciliation", "area": "revenue", "title": "Return reconciliation report: invalid values, missing returns, and a new velocity tier"},
+    {"key": "repeat-purchase-cohorts", "area": "revenue", "title": "Repeat purchase cohort revenue: rebuild the mart"},
+    {"key": "customer-dimension", "area": "customer", "title": "Customer dimension: numbers do not reconcile with upstream data"},
+    {"key": "customer-ltv", "area": "customer", "title": "Customer lifetime value is overstated"},
+    {"key": "customer-snapshot", "area": "customer", "title": "Customer history snapshot is wrong; add a current-customer dimension on top of it"},
+    {"key": "customer-activity", "area": "customer", "title": "Customer activity table for churn analysis"},
+    {"key": "daily-cohorts", "area": "customer", "title": "Daily cohort retention report"},
+    {"key": "inventory-metrics", "area": "inventory", "title": "Product inventory metrics: invalid values, and two missing classifications"},
+    {"key": "inventory-balance", "area": "inventory", "title": "Cumulative product sales tracking"},
+    {"key": "product-metrics", "area": "inventory", "title": "Product performance metrics"},
+    {"key": "email-attribution", "area": "marketing", "title": "Email attribution report broke: rebuild it"},
+    {"key": "multi-touch-attribution", "area": "marketing", "title": "Multi-touch attribution report broke: rebuild it"},
+    {"key": "paid-search-attribution", "area": "marketing", "title": "Paid search attribution report broke: rebuild it"},
+    {"key": "cac-payback", "area": "marketing", "title": "CAC payback waterfall broke: rebuild it"}
+  ],
+  "smoke": ["daily-revenue", "customer-activity", "product-metrics", "email-attribution"]
+}

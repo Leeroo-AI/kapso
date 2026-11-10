@@ -350,9 +350,11 @@ class ExperimentWorkspace:
             ".kapso/status.json",
             ".kapso/.status.*.tmp",
             # The inbox record and the launch record (design v4) are
-            # campaign state like the checkpoint, never branch content.
+            # campaign state like the checkpoint, never branch content;
+            # so are the notes the person leaves (`kapso inbox note`).
             ".kapso/inbox.jsonl",
             ".kapso/launch.json",
+            ".kapso/notes.jsonl",
             # An open change request's mark and the history's rewrite are
             # campaign state like the checkpoint, never branch content.
             ".kapso/evaluation_change_open.*",

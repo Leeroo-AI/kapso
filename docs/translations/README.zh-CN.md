@@ -330,12 +330,12 @@ preflight:
 
 | 示例 | 任务 |
 |---------|----------|
+| [**数据工程（Snowflake 上的 dbt 模型）**](../../examples/dbt-snowflake/README.md) | 在 Snowflake 上的零售数据仓库中，修复存在数据质量问题的 dbt 模型，并构建一份包含十七个工单的待办清单所要求的新模型，直到每个工单都通过其生产测试；然后为每个工单交付一个 pull request，并将它们发布到生产环境。 |
+| [**Harness 优化（客户支持智能体）**](../../examples/support-agent-harness/README.md) | 优化客户支持智能体的 harness，将底层 LLM 从 Fable 5.1 切换为本地的 Qwen 27B，同时不降低客户对话的解决率，然后在 Docker 中部署它，并从这次运行中学习。 |
 | [**预测建模（客户流失）**](../../examples/churn-first-build/README.md) | 预测哪些客户会流失：在活动无法编辑的评估器下，将流失模型的样本外 ROC AUC 提升至目标。 |
 | [**欺诈检测**](../../examples/fraud-no-evaluator/README.md) | 在仓库没有评估器的情况下为交易打欺诈分：简报说明协议，活动先构建评估器，再改进打分器。 |
-| [**数据工程（dbt 模型）**](../../examples/pipeline-dbt/README.md) | 一个基于 dbt 和 DuckDB 的零售数据仓库，其每晚的导出数据带有缺陷。 |
 | [**量化金融**](../../examples/trading/README.md) | 一个针对合成金融工具的日频交易策略：在交易 harness 上提升样本外 Sharpe 比率，每次尝试都要经过它的检查。这是一个研究示例，不是投资建议。 |
 | [**表格机器学习**](../../examples/end-to-end/README.md) | 端到端的一场 Kaggle 竞赛：Spaceship Titanic 从一个哑分类器到一个真正的模型，然后审查、学习、带着经验教训再次构建，并部署。 |
-| [**提示工程**](../../examples/prompt-harness/README.md) | 重写 LLM 提示词模板，直到在 AIME 2024 数学题上的准确率上升。 |
 | [**PyTorch 优化**](../../examples/torch-performance/README.md) | 在数值容差范围内让一个 PyTorch 模块在 CUDA 上运行得更快：融合、编译、减少内存流量。 |
 | [**GPU 内核优化**](../../examples/gpu-kernels/README.md) | 在数值容差范围内，用 flash attention 或 Triton 内核加速 CUDA 上的多头自注意力。 |
 

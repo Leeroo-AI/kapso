@@ -293,7 +293,7 @@ def test_snapshot_room_and_deadline_never_raised():
     assert unbudgeted.deadline(600, None) == 600 and unbudgeted.deadline(None, None) is None
 
 
-def test_budget_status_block_renders_in_all_modes():
+def test_budget_status_block_renders_in_all_modes(tmp_path):
     from kapso.core.prompt_loader import load_prompt
     from kapso.execution.search_strategies.generic.strategy import (
         GenericSearch,
@@ -308,6 +308,7 @@ def test_budget_status_block_renders_in_all_modes():
 
     strategy = GenericSearch.__new__(GenericSearch)
     strategy.harness = None
+    strategy.workspace_dir = str(tmp_path)   # a prompt reads the campaign's notes from it
     strategy.experience_intro_path = None
     strategy.hosted = None
     strategy.iteration_count = 4

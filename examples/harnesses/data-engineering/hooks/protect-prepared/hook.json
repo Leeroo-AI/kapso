@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {"type": "command", "command": "python3 ${PLUGIN_ROOT}/hooks/protect-prepared/protect_prepared.py"}
+        ]
+      }
+    ]
+  }
+}

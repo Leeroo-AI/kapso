@@ -623,11 +623,14 @@ def select_from_candidates(
     artifacts_dir: str,
     stage_harness_for: Callable[..., StagedHarness],
     note_session_spend: Callable[[float], None],
+    campaign_notes: str = "",
 ) -> Dict[str, Any]:
     """Run the selector-critic session over the pooled candidates.
 
     Returns {"solutions": List[str] (rank order, len<=node_expansion_value),
     "cost_usd": float}. With expansion 1 this is today's single pick.
+    ``campaign_notes`` is the rendered section of the person's notes: the
+    selector writes the solution that gets built, so it reads them too.
     """
     expansion = node_expansion_value
     candidates_block = "\n\n".join(
@@ -646,6 +649,7 @@ def select_from_candidates(
             "campaign_state": campaign_state,
             "candidates": candidates_block,
             "domain_guidance": optional_block(staged.guidance),
+            "campaign_notes": optional_block(campaign_notes),
         },
     )
     if expansion > 1:
@@ -783,6 +787,7 @@ def build_ideation_prompt(
     knowledge_tools: str = "",
     domain_guidance: str = "",
     experience_intro: str = "",
+    campaign_notes: str = "",
 ) -> str:
     """Build the ideation prompt for Claude Code. ``inbox_ideation`` is
     the rendered inbox block — the rule against designing around a
@@ -790,7 +795,9 @@ def build_ideation_prompt(
     the prompt byte-identical to before the inbox). ``knowledge_tools``
     is the guidance of the gates this session mounted (empty for a
     session with no gates); ``experience_intro`` what the campaign is
-    served, measured before (empty when nothing is loaded)."""
+    served, measured before (empty when nothing is loaded);
+    ``campaign_notes`` the rendered section of the person's notes (empty
+    without notes)."""
     # Load and render the prompt template
     template = load_prompt("execution/search_strategies/generic/prompts/ideation_claude_code.md")
     return render_prompt(
@@ -804,6 +811,8 @@ def build_ideation_prompt(
             "knowledge_tools": knowledge_tools,
             "domain_guidance": optional_block(domain_guidance),
             "experience_intro": optional_block(experience_intro),
+            # Last, so nothing is substituted into the person's own words.
+            "campaign_notes": optional_block(campaign_notes),
         },
     )
 

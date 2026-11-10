@@ -19,6 +19,7 @@ import pytest
 
 from kapso.execution.search_strategies.base import SearchNode
 from kapso.core.roles import resolve_members, resolve_optional
+from kapso.execution.inbox import leave_note, notes_path
 from kapso.execution.search_strategies.generic.lens_planning import (
     LENS_PLAN_FILENAME,
     LENS_PLAN_HISTORY_FILENAME,
@@ -28,7 +29,7 @@ from kapso.execution.search_strategies.generic.lens_planning import (
     validate_lens_planner,
 )
 from kapso.execution.search_strategies.generic.strategy import GenericSearch
-from strategy_support import generic_params, packaged_hosts
+from strategy_support import every_prompt_slot, generic_params, packaged_hosts
 
 HOSTS = packaged_hosts()
 PARAMS = generic_params()
@@ -316,6 +317,29 @@ def test_initial_plan_runs_persists_and_records_history(tmp_path, fake_planner):
     assert saved["decision"] == "initial" and saved["iteration"] == 1
     assert [h["decision"] for h in _history(tmp_path)] == ["initial"]
     assert _history(tmp_path)[0]["axes"] == AXES
+
+
+def test_the_planner_and_the_replanner_read_the_campaigns_notes(tmp_path, fake_planner):
+    """The lenses aim the whole ensemble, so what the person told the
+    campaign (`kapso inbox note`) reaches the session that writes them, at
+    the first plan and at every keep-or-revise after it."""
+    # Every slot by name: a variable substituted after the notes would rewrite them.
+    note = "Stop exploring ratings features.\nTry a pretrained family next.\n" + every_prompt_slot()
+    leave_note(notes_path(tmp_path), note)
+    strategy = make_stub(tmp_path)
+    fake_planner.outputs = [
+        {"output": "<axes>\n1. axis one\n2. axis two\n</axes><lens_1>a a</lens_1><lens_2>b b</lens_2><sources>- s</sources>"},
+        {"output": "<keep>still the highest-return angles</keep>"},
+    ]
+    strategy._resolve_member_lenses("problem", str(tmp_path))
+    strategy.iteration_count = 2
+    strategy._resolve_member_lenses("problem", str(tmp_path))
+
+    planner, replanner = (call["prompt"] for call in fake_planner.calls)
+    assert "## How to work" in planner and "## How to decide (return economics)" in replanner
+    for prompt in (planner, replanner):
+        assert prompt.count("## Notes from the person running this campaign") == 1
+        assert note in prompt
 
 
 def test_initial_planner_failure_still_raises(tmp_path, fake_planner):

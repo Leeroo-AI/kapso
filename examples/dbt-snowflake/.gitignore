@@ -1,0 +1,8 @@
+# Assembled by assemble.py from repo-template/ and a data-eng-bench checkout; a repository of its own.
+repo/
+# A link to ../harnesses, for a plugin session opened in repo/ (README, "Run it").
+harnesses
+# The platform's config names an account, identities and key files: copied from config.example.json, never committed.
+platform/config.json
+# What an evaluation writes beside its script.
+evaluation/result.json

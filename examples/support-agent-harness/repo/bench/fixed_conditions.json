@@ -1,0 +1,12 @@
+{
+  "model": "Qwen/Qwen3.8-27B-FP8, served by vLLM 0.32.0 with --max-model-len 262144 --kv-cache-dtype fp8 --enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3; thinking on",
+  "runner_sampling": "temperature 0 on every call the runner makes; what the harness sends upstream is the harness's",
+  "retrieval_config": "alltools: BM25, dense retrieval over Qwen/Qwen3-Embedding-8B served beside the model, a sandboxed shell over the documents",
+  "customer_simulator": "azure/gpt-5.2 at temperature 0: our Azure deployment of gpt-5.2 (snapshot gpt-5.2-2025-12-11, api-version 2025-04-01-preview); the recorded runs of 2026-11-02 used openrouter/openai/gpt-5.2",
+  "runner": "the conversation runner in its own directory (see RUNNER.md), banking domain, seed 300, LiteLLM 1.81.11",
+  "conversation_limits": "200 steps, 10 tool errors in a row, 3 retries when a conversation hits an error, no wall-clock timeout",
+  "development_set": "the 20 conversations listed in bench/dev_tasks.json, 1 trial each",
+  "sealed_set": "20 conversations never shown to the build, run by the team on the delivered harness at these settings, beside the recorded single runs of the current agent and of the frontier reference on them",
+  "concurrency": "6 conversations at a time",
+  "harness_variables": "everything the service does to a request before it reaches the model and to a reply before it reaches the runner: prompt and context shaping, retries, checks, sampling and thinking budget per request; recorded as VERSION and SETTINGS in harness/serve.py and reported by /health"
+}
