@@ -160,11 +160,11 @@ def _agent(source: Path, name: str, host: str, into: Path, export: HarnessExport
     export.next_steps.append(
         "add to ~/.codex/config.toml:\n"
         f"    [agents.{name}]\n"
-        f"    description = {json.dumps(str(data['description']))}\n"
+        f"    description = {json.dumps(str(data['description']), ensure_ascii=False)}\n"
         f"    config_file = {json.dumps(str(into / relative))}"
     )
     return relative, lambda: (into / relative).write_text(
-        f"developer_instructions = {json.dumps(body.strip() + chr(10))}\n", encoding="utf-8",
+        f"developer_instructions = {json.dumps(body.strip() + chr(10), ensure_ascii=False)}\n", encoding="utf-8",
     )
 
 

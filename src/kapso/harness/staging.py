@@ -423,7 +423,9 @@ class _Stager:
             roles = {}
             for name, (description, prompt) in prompts.items():
                 file = directory / f"{name}.toml"
-                write_whole(file, f"developer_instructions = {json.dumps(prompt)}\n")
+                # Not ASCII-escaped: JSON writes a character past U+FFFF (an
+                # emoji) as a surrogate pair, which TOML does not accept.
+                write_whole(file, f"developer_instructions = {json.dumps(prompt, ensure_ascii=False)}\n")
                 roles[name] = {"description": description, "config_file": str(file)}
             self.staged.agent_specific["agents"] = roles
 

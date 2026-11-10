@@ -146,7 +146,7 @@ def agent_role_overrides(agents: Dict[str, Dict[str, str]]) -> List[str]:
     for name, spec in agents.items():
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError(f"agent role name not TOML-bare-key safe: {name!r}")
-        overrides += ["-c", f"agents.{name}.description={json.dumps(spec['description'])}"]
+        overrides += ["-c", f"agents.{name}.description={json.dumps(spec['description'], ensure_ascii=False)}"]
         overrides += ["-c", f"agents.{name}.config_file={json.dumps(spec['config_file'])}"]
     return overrides
 
