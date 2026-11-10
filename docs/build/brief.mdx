@@ -42,7 +42,7 @@ solution = Kapso().build(
 |---|---|---|
 | `Objective` | What to build, in as many lines as it takes. A number in it is what the judge checks | yes |
 | `Measured by` | The evaluator (`kapso_evaluation/evaluate.py` when you pass one), or the protocol a campaign-built evaluator must follow: data, split, seed, metric | no |
-| `Baseline` | Where the starting code stands, measured before launch when an evaluator exists; `unknown` otherwise | no |
+| `Baseline` | Where the starting code stands: a figure you measured or one the repository records, named with its source. A build needs none, since its first evaluation is the first measurement; leave the line out when you have no figure | no |
 | `Target` | The number that ends the campaign. Given, or proposed with headroom and said so | no |
 | `Rules` | Invariants the judge enforces on every candidate: the evaluator untouched, no fitting on the hold-out, no rows dropped, data read-only | no |
 | `Budget` | `minutes`, `experiments`, `usd` (model spend), `reserve_minutes` (escrowed for the final checkout and evaluation) | no |
@@ -65,9 +65,13 @@ an hour of experiments.
 
 ## Three cases, by what you have
 
-- **An evaluator.** Run it once for the baseline, put the metric and the
-  target in the brief, pass the evaluator with `--evaluation`. It is
-  protected: a candidate that edits it is rejected and unscored.
+- **An evaluator.** Put the metric and the target in the brief and pass
+  the evaluator with `--evaluation`. It is protected: a candidate that
+  edits it is rejected and unscored. Add `Baseline` when you have the
+  starting code's figure; when one run of the evaluator is cheap, that run
+  gives it to you, and when it costs an hour, a GPU or paid calls, leave
+  the line out and let the campaign's first evaluation be the first number.
+  The plugin never runs it for you before you approve the brief.
 - **A success criterion, no evaluator.** Write the protocol under
   `Measured by`: the data, the split, the seed, the metric and how it is
   printed. The campaign's first node builds the evaluator from it, the judge
@@ -75,7 +79,8 @@ an hour of experiments.
   See [Evaluation](/docs/build/evaluation).
 - **Nothing yet.** Write the objective and the best measurement you can
   name, and `Target` as `maximise within budget`. The campaign measures
-  first; the first result replaces `unknown` in `Baseline`.
+  first: its first evaluation is the starting point every later one is
+  read against.
 
 ## Rules, not methods
 
