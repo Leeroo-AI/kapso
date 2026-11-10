@@ -7,7 +7,7 @@ branches. It never writes into the campaign and makes no model calls.
 
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from kapso.execution.cost_estimator import campaign_cost_used, effective_cost
 from kapso.execution.fidelity import full_eval_score
@@ -40,12 +40,7 @@ def render_campaign_report(campaign: str | Path, *, top: int) -> str:
     if isinstance(top, bool) or not isinstance(top, int) or top < 1:
         raise ValueError(f"top must be a positive integer, got {top!r}")
     campaign = Path(campaign).expanduser()
-    checkpoint = RunCheckpointStore(str(campaign)).load()
-    status = OperationStatusView(campaign)
-    history = checkpoint.strategy_state.get("node_history")
-    if not isinstance(history, list):
-        raise ValueError(f"{campaign} checkpoint has no node history")
-    nodes = [SearchNode.from_dict(node) for node in history]
+    checkpoint, status, history, nodes = load_campaign_state(campaign)
     selection_config = {
         "cost": checkpoint.cost_config,
         "maximize_scoring": checkpoint.maximize_scoring,
@@ -68,13 +63,23 @@ def render_campaign_report(campaign: str | Path, *, top: int) -> str:
     return "\n\n".join(sections) + "\n"
 
 
-def _summary(
+def load_campaign_state(
     campaign: Path,
-    checkpoint: RunCheckpoint,
-    status: OperationStatusView,
-    nodes: Sequence[SearchNode],
-) -> str:
-    launch = read_launch_record(campaign) or {}
+) -> Tuple[RunCheckpoint, OperationStatusView, List[Dict[str, Any]], List[SearchNode]]:
+    """A campaign's checkpoint, its status view, and its node history as
+    stored and as nodes. A missing checkpoint or status raises, and so
+    does a checkpoint with no node history."""
+    checkpoint = RunCheckpointStore(str(campaign)).load()
+    status = OperationStatusView(campaign)
+    history = checkpoint.strategy_state.get("node_history")
+    if not isinstance(history, list):
+        raise ValueError(f"{campaign} checkpoint has no node history")
+    return checkpoint, status, history, [SearchNode.from_dict(node) for node in history]
+
+
+def campaign_state(status: OperationStatusView) -> str:
+    """The state line a campaign's status reads as: its state, whether its
+    process is gone or stalled, why it stopped, and its error."""
     state = status.state
     if status.dead:
         state += " (its process is gone)"
@@ -88,6 +93,25 @@ def _summary(
         )
     if status.data.get("error"):
         state += f", error: {status.data['error']}"
+    return state
+
+
+def delivered_score(node: SearchNode, evaluator_id: str) -> Optional[float]:
+    """A delivered node's authoritative score: its full-fidelity
+    measurement under the registered evaluator when it has one, else the
+    node's own score."""
+    full_score = full_eval_score(node, evaluator_id) if evaluator_id else None
+    return node.score if full_score is None else full_score
+
+
+def _summary(
+    campaign: Path,
+    checkpoint: RunCheckpoint,
+    status: OperationStatusView,
+    nodes: Sequence[SearchNode],
+) -> str:
+    launch = read_launch_record(campaign) or {}
+    state = campaign_state(status)
     lines = ["# Campaign report", ""]
     lines.extend(f"> {line}".rstrip() for line in checkpoint.goal.strip().splitlines())
     lines.extend([
@@ -128,13 +152,12 @@ def _against(value: str, budget: Any) -> str:
 def _deliverable(node: Optional[SearchNode], evaluator_id: str) -> str:
     if node is None:
         return "## Deliverable\n\nNo scored candidate yet."
-    full_score = full_eval_score(node, evaluator_id) if evaluator_id else None
     lines = [
         "## Deliverable",
         "",
         f"- **Node:** {node.node_id}",
         f"- **Branch:** `{node.branch_name}`",
-        f"- **Score:** {_score(node.score if full_score is None else full_score)}",
+        f"- **Score:** {_score(delivered_score(node, evaluator_id))}",
     ]
     idea = idea_line(node.solution)
     if idea:
@@ -174,7 +197,7 @@ def _leaderboard(
         "",
         f"Top {len(leaders)} of {scored} scored candidates, in the campaign's own ranking.",
         "",
-        _table(header, rows),
+        markdown_table(header, rows),
     ])
 
 
@@ -312,7 +335,7 @@ def _human_input(requests: Dict[int, Request]) -> str:
             request.state,
             reply,
         ])
-    return "## Human input\n\n" + _table(
+    return "## Human input\n\n" + markdown_table(
         ["Request", "Node", "Needs", "Fix", "State", "Reply"], rows
     )
 
@@ -334,7 +357,7 @@ def _score(value: Optional[float]) -> str:
     return "unscored" if value is None else f"{value:.6g}"
 
 
-def _table(header: List[str], rows: List[List[str]]) -> str:
+def markdown_table(header: List[str], rows: List[List[str]]) -> str:
     lines = [_row(header), "|" + "|".join("---" for _ in header) + "|"]
     lines.extend(_row(row) for row in rows)
     return "\n".join(lines)

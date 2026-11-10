@@ -2,7 +2,7 @@
 title: "Kapso CLI reference: every command, flag and default"
 sidebarTitle: "CLI"
 description: "The ten kapso commands and their subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
-keywords: ["kapso CLI", "kapso build", "kapso harness", "kapso experience", "kapso learn", "kapso report", "kapso doctor", "command reference", "CLI flags"]
+keywords: ["kapso CLI", "kapso build", "kapso harness", "kapso experience", "kapso learn", "kapso report", "kapso compare", "kapso doctor", "command reference", "CLI flags"]
 ---
 
 Kapso installs the `kapso` executable with ten commands, and `kapso-mcp`, the MCP server that serves Kapso's experience to the coding-agent session you work in (see [below](#kapso-mcp)).
@@ -18,6 +18,7 @@ Kapso installs the `kapso` executable with ten commands, and `kapso-mcp`, the MC
 | [`kapso trace`](#kapso-trace) | Read a campaign's record after the fact: the attempts, the lessons, what was voided, what was delivered |
 | [`kapso inbox`](#kapso-inbox) | What a paused campaign is waiting on you for, and the reply that resumes it |
 | [`kapso report`](#kapso-report) | Export a campaign as a shareable Markdown summary |
+| [`kapso compare`](#kapso-compare) | Set two campaigns side by side: the delivered scores, the spend, how each search progressed |
 | [`kapso doctor`](#kapso-doctor) | Check this machine can run what your config asks for |
 
 ## Global options
@@ -457,6 +458,34 @@ A directory without a run checkpoint or a status file fails with an explicit err
 kapso report ./campaign
 kapso report ./campaign -o report.md
 kapso report ./campaign --top 10
+```
+
+## kapso compare
+
+Sets two campaigns side by side, for the question every re-run asks: did the one thing I changed (a harness, a model, an experience source, a budget) help. Like `kapso report` it is a pure reader: it uses only each campaign's run checkpoint and status file, writes nothing into either and makes no model calls.
+
+| Argument | What it does | Default |
+|----------|--------------|---------|
+| `campaign_a` | The first campaign directory, called A. **Required** | n/a |
+| `campaign_b` | The second campaign directory, called B. **Required** | n/a |
+| `-o`, `--output` | Write the comparison to this file instead of stdout | stdout |
+| `--json` | Print the comparison as data: `{a, b, comparability: {blockers, warnings}, verdict: {winner, reason}}`, each side carrying the facts the tables show and `progress`, the best score so far after each candidate | off |
+
+The comparison has four sections:
+
+| Section | Contents |
+|---------|----------|
+| Comparability | What stands between the two scores and a fair comparison. A **blocker** is a different scoring direction or a different registered evaluator, and it withholds the verdict. A **warning** is a different goal, which is left to the reader |
+| Summary | State, iterations, elapsed minutes, model spend, candidates, scored, failed, direction, and the delivered score and branch, one column per campaign. The delivered node is the one `kapso report` shows |
+| Verdict | The better delivered score in the campaigns' own direction and by how much, with what each campaign spent. `not comparable` when a blocker was found, `no verdict` when a campaign has no scored candidate, and a tie when the scores are equal |
+| Progress | The best score so far after each candidate that improved either campaign's best, so a reader sees which search converged faster and not only which ended higher |
+
+A directory without a run checkpoint or a status file fails with an explicit error, a corrupt state file raises, and so does naming the same campaign twice.
+
+```bash
+kapso compare ./baseline ./with-harness
+kapso compare ./baseline ./with-harness -o compare.md
+kapso compare ./baseline ./with-harness --json
 ```
 
 ## kapso doctor
