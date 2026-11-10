@@ -220,7 +220,7 @@ def _prompt(solution: Any, record: DeploymentRecord, target: Optional[TargetSkil
     if "KAPSO_VERIFICATION_DIR" in made_from:
         provenance_lines.append(
             f"- `KAPSO_VERIFICATION_DIR` = `{made_from['KAPSO_VERIFICATION_DIR']}`: what verification wrote about the "
-            f"delivered attempt (its verdict and the files beside it); read it, never change it."
+            f"deployed attempt (its verdict and the files beside it); read it, never change it."
         )
     result_path = workspace / RESULT_FILE
     return render_prompt(load_prompt(DEPLOYMENT_PROMPT), {

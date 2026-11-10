@@ -62,7 +62,7 @@ def provenance(record: DeploymentRecord) -> Dict[str, str]:
     """What a deployment was made from, as its session and its scripts
     see it: `KAPSO_SOURCE_REMOTE`, where the solution's code came from,
     and `KAPSO_VERIFICATION_DIR`, what verification wrote about the
-    delivered attempt (the record's `verification`); each only when
+    deployed attempt (the record's `verification`); each only when
     there is one."""
     variables: Dict[str, str] = {}
     remote = source_remote(record.campaign)
