@@ -1166,58 +1166,53 @@ Only include pages that would actually help answer the query.
         # Generate query embedding (raises on failure)
         query_embedding = self._embedder.embed_query(query)
         
-        try:
-            # Get collection
-            collection = self._weaviate_client.collections.get(self.weaviate_collection)
-            
-            # Build Weaviate filters
-            weaviate_filters = self._build_weaviate_filters(filters)
-            
-            # Hybrid search: combines vector similarity + BM25 keyword matching.
-            # hybrid_alpha above 0.5 leans toward semantic, boosted by
-            # keyword matches.
-            # BM25 searches description, overview, and content properties.
-            response = collection.query.hybrid(
-                query=query,
-                vector=query_embedding,
-                target_vector="default",
-                alpha=self.hybrid_alpha,
-                query_properties=["description", "overview", "content"],
-                fusion_type=wvc.query.HybridFusion.RELATIVE_SCORE,
-                limit=filters.top_k,
-                filters=weaviate_filters,
-                return_metadata=wvc.query.MetadataQuery(score=True),
-            )
-            
-            # Convert to KGResultItem
-            results = []
-            for obj in response.objects:
-                props = obj.properties
-                
-                # Hybrid score is already a fused relevance score (0 to 1)
-                score = obj.metadata.score if obj.metadata and obj.metadata.score is not None else 0.0
-                score = max(0.0, min(1.0, score))
-                
-                # Apply min_score filter
-                if filters.min_score and score < filters.min_score:
-                    continue
-                
-                results.append(KGResultItem(
-                    id=props.get("page_id", ""),
-                    score=score,
-                    page_type=props.get("page_type", ""),
-                    overview=props.get("overview", ""),
-                    content=props.get("content", "") if filters.include_content else "",
-                    metadata={
-                        "domains": props.get("domains", []),
-                    },
-                ))
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Semantic search failed: {e}")
-            return []
+        # Get collection
+        collection = self._weaviate_client.collections.get(self.weaviate_collection)
+
+        # Build Weaviate filters
+        weaviate_filters = self._build_weaviate_filters(filters)
+
+        # Hybrid search: combines vector similarity + BM25 keyword matching.
+        # hybrid_alpha above 0.5 leans toward semantic, boosted by
+        # keyword matches.
+        # BM25 searches description, overview, and content properties.
+        response = collection.query.hybrid(
+            query=query,
+            vector=query_embedding,
+            target_vector="default",
+            alpha=self.hybrid_alpha,
+            query_properties=["description", "overview", "content"],
+            fusion_type=wvc.query.HybridFusion.RELATIVE_SCORE,
+            limit=filters.top_k,
+            filters=weaviate_filters,
+            return_metadata=wvc.query.MetadataQuery(score=True),
+        )
+
+        # Convert to KGResultItem
+        results = []
+        for obj in response.objects:
+            props = obj.properties
+
+            # Hybrid score is already a fused relevance score (0 to 1)
+            score = obj.metadata.score if obj.metadata and obj.metadata.score is not None else 0.0
+            score = max(0.0, min(1.0, score))
+
+            # Apply min_score filter
+            if filters.min_score and score < filters.min_score:
+                continue
+
+            results.append(KGResultItem(
+                id=props.get("page_id", ""),
+                score=score,
+                page_type=props.get("page_type", ""),
+                overview=props.get("overview", ""),
+                content=props.get("content", "") if filters.include_content else "",
+                metadata={
+                    "domains": props.get("domains", []),
+                },
+            ))
+
+        return results
     
     def _build_weaviate_filters(self, filters: KGSearchFilters):
         """Build Weaviate filter object from KGSearchFilters."""

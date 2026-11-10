@@ -1,4 +1,6 @@
-"""The hybrid query's vector/keyword weight comes from the search's params."""
+"""The hybrid query: its vector/keyword weight comes from the search's
+params, and its failure reaches the caller instead of reading as no
+results (Rule 2)."""
 
 from types import SimpleNamespace
 
@@ -21,9 +23,16 @@ class RecordingCollection:
         return SimpleNamespace(objects=[])
 
 
-def hybrid_alpha_sent(monkeypatch, params):
-    """The alpha a search built from `params` sends to hybrid()."""
-    collection = RecordingCollection()
+class FailingCollection:
+    def __init__(self):
+        self.query = self
+
+    def hybrid(self, **kwargs):
+        raise RuntimeError("weaviate hybrid query failed")
+
+
+def search_over(monkeypatch, collection, params):
+    """A search built from `params` whose Weaviate collection is `collection`."""
     cls = module.KGGraphSearch
     monkeypatch.setattr(cls, "_initialize_neo4j", lambda self: None)
     monkeypatch.setattr(cls, "_initialize_weaviate", lambda self: None)
@@ -35,11 +44,20 @@ def hybrid_alpha_sent(monkeypatch, params):
     search._weaviate_client = SimpleNamespace(
         collections=SimpleNamespace(get=lambda name: collection)
     )
-    search._semantic_search("q", KGSearchFilters(top_k=3))
-    # The stubs have no close() for the destructor to call.
-    search._embedder = search._weaviate_client = None
-    return collection.hybrid_kwargs["alpha"]
+    return search
 
 
 def test_the_configured_hybrid_alpha_reaches_the_hybrid_query(monkeypatch):
-    assert hybrid_alpha_sent(monkeypatch, {"hybrid_alpha": 0.2}) == 0.2
+    collection = RecordingCollection()
+    search = search_over(monkeypatch, collection, {"hybrid_alpha": 0.2})
+    search._semantic_search("q", KGSearchFilters(top_k=3))
+    # The stubs have no close() for the destructor to call.
+    search._embedder = search._weaviate_client = None
+    assert collection.hybrid_kwargs["alpha"] == 0.2
+
+
+def test_a_failed_hybrid_query_raises_instead_of_returning_no_results(monkeypatch):
+    search = search_over(monkeypatch, FailingCollection(), {})
+    with pytest.raises(RuntimeError, match="hybrid query failed"):
+        search.search("q", KGSearchFilters(top_k=3))
+    search._embedder = search._weaviate_client = None
