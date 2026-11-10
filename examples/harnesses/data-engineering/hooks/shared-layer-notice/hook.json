@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {"type": "command", "command": "python3 ${PLUGIN_ROOT}/hooks/shared-layer-notice/shared_layer_notice.py"}
+        ]
+      }
+    ]
+  }
+}
