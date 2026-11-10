@@ -1,5 +1,0 @@
-numpy
-pandas
-duckdb==2.0.0
-dbt-core==1.12.6
-dbt-duckdb==1.11.1

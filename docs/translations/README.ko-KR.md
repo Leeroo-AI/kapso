@@ -329,12 +329,12 @@ preflight:
 
 | 예제 | 과제 |
 |---------|----------|
+| [**데이터 엔지니어링(Snowflake의 dbt 모델)**](../../examples/dbt-snowflake/README.md) | Snowflake 기반 소매 웨어하우스에서 데이터 품질 문제가 있는 dbt 모델을 고치고, 열일곱 개 티켓으로 이루어진 백로그가 요구하는 새 모델을 빌드하여 모든 티켓이 프로덕션 테스트를 통과할 때까지 진행합니다. 그런 다음 티켓마다 pull request를 하나씩 전달하고 프로덕션에 릴리스합니다. |
+| [**harness 최적화(고객 지원 에이전트)**](../../examples/support-agent-harness/README.md) | 고객 지원 에이전트의 harness를 최적화하여, 고객 대화의 해결률을 잃지 않으면서 기반 LLM을 Fable 5.1에서 로컬 Qwen 27B로 전환합니다. 그런 다음 Docker에 배포하고 그 실행에서 학습합니다. |
 | [**예측 모델링(고객 이탈)**](../../examples/churn-first-build/README.md) | 어떤 고객이 떠날지 예측합니다: 캠페인이 편집할 수 없는 평가기 아래에서 이탈 모델의 표본 외 ROC AUC를 목표치까지 끌어올립니다. |
 | [**사기 탐지**](../../examples/fraud-no-evaluator/README.md) | 저장소에 평가기가 없을 때 거래의 사기 여부를 점수화합니다: 브리프가 프로토콜을 명시하고, 캠페인이 먼저 평가기를 만든 뒤 점수기를 개선합니다. |
-| [**데이터 엔지니어링(dbt 모델)**](../../examples/pipeline-dbt/README.md) | 야간 내보내기에 결함이 섞여 도착하는 dbt와 DuckDB 기반 소매 웨어하우스. |
 | [**퀀트 금융**](../../examples/trading/README.md) | 합성 상품에 대한 일간 트레이딩 전략: 모든 시도마다 검사가 수행되는 트레이딩 harness에서 표본 외 Sharpe를 끌어올립니다. 리서치 예제이며 투자 조언이 아닙니다. |
 | [**표 형식 ML**](../../examples/end-to-end/README.md) | Kaggle 대회를 처음부터 끝까지: Spaceship Titanic을 더미 분류기에서 실제 모델로, 그런 다음 검토하고, 학습하고, 교훈을 가지고 다시 빌드하고, 배포합니다. |
-| [**프롬프트 엔지니어링**](../../examples/prompt-harness/README.md) | AIME 2024 수학 문제에 대한 정확도가 오를 때까지 LLM 프롬프트 템플릿을 다시 작성합니다. |
 | [**PyTorch 최적화**](../../examples/torch-performance/README.md) | 수치 허용 오차 내에서 PyTorch 모듈을 CUDA에서 더 빠르게 만듭니다: 퓨전, 컴파일, 메모리 트래픽 감소. |
 | [**GPU 커널 최적화**](../../examples/gpu-kernels/README.md) | 수치 허용 오차 내에서 플래시 어텐션 또는 Triton 커널로 CUDA의 멀티헤드 셀프 어텐션 속도를 높입니다. |
 

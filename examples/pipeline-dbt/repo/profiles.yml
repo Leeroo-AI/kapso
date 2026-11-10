@@ -1,9 +1,0 @@
-# The development profile: a DuckDB file at the project root, built by
-# `dbt build --profiles-dir .`. The evaluator carries a profile of its own.
-retail:
-  target: dev
-  outputs:
-    dev:
-      type: duckdb
-      path: dev.duckdb
-      threads: 1

@@ -330,12 +330,12 @@ Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou
 
 | Exemple | La tâche |
 |---------|----------|
+| [**Ingénierie des données (modèles dbt sur Snowflake)**](../../examples/dbt-snowflake/README.md) | Corriger les modèles dbt qui ont des problèmes de qualité de données et construire les nouveaux que demande un backlog de dix-sept tickets, sur un entrepôt de données de distribution sur Snowflake, jusqu'à ce que chaque ticket passe ses tests de production ; puis livrer une pull request par ticket et les publier en production. |
+| [**Optimisation du harness (agent de support client)**](../../examples/support-agent-harness/README.md) | Optimiser le harness d'un agent de support client pour faire passer le LLM sous-jacent de Fable 5.1 à un Qwen 27B local sans perdre en résolution des conversations clients, puis le déployer dans Docker et apprendre de l'exécution. |
 | [**Modélisation prédictive (attrition client)**](../../examples/churn-first-build/README.md) | Prédire quels clients partiront : faire monter le ROC AUC hors échantillon d'un modèle d'attrition vers la cible, sous un évaluateur que la campagne ne peut pas modifier. |
 | [**Détection de fraude**](../../examples/fraud-no-evaluator/README.md) | Noter des transactions pour la fraude quand le dépôt n'a pas d'évaluateur : le brief énonce le protocole, la campagne construit d'abord l'évaluateur, puis améliore le scoreur. |
-| [**Ingénierie des données (modèle dbt)**](../../examples/pipeline-dbt/README.md) | Un entrepôt de données de distribution sur dbt et DuckDB dont les exports nocturnes arrivent avec des défauts. |
 | [**Finance quantitative**](../../examples/trading/README.md) | Une stratégie de trading quotidienne sur des instruments synthétiques : faire monter le Sharpe hors échantillon sur le harness de trading, avec ses vérifications à chaque tentative. Un exemple de recherche, pas un conseil financier. |
 | [**ML tabulaire**](../../examples/end-to-end/README.md) | Une compétition Kaggle de bout en bout : Spaceship Titanic d'un classifieur factice à un vrai modèle, puis passer en revue, apprendre, reconstruire avec la leçon et déployer. |
-| [**Ingénierie de prompt**](../../examples/prompt-harness/README.md) | Réécrire un gabarit de prompt de LLM jusqu'à ce que l'exactitude sur les problèmes de mathématiques d'AIME 2024 augmente. |
 | [**Optimisation PyTorch**](../../examples/torch-performance/README.md) | Rendre un module PyTorch plus rapide sur CUDA dans une tolérance numérique : fusion, compilation, moins de trafic mémoire. |
 | [**Optimisation de noyaux GPU**](../../examples/gpu-kernels/README.md) | Accélérer l'auto-attention multi-têtes sur CUDA avec flash attention ou un noyau Triton, dans une tolérance numérique. |
 

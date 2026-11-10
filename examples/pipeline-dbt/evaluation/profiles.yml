@@ -1,9 +1,0 @@
-# The evaluator's own profile: the project is built into a DuckDB file
-# beside the evaluator, under the directory the campaign protects.
-retail:
-  target: eval
-  outputs:
-    eval:
-      type: duckdb
-      path: warehouse.duckdb
-      threads: 1

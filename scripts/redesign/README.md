@@ -72,9 +72,8 @@ is the contract; the drivers are the `s*_*.py` and `author_test.py` and
    the wheel built from this branch (`uv build`), and installs the
    **fixtures' dependency venv first on PATH** — the examples'
    `requirements.txt` (numpy, pandas, scikit-learn for the churn and
-   fraud fixtures; `duckdb==2.0.0`, `dbt-core==1.12.6`,
-   `dbt-duckdb==1.11.1` for `pipeline-dbt`), so the generator, the
-   evaluator and `predict.py` all resolve them;
+   fraud fixtures), so the generator, the evaluator and `predict.py` all
+   resolve them;
 3. unpacks the test scaffold (the drivers, the suite, the fixtures under
    `examples/`, the docs, the released tag's docs as `released-docs/` — not the product, which is the installed
    wheel) into `~/kapso-clone`, runs the driver under an immutable run
