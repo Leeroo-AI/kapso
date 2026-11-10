@@ -35,7 +35,7 @@ are concerned, whatever `claude auth status` says), whether the project has a
 The package, pinned to this plugin's version:
 
 ```bash
-uv tool install "leeroo-kapso==0.9.0"      # else: pipx install "leeroo-kapso==0.9.0"; else, in the active venv: pip install "leeroo-kapso==0.9.0"
+uv tool install "leeroo-kapso==0.9.1"      # else: pipx install "leeroo-kapso==0.9.1"; else, in the active venv: pip install "leeroo-kapso==0.9.1"
 ```
 
 - The index has no such version (a development build, until the release that
