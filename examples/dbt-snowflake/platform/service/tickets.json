@@ -1,0 +1,19 @@
+{
+  "daily-revenue": {"task": "dbt-fix-daily-revenue", "area": "revenue"},
+  "category-revenue": {"task": "dbt-fix-category-revenue", "area": "revenue"},
+  "midnight-sales": {"task": "dbt-fix-timezone-sales", "area": "revenue"},
+  "return-reconciliation": {"task": "dbt-fix-refund-reconciliation", "area": "revenue"},
+  "repeat-purchase-cohorts": {"task": "dbt-fix-repeat-purchase-cohort-revenue", "area": "revenue"},
+  "customer-dimension": {"task": "dbt-fix-customer-ltv", "area": "customer"},
+  "customer-ltv": {"task": "dbt-customer-ltv-fix", "area": "customer"},
+  "customer-snapshot": {"task": "dbt-fix-customer-snapshot-and-build-dimension", "area": "customer"},
+  "customer-activity": {"task": "dbt-fix-customer-churn", "area": "customer"},
+  "daily-cohorts": {"task": "dbt-fix-daily-cohorts", "area": "customer"},
+  "inventory-metrics": {"task": "dbt-fix-inventory-model", "area": "inventory"},
+  "inventory-balance": {"task": "dbt-fix-inventory-balance", "area": "inventory"},
+  "product-metrics": {"task": "dbt-fix-product-metrics", "area": "inventory"},
+  "email-attribution": {"task": "dbt-fix-email-attribution", "area": "marketing"},
+  "multi-touch-attribution": {"task": "dbt-fix-multi-touch-attribution", "area": "marketing"},
+  "paid-search-attribution": {"task": "dbt-fix-paid-search-attribution", "area": "marketing"},
+  "cac-payback": {"task": "dbt-fix-cac-payback-waterfall", "area": "marketing"}
+}

@@ -1,0 +1,18 @@
+name: 'marketing_marts'
+version: '1.0.0'
+config-version: 2
+profile: 'retail_dw_master'
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+target-path: target
+clean-targets:
+  - target
+
+# Every report of this project is a table in the ANALYTICS schema, whatever
+# schema the connection profile names (see macros/generate_schema_name.sql).
+models:
+  marketing_marts:
+    +schema: analytics
+    +materialized: table

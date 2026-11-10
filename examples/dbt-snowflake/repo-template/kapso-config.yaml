@@ -1,0 +1,32 @@
+# The models and limits our Kapso builds run on, merged over Kapso's packaged defaults
+# (`kapso doctor --config kapso-config.yaml --show-config` prints the result).
+# Builds load the team's harness at ../harnesses/data-engineering (README, "Building with Kapso").
+hosts:
+  claude_code:
+    model: "claude-opus-5-5"
+harness:
+  # A backlog of seventeen tickets on a 2,350-model project: the setup session and each
+  # verification session get more than the packaged twenty and ten minutes (verification
+  # builds and measures every ticket again).
+  setup_minutes: 45
+  verification_minutes: 120
+deployment:
+  # A warehouse release rehearses the merge in staging and audits every ticket's checks there and
+  # again in production once published: the deployment session and its start step run for the
+  # length of those audits, well past the packaged thirty minutes and ten minutes.
+  timeout: 3600
+  script_timeout: 3600
+search_strategy:
+  params:
+    ideation:
+      model: "claude-fable-5-1"
+      # No web tools and no web-research gate for build sessions: the work is done from the
+      # tickets, this repository and the warehouse (README.md, "Provenance").
+      web: false
+      gates: ["experiment_history", "repo_memory"]
+    implementation:
+      web: false
+      gates: ["repo_memory"]
+    # The backlog has an end, every ticket check passing, so the judge's "achieved"
+    # vote ends the campaign.
+    honor_agent_stop: true
