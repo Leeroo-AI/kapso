@@ -651,29 +651,25 @@ class KGGraphSearch(KnowledgeSearch):
             logger.warning("weaviate-client package not installed.")
             return
             
-        try:
-            # Both channels are named explicitly: the gRPC port is not derived
-            # from the HTTP one, so a second Weaviate on other ports (a test
-            # stack beside production) is reached on both.
-            parts = urlparse(self.weaviate_url)
-            secure = parts.scheme == "https"
-            self._weaviate_client = weaviate.connect_to_custom(
-                http_host=parts.hostname,
-                http_port=parts.port or (443 if secure else 80),
-                http_secure=secure,
-                grpc_host=parts.hostname,
-                grpc_port=self.weaviate_grpc_port,
-                grpc_secure=secure,
-                # Weaviate (1.38+) attributes traffic by this header; the
-                # client sends it on both REST and gRPC.
-                headers={
-                    "X-Weaviate-Client-Integration": f"kapso/{KAPSO_VERSION}",
-                },
-            )
-            logger.info(f"Connected to Weaviate at {self.weaviate_url} (gRPC port {self.weaviate_grpc_port})")
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Weaviate: {e}")
+        # Both channels are named explicitly: the gRPC port is not derived
+        # from the HTTP one, so a second Weaviate on other ports (a test
+        # stack beside production) is reached on both.
+        parts = urlparse(self.weaviate_url)
+        secure = parts.scheme == "https"
+        self._weaviate_client = weaviate.connect_to_custom(
+            http_host=parts.hostname,
+            http_port=parts.port or (443 if secure else 80),
+            http_secure=secure,
+            grpc_host=parts.hostname,
+            grpc_port=self.weaviate_grpc_port,
+            grpc_secure=secure,
+            # Weaviate (1.38+) attributes traffic by this header; the
+            # client sends it on both REST and gRPC.
+            headers={
+                "X-Weaviate-Client-Integration": f"kapso/{KAPSO_VERSION}",
+            },
+        )
+        logger.info(f"Connected to Weaviate at {self.weaviate_url} (gRPC port {self.weaviate_grpc_port})")
     
     def _initialize_llm(self) -> None:
         """Initialize LLM backend for reranking."""
@@ -1160,8 +1156,10 @@ Only include pages that would actually help answer the query.
             List of KGResultItem ranked by fused score
         """
         if not self._weaviate_client:
-            logger.warning("Weaviate not available for semantic search")
-            return []
+            raise RuntimeError(
+                "Weaviate is not connected "
+                "(closed, or weaviate-client not installed)"
+            )
         
         # Generate query embedding (raises on failure)
         query_embedding = self._embedder.embed_query(query)
