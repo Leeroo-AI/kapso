@@ -150,17 +150,17 @@ def test_committed_selection_follows_tiers_not_raw_scores():
 
     # A FULL-tier node beats a VALIDATED node with a higher full score, and
     # both beat the flashy probe; stale and invalid evidence never competes.
-    winner = select_committed_candidate(nodes, evaluator_id="eval-v1")
+    winner = select_committed_candidate(nodes, evaluator_id="eval-v1", maximize=True)
     assert winner is full_lower_score
 
     without_full = [flashy_probe, validated, stale_full]
     assert (
-        select_committed_candidate(without_full, evaluator_id="eval-v1")
+        select_committed_candidate(without_full, evaluator_id="eval-v1", maximize=True)
         is validated
     )
 
     assert (
-        select_committed_candidate([flashy_probe], evaluator_id="eval-v1")
+        select_committed_candidate([flashy_probe], evaluator_id="eval-v1", maximize=True)
         is None
     )
 

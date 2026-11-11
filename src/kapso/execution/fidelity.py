@@ -185,7 +185,7 @@ def select_committed_candidate(
     nodes: Iterable[Any],
     *,
     evaluator_id: str,
-    maximize: bool = True,
+    maximize: bool,
 ) -> Optional[Any]:
     """Tier-order walk for the committed/final decision.
 
@@ -338,6 +338,7 @@ class FidelityPolicy:
         spec: FidelitySpec,
         strategy: Any,
         maintainer: Any,
+        maximize: bool,
     ):
         """Providers, not frozen values.
 
@@ -348,6 +349,9 @@ class FidelityPolicy:
         champions, counters, and affordability under a retired ruler.
         """
         self.spec = spec
+        # The problem's direction: every champion, leader and margin below
+        # ranks by it, as the strategy's own selection does.
+        self.maximize = maximize
         self._strategy = strategy
         self._maintainer = maintainer
 
@@ -381,7 +385,7 @@ class FidelityPolicy:
     def full_champion(self, nodes: Iterable[Any]) -> Optional[Any]:
         """The committed candidate at FULL tier under the head evaluator."""
         committed = select_committed_candidate(
-            nodes, evaluator_id=self.evaluator_id
+            nodes, evaluator_id=self.evaluator_id, maximize=self.maximize
         )
         if committed is not None and (
             evidence_tier(committed, self.evaluator_id) == TIER_FULL
@@ -542,7 +546,8 @@ class FidelityPolicy:
         ]
         if not scored:
             return None
-        return max(scored, key=lambda pair: pair[0])[1]
+        sign = 1.0 if self.maximize else -1.0
+        return max(scored, key=lambda pair: sign * pair[0])[1]
 
     # -- the grant ladder ----------------------------------------------------
 
@@ -563,7 +568,7 @@ class FidelityPolicy:
 
         if reserve_run:
             committed = select_committed_candidate(
-                nodes, evaluator_id=self.evaluator_id
+                nodes, evaluator_id=self.evaluator_id, maximize=self.maximize
             )
             target = committed or self._fast_leader(nodes)
             return FidelityDecision(
@@ -583,7 +588,7 @@ class FidelityPolicy:
 
         fast_leader = self._fast_leader(nodes)
         committed = select_committed_candidate(
-            nodes, evaluator_id=self.evaluator_id
+            nodes, evaluator_id=self.evaluator_id, maximize=self.maximize
         )
         leader_unvalidated = (
             fast_leader is not None
@@ -604,8 +609,10 @@ class FidelityPolicy:
                 if committed is not None
                 else None
             )
+            sign = 1.0 if self.maximize else -1.0
             clears_margin = incumbent_score is None or (
-                leader_score - incumbent_score >= spec.promotion_margin
+                sign * (leader_score - incumbent_score)
+                >= spec.promotion_margin
             )
             endgame = (
                 spec.endgame_validate
