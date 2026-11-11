@@ -32,8 +32,8 @@ the contract.
 The fixtures are the examples under `examples/`: one source, so a page
 that quotes an example quotes something the suite ran. A fixture is a small
 task an engineer could plausibly bring. Each directory has: a `README.md`
-with the task (What you get, Run it, What to look at, Change it) and the
-recorded result; `kapso-brief.md`; a deterministic generator for any data
+with the task (What you get, Run it, What to look at, Change it);
+`kapso-brief.md`; a deterministic generator for any data
 (seeded, byte-identical, hashes in `MANIFEST.json`); `repo/`, the starting
 repository; `evaluation/` when the fixture has an evaluator; `baseline.json`,
 the shipped model's score with a noise figure, when one was measured.

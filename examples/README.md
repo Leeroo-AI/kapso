@@ -20,16 +20,16 @@ Every example runs the experimentation; `end-to-end`, `dbt-snowflake` and
 `dbt-snowflake` and `support-agent-harness` run on a harness, the domain
 adaptation.
 
-| Example | Minutes | What it shows | The one command | Result |
-|---|---|---|---|---|
-| [dbt-snowflake](dbt-snowflake/README.md) | up to 720, Snowflake | a backlog of seventeen tickets on a dbt warehouse, worked on the data-engineering harness until every ticket's check passes; then one pull request per ticket and a release to production, through the harness's own delivery targets | `kapso build --brief kapso-brief.md --repo repo --evaluation evaluation --output campaign --config repo/kapso-config.yaml --detach` | none quoted: its README is the setup |
-| [support-agent-harness](support-agent-harness/README.md) | up to 720, an 80 GB GPU | the harness of a customer support agent optimized on the agent-engineering harness, so that a locally served model resolves the conversations as well as the frontier model it replaces; then a Docker deployment and a learn run | `kapso build --brief kapso-brief.md --repo repo --evaluation evaluation --data data --output campaign --harness ../harnesses/agent-engineering --config repo/kapso-config.yaml --detach` | none quoted: its README is the setup |
-| [churn-first-build](churn-first-build/README.md) | 45 | your first build: an evaluator present, a baseline, a target, the record | `kapso build --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output campaign --detach` | recorded in its README |
-| [fraud-no-evaluator](fraud-no-evaluator/README.md) | 45 | no evaluator: the campaign's first node builds one from the brief's protocol and every candidate is measured against it | `kapso build --brief kapso-brief.md --data data --repo repo --output campaign --detach` | not recorded yet |
-| [trading](trading/README.md) | 75 | a harness on the build: a setup session, pages and hooks in every session, verification per attempt | `kapso build --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output campaign --detach` | recorded in its README |
-| [end-to-end](end-to-end/README.md) | 45, then the rest | build, the review, learn, build again served the lesson, deploy: a Kaggle tabular model end to end | `python run.py` | not recorded yet |
-| [torch-performance](torch-performance/README.md) | 60, CUDA | a faster module under a numerical tolerance | `kapso build --brief kapso-brief.md --repo repo --output campaign --detach` | not recorded yet; runs today, its evaluator inside `repo/`, its harness a follow-up |
-| [gpu-kernels](gpu-kernels/README.md) | 90, CUDA | multi-head attention, flash attention or Triton | `kapso build --brief kapso-brief.md --repo repo --output campaign --detach` | not recorded yet; runs today, its evaluator inside `repo/`, its harness a follow-up |
+| Example | Minutes | What it shows | The one command |
+|---|---|---|---|
+| [dbt-snowflake](dbt-snowflake/README.md) | up to 720, Snowflake | a backlog of seventeen tickets on a dbt warehouse, worked on the data-engineering harness until every ticket's check passes; then one pull request per ticket and a release to production, through the harness's own delivery targets | `kapso build --brief kapso-brief.md --repo repo --evaluation evaluation --output campaign --config repo/kapso-config.yaml --detach` |
+| [support-agent-harness](support-agent-harness/README.md) | up to 720, an 80 GB GPU | the harness of a customer support agent optimized on the agent-engineering harness, so that a locally served model resolves the conversations as well as the frontier model it replaces; then a Docker deployment and a learn run | `kapso build --brief kapso-brief.md --repo repo --evaluation evaluation --data data --output campaign --harness ../harnesses/agent-engineering --config repo/kapso-config.yaml --detach` |
+| [churn-first-build](churn-first-build/README.md) | 45 | your first build: an evaluator present, a baseline, a target, the record | `kapso build --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output campaign --detach` |
+| [fraud-no-evaluator](fraud-no-evaluator/README.md) | 45 | no evaluator: the campaign's first node builds one from the brief's protocol and every candidate is measured against it | `kapso build --brief kapso-brief.md --data data --repo repo --output campaign --detach` |
+| [trading](trading/README.md) | 75 | a harness on the build: a setup session, pages and hooks in every session, verification per attempt | `kapso build --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output campaign --detach` |
+| [end-to-end](end-to-end/README.md) | 45, then the rest | build, the review, learn, build again served the lesson, deploy: a Kaggle tabular model end to end | `python run.py` |
+| [torch-performance](torch-performance/README.md) | 60, CUDA | a faster module under a numerical tolerance | `kapso build --brief kapso-brief.md --repo repo --output campaign --detach` |
+| [gpu-kernels](gpu-kernels/README.md) | 90, CUDA | multi-head attention, flash attention or Triton | `kapso build --brief kapso-brief.md --repo repo --output campaign --detach` |
 
 Each `run.py` is at most twelve lines of code: read the brief, build, print
 the result; `end-to-end` spends its twelve on the whole sequence.

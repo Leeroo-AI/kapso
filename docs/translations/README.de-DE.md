@@ -326,7 +326,7 @@ Jeder Benchmark hat außerdem eine Dokumentationsseite, die beschreibt, wie man 
 
 ## Beispiele
 
-Jedes Beispiel ist eine Aufgabe: ein Briefing, ein Start-Repository, die Daten oder wie man sie bekommt, und ein Treiber von höchstens zwölf Zeilen; [examples/README.md](../../examples/README.md) enthält die Minuten, den einen Befehl und ob ein Ergebnis festgehalten ist.
+Jedes Beispiel ist eine Aufgabe: ein Briefing, ein Start-Repository, die Daten oder wie man sie bekommt, und ein Treiber von höchstens zwölf Zeilen; [examples/README.md](../../examples/README.md) enthält die Minuten und den einen Befehl.
 
 | Beispiel | Die Aufgabe |
 |---------|----------|

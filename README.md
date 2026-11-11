@@ -325,7 +325,7 @@ Each benchmark also has a documentation page covering how to run it, its CLI opt
 
 ## Examples
 
-Every example is a task: a brief, a starting repository, the data or how to get it, and a driver of at most twelve lines; [examples/README.md](examples/README.md) has the minutes, the one command and whether a result is recorded.
+Every example is a task: a brief, a starting repository, the data or how to get it, and a driver of at most twelve lines; [examples/README.md](examples/README.md) has the minutes and the one command.
 
 | Example | The task |
 |---------|----------|

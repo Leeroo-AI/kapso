@@ -8,8 +8,6 @@ Registering and protecting it file by file is the evaluation maintainer's
 job, which the shipped config does not turn on yet; see
 [Evaluation](https://docs.leeroo.com/docs/build/evaluation).
 
-Recorded result: not recorded yet.
-
 ## What you get
 
 - `repo/score.py`, three hand-written rules, replaced on a branch of its own

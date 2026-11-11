@@ -6,8 +6,6 @@ multi-head self-attention in `repo/module.py` (sequence 256, embedding 768,
 repository's own `evaluate.py` measuring correctness and speedup. Flash
 attention or a Triton kernel is the route the brief's target assumes.
 
-Recorded result: not recorded yet.
-
 ## What you get
 
 - `repo/module.py`, rewritten on a branch of its own inside `campaign/`.
