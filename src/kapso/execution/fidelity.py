@@ -185,7 +185,7 @@ def select_committed_candidate(
     nodes: Iterable[Any],
     *,
     evaluator_id: str,
-    maximize: bool = True,
+    maximize: bool,
 ) -> Optional[Any]:
     """Tier-order walk for the committed/final decision.
 
