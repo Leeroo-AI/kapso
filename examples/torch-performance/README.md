@@ -6,8 +6,6 @@ scaling) faster than the shipped version while keeping its results within
 1e-5, with the repository's own `evaluate.py` measuring correctness and
 speedup.
 
-Recorded result: not recorded yet.
-
 ## What you get
 
 - `repo/module.py`, rewritten on a branch of its own inside `campaign/`:

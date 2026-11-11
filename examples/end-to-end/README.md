@@ -8,8 +8,6 @@ sequence on what it delivered: the review, a lesson learned into
 your bank, a second build served that bank, and the delivered model
 deployed as running software.
 
-Recorded result: not recorded yet.
-
 ## What you get
 
 - `repo/train.py`, whose `train_model()` and `predict_with_model()` keep
@@ -56,8 +54,7 @@ record, which exists only once the build has finished, so the second
 wait).
 
 The second build starts from what the first one established. Whether it
-ends higher is the experiment; this file will carry the numbers once a run
-is recorded.
+ends higher is the experiment.
 
 ## What to look at
 

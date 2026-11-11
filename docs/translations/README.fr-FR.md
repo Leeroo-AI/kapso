@@ -326,7 +326,7 @@ Chaque benchmark a aussi une page de documentation qui couvre comment l'exécute
 
 ## Exemples
 
-Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou la façon de les obtenir, et un pilote d'au plus douze lignes ; [examples/README.md](../../examples/README.md) donne les minutes, la commande unique et si un résultat est enregistré.
+Chaque exemple est une tâche : un brief, un dépôt de départ, les données ou la façon de les obtenir, et un pilote d'au plus douze lignes ; [examples/README.md](../../examples/README.md) donne les minutes et la commande unique.
 
 | Exemple | La tâche |
 |---------|----------|

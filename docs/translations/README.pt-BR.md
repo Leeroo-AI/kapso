@@ -326,7 +326,7 @@ Cada benchmark também tem uma página de documentação cobrindo como executá-
 
 ## Exemplos
 
-Cada exemplo é uma tarefa: um brief, um repositório inicial, os dados ou como obtê-los, e um driver de no máximo doze linhas; [examples/README.md](../../examples/README.md) tem os minutos, o único comando e se um resultado está registrado.
+Cada exemplo é uma tarefa: um brief, um repositório inicial, os dados ou como obtê-los, e um driver de no máximo doze linhas; [examples/README.md](../../examples/README.md) tem os minutos e o único comando.
 
 | Exemplo | A tarefa |
 |---------|----------|

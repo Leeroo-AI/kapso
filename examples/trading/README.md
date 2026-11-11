@@ -6,21 +6,13 @@ The author's example: a harness (`../harnesses/trading`), a task on it, and
 the probe run an author reads to improve the harness. The task is a daily
 strategy on three synthetic instruments with a trend in them; the shipped
 20/100 moving-average cross scores a Sharpe of 0.14 out of sample (measured
-on 2026-10-25 by the example's evaluator, in the recorded run below), the
-brief asks for 1.0, and a faster cross or a volatility-targeted momentum
-signal gets there, so there is room. The harness adds what a bare build
+on 2026-10-25 by the example's evaluator), the brief asks for 1.0, and a
+faster cross or a volatility-targeted momentum signal gets there, so there
+is room. The harness adds what a bare build
 lacks: a setup session that pins the data as a prepared snapshot, pages on
 timing discipline and the risk line, a look-ahead scan the implementer runs
 before the backtest, an auditor the verifier asks, and hooks that deny a
 web fetch or a write under the snapshot.
-
-Recorded result: a Sharpe of **1.93** out of sample on 2026-10-25, on a
-fresh machine with Claude Code, in 45 minutes and one experiment (the
-setup session pinned the snapshot, the implementer wrote a
-volatility-targeted momentum ensemble, the verifier's verdict was valid,
-the judge called the target met); a second fresh machine scored 1.99 the
-same way. Both campaigns and their records are described in
-`docs/plans/redesign/wp2-harness.md` under "Proof runs".
 
 ## What you get
 
@@ -61,7 +53,7 @@ the line.
   what each session was staged with and each run the host made for it
   (the hooks that fired and what they decided, the delegates and their
   reports, the tools, the cost), and the host's own event stream, where
-  a hook's denial (`web fetches are off in this harness`) and a
+  a hook's denial (`Web fetches are off in this harness`) and a
   delegate's report are in full.
 - `campaign/.kapso/verification/<branch>/verdict.json`: the verifier's
   verdict with its findings; a void one is why a scored attempt was not
