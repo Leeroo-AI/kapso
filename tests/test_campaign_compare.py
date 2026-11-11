@@ -18,7 +18,12 @@ from kapso.cli import main
 from kapso.execution.campaign_compare import CampaignCompareError, compare_campaigns, render_comparison
 from kapso.execution.run_checkpoint import RunCheckpointMissingError
 from kapso.execution.search_strategies.base import SearchNode
-from tests.test_campaign_report import campaign, three_nodes
+from tests.test_campaign_report import campaign as report_campaign, three_nodes
+
+
+def campaign(path, nodes, **options):
+    """A campaign scored by a registered evaluator unless a test says otherwise."""
+    return report_campaign(path, nodes, **{"scores_evaluator_id": "eval-1", **options})
 
 
 def scored(*scores):
@@ -83,7 +88,7 @@ def test_scores_that_do_not_mean_the_same_thing_get_no_verdict(tmp_path):
     assert "## Verdict\n\nNot comparable: " in report
 
 
-def test_a_different_goal_warns_and_leaves_the_verdict(tmp_path):
+def test_a_different_goal_or_no_registered_evaluator_warns_and_leaves_the_verdict(tmp_path):
     comparison = compare_campaigns(
         campaign(tmp_path / "a", scored(0.9), goal="Raise accuracy"),
         campaign(tmp_path / "b", scored(0.1), goal="Cut latency"),
@@ -94,6 +99,16 @@ def test_a_different_goal_warns_and_leaves_the_verdict(tmp_path):
     }
     assert comparison["verdict"]["winner"] == "a"
     assert "- **Worth knowing:** the two campaigns have different goals" in render_comparison(comparison)
+
+    unregistered = compare_campaigns(
+        campaign(tmp_path / "c", scored(0.9), scores_evaluator_id=""),
+        campaign(tmp_path / "d", scored(0.1), scores_evaluator_id=""),
+    )
+    assert unregistered["comparability"] == {
+        "blockers": [],
+        "warnings": ["neither campaign registered an evaluator, so nothing shows the two scores were measured the same way"],
+    }
+    assert unregistered["verdict"]["winner"] == "a"
 
 
 def test_a_campaign_with_nothing_scored_gets_no_verdict(tmp_path):

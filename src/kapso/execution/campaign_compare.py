@@ -102,6 +102,11 @@ def _comparability(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, List[str]]
             "the two campaigns were scored by different evaluators "
             f"(A: {_evaluator(a)}, B: {_evaluator(b)})"
         )
+    elif not a["evaluator_id"]:
+        warnings.append(
+            "neither campaign registered an evaluator, so nothing shows "
+            "the two scores were measured the same way"
+        )
     if a["goal"] != b["goal"]:
         warnings.append("the two campaigns have different goals")
     return {"blockers": blockers, "warnings": warnings}

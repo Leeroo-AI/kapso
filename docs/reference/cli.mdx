@@ -1,11 +1,11 @@
 ---
 title: "Kapso CLI reference: every command, flag and default"
 sidebarTitle: "CLI"
-description: "The ten kapso commands and their subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
+description: "The eleven kapso commands and their subcommands, with every flag, its default value, whether it is required, and a runnable example for each one."
 keywords: ["kapso CLI", "kapso build", "kapso harness", "kapso experience", "kapso learn", "kapso report", "kapso compare", "kapso doctor", "command reference", "CLI flags"]
 ---
 
-Kapso installs the `kapso` executable with ten commands, and `kapso-mcp`, the MCP server that serves Kapso's experience to the coding-agent session you work in (see [below](#kapso-mcp)).
+Kapso installs the `kapso` executable with eleven commands, and `kapso-mcp`, the MCP server that serves Kapso's experience to the coding-agent session you work in (see [below](#kapso-mcp)).
 
 | Command | What it does |
 |---------|--------------|
@@ -475,7 +475,7 @@ The comparison has four sections:
 
 | Section | Contents |
 |---------|----------|
-| Comparability | What stands between the two scores and a fair comparison. A **blocker** is a different scoring direction or a different registered evaluator, and it withholds the verdict. A **warning** is a different goal, which is left to the reader |
+| Comparability | What stands between the two scores and a fair comparison. A **blocker** is a different scoring direction or a different registered evaluator, and it withholds the verdict. A **warning** is a different goal, or no registered evaluator on either side, and is left to the reader |
 | Summary | State, iterations, elapsed minutes, model spend, candidates, scored, failed, direction, and the delivered score and branch, one column per campaign. The delivered node is the one `kapso report` shows |
 | Verdict | The better delivered score in the campaigns' own direction and by how much, with what each campaign spent. `not comparable` when a blocker was found, `no verdict` when a campaign has no scored candidate, and a tie when the scores are equal |
 | Progress | The best score so far after each candidate that improved either campaign's best, so a reader sees which search converged faster and not only which ended higher |
