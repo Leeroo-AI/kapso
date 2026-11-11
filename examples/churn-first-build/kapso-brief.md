@@ -6,5 +6,5 @@ Baseline     0.797 (the shipped logistic regression, bootstrap SE 0.010)
 Target       0.85
 Rules
   - the evaluator is never modified
-  - no fitting on the holdout rows: their labels sit under the protected `kapso_evaluation/private/`, the evaluator's alone
+  - no fitting on the holdout rows: their labels are the evaluator's alone, in the directory `kapso_evaluation/private_dir.txt` names
 Budget       minutes=45 experiments=3
