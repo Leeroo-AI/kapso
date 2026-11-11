@@ -58,7 +58,7 @@ def commit_branch(workspace: Path, branch: str, parent: str, filename: str, text
 
 
 def campaign(tmp_path: Path, nodes, *, status="done", maximize=True, cost_config=None,
-             scores_evaluator_id="") -> Path:
+             scores_evaluator_id="", goal="Raise accuracy\n\nKeep inference under 50ms") -> Path:
     workspace = tmp_path / "campaign"
     workspace.mkdir(parents=True)
     git(workspace, "init", "-q", "-b", "main")
@@ -70,7 +70,7 @@ def campaign(tmp_path: Path, nodes, *, status="done", maximize=True, cost_config
         commit_branch(workspace, node.branch_name, parent, f"{node.branch_name}.py", "x = 1\n")
     git(workspace, "checkout", "-q", "main")
     RunCheckpointStore(str(workspace)).save(RunCheckpoint.create(
-        strategy_type="generic", goal="Raise accuracy\n\nKeep inference under 50ms",
+        strategy_type="generic", goal=goal,
         config_fingerprint=config_fingerprint({}), status="running",
         completed_iterations=len(nodes), cumulative_cost=1.5, current_feedback=None,
         strategy_state={

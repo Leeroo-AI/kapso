@@ -24,13 +24,13 @@ from kapso.core.env_file import load_env_file
 load_env_file(find_dotenv(usecwd=True))
 
 from kapso import __version__
-from kapso.cli import build, deploy, doctor, experience, harness, inbox, learn, report, trace, watch
+from kapso.cli import build, compare, deploy, doctor, experience, harness, inbox, learn, report, trace, watch
 from kapso.cli.common import list_agents
 from kapso.cli.errors import install_error_hook
 from kapso.execution.coding_agents.factory import CodingAgentFactory
 
 # The verbs, in the order `kapso --help` lists them.
-VERB_MODULES = (build, harness, experience, learn, deploy, watch, trace, report, inbox, doctor)
+VERB_MODULES = (build, harness, experience, learn, deploy, watch, trace, report, compare, inbox, doctor)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +49,7 @@ Commands:
   watch      Watch a running build / learn / experience operation
   trace      Read a campaign's record: the attempts, the lessons, what was voided, what was delivered
   report     Export a campaign as a shareable Markdown summary
+  compare    Set two campaigns side by side: the delivered scores, the spend, how each search progressed
   inbox      What a build is waiting on you for, and how to answer it
   doctor     Check this machine is ready to run Kapso
 
