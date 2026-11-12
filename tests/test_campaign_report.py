@@ -17,7 +17,7 @@ import pytest
 
 from kapso.cli import main
 from kapso.core.config import load_config
-from kapso.execution.campaign_report import render_campaign_report
+from kapso.execution.campaign_report import render_campaign_report, render_campaign_report_data
 from kapso.execution.inbox import (
     file_requests,
     inbox_path,
@@ -186,6 +186,9 @@ def test_deliverable_is_the_committed_candidate_not_the_fast_leader(tmp_path):
 
     assert "- **Node:** 1\n- **Branch:** `generic_exp_1`\n- **Score:** 0.7" in report
     assert leaderboard_nodes(report) == [0, 1]
+    data = render_campaign_report_data(workspace, top=5)
+    assert (data["deliverable"]["node"], data["deliverable"]["score"]) == (1, 0.7)
+    assert [row["node"] for row in data["leaderboard"]] == [0, 1]
 
 
 def test_inbox_requests_and_their_replies(tmp_path):
@@ -263,3 +266,84 @@ def test_cli_writes_the_file_and_reads_top_from_config(tmp_path, monkeypatch, ca
     main()
     assert capsys.readouterr().out == f"Report written to {output}\n"
     assert leaderboard_nodes(output.read_text()) == [6, 5]
+
+
+def test_report_data_carries_the_markdown_reports_facts(tmp_path):
+    workspace = campaign(tmp_path, three_nodes(), status="running")
+    file_requests(inbox_path(workspace), node=1, session="s", entries=[REQUEST, {**REQUEST, "key": "data/x.csv"}])
+    record_reply(inbox_path(workspace), 1, "added it")
+
+    data = render_campaign_report_data(workspace, top=1)
+
+    assert data["goal"] == "Raise accuracy\n\nKeep inference under 50ms"
+    assert data["state"] == "running"
+    assert (data["iterations"], data["elapsed_minutes"], data["model_spend_usd"]) == (3, 30.0, 1.5)
+    assert data["deliverable"] == {
+        "node": 1, "branch": "generic_exp_1", "score": 0.9, "idea": "gradient boosting | tuned",
+    }
+    assert data["leaderboard"] == [{
+        "rank": 1, "node": 1, "score": 0.9, "parent": 0, "branch": "generic_exp_1",
+        "idea": "gradient boosting | tuned",
+    }]
+    assert data["outcomes"] == {
+        "candidates": 3, "scored": 2, "failed": 1, "integrity_flagged": 0, "cost_refused": 0,
+    }
+    assert [(request["id"], request["key"], request["state"], request["reply"]) for request in data["human_input"]] == [
+        (1, "env:OPENAI_API_KEY", "answered", "added it"),
+        (2, "data/x.csv", "open", None),
+    ]
+    assert render_campaign_report_data(workspace, top=5)["leaderboard"][1]["parent"] is None
+
+
+def test_report_data_ranks_as_the_campaign_does(tmp_path):
+    def nodes(costs):
+        return [
+            SearchNode(node_id=i, branch_name=f"generic_exp_{i}", parent_branch_name="main",
+                       score=score,
+                       measured_cost=None if costs is None else {"amount": costs[i], "unit": "credits"})
+            for i, score in enumerate([0.3, 0.1, 0.2])
+        ]
+
+    minimize = campaign(tmp_path / "minimize", nodes(None), maximize=False)
+    data = render_campaign_report_data(minimize, top=5)
+    assert [row["node"] for row in data["leaderboard"]] == [1, 2, 0]
+    assert data["deliverable"]["node"] == 1
+
+    cost_config = {"enabled": True, "estimator": "pkg.estimate", "weight": 1.0}
+    costed = campaign(tmp_path / "costed", nodes([0.25, 0.0, 0.0]), cost_config=cost_config)
+    rows = render_campaign_report_data(costed, top=5)["leaderboard"]
+    assert [(row["node"], row["cost"]) for row in rows] == [(2, 0.0), (1, 0.0), (0, 0.25)]
+
+
+def test_report_data_without_a_scored_candidate_and_bad_input(tmp_path):
+    data = render_campaign_report_data(campaign(tmp_path, [], status="running"), top=5)
+    assert data["deliverable"] is None
+    assert data["leaderboard"] == []
+
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(RunCheckpointMissingError):
+        render_campaign_report_data(tmp_path / "empty", top=5)
+    with pytest.raises(ValueError, match="top must be a positive integer"):
+        render_campaign_report_data(tmp_path, top=0)
+
+
+def test_cli_json_prints_the_data_or_writes_it(tmp_path, monkeypatch, capsys):
+    nodes = [
+        SearchNode(node_id=i, branch_name=f"generic_exp_{i}", parent_branch_name="main", score=i)
+        for i in range(7)
+    ]
+    workspace = campaign(tmp_path, nodes)
+
+    monkeypatch.setattr(sys, "argv", ["kapso", "report", str(workspace), "--json", "--top", "2"])
+    main()
+    printed = json.loads(capsys.readouterr().out)
+    assert [row["node"] for row in printed["leaderboard"]] == [6, 5]
+    assert printed == render_campaign_report_data(workspace, top=2)
+
+    output = tmp_path / "report.json"
+    monkeypatch.setattr(
+        sys, "argv", ["kapso", "report", str(workspace), "--json", "--top", "2", "-o", str(output)]
+    )
+    main()
+    assert capsys.readouterr().out == f"Report written to {output}\n"
+    assert json.loads(output.read_text()) == printed

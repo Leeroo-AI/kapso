@@ -3,17 +3,21 @@ reader over what the campaign already wrote: it never writes into the
 campaign and makes no model calls."""
 
 import argparse
+import json
 from pathlib import Path
 
 from kapso.core.config import load_config
-from kapso.execution.campaign_report import render_campaign_report
+from kapso.execution.campaign_report import render_campaign_report, render_campaign_report_data
 
 NAME = "report"
 
 
 def cmd_report(args) -> None:
     top = args.top if args.top is not None else load_config(args.config)["report"]["leaderboard_size"]
-    report = render_campaign_report(args.campaign, top=top)
+    if args.json:
+        report = json.dumps(render_campaign_report_data(args.campaign, top=top), indent=1) + "\n"
+    else:
+        report = render_campaign_report(args.campaign, top=top)
     if args.output:
         Path(args.output).write_text(report, encoding="utf-8")
         print(f"Report written to {args.output}")
@@ -36,10 +40,13 @@ Examples:
   kapso report ./campaign                  # Markdown to stdout
   kapso report ./campaign -o report.md     # write to a file
   kapso report ./campaign --top 10         # leaderboard size
+  kapso report ./campaign --json           # the same facts as data
 """,
     )
     parser.add_argument("campaign", help="Campaign directory")
     parser.add_argument("-o", "--output", type=str, default=None, help="Write the report to this file instead of stdout")
+    parser.add_argument("--json", action="store_true",
+                        help="Print the summary, deliverable, leaderboard, outcomes and human input as JSON")
     parser.add_argument("--top", type=int, default=None, help="Leaderboard size (default: report.leaderboard_size in the config)")
     parser.add_argument("--config", type=str, default=None,
                         help="Config whose report.leaderboard_size sets the default (default: packaged config.yaml)")

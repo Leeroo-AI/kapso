@@ -12,16 +12,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from kapso.execution.campaign_report import (
+    campaign_standing,
     campaign_state,
     delivered_score,
     load_campaign_state,
     markdown_table,
 )
 from kapso.execution.search_strategies.base import SearchNode
-from kapso.execution.search_strategies.generic.strategy import (
-    rank_candidates,
-    select_deliverable,
-)
 
 SIDES = ("a", "b")
 
@@ -35,15 +32,7 @@ def campaign_facts(campaign: str | Path) -> Dict[str, Any]:
     checkpoint or a status file raises, and so does any corrupt state file."""
     campaign = Path(campaign).expanduser()
     checkpoint, status, _, nodes = load_campaign_state(campaign)
-    selection_config = {
-        "cost": checkpoint.cost_config,
-        "maximize_scoring": checkpoint.maximize_scoring,
-    }
-    evaluator_id = checkpoint.strategy_state.get("scores_evaluator_id", "")
-    ranked = rank_candidates(nodes, selection_config)
-    deliverable = select_deliverable(
-        nodes, evaluator_id=evaluator_id, selection_config=selection_config
-    )
+    ranked, evaluator_id, deliverable = campaign_standing(checkpoint, nodes)
     return {
         "campaign": str(campaign),
         "goal": checkpoint.goal.strip(),
