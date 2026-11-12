@@ -7,6 +7,7 @@ changed harness refused."""
 
 import json
 import shutil
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -169,6 +170,26 @@ def test_the_same_module_on_codex(harness, tmp_path):
     claude = stage(harness, "implementation", "claude_code", tmp_path, session="sessions/other", session_id="other")
     assert claude.mcp_servers["market-data"]["env"]["MARKET_TOKEN"] == "${MARKET_TOKEN}"
     assert "env_vars" not in claude.mcp_servers["market-data"]
+
+
+def test_a_codex_role_with_an_emoji_reaches_codex_intact(harness, tmp_path, monkeypatch):
+    agent = harness.path / "agents" / "lookahead-auditor.md"
+    agent.write_text(
+        agent.read_text(encoding="utf-8").replace("Audits one attempt", "\U0001F50E Audits one attempt", 1) + "Then stop \U0001F6D1.\n",
+        encoding="utf-8",
+    )
+    settings = dict(load_config()["harness"], store=str(tmp_path / "store"))
+    harness = load_harness(str(harness.path), settings=settings, say=lambda line: None)
+    staged = stage(harness, "implementation", "codex", tmp_path)
+    role = tomllib.loads((staged.session_dir / ".codex" / "harness-agents" / "lookahead-auditor.toml").read_text(encoding="utf-8"))
+    assert role["developer_instructions"].endswith("Then stop \U0001F6D1.\n")
+
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    command = CodexCodingAgent(CodingAgentConfig(
+        agent_type="codex", model="m", debug_model="m", agent_specific=staged.merged_agent_specific({}),
+    ))._exec_command("m", "/tmp/last.txt")
+    override = next(arg for arg in command if arg.startswith("agents.lookahead-auditor.description="))
+    assert tomllib.loads(override.replace("agents.lookahead-auditor.", "", 1))["description"].startswith("\U0001F50E Audits")
 
 
 def test_ideation_gets_its_own_lists_and_nothing_more(harness, tmp_path):

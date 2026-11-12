@@ -72,6 +72,23 @@ def test_the_codex_export_writes_toml_roles_and_prints_the_config_and_server_lin
     assert "codex mcp add broker " in text
 
 
+def test_the_codex_role_is_valid_toml_when_the_agent_has_an_emoji(tmp_path):
+    harness = tmp_path / "trading"
+    shutil.copytree(TRADING, harness)
+    agent = harness / "agents" / "lookahead-auditor.md"
+    agent.write_text(
+        agent.read_text(encoding="utf-8").replace("Audits one attempt", "\U0001F50E Audits one attempt", 1) + "Report \u2705 or \u274C, then stop \U0001F6D1.\n",
+        encoding="utf-8",
+    )
+    into = (tmp_path / "out").resolve()
+    export = export_harness(harness, "codex", into)
+    data, body = read_front_matter(agent)
+    role = tomllib.loads((into / ".codex" / "agents" / "lookahead-auditor.toml").read_text(encoding="utf-8"))
+    assert role == {"developer_instructions": body.strip() + "\n"}
+    lines = export.render().split("[agents.lookahead-auditor]\n", 1)[1].splitlines()[:2]
+    assert tomllib.loads("\n".join(line.strip() for line in lines))["description"] == data["description"]
+
+
 def test_one_existing_destination_refuses_the_whole_export_by_name(tmp_path):
     (tmp_path / ".claude" / "skills" / "backtesting").mkdir(parents=True)
     (tmp_path / "kapso-harness-trading.md").write_text("mine\n", encoding="utf-8")

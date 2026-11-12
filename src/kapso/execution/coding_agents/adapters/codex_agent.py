@@ -137,6 +137,13 @@ CAMPAIGN_RULES = "".join(
 )
 
 
+def toml_string(text: str) -> str:
+    """`text` as a TOML basic string. JSON's escapes are TOML's, except that
+    an ASCII-escaped character past U+FFFF (an emoji) is a surrogate pair,
+    which TOML refuses, and DEL is left raw, which TOML wants escaped."""
+    return json.dumps(text, ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
 def agent_role_overrides(agents: Dict[str, Dict[str, str]]) -> List[str]:
     """A harness's delegates as codex agent roles: `agents.<name>` with a
     description and a config file whose developer instructions are the
@@ -146,8 +153,8 @@ def agent_role_overrides(agents: Dict[str, Dict[str, str]]) -> List[str]:
     for name, spec in agents.items():
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError(f"agent role name not TOML-bare-key safe: {name!r}")
-        overrides += ["-c", f"agents.{name}.description={json.dumps(spec['description'])}"]
-        overrides += ["-c", f"agents.{name}.config_file={json.dumps(spec['config_file'])}"]
+        overrides += ["-c", f"agents.{name}.description={toml_string(spec['description'])}"]
+        overrides += ["-c", f"agents.{name}.config_file={toml_string(spec['config_file'])}"]
     return overrides
 
 

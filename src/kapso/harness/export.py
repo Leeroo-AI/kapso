@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
 from kapso.core.front_matter import read_front_matter
+from kapso.execution.coding_agents.adapters.codex_agent import toml_string
 from kapso.harness.hooks import expand_plugin_root
 from kapso.harness.load import HarnessError
 from kapso.harness.manifest import MODULES, Manifest, read_manifest
@@ -160,11 +161,11 @@ def _agent(source: Path, name: str, host: str, into: Path, export: HarnessExport
     export.next_steps.append(
         "add to ~/.codex/config.toml:\n"
         f"    [agents.{name}]\n"
-        f"    description = {json.dumps(str(data['description']))}\n"
-        f"    config_file = {json.dumps(str(into / relative))}"
+        f"    description = {toml_string(str(data['description']))}\n"
+        f"    config_file = {toml_string(str(into / relative))}"
     )
     return relative, lambda: (into / relative).write_text(
-        f"developer_instructions = {json.dumps(body.strip() + chr(10))}\n", encoding="utf-8",
+        f"developer_instructions = {toml_string(body.strip() + chr(10))}\n", encoding="utf-8",
     )
 
 
