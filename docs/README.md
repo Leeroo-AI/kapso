@@ -104,6 +104,8 @@ Every published page with its rendered address, grouped as in the sidebar. Kept 
 - [Use a harness](https://docs.leeroo.com/docs/harnesses/use) — `docs/harnesses/use.mdx`
 - [Predictive modelling](https://docs.leeroo.com/docs/harnesses/bundled/predictive-modelling) — `docs/harnesses/bundled/predictive-modelling.mdx`
 - [Competitive programming](https://docs.leeroo.com/docs/harnesses/bundled/competitive-programming) — `docs/harnesses/bundled/competitive-programming.mdx`
+- [Data engineering](https://docs.leeroo.com/docs/harnesses/bundled/data-engineering) — `docs/harnesses/bundled/data-engineering.mdx`
+- [Agent engineering](https://docs.leeroo.com/docs/harnesses/bundled/agent-engineering) — `docs/harnesses/bundled/agent-engineering.mdx`
 - [Write a harness](https://docs.leeroo.com/docs/harnesses/write) — `docs/harnesses/write.mdx`
 - [The trading example](https://docs.leeroo.com/docs/harnesses/example-trading) — `docs/harnesses/example-trading.mdx`
 

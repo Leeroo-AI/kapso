@@ -1,0 +1,94 @@
+---
+title: "The data-engineering harness"
+sidebarTitle: "Data engineering"
+description: "The harness that ships for changes to a data pipeline: a cause traced through the lineage, invariants and a row comparison as the proof, a label computed from the measurements, and two delivery targets of its own. What it ships, where it came from, and how to run a task on it."
+keywords: ["data-engineering harness", "Kapso harness", "dbt", "data quality", "invariants", "data diff", "lineage", "pull requests", "warehouse release"]
+---
+
+`data-engineering` is the harness for changes to a data pipeline: a wrong number to fix, a dataset to build, a refactor, a cost or speed change, a migration, one change or a backlog of them. It ships inside the package and loads by name. Its pages call each change asked for a ticket, whether or not a ticketing system exists. dbt on a SQL warehouse is the stack it was worked on: the measurement scripts and the two delivery targets drive dbt and nothing else, and the pages say what to do by hand on another stack.
+
+What it holds is the discipline, not the task: the brief, the evaluator, the warehouse and the starting repository are yours.
+
+## Where it came from
+
+The harness was written from published practice on data modelling, data quality, pipeline reliability and warehouse cost, then revised after independent reviews. Its rule is that a change is believed when the built data proves it: every assumption becomes a checked declaration before work starts, a fix removes a cause and never patches a symptom, and the proof matches the kind of change. The package's gate runs `check` over each bundled harness at the packaged page budget and scans it for a benchmark's names. The [dbt on Snowflake example](https://github.com/Leeroo-AI/kapso/tree/main/examples/dbt-snowflake) is a task set up to run on it.
+
+## What it ships
+
+```bash
+kapso harness check data-engineering
+```
+
+```text
+check ok (14 skills, 2 agents, 0 servers, 4 hooks)
+name     data-engineering 0.9.0
+```
+
+Two pages reach every session: `instructions/guardrails.md`, the standing rules (verify in data, not in code; fix causes; the proof matches the kind of change; production is read and never written by a session; the label is computed, never chosen), and the module's own page, one each for setup, ideation, implementation, verification, feedback, deployment and learning. The skills, the delegates and the hooks are defined once and listed per module:
+
+| Module | Skills | Delegates | Hooks |
+|---|---|---|---|
+| `setup` | dbt-workflow, ticket-backlog, grain-and-modelling, lineage-bisection, invariants, warehouse-cost, validation-report | | session-brief |
+| `ideation` | data-bug-mechanisms, ticket-backlog, lineage-bisection, pipeline-reliability, warehouse-cost | | session-brief, protect-prepared |
+| `implementation` | dbt-workflow, ticket-backlog, grain-and-modelling, lineage-bisection, data-bug-mechanisms, invariants, data-diff, pipeline-reliability, engine-portability, warehouse-cost, validation-report | root-cause-reviewer | session-brief, protect-prepared, shared-layer-notice, require-proof |
+| `verification` | invariants, data-diff, validation-report, ticket-backlog, pipeline-reliability, data-bug-mechanisms | validation-auditor, root-cause-reviewer | session-brief, protect-prepared |
+| `feedback` | validation-report, ticket-backlog, warehouse-cost | | session-brief, protect-prepared |
+| `deployment` | pull-request, pull-request-proof, warehouse-release, validation-report, ticket-backlog | | session-brief, protect-prepared |
+| `learning` | | | |
+
+### The skills
+
+| Skill | What it teaches |
+|---|---|
+| `grain-and-modelling` | The modelling canon applied before a dataset is touched: the grain as a declared contract, what may be summed across which dimensions, keys, nulls, history and time |
+| `lineage-bisection` | Finding where a wrong number is born: the reported figure reproduced first, the lineage walked edge by edge, with a script that prints a dbt model's lineage with row counts |
+| `data-bug-mechanisms` | The mechanisms behind silently wrong data (cardinality, null semantics, status, time, ordering and frames, data read wrong), each with the query that reveals it and the invariant that proves the fix |
+| `invariants` | The property checks that prove a dataset right, a spec format for them, and a script that runs a spec through dbt |
+| `data-diff` | The comparison before and after a change: fingerprints of every changed dataset and what reads it as a screen, the row comparison that proves equality, the replay comparison |
+| `validation-report` | What a change proved, as a list: the proof each kind of change obliges, the three labels (`safe to merge`, `unsure`, `won't do`), and the script that measures a change and computes the label it earns |
+| `pipeline-reliability` | What makes a pipeline rerunnable and complete: one logical effect per retry, lateness as a declared window, backfills through the production code path, the replay that proves a load |
+| `warehouse-cost` | Making a workload cheaper or faster: the billed quantity kept apart from the requested metric, attribution before optimisation, the rules for a speed or spend claim |
+| `engine-portability` | Keeping a change correct on every engine a project ships, with the evidence classes compiled, executed and compared |
+| `dbt-workflow` | The dbt commands that keep an attempt fast on a large project, the project conventions in dbt terms, and what the bundled scripts need |
+| `ticket-backlog` | Working several tickets on one warehouse: the inventory, the order by lineage, one ticket as one unit with its own baseline, proof and commit, the ledger |
+| `pull-request-proof` | The title and body of a pull request rendered from a ticket's proof and the evidence behind it |
+| `pull-request` | A delivery target: the build as pull requests on GitHub, one for a single change or one per closed ticket of a backlog |
+| `warehouse-release` | A delivery target: what is merged released to production through the repository's own release command, rehearsed, audited and rolled back on a failure |
+
+### The delegates
+
+`root-cause-reviewer` reviews one attempt's diff against the ticket and the proof: a fix removes a demonstrated cause at the transformation responsible for it, and any other kind of change carries the evidence its kind obliges. `validation-auditor` checks one attempt's proof against those obligations and the attempt's own files. Each reports pass, fail or inconclusive with evidence, and neither edits a file.
+
+### The hooks
+
+- `session-brief`, when a session starts: one paragraph on what setup pinned and where the attempt stands. Before setup has written anything it says nothing.
+- `protect-prepared`, on the file tools: what setup pinned under `prepared/` is read-only, since it is what every attempt is measured against.
+- `shared-layer-notice`, after a write: a note when the file sits in a shared layer of the project (a staging model, a source, a snapshot, a test), naming what the proof must then carry. It never denies.
+- `require-proof`, when an implementation session stops: it asks once for the proof file, with the label the measurements earn.
+
+### The label
+
+A change's label is computed from measurements taken before its first edit and after its last, never chosen. `safe to merge` needs every obligation of the kind of change met by a measurement, taken again by the verification session; anything missing gives `unsure` with what is missing as the reason; `won't do` is a premise shown wrong, with the same proof a fix needs. On a dbt project one script takes the measurements (`evidence.py`, in the `validation-report` skill). It reads `prepared/environment.json`, which the setup session writes from the repository's own documentation: the dbt targets a session builds on and reads production through, and, where the repository has them, a reset command, a check a session may run, and a release command. Every key is optional, and a key left out is a measurement no attempt can take: the label says so. dbt and git are expected on PATH; the scripts use the standard library only.
+
+### The delivery targets
+
+The deployment page ships two targets for when the task's channel is theirs, and `kapso deploy` names one as [Targets](/docs/deploy/targets) describes for a harness target:
+
+```bash
+kapso deploy campaign --target pull-request
+kapso deploy campaign --target warehouse-release
+```
+
+`pull-request` opens the change for review on GitHub through the `gh` command, with each title and body rendered from the proof. `warehouse-release` releases what a reviewer merged, through a release command of the repository's that rehearses a release, publishes it and rolls it back; a repository without such a command has no release path this target can drive, and it says so.
+
+## Run a task on it
+
+```bash
+kapso build --harness data-engineering --brief kapso-brief.md --evaluation evaluation --repo repo --output campaign --detach
+```
+
+The brief's `Harness data-engineering` line and `kapso.load_harness("data-engineering")` name it the same way. The campaign then runs as [Use a harness](/docs/harnesses/use) describes: the setup session pins the measurement context and, for a backlog, writes the inventory of its tickets; each implementation session closes a ticket by taking a baseline, making the change, measuring it and writing its proof; each attempt is verified by a session that measures every closed ticket again from the attempt's code and asks the two delegates.
+
+Related pages: [Use a harness](/docs/harnesses/use) · [Agent engineering](/docs/harnesses/bundled/agent-engineering) · [Predictive modelling](/docs/harnesses/bundled/predictive-modelling) · [Write a harness](/docs/harnesses/write) · [Harness reference](/docs/reference/harness) · [Deployment targets](/docs/deploy/targets)
+
+Kapso is an open-source engine by [Leeroo](https://leeroo.com) that runs experiments toward an objective, deploys the best solution and learns from every run. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

@@ -94,6 +94,8 @@
               "docs/harnesses/use",
               "docs/harnesses/bundled/predictive-modelling",
               "docs/harnesses/bundled/competitive-programming",
+              "docs/harnesses/bundled/data-engineering",
+              "docs/harnesses/bundled/agent-engineering",
               "docs/harnesses/write",
               "docs/harnesses/example-trading"
             ]
