@@ -23,7 +23,8 @@ repo_slug() {
         slug="$(github_slug "$url")"
         if [ -n "$slug" ]; then echo "$slug"; return; fi
     done
-    echo "no GitHub repository named: pass --option repo=<owner>/<name> (the solution's code came from '${KAPSO_SOURCE_REMOTE:-nowhere the engine knows}')" >&2
+    # The remote is printed without any credentials it carries (https://user:token@host/...).
+    echo "this target opens pull requests on github.com through gh, and no GitHub repository is named: pass --option repo=<owner>/<name> when the repository is on GitHub (the solution's code came from '$(echo "${KAPSO_SOURCE_REMOTE:-nowhere the engine knows}" | sed -E 's#://[^/@]*@#://#')')" >&2
     return 1
 }
 

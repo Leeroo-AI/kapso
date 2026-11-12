@@ -1,7 +1,7 @@
 # Implementation
 
-A ticket is closed by these steps in this order. A plan that lists only fixes does not
-waive them, and the session does not end without them for every ticket it closes.
+On a dbt project a ticket is closed by these steps, in this order, whatever the plan lists,
+for every ticket the session closes; on another stack, the same measurements by hand (invariants).
 
 ```bash
 E="python3 $KAPSO_HARNESS_ROOT/skills/validation-report/scripts/evidence.py"
@@ -14,12 +14,12 @@ $E label --ticket <t> --write
 ```
 
 - The label is computed from those measurements, never chosen: the stop hook,
-  verification and the pull request's publication compute it again. A passing acceptance
-  check alone earns `unsure`; a measurement still within reach is work left undone.
-- `baseline` and `prove` each reset the build namespace to what production holds: a
-  ticket is measured as it is judged and merged, with no other ticket's change or hand
-  build around it. A file edited before its baseline cannot be claimed by the proof. When
-  the ticket's code does not build without another ticket's change, name it in `needs`.
+  verification and the delivery compute it again. Passing the task's check, where it has
+  one, earns `unsure` by itself; a measurement still within reach is work left undone.
+- Where setup pinned a reset, `baseline` and `prove` each put the build namespace back to
+  the reference state, so a ticket is measured with no other ticket's change or hand build
+  around it; without one, the proof says what else the namespace held. A file edited before
+  its baseline cannot be claimed. Code that needs another ticket's change names it in `needs`.
 - With a backlog (ticket-backlog): one ticket at a time through the steps, then its
   proof (results/proofs/<ticket>.json), its commit and the ledger (results/backlog.json);
   a ticket that resists is parked with its note. Last, the task's whole acceptance run.

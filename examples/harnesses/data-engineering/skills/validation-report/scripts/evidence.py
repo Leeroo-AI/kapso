@@ -86,9 +86,14 @@ SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 NAMED_SUBQUERY = re.compile(r"(?:\bwith|,)\s+([A-Za-z_]\w*)\s*(?:\([^()]*\))?\s*as\s*\(", re.IGNORECASE)
 FAMILY = re.compile(r"^[A-Za-z0-9_]{3,}\*$")
 RUNBOOK_KEYS = ("one_time_actions", "order", "verification", "recovery")
-OUTSIDE_THE_CODE = ("results/", "prepared/", "deploy/")
+# What the harness itself writes in the workspace; a repository's own deploy/ directory is code.
+OUTSIDE_THE_CODE = ("results/", "prepared/", "deploy/pull_requests/", "deploy/release/")
 SINGLE_TICKET = "change"
+TICKET_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+INVENTORY = Path("prepared/backlog/inventory.json")
 ERROR_LINES = 8
+NO_DBT = ("dbt is not on PATH: these scripts measure through dbt and cannot run on another stack. Say so in the "
+          "proof (validated.skipped), and leave the label to `evidence.py label`, which reads unsure")
 
 
 def run(command, cwd=None):
@@ -133,6 +138,8 @@ def dbt_errors(output):
 
 
 def dbt(project_dir, arguments, target):
+    if shutil.which("dbt") is None:
+        raise SystemExit(NO_DBT)
     return run(["dbt", "--no-use-colors", *arguments] + (["--target", target] if target else []), cwd=project_dir)
 
 
@@ -298,15 +305,19 @@ def changed_since(commit):
 
 def acceptance(ticket, settings):
     """What the task's acceptance check says about one ticket, run now on the working tree; None when the setup
-    pinned no acceptance command. `{ticket}` in the command and in the patterns is the ticket's key. It passes
-    when the command exits 0 and its output matches the pass pattern (and not the fail pattern, when one is
-    pinned); `readable` is false when the output matched neither pattern, or both."""
+    pinned no acceptance command. `{ticket}` in the command and in the patterns is the ticket's key. With a
+    pass pattern it passes when the command exits 0 and its output matches the pattern (and not the fail
+    pattern, when one is pinned), and `readable` is false when the output matched neither pattern, or both;
+    without one the exit status alone is the verdict."""
     command, pass_pattern = settings.get("acceptance_command"), settings.get("acceptance_pass_pattern")
-    if not command or not pass_pattern:
+    if not command:
         return None
     filled = command.replace("{ticket}", ticket)
     code, output = run(shlex.split(filled))
     lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not pass_pattern:
+        return {"command": filled, "verdict": "pass" if code == 0 else "fail", "exit": code, "readable": True,
+                "said": (lines[-1] if lines else "no output")[:200]}
 
     def matches(pattern):
         return re.search(pattern.replace("{ticket}", re.escape(ticket)), output, re.MULTILINE) is not None
@@ -341,15 +352,19 @@ def check_environment(args):
     for key in COMMAND_KEYS:
         if key in text and shutil.which(shlex.split(text[key])[0]) is None:
             problems.append(f"`{key}`: {shlex.split(text[key])[0]} is not a program on PATH")
-    if ("acceptance_command" in text) != ("acceptance_pass_pattern" in text):
-        problems.append("`acceptance_command` and `acceptance_pass_pattern` are pinned together")
-    if "acceptance_fail_pattern" in text and "acceptance_command" not in text:
-        problems.append("`acceptance_fail_pattern` needs `acceptance_command`")
+    for key in ("acceptance_pass_pattern", "acceptance_fail_pattern"):
+        if key in text and "acceptance_command" not in text:
+            problems.append(f"`{key}` needs `acceptance_command`")
+    if "acceptance_fail_pattern" in text and "acceptance_pass_pattern" not in text:
+        problems.append("`acceptance_fail_pattern` needs `acceptance_pass_pattern`: without a pass pattern the exit status is the verdict")
     if ("release_command" in text) != ("rehearsal_target" in text):
         problems.append("`release_command` and `rehearsal_target` are pinned together")
-    for key in ("acceptance_command", "acceptance_pass_pattern", "acceptance_fail_pattern"):
-        if key in text and "{ticket}" not in text[key]:
-            problems.append(f"`{key}` has no `{{ticket}}` where the ticket's key goes")
+    inventory = read_json(INVENTORY) if INVENTORY.is_file() else []
+    rows = inventory.get("tickets") if isinstance(inventory, dict) else inventory
+    tickets = len(rows) if isinstance(rows, list) else 0
+    if "acceptance_command" in text and "{ticket}" not in text["acceptance_command"] and tickets > 1:
+        problems.append(f"`acceptance_command` has no `{{ticket}}` and the backlog holds {tickets} tickets: one command "
+                        "cannot tell them apart")
     if problems:
         print(f"{ENVIRONMENT} cannot be used as it is:")
         for problem in problems:
@@ -438,7 +453,7 @@ def baseline(args):
             if not any(name in " ".join(errors) for name in datasets):
                 print("the project does not build as it stands, for a reason dbt does not put on this ticket's datasets: "
                       + " | ".join(errors)[:500])
-                print("Fix that first, under the ticket it belongs to, and take this baseline on the commit that builds. When the failing "
+                print("Fix that first, as a change of its own, and take this baseline on the commit that builds. When the failing "
                       "code is this ticket's own and dbt does not name it, take the baseline with --no-code-build: the before-state is then "
                       "read from the reference alone.")
                 return 1
@@ -781,7 +796,7 @@ def earned(ticket, results, evidence_file=None):
     evidence_file = Path(evidence_file) if evidence_file else results / ticket / "evidence.json"
     if not evidence_file.is_file():
         obligation("the change was measured (evidence.py baseline, then prove)", False, f"{evidence_file} does not exist")
-        return UNSURE, ["nothing was measured for this ticket: no baseline and no proof run"], rows
+        return UNSURE, ["nothing was measured: no baseline and no proof run"], rows
     evidence = read_json(evidence_file)
     kind = evidence.get("kind")
     datasets = evidence.get("select", []) + evidence.get("snapshots", [])
@@ -928,7 +943,7 @@ def earned(ticket, results, evidence_file=None):
     assumptions = [str(item) for item in (validated.get("assumptions") or []) if str(item).strip()]
     obligation("no assumption is left open", not assumptions, "none" if not assumptions else "; ".join(assumptions[:3]))
     unknowns = [str(item) for item in (proof.get("unknowns") or []) if str(item).strip()]
-    obligation("no question is left for the ticket's author", not unknowns, "none" if not unknowns else "; ".join(unknowns[:3]))
+    obligation("no question is left for whoever asked for the change", not unknowns, "none" if not unknowns else "; ".join(unknowns[:3]))
 
     if evidence.get("loads") or kind == "migration":
         what = ", ".join(evidence.get("loads") or []) or "a migration"
@@ -1125,6 +1140,10 @@ def main():
     parser.add_argument("--reason", default=None)
     parser.add_argument("--only", nargs="*", default=[], help="verify: measure only these tickets again")
     args = parser.parse_args()
+    for key in [args.ticket, *args.only]:
+        if key is not None and not TICKET_KEY.fullmatch(key):
+            parser.error(f"a ticket's key names a file, a directory and a branch: letters, digits, `.`, `_` and `-` only "
+                         f"(got {key!r}); give the ticket a short key in the inventory and keep its title there")
     if args.command == "environment":
         sys.exit(check_environment(args))
     if args.command == "baseline":

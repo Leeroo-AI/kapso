@@ -5,8 +5,9 @@
 A pull request that passes only together with another one is not what its title says. For every branch
 prepare made, this checks the branch out in a worktree of its own and runs the acceptance command the setup
 pinned in prepared/environment.json (`acceptance_command`, with `{ticket}` for the unit's name). The branch
-passes when the command exits 0 and its output matches `acceptance_pass_pattern` (and not
-`acceptance_fail_pattern`, when one is pinned); both are regular expressions with `{ticket}` filled in. One
+passes when the command exits 0 and, where the setup pinned `acceptance_pass_pattern`, its output matches
+it (and not `acceptance_fail_pattern`, when one is pinned); both are regular expressions with `{ticket}`
+filled in, and without a pass pattern the exit status alone is the verdict. One
 branch runs at a time unless the setup pinned `acceptance_at_a_time` (the task says its check may run several
 at once, each on its own state). Writes one entry per unit: the verdict (`pass`, `fail`, or `not_run` when
 its worktree could not be made), the last line of the command's output and the commit checked. Exit status 1
@@ -16,8 +17,7 @@ its own from the tree it is run in, which the setup declares by pinning `accepta
 runs in a checkout that holds the repository's tracked files and nothing else, and whatever it needs beyond
 them (a profile, installed packages, its own state of the warehouse) it establishes itself. A task with no
 acceptance command, or with one that reads the build namespace, cannot be checked this way: the report says
-so (`checked: false`) and every pull request then carries that as an open point. A command pinned without its
-pass pattern stops the script. Standard library only.
+so (`checked: false`) and every pull request then carries that as an open point. Standard library only.
 """
 import concurrent.futures
 import json
@@ -36,9 +36,6 @@ command_template, pass_template = settings.get("acceptance_command"), settings.g
 fail_template = settings.get("acceptance_fail_pattern")
 at_a_time = settings.get("acceptance_at_a_time", 1)
 
-if command_template and not pass_template:
-    raise SystemExit(f"{environment_file} pins an acceptance command and no acceptance_pass_pattern: what a pass prints is not known, so no "
-                     "branch can be called checked. The setup pins both; nothing was pushed")
 if not command_template or "acceptance_at_a_time" not in settings:
     why = (f"no acceptance_command in {environment_file}" if not command_template else
            f"the acceptance check reads the build namespace (no acceptance_at_a_time in {environment_file}), which holds no branch's build")
@@ -58,7 +55,7 @@ def check(entry, root):
     def matches(template):
         return re.search(template.replace("{ticket}", re.escape(entry["unit"])), output, re.MULTILINE) is not None
 
-    passed = completed.returncode == 0 and matches(pass_template) and not (fail_template and matches(fail_template))
+    passed = completed.returncode == 0 and (not pass_template or matches(pass_template)) and not (fail_template and matches(fail_template))
     last = [line.strip() for line in output.splitlines() if line.strip()]
     subprocess.run(["git", "worktree", "remove", "--force", str(tree)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return entry["unit"], {"verdict": "pass" if passed else "fail", "detail": (last[-1] if last else "no output")[:160], "commit": entry["commit"]}

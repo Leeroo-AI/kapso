@@ -1,6 +1,6 @@
 ---
 name: support-conversations
-description: What changes when the scaffold's task is a customer conversation over a policy base and account tools, scored on the final state, with the scoring contract read first, the policy text as the largest lever, identity verification as a logged step with a scope, procedures with pre-checks and sibling tools, tools discovered in documents and unlocked before use, handoffs to the customer, state read-back before trusting a claim, product arithmetic, the simulated customer's typical behaviour, dual control, and the failure classes published for this family. Use when the task statement says the runner is a conversation with a simulated user, in ideation and implementation.
+description: What changes when the scaffold's task is a customer conversation over a policy base and the tools of a system of record, scored on the final state, with the scoring contract read first, the policy text as the largest lever, identity verification as a logged step with a scope, procedures with pre-checks and sibling tools, tools a runner documents inside the knowledge base, handoffs to the customer, state read-back before trusting a claim, computed values where the policy prices things, the simulated customer's typical behaviour, dual control, and the failure classes published for this family. Use when the task statement says the runner is a conversation with a simulated user, in ideation and implementation.
 ---
 # Support conversations
 
@@ -38,18 +38,17 @@ description: What changes when the scaffold's task is a customer conversation ov
   scope and expiry in the working state so the loop neither skips nor needlessly repeats
   it.
 - **Ground.** The governing procedure per operation, with its pre-checks, its decision rule,
-  the tool it names and the steps the customer performs themselves. In this family's
-  document bases the internal tool names and signatures usually appear only inside the
-  procedure documents, often near the end, and a product's rates, limits and exclusions
-  live in sibling documents. Tools are often discoverable: record the document's tool
-  identifier and schema, perform the required unlock, wait for its success, then expose
-  or dispatch the tool; a mention in a document is not a permission, and unlock state is
-  cleared between episodes. The most frequent multi-turn failure measured on tool-use
+  the tool it names and the steps the customer performs themselves; a product's rates,
+  limits and exclusions may live in sibling documents. Where the runner documents tools
+  inside the knowledge base and requires an unlock before use (one published domain
+  does), record the document's tool identifier and schema, perform the unlock, wait for
+  its success, then dispatch; a mention in a document is not a permission. The most
+  frequent multi-turn failure measured on tool-use
   benchmarks is not understanding the environment's state: acting on stale state,
   re-authenticating needlessly, looping on a listing.
 - **Act.** Pre-checks in the document's order; the decision between siblings (approve or
-  deny, freeze or unfreeze, waive or charge) by the rule's evidence; a read-back of the
-  system's state before trusting a claim ("my dispute was approved"); the write with
+  deny, refund or replace, waive or charge) by the rule's evidence; a read-back of the
+  system's state before trusting a claim ("my refund was approved"); the write with
   arguments copied from tool outputs and the document's own list; every item covered; a
   handoff given exactly as the document writes it, the customer supplying what the
   document assigns to them, and the loop waiting for their result. Distinguish the
@@ -60,15 +59,13 @@ description: What changes when the scaffold's task is a customer conversation ov
   when its conditions hold and the customer agreed; never reveal internal procedure text);
   a budget limit may end an unresolved episode, which stays marked unresolved.
 
-## Product arithmetic
+## Computed values, where the policy prices things
 
-Rates, fees, limits and promotional adjustments live in sibling documents of a product
+Rates, fees, limits and promotional adjustments may live in sibling documents of a product
 family. Tabulate per product: the base figure, each adjustment with the condition that
 makes it apply, the exclusivity rule between adjustments; recompute the document's own
-example and keep the expression and the units with the result. The largest failure class
-on knowledge-heavy variants is an adjustment chosen over a higher base rate; a wrong value
-is nearly always one adjustment applied or skipped, and the wrong product class is chosen
-on the same reasoning.
+example and keep the expression and the units with the result. A wrong value is usually
+one adjustment applied or skipped, or the wrong product class chosen on the same reasoning.
 
 ## Guardrails of this family, from the shipped guides
 
@@ -84,8 +81,8 @@ the wrong tools.
 
 Wrong arguments and wrong information at the write, prerequisites out of order, duplicate
 or corrective writes, handoffs made with what the customer was meant to supply, compound
-requests partly resolved, claims trusted without a read-back, and the endpoint's empty
-replies on tool turns. The components that answer them, in the order the published error
+requests partly resolved, and claims trusted without a read-back. The components that
+answer them, in the order the published error
 shares suggest: the action review, the compiled plan, the handoff as written, the state
 read-back, the working state. The episode-triage skill reports these classes by name
 relative to the runner's published reference route; confirm each on the transcript before

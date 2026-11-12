@@ -5,28 +5,25 @@ development set, the matched flags, the names of the differing arguments, the
 order of the steps and their counts. The action classes are relative to that
 reference route: they say where the episode left it, not that leaving it
 caused the failure. No expected value is read or printed, and an error is
-reported as a category, never as the runner's text. Standard library only.
+the category the adapter wrote, never the runner's text. `termination` is the
+runner's own word, so the words that mean a limit ended the episode and the
+ones that mean it simply ended are arguments, and the terminations neither
+list reads are printed. Standard library only.
 
 Usage: triage.py <episodes.jsonl> [--json] [--against <other.jsonl>]
+                 [--limit-terminations a,b] [--endings a,b]
 """
 import argparse
 import json
+import re
 import statistics
 import sys
 from collections import Counter, defaultdict
 
-ERROR_CATEGORIES = ("overflow", "empty_reply", "timeout", "endpoint_error")
-ENDPOINT_NEEDLES = (
-    ("contextwindow", "overflow"),
-    ("context length", "overflow"),
-    ("context_length", "overflow"),
-    ("must have either content", "empty_reply"),
-    ("empty", "empty_reply"),
-    ("timed out", "timeout"),
-    ("timeout", "timeout"),
-)
-TIMEOUT_TERMINATIONS = ("timeout", "max_steps", "max_turns", "budget", "step_limit")
-AGENT_ENDINGS = ("", "stop", "end", "done", "agent_stop", "completed")
+CATEGORY = re.compile(r"^[a-z][a-z0-9_]*$")
+REQUESTORS = ("assistant", "user", "tool")
+LIMIT_TERMINATIONS = "timeout,max_steps,max_turns,budget,step_limit"
+ENDINGS = ",stop,end,done,agent_stop,completed"
 COMPONENT = {
     "check_failed": "checks before done; grounding when the check names a behaviour never looked at",
     "no_steps": "the loop itself (the first step never ran)",
@@ -35,6 +32,7 @@ COMPONENT = {
     "precheck_skipped": "the compiled plan",
     "order_violation": "the compiled plan (prerequisites in order)",
     "write_never_made": "the compiled plan, or grounding",
+    "step_never_made": "the compiled plan, or grounding",
     "wrong_sibling_tool": "the decision by evidence",
     "argument_differs": "the action review (vocabulary, traced arguments, worked calculations)",
     "item_missed": "the intake item list, every item accounted for",
@@ -47,8 +45,9 @@ COMPONENT = {
     "empty_reply": "endpoint handling (thinking budget, repair layer)",
     "overflow": "the context policy",
     "endpoint_error": "endpoint handling",
-    "state_mismatch_unexplained": "read two transcripts; ask the episode-auditor",
+    "no_symptom_in_results": "read two transcripts; ask the episode-auditor",
 }
+UNMAPPED = "read the permitted trace"
 
 
 def read(path):
@@ -68,30 +67,32 @@ def read(path):
             if key in seen:
                 raise SystemExit(f"{path}:{number}: duplicate episode {row['id']} t{row['trial']}")
             seen.add(key)
+            if row.get("error") and not CATEGORY.match(str(row["error"])):
+                raise SystemExit(f"{path}:{number}: `error` must be a category the adapter chose "
+                                 "(lower case, digits, underscores), not the runner's text")
+            for entry in (row.get("calls") or []) + (row.get("expected_actions") or []):
+                if entry.get("requestor") not in REQUESTORS:
+                    raise SystemExit(f"{path}:{number}: `requestor` must be one of {', '.join(REQUESTORS)}, "
+                                     f"not {entry.get('requestor')!r}")
             rows.append(row)
     if not rows:
         raise SystemExit(f"{path}: no episodes")
     return rows
 
 
-def error_category(error):
-    """A category for the row's error: the category itself when the adapter wrote one, else from needles."""
-    text = str(error).strip().lower()
-    if text in ERROR_CATEGORIES:
-        return text
-    return next((category for needle, category in ENDPOINT_NEEDLES if needle in text), "endpoint_error")
-
-
-def family(name):
-    """The operation a tool name belongs to, without its leading verb and a
-    trailing numeric suffix: approve_x_1234 and deny_x_1235 share `x`. A
-    heuristic for the wrong_sibling_tool class, labelled as such."""
-    parts = [p for p in (name or "").split("_") if p]
+def family(entry):
+    """The operation a call belongs to: the `family` the adapter wrote, or,
+    without one, the tool's name less its leading verb and a trailing numeric
+    suffix (approve_x_1234 and deny_x_1235 share `x`). Returns the family and
+    whether it came from the name."""
+    if entry.get("family"):
+        return entry["family"], False
+    parts = [p for p in (entry.get("tool") or entry.get("name") or "").split("_") if p]
     if parts and parts[-1].isdigit():
         parts = parts[:-1]
     if len(parts) > 1:
         parts = parts[1:]
-    return "_".join(parts)
+    return "_".join(parts), True
 
 
 def key_of(entry):
@@ -124,15 +125,14 @@ def classify_actions(row):
             elif kind == "handoff":
                 cls, detail = "handoff_missing", "reference step %d never attempted" % entry["index"]
             elif kind == "write":
-                sibling = any(
-                    c.get("kind") == "write" and key_of(c) != key and family(c.get("tool") or c.get("name")) == family(tool)
-                    for c in calls
-                )
-                cls = "wrong_sibling_tool" if sibling else "write_never_made"
-                detail = ("a write of the same family made instead (name heuristic)" if sibling
+                wanted, by_name = family(entry)
+                siblings = [c for c in calls if c.get("kind") == "write" and key_of(c) != key and family(c)[0] == wanted]
+                heuristic = " (name heuristic)" if by_name or any(family(c)[1] for c in siblings) else ""
+                cls = "wrong_sibling_tool" if siblings else "write_never_made"
+                detail = ("a write of the same family made instead" + heuristic if siblings
                           else "reference step %d never attempted" % entry["index"])
             else:
-                cls, detail = "write_never_made", "reference step %d never attempted" % entry["index"]
+                cls, detail = "step_never_made", "reference step %d (%s) never attempted" % (entry["index"], kind)
             found.append((None, cls, tool, detail))
         elif entry.get("diff_keys"):
             cls = "handoff_prefilled" if kind == "handoff" else "argument_differs"
@@ -172,13 +172,22 @@ def classify_actions(row):
     return found
 
 
-def classify(row):
+def reading(termination, limits, endings):
+    """How a termination is read: `limit` when it contains one of the limit
+    words, `ending` when it is one of the endings, else `unread`."""
+    if any(word in termination for word in limits):
+        return "limit"
+    return "ending" if termination in endings else "unread"
+
+
+def classify(row, limits, endings):
     """The observed symptoms of one failed episode: (turn or None, class, check or tool, detail)."""
     found = []
     if row.get("error"):
-        found.append((None, error_category(row["error"]), None, "error category only; read the permitted trace"))
+        found.append((None, str(row["error"]), None, "error category only; read the permitted trace"))
     termination = str(row.get("termination") or "").lower()
-    if any(t in termination for t in TIMEOUT_TERMINATIONS):
+    read_as = reading(termination, limits, endings)
+    if read_as == "limit":
         found.append((None, "timeout", None, termination))
     steps = row.get("steps") if isinstance(row.get("steps"), int) else row.get("tool_calls")
     if isinstance(steps, int) and steps == 0:
@@ -189,23 +198,24 @@ def classify(row):
     if row.get("expected_actions") is not None:
         found.extend(classify_actions(row))
         untried = [e for e in row["expected_actions"] if not e.get("matched") and not e.get("attempted")]
-        if untried and termination in AGENT_ENDINGS and not row.get("error"):
+        if untried and read_as == "ending" and not row.get("error"):
             found.append((None, "ended_early", None, "ended with %d reference step(s) untaken" % len(untried)))
     if not found:
-        found.append((None, "state_mismatch_unexplained", None, "no symptom visible in the results file"))
+        found.append((None, "no_symptom_in_results", None, "no symptom visible in the results file"))
     unique = {}
     for turn, cls, tool, detail in sorted(found, key=lambda f: (f[0] is None, f[0] or 0, f[1])):
         unique.setdefault((cls, tool), (turn, cls, tool, detail))
     return sorted(unique.values(), key=lambda f: (f[0] is None, f[0] or 0, f[1]))
 
 
-def triage(rows):
+def triage(rows, limits, endings):
     failed = [row for row in rows if not row["passed"]]
     histogram = Counter()
     tools = Counter()
     symptoms = []
+    terminations = Counter(str(row.get("termination") or "").lower() for row in failed)
     for row in failed:
-        found = classify(row)
+        found = classify(row, limits, endings)
         for _turn, cls, tool, _detail in found:
             histogram[cls] += 1
             if tool:
@@ -228,6 +238,8 @@ def triage(rows):
         "classes": dict(episodes_per_class.most_common()),
         "instances": dict(histogram.most_common()),
         "tools": dict(tools.most_common(12)),
+        "terminations": {name: {"episodes": count, "read_as": reading(name, limits, endings)}
+                         for name, count in terminations.most_common()},
         "symptoms": symptoms,
         "cost": {k: cost(k) for k in ("input_tokens", "tool_calls", "steps", "seconds")},
     }
@@ -237,8 +249,13 @@ def render(report, comparison):
     lines = [f"episodes {report['episodes']}, failed {report['failed']}",
              "observed symptom classes (episodes; action classes relative to the published reference route):"]
     for cls, count in report["classes"].items():
-        lines.append(f"  {count:>3}  {cls:<28} -> usually {COMPONENT.get(cls, '?')}")
+        lines.append(f"  {count:>3}  {cls:<28} -> usually {COMPONENT.get(cls, UNMAPPED)}")
     lines.append("checks or tools most involved: " + (", ".join(f"{t} ({n})" for t, n in report["tools"].items()) or "-"))
+    lines.append("terminations of the failed episodes: " + (", ".join(
+        f"{name or '(none)'} ({row['episodes']}, {row['read_as']})" for name, row in report["terminations"].items()) or "-"))
+    if any(row["read_as"] == "unread" for row in report["terminations"].values()):
+        lines.append("  an unread termination gives no timeout and no ended_early class: name the runner's words with "
+                     "--limit-terminations or --endings")
     lines.append("representative symptom per failed episode (cause to be established on the transcript):")
     for item in report["symptoms"]:
         where = f"turn {item['turn']}" if item["turn"] is not None else "episode"
@@ -266,9 +283,15 @@ def main():
     parser.add_argument("path")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--against", default=None)
+    parser.add_argument("--limit-terminations", default=LIMIT_TERMINATIONS,
+                        help="comma-separated words a termination contains when the runner's step, turn, time or cost limit ended the episode")
+    parser.add_argument("--endings", default=ENDINGS,
+                        help="comma-separated terminations that mean the episode simply ended (the scaffold or the other party stopped)")
     args = parser.parse_args()
+    limits = [word.strip().lower() for word in args.limit_terminations.split(",") if word.strip()]
+    endings = [word.strip().lower() for word in args.endings.split(",")]
     rows = read(args.path)
-    report = triage(rows)
+    report = triage(rows, limits, endings)
     comparison = compare(rows, read(args.against)) if args.against else None
     if args.json:
         json.dump({"triage": report, "comparison": comparison}, sys.stdout, indent=2)

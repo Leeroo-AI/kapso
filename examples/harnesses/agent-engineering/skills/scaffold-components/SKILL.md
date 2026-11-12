@@ -11,6 +11,10 @@ each essential for one model generation and dead weight for the next, and removi
 them at once hid which ones were load-bearing. Build in order, measure one at a time, and
 write the expiry condition with the component.
 
+The skills name four phases a loop usually has, whether or not the code separates them:
+intake (what is asked, by whom, the items it names), ground (find what governs it), act,
+close (check, then stop).
+
 ## The build order
 
 1. The completion check the scaffold runs and the specification it gives the model
@@ -82,10 +86,10 @@ guards in code, bounded loops, the sealed eval.
 Every component carries an entry in `results/ledger.json`, and the attempt notes repeat it:
 
 ```json
-{"component": "pre_commit_review", "phase": "act", "model": "<name and version>",
- "failure_class": "argument_differs", "hypothesis": "the model copies ids from memory; a review step traces them",
- "measurement": {"before": "28/60", "after": "35/60", "tasks": 20, "trials": 3},
- "retire_when": "the baseline model makes fewer than 2 argument errors in 60 episodes"}
+{"component": "completion_gate", "phase": "close", "model": "<name and version>",
+ "failure_class": "ended_early", "hypothesis": "the model stops when the work looks done; a gate runs the checks first",
+ "measurement": {"before": "<passes>/<episodes>", "after": "<passes>/<episodes>", "tasks": "<n>", "trials": "<k>"},
+ "retire_when": "<the measured condition under which the failure no longer occurs without it>"}
 ```
 
 Components are removed one at a time, each removal measured; "radical simplification"
@@ -103,9 +107,10 @@ replay a permitted trace prefix that ends just before the target failure, in an 
 or read-only environment, and compare the next decision with and without the component;
 then run complete paired episodes to see downstream costs and regressions. Replay never
 repeats a live external write. For a component claimed to work by a general mechanism,
-construct public synthetic cases that keep the operation but rename entities and tool
-identifiers, vary amounts and reorder irrelevant documents, and change one governing
-condition to see the decision change; a failure here says the component depends on
+construct public synthetic cases that keep the operation but change its surface (rename
+entities, identifiers and files, vary literal values, reorder irrelevant material), and
+change one governing condition to see the decision change; a failure here says the
+component depends on
 recognition, not on the mechanism. Trigger this check whenever a measured gain did not pass
 through the episodes the hypothesis named, or whenever a component's effect cannot be
 traced to its stated mechanism: until the synthetic cases confirm it the mechanism is

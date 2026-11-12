@@ -13,6 +13,7 @@ that are not ephemeral; tests and ephemeral nodes stay graph entries.
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +33,9 @@ def error_tail(output):
 
 
 def run_dbt(args, project_dir, profiles_dir, target):
+    if shutil.which("dbt") is None:
+        raise SystemExit("dbt is not on PATH: this script measures through dbt and cannot run on another stack. Say so in "
+                         "the proof (validated.skipped), and leave the label to evidence.py, which reads unsure")
     project = str(Path(project_dir).resolve())
     command = ["dbt", "--no-use-colors", *args, "--project-dir", project]
     if profiles_dir:

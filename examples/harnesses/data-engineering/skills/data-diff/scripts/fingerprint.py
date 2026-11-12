@@ -35,12 +35,14 @@ import argparse
 import json
 import math
 import re
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-NUMERIC_MARKERS = ("int", "decimal", "numeric", "double", "float", "real", "number", "hugeint")
+# A numeric type by its leading word, so that `interval` and `point` are not read as integers.
+NUMERIC_TYPE = re.compile(r"(u?(tiny|small|big|huge)?int(eger)?\d*|decimal|numeric|bignumeric|number|double|float\d*|real)\b")
 FLOAT_TYPE = "{{ dbt.type_float() }}"   # the adapter's own name for a float
 ABSENT = "no relation of this name on the target"
 GROUP_SIZE = 20
@@ -59,6 +61,9 @@ def error_tail(output):
 
 
 def run_dbt(args, project_dir, profiles_dir, target):
+    if shutil.which("dbt") is None:
+        raise SystemExit("dbt is not on PATH: this script measures through dbt and cannot run on another stack. Say so in "
+                         "the proof (validated.skipped), and leave the label to evidence.py, which reads unsure")
     project = str(Path(project_dir).resolve())
     command = ["dbt", "--no-use-colors", *args, "--project-dir", project]
     if profiles_dir:
@@ -179,7 +184,7 @@ def aggregates(columns):
     """(key, SQL expression) for every measure of one model's fingerprint."""
     pairs = [("row_count", "count(*)")]
     for name, data_type in columns:
-        if any(marker in data_type for marker in NUMERIC_MARKERS):
+        if NUMERIC_TYPE.match(data_type.strip().lower()):
             pairs.append((f"sum__{name}".lower(), f"round(sum(cast({quoted(name)} as {FLOAT_TYPE})), 4)"))
         else:
             pairs.append((f"nd__{name}".lower(), f"count(distinct {quoted(name)})"))
@@ -275,8 +280,8 @@ def compare(before, after):
 def except_counts(relation_a, relation_b, project_dir, profiles_dir, target):
     """Rows of a absent from b and of b absent from a by whole-row comparison, with both row counts. A count
     that did not come back as one non-negative integer stops the script: an unknown is never zero."""
-    statements = (("only_in_a", f"select count(*) as n from (select * from {relation_a} except select * from {relation_b}) d"),
-                  ("only_in_b", f"select count(*) as n from (select * from {relation_b} except select * from {relation_a}) d"),
+    statements = (("only_in_a", f"select count(*) as n from (select * from {relation_a} {{{{ dbt.except() }}}} select * from {relation_b}) d"),
+                  ("only_in_b", f"select count(*) as n from (select * from {relation_b} {{{{ dbt.except() }}}} select * from {relation_a}) d"),
                   ("rows_a", f"select count(*) as n from {relation_a}"), ("rows_b", f"select count(*) as n from {relation_b}"),
                   ("distinct_a", f"select count(*) as n from (select distinct * from {relation_a}) d"),
                   ("distinct_b", f"select count(*) as n from (select distinct * from {relation_b}) d"))

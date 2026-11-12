@@ -3,7 +3,7 @@
 Usage: render_proof.py <proof.json> [--verification FILE] [--branch-check pass|fail|not_run]
                        [--title-out PATH] [--body-out PATH] [--label-out PATH]
 
-The title is the change in a reviewer's words (`<ticket>: <the cause in one sentence>`) and carries no tag. The
+The title is the change in a reviewer's words (`<ticket>: <the cause in one sentence>` in a backlog, the sentence alone for a single change). The
 verdict is the first thing the body says, in a sentence: verified, or the points that are still open, each
 named. It is computed here, never copied from the proof. When verification measured the ticket again (the
 report `evidence.py verify` wrote, given with --verification, names that measurement), the verdict and every
@@ -159,7 +159,7 @@ def render(proof, proof_path, verification, branch_check):
     summary = str(cause.get("summary") or proof.get("summary") or "").strip().rstrip(".")
     # The title is the change in a reviewer's words and carries no tag. The verdict is the first thing the
     # body says, in a sentence: verified, or every point that is still open, each named.
-    title = shorten(f"{ticket}: {summary}" if summary else ticket, TITLE_LENGTH)
+    title = shorten(summary if summary and ticket == SINGLE_TICKET else f"{ticket}: {summary}" if summary else ticket, TITLE_LENGTH)
     lines = ([f"{summary}.", ""] if summary else []) + ["## Verification"]
     if kind == "no_change":
         lines.append("No change is proposed. The evidence for that decision is below." if label != UNSURE
@@ -178,10 +178,13 @@ def render(proof, proof_path, verification, branch_check):
     if kind != "no_change" and evidence_path.is_file():
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
         context = evidence.get("context", {})
+        built_on = f"`{context['build_target']}`" if context.get("build_target") else "the profile's default target"
+        compared = (f"compared with `{context['reference_target']}` (what production holds)" if context.get("reference_target")
+                    else "not compared with production (no reference target is pinned)")
         lines += ["", "## What was measured",
                   ("Verification's own measurement of the delivered code. " if fresh else "The build session's measurement; verification took none. ")
-                  + f"Built on `{context.get('build_target')}` at {context.get('taken_at')}, compared with `{context.get('reference_target')}` "
-                  f"(what production holds); the baseline was taken at {context.get('baseline_taken_at')}, before the change."]
+                  + f"Built on {built_on} at {context.get('taken_at')}, {compared}; "
+                  f"the baseline was taken at {context.get('baseline_taken_at')}, before the change."]
         if context.get("baseline_retaken"):
             lines.append(f"- The baseline was taken again {context['baseline_retaken']} time(s): the spec was corrected, and the "
                          "before-state is read from production alone when the code had moved.")
@@ -209,7 +212,7 @@ def render(proof, proof_path, verification, branch_check):
                     lines.append("")
         accepted = evidence.get("acceptance")
         if accepted:
-            lines.append(f"- The task's acceptance check on this ticket: {accepted.get('verdict')} ({accepted.get('said')}).")
+            lines.append(f"- The task's acceptance check: {accepted.get('verdict')} ({accepted.get('said')}).")
         down = evidence.get("downstream", {})
         explained = {str(item.get("model")): str(item.get("reason") or "").strip() for item in ((proof.get("blast_radius") or {}).get("changed_models") or [])
                      if isinstance(item, dict)} if isinstance(proof.get("blast_radius"), dict) else {}
@@ -234,7 +237,7 @@ def render(proof, proof_path, verification, branch_check):
                              + (f"; built from the code as it stood before this change, on production's state, dbt records: {stood['status']}"
                                 + (f", {stood['error'].strip().splitlines()[0][:160]}" if (stood.get("error") or "").strip() else "") if stood else "") + ")")
     elif kind != "no_change":
-        lines += ["", "## What was measured", "Nothing: the ticket has no evidence file."]
+        lines += ["", "## What was measured", "Nothing: there is no evidence file."]
 
     lines += ["", "## Validation"]
     for command in validated.get("commands") or []:

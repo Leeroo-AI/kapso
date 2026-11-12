@@ -9,12 +9,13 @@ Build one component into the scaffold on the branch, then measure it.
   measurement that would retire it.
 - Build in the expert's order when the scaffold is new: the check the scaffold runs
   before it stops (verification-and-stop); the tool layer (tool-layer); the loop with its
-  caps (deterministic-guards); the context policy (context-policy, grounding); the review
-  before irreversible actions (action-review); only then the model-facing scaffolds.
-- Treat the endpoint as the local-model-serving skill says: parse tool calls as untrusted
-  text, constrain arguments not responses, budget thinking per turn where the engine
-  supports it; empty replies, overflow and malformed calls are scaffold concerns, not
-  evaluator noise.
+  caps (deterministic-guards); the context policy (context-policy, grounding); only then
+  the model-facing scaffolds, a review before irreversible actions among them
+  (action-review).
+- When the model is served locally, treat the endpoint as the local-model-serving skill
+  says: parse tool calls as untrusted text, constrain arguments not responses, budget
+  thinking per turn where the engine supports it. On any endpoint, empty replies,
+  overflow and malformed calls are scaffold concerns, not evaluator noise.
 - For a customer-conversation task, apply the support-conversations skill.
 - Measure as the done-check-and-eval skill says: the fast subset while the loop is wrong,
   then the full development set at the task's trials, once. Never tune against one trial,

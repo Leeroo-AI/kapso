@@ -43,7 +43,7 @@ of the context, closest to the next generation:
 
 ```
 task:        what is asked, in the task's words; the constraints
-party:       who the user or requester is, verified or not, what they have said
+party:       who the user or requester is and what they have said (verified or not, where the task verifies identity)
 constraints: runtime permissions, unresolved ambiguities and their sources
 items:       records, files, accounts, URLs the task named, with ids and paths from tool outputs
 plans:       one compiled plan per operation (action-review), with a status per step
@@ -53,8 +53,8 @@ done:        actions made, in order, with the ids or outputs they returned
 ```
 
 Memory helps only when curated and read as a phase: a curated memory lifted one browsing
-benchmark from 60.4 to 67.2, raw memory scored below no memory, and a 14,000-step run left
-31 near-duplicate memory files. A JSON ledger is overwritten less readily than prose. Keep
+benchmark from 60.4 to 67.2, uncurated notes scored below having none, and a 14,000-step
+run left 31 near-duplicate files of them. A JSON ledger is overwritten less readily than prose. Keep
 the always-loaded instructions to the decisions the model cannot recover from available
 sources, and measure instruction conflicts and context cost rather than trusting a length.
 

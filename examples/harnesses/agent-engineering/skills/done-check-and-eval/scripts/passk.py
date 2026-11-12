@@ -4,14 +4,15 @@ from results/episodes.jsonl (the scaffold-evaluation convention). Standard
 library only.
 
 Usage:
-  passk.py <episodes.jsonl> --k 3 [--against <other.jsonl>] [--write-summary <path>] [--json]
+  passk.py <episodes.jsonl> --k <trials> [--against <other.jsonl>] [--write-summary <path>] [--json]
 
 `--k` is the task's trial count. The script refuses a duplicate episode, a
 non-boolean `passed`, tasks with different trial identifiers, and a comparison
 across different tasks, trials or k. The comparison reports the per-task
 paired differences with their mean and standard error across tasks; that
 standard error describes the spread across tasks, not the run-to-run noise on
-this fixed set, which the two baseline runs show as flips.
+this fixed set, which is the tasks that flip between two identical runs (the
+task statement's figure, when it gives one).
 """
 import argparse
 import json
@@ -148,8 +149,8 @@ def compare(current, other):
         "tasks_down": [t for t, d in zip(tasks, differences) if d < 0],
         "noise_note": (
             "the standard errors describe the spread of the paired per-task differences across tasks, not "
-            "run-to-run noise on this fixed set; read the flips against the tasks that flipped between the two "
-            "baseline runs"
+            "run-to-run noise on this fixed set; read the flips against the tasks that flip between two "
+            "identical runs (the task statement's figure, when it gives one)"
         ),
     }
 

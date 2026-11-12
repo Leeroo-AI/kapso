@@ -28,7 +28,7 @@ dispatch only calls whose schema and permission are currently valid; preserve ea
 calls and results when availability changes; and accept the cache miss when correctness
 requires a definition the prefix did not hold. Deferred loading cut context 85 percent
 and raised accuracy from 49 to 74 on one evaluation; a mention in a document is not a
-permission, and the unlock state is cleared between episodes.
+permission, and a permission granted in one episode never carries into the next.
 
 ## The shell and the editor
 

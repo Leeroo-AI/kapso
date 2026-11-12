@@ -11,11 +11,11 @@ every session:
 
 | Field | What it holds |
 | --- | --- |
-| `ticket` | the ticket's key, as the task's acceptance check names it |
-| `datasets` | the model, snapshot or table the ticket names, with file, layer and materialization as the project resolves them today (`exists: false` for one to create) |
+| `ticket` | the ticket's key, as the task names it (the key its acceptance check takes, where it has one): letters, digits, `.`, `_` and `-`, since it names a file, a directory and a branch |
+| `datasets` | the model, snapshot or table the ticket names, or `unknown` until the investigation resolves it, with file, layer and materialization as the project resolves them today (`exists: false` for one to create) |
 | `output` | the relation the ticket expects, schema included, when the ticket states it |
 | `change_kind` | fix, new, refactor, performance or migration (validation-report); `unclear` when only the investigation will tell |
-| `acceptance` | where "done" is decided: the task's check for this ticket, and the ticket's own stated criteria |
+| `acceptance` | where "done" is decided: the task's check for this ticket when there is one, and the ticket's own stated criteria |
 | `upstream_of`, `shares_parent_with` | other tickets whose datasets consume this one's, or read the same parent |
 
 The inventory is read from the tickets and the project's graph; it runs no build and
@@ -42,8 +42,9 @@ For each ticket, in this order, before the next one starts:
    results/<ticket>/spec_<dataset>.json (invariants), from the ticket's own statements
    and the sources, before the dataset changes or exists. Then take its baseline before
    any of its files change (validation-report):
-   `evidence.py baseline --ticket <ticket> --kind <kind> --select <model> ...`. It
-   resets the build namespace to what production holds, fixes the specs, and measures
+   `evidence.py baseline --ticket <ticket> --kind <kind> --select <model> ...`. Where a
+   reset is pinned it puts the build namespace back to what production holds; it fixes
+   the specs, and measures
    the code as it stands; for a cost or speed ticket add the billed quantity with its
    run conditions by hand.
 3. Change one dataset, build it with selection, look at its rows. When a change only
@@ -61,12 +62,12 @@ Independent datasets edited together and then built once cannot attribute a fail
 a red check after a batch edit costs more than the batch saved. A ticket closed without
 steps 2 and 4 passes its check with nothing measured behind it, and its label says so.
 
-Because each baseline resets the namespace, a ticket is built and measured on what
+Where each baseline resets the namespace, a ticket is built and measured on what
 production holds, without the other tickets' changes around it. That is how a ticket's
 pull request sees it, and its acceptance check too when the task evaluates one ticket
 at a time; a task statement that evaluates them another way decides. When a ticket's
-code does not build without another ticket's change (the project does not parse without
-it, it calls a macro that ticket adds), name that ticket in the proof's `needs`; that
+code does not build without another ticket's change (it introduces something this
+ticket's code refers to), name that ticket in the proof's `needs`; that
 ticket is then worked first. When a ticket's checks can pass only on data another
 ticket's change produces, its baseline selects that ticket's datasets as well, with
 their specs, so its own measurement builds and checks them. What the whole backlog
@@ -84,12 +85,14 @@ changed it.
   the evidence that its symptom is gone at that commit. The same mechanism in two
   unrelated datasets is two fixes.
 - After a ticket closes, and after any ticket's edits are kept whatever its status, rerun
-  the acceptance checks of the closed tickets whose lineage the change touched; all of
+  the specs, and the acceptance checks where the task has them, of the closed tickets
+  whose lineage the change touched; all of
   them when one run is cheap. A ticket that regresses reopens.
-- Shared layers stay shared. A ticket that seems to need a staging, source or project
-  configuration change is first re-read for the fix its own dataset can carry; when the
-  shared layer is the cause, that change is its own decision with every consumer in its
-  blast radius (the guardrails), not a side effect of one ticket.
+- Shared layers stay shared. When a ticket's cause sits in a shared layer (a staging model,
+  a source, project configuration), the fix goes there only when the task allows it, as its
+  own decision with every consumer in its blast radius (the guardrails), never as a side
+  effect of one ticket; where the task forbids it, the cause is reported upstream and the
+  ticket's own dataset carries only what the ticket asks of it.
 
 ## An acceptance check someone else owns
 
@@ -104,8 +107,8 @@ not show, is the ticket's acceptance oracle and is treated as one:
   the same way (the baseline's reset does), not on a namespace the other tickets changed.
 - On a fail with a fix the data supports, re-read the ticket for what the check can see
   and the fix ignored: the exact relation name and schema, the materialization, the column
-  names, types and precision, the stated tolerances, the fixed dates. Then read the build
-  log the check returns. Never guess at a hidden expectation.
+  names, types and precision, the stated tolerances, any date or window the ticket fixes.
+  Then read whatever the check returns about its build. Never guess at a hidden expectation.
 - A change made because the verdict flipped, with no reason in the data or the ticket, is
   void: the check is being fitted, not the dataset fixed.
 - The check's own files, its service and its inputs are never read around, edited or

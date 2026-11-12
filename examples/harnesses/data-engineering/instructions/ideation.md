@@ -1,7 +1,7 @@
 # Ideation
 
-Propose causes to test, not edits to try. Each idea names the mechanism, where in the
-lineage it sits, the query that reveals it, and the check that will prove the fix.
+For a fix, propose causes to test, not edits to try: the mechanism, where in the lineage it
+sits, the query that reveals it. For every kind, name the check that will prove the change.
 
 Exploration axes, statused every iteration as active, saturated or deferred:
 
@@ -21,9 +21,9 @@ Exploration axes, statused every iteration as active, saturated or deferred:
 - Every ticket in a plan carries its proof steps, because the session that builds
   follows the plan: the check that fails now (on what production holds, or on the code
   as it stands) and will pass, the baseline before the change, the proof run after it,
-  and what reads the changed dataset. A plan of fixes alone yields unmeasured passes.
-- Look at what production holds before proposing a cause (the reference target reads it):
-  the deployed table next to the code's output often shows which of the two is wrong.
+  and what reads the changed dataset. A plan without them yields changes nobody measured.
+- Where setup pinned a reference target, look at what production holds before proposing a
+  cause: the deployed table next to the code's output often shows which of the two is wrong.
 - With a backlog (ticket-backlog) an idea is a batch: the tickets it takes in lineage
   order, each with its mechanism or its acceptance statement, sized to what one session
   can close with proofs; measurements the feedback says a closed ticket still owes come
@@ -34,7 +34,7 @@ Exploration axes, statused every iteration as active, saturated or deferred:
 - A ticket often holds several bugs: one idea per bug, upstream first; the symptom moves
   after each. An idea that changes the dataset until a number matches the ticket is a
   symptom patch; reject it before it is built.
-- With one ticket, read the prepared spec (prepared/baseline) and the reproduced number in
-  the domain statement: the first idea explains the gap between them and names the check
-  that will fail on the code as it stands. A premise the reproduction could not confirm
-  is an idea too: show it wrong.
+- With one ticket, read the prepared spec (prepared/baseline) and the domain statement: for
+  a fix, the first idea explains the gap between the reproduced number and the spec and names
+  the check that will fail on the code as it stands; for another kind, it names the oracle.
+  A premise the reproduction could not confirm is an idea too: show it wrong.

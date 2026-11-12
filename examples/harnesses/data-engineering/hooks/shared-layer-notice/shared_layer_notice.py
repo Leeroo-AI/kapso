@@ -36,8 +36,16 @@ event = json.load(sys.stdin)
 tool_input = event.get("tool_input", {})
 written = [tool_input["file_path"]] if tool_input.get("file_path") else PATCH_FILE.findall(tool_input.get("command", ""))
 notes = []
+workspace = Path.cwd().resolve()
 for file_path in written:
-    parts = Path(file_path).parts
+    # Only the directories inside the workspace say what layer a file is in: a checkout that sits under a
+    # directory named `tests` or `staging` is not one, and the harness's own records are not code.
+    target = workspace.joinpath(file_path).resolve()
+    if workspace not in target.parents:
+        continue
+    parts = target.relative_to(workspace).parts[:-1]
+    if parts[:1] in (("results",), ("prepared",), ("deploy",)):
+        continue
     for directory, note in NOTES.items():
         if directory in parts:
             notes.append(f"{file_path} is {note}")

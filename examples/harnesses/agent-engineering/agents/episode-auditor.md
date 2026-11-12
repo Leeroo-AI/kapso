@@ -16,14 +16,15 @@ Attribute first: is the failure the grader's (a wrong or brittle check), the env
 (a crash, a missing executable, a limit of the sandbox), the harness's (a tool, a cap, the
 context, the loop) or the model's? Then find the earliest step where the episode left the
 course the materials required, with the evidence that shows it; later errors cascade from
-it. The classes, from the episode-triage skill: a required step never taken; a
-prerequisite taken after the step it had to precede; a wrong choice among sibling actions
-against the evidence; an argument or an edit that differs from its source; an item the
-task named that got no covering action; a handoff made with what the other party was
-meant to supply; a speculative second action after an uncertain first; an assumption
-where a question or a lookup was due; a claim trusted without a read-back; a check
-declared passing without being run; an endpoint failure (empty reply, overflow, malformed
-call); an episode ended before the work was done. Mark the causal step unknown when the
+it. The classes: a required step never taken; a step taken out of the order the
+materials require; a wrong choice among sibling actions against the evidence; an argument
+or an edit that differs from its source; a wrong target (a file, a record, a page); an
+item the task named that got no covering action; a handoff made with what the other party
+was meant to supply; a repeated action without state progress; a second write after an
+uncertain first; an assumption where a question or a lookup was due; a claim trusted
+without a read-back; a check declared passing without being run, or a passing check
+broken by a later step; an endpoint failure (empty reply, overflow, malformed call); an
+episode ended before the work was done. Mark the causal step unknown when the
 observations do not establish it.
 
 Report to the session that asked you: an outcome (`pass` when the episode did the required

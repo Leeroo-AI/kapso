@@ -68,12 +68,15 @@ $E lower    --in <file> --ticket <ticket> --reason "<finding>"   # verification:
   what already differs from it, runs the reset command, and unless the kind is `new`
   builds the code as it stands and runs the specs on it. A dataset that does not build
   is recorded with its error when the error is its own; a project broken elsewhere is
-  refused until that is fixed under its own ticket. A second baseline needs
+  refused until that is fixed: under its own ticket when the backlog has one, otherwise
+  reported as the first finding, which the task's owner decides on. A second baseline needs
   `--again "<what was wrong with the spec>"`. One ticket is measured in one dbt project
   (`--project-dir`, a path inside the repository): a file it changes in another project
   is still named in `changed_files`, and its effect is measured through the ticket's own
-  datasets. The targets and the reset command of prepared/environment.json serve every
-  project of the repository.
+  datasets. prepared/environment.json holds one set of targets and one reset command,
+  read for every project of the repository. Where two projects do not share target
+  names, measure in the project the file was written for and say in the proof that the
+  other was not measured.
 - `prove`, after the change. It puts the namespace back to the reference state, so every
   measurement of a candidate starts from the same place whatever was built by hand. It
   builds the datasets with one `dbt build` (models and snapshots in the graph's order,
@@ -92,8 +95,8 @@ $E lower    --in <file> --ticket <ticket> --reason "<finding>"   # verification:
   without this change: it is named in the pull request as broken before it and is not
   held against the ticket. Any other consumer that was not compared keeps the label at
   `unsure`: one that was skipped, one that fails differently, and every one when the
-  code as it stood builds nothing at all (a project the ticket itself makes compile
-  again has no earlier state to compare with). Say in the proof what you found about
+  code as it stood builds nothing at all (nothing built before the change, so there is
+  no earlier state to compare with). Say in the proof what you found about
   that consumer, for the reviewer who decides.
 - `label` prints each obligation as met or missing, from the hashed reports and never
   from a summary: the record is whole; the proof's kind is the baseline's; a fix names
@@ -122,7 +125,11 @@ The reports sit in the workspace, where the session that made the change can wri
 label is a consistency check of its inputs; it is believed because verification builds
 and measures again from the code. `verify` takes again the build, the specs on both
 sides, the fingerprints, the row comparison and the acceptance check, into a directory
-of its own, on the code as it is delivered. That measurement is the ticket's after-state
+of its own, on the code as it is delivered. That takes about as long as the build
+session's own `prove` runs together: when the verification window the Kapso config gives
+is shorter, name the tickets (`--only`) and say in the verdict's summary that the window,
+not the evidence, left the others `unsure`, so that the user can raise
+`harness.verification_minutes`. That measurement is the ticket's after-state
 from then on: the label is what it earns, and the pull request is published on it, its
 label computed once more at publication against the files as they are then
 (`label --ticket <ticket> --evidence <verification's evidence file>`). The build
@@ -142,6 +149,11 @@ pull-request branch alone. Without that key a ticket's check runs after its meas
 has built the namespace and before any control replaces that build, one at a time, and
 no branch is checked alone.
 
+Without `reference_target` nothing can be shown against production, and no ticket reads
+`safe to merge`; without an acceptance command the label is computed from the specs alone.
+Both are ordinary states of a repository, not faults of the attempt: say so in the proof.
+An acceptance command pinned without a pass pattern is read by its exit status.
+
 An acceptance check someone else owns, whose definitions are not shown, is listed under
 `not_inspected`: it is not an assumption of the change and not a question for the
 author. `assumptions` holds what the change itself takes for granted; `unknowns` holds
@@ -154,7 +166,8 @@ Test the expectation against the authoritative definition and an independent
 reproduction; a stakeholder's number, a dashboard and a reference answer deserve the same
 scepticism as the pipeline. When the discrepancy belongs to the reference, report that
 evidence and leave the correct transformation unchanged: "the daily totals reconcile to
-the order lines within 0.01 on every day of the range; the discrepancy is in the
+the settled ledger entries within the declared tolerance on every day of the range; the
+discrepancy is in the
 dashboard's filter, not in the dataset" is a complete, labelled outcome.
 
 ## results/proof.json
@@ -197,7 +210,7 @@ takes for granted, the questions for the author, and:
   or more followed by `*`; no other pattern is read. The reason says what changed in the
   input and what that does to the consumer.
 - `needs`: the one other ticket without whose change this ticket's code does not build
-  (the project does not parse without it, a macro it calls). The pull requests are
+  (it introduces something this ticket's code refers to). The pull requests are
   stacked from it. A ticket is still measured on what production holds: when its checks
   can pass only on data that other ticket's change produces, its own baseline selects
   that ticket's datasets too, so they are built and checked in its measurement.

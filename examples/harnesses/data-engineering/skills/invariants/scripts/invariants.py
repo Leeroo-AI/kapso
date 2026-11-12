@@ -29,6 +29,7 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -36,7 +37,8 @@ from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
 
-NUMERIC_MARKERS = ("int", "decimal", "numeric", "double", "float", "real", "number", "hugeint")
+# A numeric type by its leading word, so that `interval` and `point` are not read as integers.
+NUMERIC_TYPE = re.compile(r"(u?(tiny|small|big|huge)?int(eger)?\d*|decimal|numeric|bignumeric|number|double|float\d*|real)\b")
 FLOAT_MARKERS = ("double", "float", "real")
 NUMBER = re.compile(r"^-?\d+(\.\d+)?([eE][-+]?\d+)?$")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -52,6 +54,9 @@ def error_tail(output):
 
 
 def run_dbt(args, project_dir, profiles_dir, target):
+    if shutil.which("dbt") is None:
+        raise SystemExit("dbt is not on PATH: this script measures through dbt and cannot run on another stack. Say so in "
+                         "the proof (validated.skipped), and leave the label to evidence.py, which reads unsure")
     project = str(Path(project_dir).resolve())
     command = ["dbt", "--no-use-colors", *args, "--project-dir", project]
     if profiles_dir:
@@ -133,7 +138,7 @@ def numeric_columns(model, project_dir, profiles_dir, target):
     numeric = []
     for row in rows:
         data_type = str(row.get("data_type") or "").lower()
-        if any(marker in data_type for marker in NUMERIC_MARKERS):
+        if NUMERIC_TYPE.match(data_type.strip()):
             numeric.append((row["column_name"], any(marker in data_type for marker in FLOAT_MARKERS)))
     return numeric
 
@@ -248,7 +253,7 @@ NULL_SCALAR = "the query returned NULL"
 
 def scalars_in_one_statement(statements, project_dir, profiles_dir, target):
     """(values by key, error): every scalar of the spec from one statement. A NULL comes back as None."""
-    parts = [f"select '{key}' as scalar_key, cast(({sql.strip().rstrip(';')}) as varchar) as scalar_value" for key, sql in statements]
+    parts = [f"select '{key}' as scalar_key, cast(({sql.strip().rstrip(';')}) as {{{{ dbt.type_string() }}}}) as scalar_value" for key, sql in statements]
     rows, error = show(" union all ".join(parts), project_dir, profiles_dir, target, limit=len(parts) + 5)
     if error:
         return None, error

@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: "The pull-request deployment target: delivers the build as pull requests on the repository's host through the GitHub CLI, one for a single ticket or one per closed ticket of a backlog, each changing only the files its proof names, stacked on the change it needs to build, checked on its own before it is opened, with its title and body rendered at publication from the proof, its evidence and the verification report, the verdict stated in the body and no tag in the title. Use when deploy() names the pull-request target, when the task's delivery channel is a pull request, or when the user asks for the result as pull requests; never to push to the base branch."
+description: "The pull-request deployment target: delivers the build as pull requests on the repository's host through the GitHub CLI, one for a single ticket or one per closed ticket of a backlog, each changing only the files its proof names, stacked on the change it needs to build, checked on its own before it is opened, with its title and body rendered at publication from the proof, its evidence and the verification report, and the verdict stated in the body. Use when deploy() names the pull-request target, when the task's delivery channel is a pull request, or when the user asks for the result as pull requests; never to push to the base branch."
 metadata:
   run_kinds: [script]
 ---
@@ -18,6 +18,10 @@ when unset, the repository the solution's code came from, `KAPSO_SOURCE_REMOTE`)
 `KAPSO_VERIFICATION_DIR` is set it holds what verification wrote about the delivered
 attempt; its `evidence_check.json` is the re-measurement of every ticket, and the
 target reads it by itself.
+
+The target drives GitHub only. On another host do not run it and do not imitate it by
+hand: say so in the summary, with each unit's files and its rendered title and body
+(pull-request-proof) for a person to open.
 
 ## Steps
 
@@ -55,7 +59,7 @@ target reads it by itself.
    changed ships in the one the others are stacked on, both pull requests say so, and
    units that share a file without being stacked that way are refused. Then the script
    renders each title and body (pull-request-proof) from verification's measurement of
-   the delivered code. A title carries no tag; the body opens with the verdict that
+   the delivered code. The title is one plain line; the body opens with the verdict that
    measurement, the verification report and the branch's check earn, as a sentence:
    verified, or each point still open. It pushes each branch, opens the pull
    requests labelled `kapso-$KAPSO_DEPLOYMENT_NAME`, each saying what it is stacked on
@@ -79,8 +83,10 @@ target reads it by itself.
 ## Merging a stack
 
 Written for whoever merges, and repeated in the pull requests themselves. The pull
-request others are stacked on is merged first, with the merge button or
-`gh pr merge <number> --merge`, and its branch is left to the host. When GitHub deletes
+request others are stacked on is merged first with a merge commit (the merge button's
+"Create a merge commit", or `gh pr merge <number> --merge`); where the repository allows
+only squash or rebase merges, the summary says that each stacked pull request needs a
+rebase onto the base branch once the one under it is merged. Its branch is left to the host. When GitHub deletes
 a merged branch itself (the repository's setting, or the Delete branch button) it moves
 every pull request stacked on it onto the base branch. A branch deleted from the command
 line (`gh pr merge --delete-branch`, `git push --delete`) closes them instead, and a

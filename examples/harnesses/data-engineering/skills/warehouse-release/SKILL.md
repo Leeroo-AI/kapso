@@ -14,10 +14,11 @@ a published one holds.
 ## What the deployment session has
 
 The solution's repository at its delivered commit in the workspace, with the proofs and
-the evidence the build wrote (results/proofs/<ticket>.json, results/<ticket>/evidence.json
+the evidence the build wrote (results/proof.json, or results/proofs/<ticket>.json for a
+backlog, results/<ticket>/evidence.json
 and the specs it names), prepared/environment.json with `release_command` (the platform's
-command), `rehearsal_target` (the dbt target that reads the database a release is
-rehearsed in) and `reference_target` (the target that reads production),
+command), `rehearsal_target` (the dbt target that reads where a release is rehearsed)
+and `reference_target` (the target that reads production),
 `KAPSO_SOURCE_REMOTE` (the repository the released commit is fetched from), and the
 options `KAPSO_OPTION_COMMIT` (the commit on the base branch to release; its tip when
 unset), `KAPSO_OPTION_REQUEST_ARGUMENTS` (extra arguments for the release request, as
@@ -29,13 +30,15 @@ ticket of this campaign covers ride along; they are then named in the record).
 
 A release runs for the length of its audits: every released ticket's checks on the
 rehearsal, then again on production once published, each check a query against a
-warehouse. On a backlog that is tens of minutes, past the engine's packaged thirty for a
-deployment session and ten for a lifecycle script, and a start cut short leaves a
-rehearsal staged and nothing published, or, cut during the publication, a record at
-`publishing` for the stop to settle. The repository's Kapso config sets
-`deployment.timeout` and `deployment.script_timeout` (seconds) to cover the slowest
-release it expects: the ticket-check service's own timing, measured by the build's
-proofs, is the estimate, with room for the publication and the production checks on top.
+warehouse. With many tickets that can pass the engine's default deadlines for a
+deployment session and for a lifecycle script (`kapso doctor --show-config` prints both),
+and a start cut short leaves a rehearsal staged and nothing published, or, cut during the
+publication, a record at `publishing` for the stop to settle. Before releasing, compare
+those deadlines with the time the build's own measurements took (each
+results/<ticket>/evidence.json records when its baseline and its build were taken), with
+room for the publication and the production checks on top. When they do not cover it,
+stop and tell the user to set `deployment.timeout` and `deployment.script_timeout`
+(seconds) in the Kapso config the deployment is launched with.
 
 ## The release command's contract
 
@@ -43,7 +46,10 @@ Platforms release in different ways: a job a merge triggers, a scheduler's deplo
 command a release manager runs. This target drives one small command-line contract, and
 the repository's documentation says which command speaks it. Where the platform's own
 interface differs, a wrapper script in the repository absorbs the difference; this
-skill's scripts are never edited for one platform.
+skill's scripts are never edited for one platform. The contract asks for a rehearsal that
+does not touch production, a publication separate from the merge, and a rollback the
+platform performs itself. A platform without them (a job that deploys on merge) cannot be
+wrapped into it: say so and stop.
 
 | Verb | What the platform does | The JSON record it prints |
 | --- | --- | --- |
@@ -59,8 +65,10 @@ drive: say so and stop.
 
 ## Steps
 
-1. Read which pull requests are merged (`gh pr list --state merged`, or the
-   pull-request deployment's proof call): only merged changes can be released, and a
+1. Read what the base branch holds beyond production (`<release_command> production
+   --json` gives production's commit, `git log <that commit>..<base>` what was merged
+   since; on GitHub, `gh pr list --state merged` or the pull-request deployment's proof
+   call names the pull requests): only merged changes can be released, and a
    ticket whose pull request is still open is left out by the platform itself. When
    nothing is merged, stop and say so; merging is the reviewer's act and never this
    session's.
@@ -97,9 +105,9 @@ drive: say so and stop.
    check results and fingerprints beside it), and the proof call's inputs (`{}`) and
    output.
 5. Say in the summary what production now holds that it did not before, which tickets
-   were left out and why, which datasets read a released one and were not rebuilt (the
-   platform builds what changed, not what reads it: each proof's downstream list names
-   them), and how to undo it: the deployment's stop rolls the release back and compares
+   were left out and why, which datasets read a released one and were not rebuilt
+   (compare each proof's downstream list with the release record's `published`: a
+   platform may build only what changed and not what reads it), and how to undo it: the deployment's stop rolls the release back and compares
    production with its record from before the publication; its start releases the same
    commit again, never a newer one.
 

@@ -1,6 +1,6 @@
 ---
 name: local-model-serving
-description: What a locally served open-weight model does to an agent loop, with the scaffold-sensitive regime, tool calls as untrusted text, grammar constraints on arguments only, reasoning that shares the completion budget unless the engine offers a separate control, the engine's real context limit and the KV cache at concurrency, prefix caching, quantization, loop detection, sampling per checkpoint, non-reproducibility at temperature zero, and a smoke probe that measures what it can and says what it cannot. Use in setup to probe the endpoint, in implementation when a failure comes from the endpoint rather than the scaffold, and before a deployment.
+description: What a locally served open-weight model does to an agent loop, with the scaffold-sensitive regime, tool calls as untrusted text, grammar constraints on arguments only, reasoning that shares the completion budget unless the engine offers a separate control, the engine's real context limit and the KV cache at concurrency, prefix caching, quantization, loop detection, sampling per checkpoint, non-reproducibility at temperature zero, and a smoke probe that measures what it can and says what it cannot. Use when the task's model is an open-weight checkpoint on a serving engine, in setup to probe the endpoint, in implementation when a failure comes from the endpoint rather than the scaffold, and before a deployment.
 ---
 # Local model serving
 
@@ -16,10 +16,11 @@ budget.
 ```
 python3 $KAPSO_HARNESS_ROOT/skills/local-model-serving/scripts/probe_endpoint.py \
   --base-url http://localhost:8000/v1 --model <name> [--api-key-env NAME] \
-  [--sampling '{"temperature": 0.6, "top_p": 0.95}'] [--concurrency 6]
+  [--sampling '<the task's request settings, as JSON>'] [--concurrency <the evaluator's>]
 ```
 
-Prints one JSON object: the models the server lists and the context window it advertises;
+Prints one JSON object: the models the server lists and the context window it advertises,
+where it reports one;
 time to first token and tokens per second for one stream; whether a reply carries
 reasoning content; whether a schema-checked synthetic tool call comes back and whether
 its round trip (call, tool result, final reply) completes; what a reply looks like when
@@ -47,8 +48,9 @@ variable and never printed.
 - **Thinking consumes the output budget.** Record the checkpoint, the chat template, the
   parser and the serving version, and test whether that combination supports a separate
   reasoning budget or a non-thinking mode; otherwise reasoning shares the completion
-  limit, a small budget on a tool turn yields an empty message, and runners count a few
-  consecutive empty replies as a failed episode. Distinguish a valid tool-only response
+  limit, a small budget on a tool turn yields an empty message, and a runner may count
+  empty replies as a failed episode (its documentation says). Distinguish a valid
+  tool-only response
   from reasoning-only truncation and from an empty response by the finish reason and the
   usage. Use the controls the task statement permits; sampling settings differ per
   checkpoint (one family forbids greedy decoding in thinking mode), so read the card.

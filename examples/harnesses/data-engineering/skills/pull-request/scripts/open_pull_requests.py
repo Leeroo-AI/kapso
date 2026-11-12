@@ -182,7 +182,8 @@ def prepare(manifest_path, prepared_path, base, base_commit, prefix):
                 git("-C", str(tree), "add", "--", path)
             if git("-C", str(tree), "diff", "--cached", "--quiet", check=False).returncode == 0:
                 raise SystemExit(f"unit {name}: its files do not differ from {unit['needs'] or base}; nothing to open")
-            git("-C", str(tree), "commit", "-q", "-m", f"{name}: {unit['summary']}"[:200])
+            subject = unit["summary"] if name == SINGLE_TICKET and unit["summary"] else f"{name}: {unit['summary']}"
+            git("-C", str(tree), "commit", "-q", "-m", subject[:200])
             commit = git("-C", str(tree), "rev-parse", "HEAD").stdout.strip()
             git("worktree", "remove", "--force", str(tree))
             prepared.append({"unit": name, "branch": branch, "needs": unit["needs"], "parent_branch": parent_branch, "proof": unit["proof"],

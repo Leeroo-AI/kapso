@@ -151,6 +151,8 @@ def project_at(tree, project_dir):
         elif source.is_file() and not (project / name).exists():
             shutil.copy(source, project / name)
     if (project / "packages.yml").is_file() and not (project / "dbt_packages").is_dir():
+        if shutil.which("dbt") is None:
+            raise SystemExit("dbt is not on PATH: this target audits a release through dbt and cannot run without it")
         installed = subprocess.run(["dbt", "deps"], cwd=project, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if installed.returncode != 0:
             raise SystemExit(f"the packages of {project_dir} could not be installed for the audit: {installed.stdout.strip()[-200:]}")

@@ -15,8 +15,8 @@ win over this page.
   statement allows one. Endpoint settings the statement names as the scaffold's to change
   are interventions to measure; everything else about the endpoint is a fixed condition.
 - Nothing is believed without the task runner: every claim is a measurement under the
-  fixed conditions, with tasks and trials stated, judged by paired runs and task-level
-  flips against the replication noise seen between two baseline runs, never by one number.
+  fixed conditions, with tasks and trials stated, judged by paired task-level flips
+  against what two identical runs flip (the task's figure when given), never one number.
 - Held-out tasks and answer keys never enter a session. The scaffold's runtime behaviour
   derives from the runner's public interface and the current task's own materials, never
   from recognition of evaluation identifiers or answers copied from development outcomes.

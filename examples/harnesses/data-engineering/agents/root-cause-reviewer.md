@@ -12,13 +12,8 @@ interface when a claim needs checking.
 
 For a correctness fix, decide for each change in the diff whether it removes the
 demonstrated defect at the responsible transformation. A cause is a line that produced
-the wrong rows or numbers by one of the mechanisms in the data-bug-mechanisms skill: a
-join on a non-unique key, a predicate on a left-joined column, a missing status filter, a
-parse that loses the time, a session-zone cast, a window without a deterministic order or
-with a frame that does not match the measure, a division without a guard, a ranking or
-percentile population inconsistent with its definition, a history key that is not unique,
-an incremental boundary that drops late rows, an append where a merge was due, a
-cumulative column summed. Investigate filters, constants, deduplication, coalescing and
+the wrong rows or numbers by one of the mechanisms in the data-bug-mechanisms skill: read
+its table, do not work from a list of your own. Investigate filters, constants, deduplication, coalescing and
 casts when they make the reported number match without explaining the mechanism. A
 test, shared-layer or schema edit is a finding only when its semantics or its downstream
 effects are unjustified: identify the violating rows or the broken contract.

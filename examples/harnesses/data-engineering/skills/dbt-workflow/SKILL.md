@@ -4,14 +4,15 @@ description: The worked stack of this harness, with the dbt commands that keep a
 ---
 # dbt workflow
 
-## Selection, never the whole project
+## Selection first
 
 - `dbt ls --select +<model>` lists the upstream closure, `--select <model>+` the downstream
   one; `--resource-type model` keeps sources and tests out; `--output json --output-keys
   name resource_type depends_on config schema original_file_path` prints the graph the
   lineage script reads.
-- `dbt run --select +<model>` builds the model and what it needs: seconds to minutes on a
-  project of thousands of models instead of hours. `dbt build --select <model>` also runs
+- `dbt run --select +<model>` builds the model and what it needs: on a large project,
+  minutes instead of hours; on a small one a full `dbt build` is a fair last check.
+  `dbt build --select <model>` also runs
   the model's tests, and a failing upstream test stops the build.
 - `dbt compile --select <model>` writes the rendered SQL under target/compiled/ when the
   Jinja is the suspect; `dbt parse` refreshes the manifest after a file change.
@@ -23,7 +24,8 @@ dbt show --inline "select count(*) as n from {{ ref('model') }}" --output json -
 ```
 
 Runs any SQL against the project's warehouse with refs and sources resolved and prints
-`{"show": [...]}` after the log lines. The default limit is 5 rows, so set it. Jinja works
+`{"show": [...]}` after the log lines. It prints only the first few rows unless `--limit`
+is given, so set it. Jinja works
 inside, so `{% if target.type == 'snowflake' %}` branches a dialect. No trailing
 semicolon. The audit helpers of the project's packages (`compare_relations`, `equality`,
 `equal_rowcount`) give the keyed comparison of two relations when installed.
@@ -74,14 +76,13 @@ chain as tables when the engine hides which step fails.
 
 ```sql
 {% if target.type == 'snowflake' %}
-    try_to_timestamp(cast(ordered_at as varchar), 'YYYY-MM-DD HH24:MI:SS')
+    listagg(method, ',') within group (order by method)
 {% else %}
-    try_cast(ordered_at as timestamp)
+    string_agg(method, ',' order by method)
 {% endif %}
 ```
 
-A `{% set %}` block with a format string and `%s` placeholders keeps one parse expression
-per engine and applies it to many columns. Prefer the adapter-dispatched cross-database
+Prefer the adapter-dispatched cross-database
 macros in the `dbt` namespace (`dbt.dateadd`, `dbt.datediff`, `dbt.date_trunc`,
 `dbt.safe_cast`, `dbt.split_part`), and a macro with `adapter.dispatch` when the same
 expression is needed in several models; verify the installed adapter's behaviour, since a

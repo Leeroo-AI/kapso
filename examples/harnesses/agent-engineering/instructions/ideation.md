@@ -26,23 +26,14 @@ or deferred:
 - When a proposed component shares a failure class or a build-order axis with one already
   in the scaffold, pair it with a single-flag re-ablation of the incumbent
   (scaffold-components), so an axis is not carried by two components when one would do; the
-  re-ablation is a run, so it waits for a build that has cleared the bar (feedback).
-- Triage before proposing, with the episode-triage skill, within a quarter of the session:
-  the parent attempt's results/episodes.jsonl and the transcripts the task statement
-  permits (the attempt's own under results/, the reference run's under the task's
-  files), a handful of failed episodes read whole, the rest from the histogram; record
-  what was not read. The first attempt has no run of the scaffold yet: triage the
-  reference run the task ships for the failure classes of the task family, and propose
-  from the endpoint's known limits and the support-conversations classes, naming the
-  first evaluation as the measurement that will show the scaffold's own failures. The
-  next idea targets the largest addressable class, one in the harness or model bucket, since
-  a class dominated by the grader or the environment is a ceiling, not a target, its share
-  read from the transcripts or the episode-auditor rather than the symptom counts, and says
-  which episodes it should flip. Read those episodes from the runs on record, not the last
-  run alone: the gap worth an attempt is the episodes that fail in every run, measured
-  against the union that ever passes, and an episode that flips between two identical runs
-  is that run's noise, not a target, since flipping it back is no durable gain.
-- For a conversation task, the support-conversations skill lists the failure classes
-  that family adds and the components that answer them.
+  re-ablation is a run, so it waits for a build that has met the target (feedback).
+- Triage before proposing, as the episode-triage skill says, within a quarter of the
+  session: the parent attempt's results and the transcripts the task statement permits,
+  a handful of failed episodes read whole, the rest from the histogram. The next idea
+  targets the largest addressable class, one in the harness or model bucket, among the
+  episodes that fail in every run on record, and says which episodes it should flip.
+- The first attempt has no run of the scaffold yet: triage the reference run when the
+  task ships one, and propose from the endpoint's known limits and the task family's
+  failure classes (for a conversation task, the support-conversations skill's).
 - Every idea states its expected cost per episode, so feedback can name the trade-off.
 - Prefer ideas whose failure the triage can show on the next run.

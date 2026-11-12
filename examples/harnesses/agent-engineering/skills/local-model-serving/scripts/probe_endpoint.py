@@ -9,13 +9,15 @@ capacity or the runner's own tool round trip.
 
 Usage:
   probe_endpoint.py --base-url http://localhost:8000/v1 --model NAME
-                    [--api-key-env NAME] [--sampling '{"temperature": 0.6}']
-                    [--concurrency 6] [--max-tokens 256] [--timeout 180]
+                    [--api-key-env NAME] [--sampling '<request settings, as JSON>']
+                    [--concurrency N] [--max-tokens 256] [--timeout 180]
 
-Prints one JSON object on stdout. The sampling settings are the task's and are
-passed through as given; the probe imposes none. The API key, when one is
-named, is read from the environment variable and never printed. Standard
-library only.
+Prints one JSON object on stdout, and exits 1 when no section got an answer
+(the endpoint does not serve the OpenAI-compatible routes, or is not up). The
+sampling settings are the task's and are passed through as given; the probe
+imposes none and refuses only the request fields it sets itself. The API key,
+when one is named, is read from the environment variable and never printed.
+Standard library only.
 """
 import argparse
 import http.client
@@ -28,8 +30,10 @@ import urllib.error
 import urllib.request
 
 PROBE_ERRORS = (OSError, http.client.HTTPException, json.JSONDecodeError)
-SAMPLING_KEYS = {"temperature", "top_p", "top_k", "min_p", "presence_penalty", "frequency_penalty", "seed",
-                 "reasoning_effort", "chat_template_kwargs", "thinking_token_budget", "extra_body"}
+PROBE_FIELDS = {"model", "messages", "max_tokens", "stream", "stream_options", "tools", "tool_choice"}
+# Where a model list reports the context window; servers differ, and some report none.
+CONTEXT_FIELDS = (("max_model_len",), ("context_length",), ("context_window",), ("meta", "n_ctx_train"))
+SECTION_ERRORS = ("models_error", "one_stream_error", "tool_call_error", "small_budget_error")
 PROSE_PROMPT = "Explain in about 150 words how a queue differs from a stack."
 TOOL = {
     "type": "function",
@@ -155,8 +159,8 @@ def main():
     if args.concurrency < 1 or args.max_tokens < 1 or args.timeout <= 0:
         parser.error("concurrency, max-tokens and timeout must be positive")
     sampling = json.loads(args.sampling)
-    if not isinstance(sampling, dict) or set(sampling) - SAMPLING_KEYS:
-        parser.error(f"--sampling must be a JSON object with keys among {sorted(SAMPLING_KEYS)}")
+    if not isinstance(sampling, dict) or set(sampling) & PROBE_FIELDS:
+        parser.error(f"--sampling must be a JSON object of request settings, without the fields the probe sets ({sorted(PROBE_FIELDS)})")
     base = args.base_url.rstrip("/")
     hdrs = headers(args.api_key_env)
     report = {"base_url": base, "model": args.model, "sampling": sampling, "probed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -166,7 +170,16 @@ def main():
         models = get_json(f"{base}/models", hdrs, args.timeout)
         rows = models.get("data") or []
         report["models"] = [row.get("id") for row in rows]
-        report["advertised_context_window"] = next((row.get("max_model_len") for row in rows if row.get("id") == args.model and row.get("max_model_len")), None)
+        row = next((row for row in rows if row.get("id") == args.model), {})
+        report["advertised_context_window"] = "not reported by this server"
+        for path in CONTEXT_FIELDS:
+            value = row
+            for name in path:
+                value = value.get(name) if isinstance(value, dict) else None
+            if value:
+                report["advertised_context_window"] = value
+                report["advertised_context_window_field"] = ".".join(path)
+                break
     except PROBE_ERRORS as error:
         report["models_error"] = str(error)[:200]
 
@@ -257,6 +270,10 @@ def main():
 
     json.dump(report, sys.stdout, indent=2)
     print()
+    if all(name in report for name in SECTION_ERRORS):
+        print(f"no section got an answer from {base}: it does not serve the OpenAI-compatible routes, or is not up",
+              file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

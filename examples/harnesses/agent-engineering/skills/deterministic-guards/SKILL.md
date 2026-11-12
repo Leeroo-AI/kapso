@@ -1,6 +1,6 @@
 ---
 name: deterministic-guards
-description: The rules a scaffold enforces in code rather than asks for in a prompt, with deny rules that hold in every mode, the two-layer sandbox, read-only tests and scorers, credentials the scaffold never holds, the three caps (steps, money, consecutive errors) plus loop detection and the stop-hook continuation cap, reversibility tiers for actions, the quarantine of untrusted content, and what the bundled hooks do and do not guarantee. Use when a rule keeps failing in a prompt, when building the loop's bounds, in setup for the protection file, and before a deployment.
+description: The rules a scaffold enforces in code rather than asks for in a prompt, with deny rules that hold in every mode, the two-layer sandbox, read-only tests and scorers, credentials the scaffold never holds, the three caps (steps, money, consecutive errors) plus loop detection and the stop-hook continuation cap, reversibility tiers for actions, the quarantine of untrusted content, and what the bundled hooks do and do not guarantee. Use when a rule keeps failing in a prompt, when building the loop's bounds, and before a deployment.
 ---
 # Deterministic guards
 
@@ -61,8 +61,8 @@ failed rather than restarting.
 ## In this harness
 
 This harness bundles no hooks: the rules above are for the scaffold being built, which
-enforces them in its own code. On the campaign's side the task declares its private
-material in `kapso_evaluation/protection.json` (absolute `protected_paths` and
-`forbidden_patterns`) when it has any, the runner keeps that material out of reach, the
-sessions never open it, and verification's auditors check the artifacts' provenance and
-every session's record for a read of it.
+enforces them in its own code. On the campaign's side the task statement names the
+private material when the task has any (the paths, and the identifier patterns that are
+never searched for), the runner keeps that material out of reach, the sessions never
+open it, and verification's auditors check the artifacts' provenance and every
+session's record for a read of it.

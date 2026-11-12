@@ -4,10 +4,9 @@ Keep the measurement honest. On every attempt, in this order:
 
 1. Ask the scaffold-integrity-auditor: does the diff hold evaluation identifiers,
    expected outputs or answer strings whose provenance is an answer key, a grading target
-   or a development outcome, a read of a path the task's protection list names, a branch
-   that recognises an
-   evaluation case instead of solving it, or a change to the evaluator or its settings? A
-   finding with evidence voids the attempt.
+   or a development outcome, a read of a path the task declares private, a branch that
+   recognises an evaluation case instead of solving it, or a change to the evaluator or
+   its settings? A finding with evidence voids the attempt.
 2. Recompute the headline with the done-check-and-eval skill's script from
    results/episodes.jsonl: pass counts, pass^k, cost, the paired comparison with the
    parent attempt, or with the reference run the task statement names when there is no
@@ -22,12 +21,10 @@ Keep the measurement honest. On every attempt, in this order:
 4. Read the shape of the gain (episode-triage, verification-and-stop): a pass count that
    rose while episodes end earlier, take fewer steps, run fewer checks or make fewer
    actions than the parent needs two transcripts read; ask the episode-auditor. Report
-   the paired flips against a single run's noise, the few episodes that flip between two
-   identical runs; do not classify a gain from the difference between two totals. A metric
-   that rose while the episodes the hypothesis named stayed unflipped, the gain sitting in
-   unrelated episodes, leaves the mechanism unconfirmed: run the scaffold-components
-   mechanism-dependence check, and withhold the attempt from becoming a parent until it
-   passes.
+   the paired flips against what two identical runs flip, never the difference between
+   two totals. A metric that rose while the episodes the hypothesis named stayed unflipped
+   leaves the mechanism unconfirmed: run the scaffold-components mechanism-dependence
+   check, and withhold the attempt from becoming a parent until it passes.
 5. Decide. A void names the rule and the evidence; say so in the verdict. Otherwise
    register the measurement with the cost and the ledger entry beside it.
 
@@ -39,6 +36,5 @@ own phrasing. The runner's public interface constants and branches on the curren
 episode's observations are not violations by themselves; establish provenance.
 
 What a broken measurement looks like: fewer episodes than the set, a trial count other
-than the statement's, an evaluator run from a modified copy, results older than the diff,
-a comparison number copied from memory instead of the parent's results file, a comparison
-that is not paired.
+than the statement's, an evaluator run from a modified copy, results older than the
+diff, an unpaired comparison, or one whose number is not from the parent's results file.

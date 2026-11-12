@@ -33,8 +33,8 @@ print(json.dumps({
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
         "permissionDecisionReason": (
-            f"{', '.join(touched)} is under prepared/, which is read-only: the baseline invariants and "
-            "fingerprints are what the fix is measured against. Write this attempt's measurements under results/."
+            f"{', '.join(touched)} is under prepared/, which setup pinned and every attempt is measured against "
+            "(the environment file, the baseline spec or the inventory): read-only. Write this attempt's files under results/."
         ),
     }
 }))

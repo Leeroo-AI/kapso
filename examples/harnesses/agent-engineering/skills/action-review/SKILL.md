@@ -6,11 +6,12 @@ description: Compile the task's materials into an ordered, gated plan and review
 
 Classify each effect by reversibility, idempotency and the compensation its tool contract
 supports: a write to a system of record, a submission, a message sent, a payment, a
-deployment, a destructive command, a pushed commit. The runner scores the resulting state,
-so a wrong action is not undone by a right one after it, and the review before the action
-is the cheapest undo. The review is a separate step that sees only the working state, the
-plan, the source evidence and the proposed action, and answers go or stop; deterministic
-checks stay in code and the model reviews only the residual ambiguity.
+deployment, a destructive command, a pushed commit. Where the runner scores the resulting
+state of a system the episode cannot reset, a wrong action is not undone by a right one
+after it, and the review before the action is the cheapest undo. The review is a separate
+step that sees only the working state, the plan, the source evidence and the proposed
+action, and answers go or stop; deterministic checks stay in code and the model reviews
+only the residual ambiguity.
 
 ## The compiled plan
 
@@ -31,7 +32,7 @@ after:         - <logging, confirmation, verification the materials require>
 
 A field without a source is a question or a lookup, not a guess.
 
-## Rules the measurements made necessary
+## Rules for a consequential action
 
 - **Order is part of the state.** A request submitted before its prerequisites, or a close
   before its logging step, leaves a different record than the documented order even when
@@ -46,18 +47,18 @@ A field without a source is a question or a lookup, not a guess.
 - **Arguments come from outputs.** Ids, paths, dates and amounts are copied from the tool
   output or the message that produced them, never retyped from memory, and the review
   checks the trace.
-- **Computed values show their arithmetic.** For a rate, a fee, a limit, a count: the base
-  figure, each adjustment with the condition that makes it apply, the exclusivity rule
-  between adjustments, the result, and the material's own example recomputed as a check.
+- **Computed values show their arithmetic.** The inputs with their sources, each step with
+  the condition that makes it apply, the result with its units, and the material's own
+  worked example recomputed as a check when it gives one.
 - **Every item is accounted for.** Map each requested item to an observed outcome; a
   documented batch action may cover several items, and its result says which.
 - **A handoff is handed as written.** When the materials assign a step to another party
   (the customer runs a tool, a reviewer approves, a job runs on a schedule), the scaffold
   hands it over with exactly what the materials give the agent, says what the other party
   supplies, and waits for the result before the next step. Pre-filling the other party's
-  part changes what they do, and their part is in the scored state.
+  part changes what they do, and where the runner scores their side it changes the score.
 - **A claim about the world is read back before anything depends on it.** "The tests
-  pass", "my dispute was approved", "the table exists": one read tool call, not the
+  pass", "my refund was approved", "the table exists": one read tool call, not the
   requester's word or the model's own last diff.
 - **Checks before done.** The completion checks available to the deployed scaffold run
   before an episode is declared complete: the permitted tests on the final diff, a

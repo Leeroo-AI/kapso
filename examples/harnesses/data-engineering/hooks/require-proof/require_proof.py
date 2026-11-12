@@ -28,7 +28,7 @@ LEDGER = Path("results/backlog.json")
 PROOFS_DIR = Path("results/proofs")
 BACKLOG_DIR = Path("prepared/backlog")
 INVENTORY = BACKLOG_DIR / "inventory.json"
-REQUIRED = ("model", "change_kind", "label", "validated", "changed_files")
+REQUIRED = ("change_kind", "label", "validated", "changed_files")
 LABELS = ("safe to merge", "unsure", "won't do")
 KINDS = ("fix", "refactor", "performance", "new", "migration", "no_change")
 STATUSES = ("done", "no_change", "parked", "open")
@@ -95,7 +95,8 @@ def proof_problems(path, ticket=None, status=None):
     name = ticket or proof.get("ticket") or SINGLE_TICKET
     if not Path("results", name, "evidence.json").is_file():
         problems.append(f"{path}: `{name}` was never measured (no results/{name}/evidence.json): evidence.py baseline before the change, "
-                        "prove after it; a ticket already changed is measured from where it stands and labelled by what that shows")
+                        "prove after it; a ticket already changed is measured from where it stands and labelled by what that shows; when "
+                        "these scripts cannot measure the project (it is not a dbt project), say so under validated.skipped and stop")
         return problems
     label, reasons = computed_label(name)
     if label is None:
@@ -164,12 +165,13 @@ if INVENTORY.is_file() or BACKLOG_DIR.is_dir() or LEDGER.is_file() or PROOFS_DIR
     problems = backlog_problems()
     what = ("results/backlog.json with one row for every ticket (status, acceptance) and results/proofs/<ticket>.json "
             "for each ticket the ledger calls done or no_change")
+    closing = "; a ticket of a backlog that was not closed stays `open` or `parked` in the ledger with its note."
 elif PROOF.is_file():
     problems = proof_problems(PROOF)
-    what = "results/proof.json"
+    what, closing = "results/proof.json", "."
 else:
     problems = ["results/proof.json does not exist"]
-    what = "results/proof.json"
+    what, closing = "results/proof.json", "."
 if not problems:
     sys.exit(0)
 shown = problems[:REPORTED_PROBLEMS] + ([f"and {len(problems) - REPORTED_PROBLEMS} more"] if len(problems) > REPORTED_PROBLEMS else [])
@@ -180,7 +182,6 @@ print(json.dumps({
         "specifies (the kind of change, what was validated and how, the cause with file and lines or the decision "
         "evidence, the measurement context, the unknowns), with the label evidence.py computes from what was "
         "measured, then finish. A label is never chosen: `unsure` with what is missing is the honest state of a "
-        "change that passes its check and has not been measured; a ticket of a backlog that was not closed stays "
-        "`open` or `parked` in the ledger with its note."
+        "change that has not been measured" + closing
     ),
 }))

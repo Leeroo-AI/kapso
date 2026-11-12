@@ -1,7 +1,7 @@
 schema_version: 1
 name: agent-engineering
-version: 0.7.0
-description: Build agent harnesses (the done-check, the tool layer, the loop and its bounds, the context policy, the guards) that make a fixed model do a job a task runner can score, such as coding tickets, customer conversations, data work or browsing; written from the harness builder's mental model, with customer support on a local model as the worked bias.
+version: 0.8.0
+description: Build agent harnesses (the done-check, the tool layer, the loop and its bounds, the context policy, the guards) that make a fixed model do a job a task runner can score, such as coding tickets, customer conversations, data work or browsing; written from the harness builder's mental model, with skills of their own for customer conversations and for locally served models.
 
 modules:
   setup:

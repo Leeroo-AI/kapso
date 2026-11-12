@@ -36,10 +36,13 @@ parts = []
 if ENVIRONMENT.is_file():
     pinned = json.loads(ENVIRONMENT.read_text(encoding="utf-8"))
     if isinstance(pinned, dict):
+        builds_on = f"target `{pinned['build_target']}`" if pinned.get("build_target") else "the profile's default target"
+        reads = (f"production is read through `{pinned['reference_target']}`" if pinned.get("reference_target")
+                 else "no target reads production, so nothing can be compared with it")
         parts.append(
-            f"Environment (prepared/environment.json): builds on target `{pinned.get('build_target')}`, production is read through "
-            f"`{pinned.get('reference_target')}`; a reset command is {'pinned' if pinned.get('reset_command') else 'not pinned'}, "
-            f"an acceptance check per ticket is {'pinned' if pinned.get('acceptance_command') else 'not pinned'}, "
+            f"Environment (prepared/environment.json): builds on {builds_on}, {reads}; "
+            f"a reset command is {'pinned' if pinned.get('reset_command') else 'not pinned'}, "
+            f"an acceptance check is {'pinned' if pinned.get('acceptance_command') else 'not pinned'}, "
             f"a release command is {'pinned' if pinned.get('release_command') else 'not pinned'}."
         )
     else:
@@ -48,7 +51,7 @@ if SUMMARY.is_file():
     summary = json.loads(SUMMARY.read_text(encoding="utf-8"))
     if isinstance(summary, dict) and summary.get("model"):
         parts.append(
-            f"Prepared for one ticket: model {summary.get('model')} on {summary.get('backend')}, grain {summary.get('grain')}, "
+            f"Prepared for one change: model {summary.get('model')} on {summary.get('backend')}, grain {summary.get('grain')}, "
             f"change kind {summary.get('change_kind') or 'unstated'}, {summary.get('downstream_models')} downstream dataset(s); "
             f"the spec is {summary.get('spec')}, and the implementation takes the baseline before it edits a file."
         )

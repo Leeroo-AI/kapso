@@ -13,7 +13,7 @@ verification verdict names every ticket that is not `safe to merge` with its rea
   feedback with the command that removes it. A question only the ticket's author can
   answer (a business definition, a rule the data contradicts, a check that passes only
   on a reading the data does not support) is a finished result: the next attempt does not
-  argue it, the pull request asks it.
+  argue it, the delivery asks it.
 - Prefer the attempt with the reproduced cause over the one with the higher number; a
   symptom patch that scores is a liability the validation-auditor should have caught.
 - Weigh the diff: an attempt that changed downstream datasets the ticket did not name
