@@ -129,10 +129,35 @@ def test_a_script_says_that_dbt_is_missing(tmp_path):
     assert done.returncode != 0 and "dbt is not on PATH" in done.stderr and "Traceback" not in done.stderr
 
 
-def test_a_numeric_column_is_told_by_its_types_leading_word():
-    spec = importlib.util.spec_from_file_location("fingerprint", FINGERPRINT)
-    fingerprint = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(fingerprint)
+def load(script, monkeypatch):
+    """One of the harness's scripts as a module, without a bytecode cache left inside the harness."""
+    monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    spec = importlib.util.spec_from_file_location(script.stem, script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_code_of_a_change_keeps_the_repositorys_own_deploy_directory_and_leaves_out_the_records(tmp_path, monkeypatch):
+    # Regression: everything under deploy/ was left out of a change's code, so a repository's own deploy/
+    # files were never measured; and the engine's records under .kapso/, which grow while a session runs,
+    # were counted as files the change left unnamed.
+    tracked = ("models/orders.sql", "deploy/airflow/dag.py", "deploy/release/released.json", ".kapso/repo_memory.json", "results/proof.json")
+    for name in tracked:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("before\n")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    for command in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "start"]):
+        subprocess.run([*git, *command], cwd=tmp_path, check=True)
+    for name in (*tracked, ".kapso/sessions/setup/stream.jsonl", "prepared/environment.json", "macros/cents.sql"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("after\n")
+    monkeypatch.chdir(tmp_path)
+    assert sorted(load(EVIDENCE, monkeypatch).changed_since("HEAD")) == ["deploy/airflow/dag.py", "macros/cents.sql", "models/orders.sql"]
+
+
+def test_a_numeric_column_is_told_by_its_types_leading_word(monkeypatch):
+    fingerprint = load(FINGERPRINT, monkeypatch)
     numeric = [name for name in ("bigint", "int64", "number(38,0)", "decimal(18,3)", "double precision", "float8", "hugeint",
                                  "interval", "interval day to second", "point", "varchar", "timestamp")
                if fingerprint.NUMERIC_TYPE.match(name)]

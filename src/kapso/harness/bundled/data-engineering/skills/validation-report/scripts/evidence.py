@@ -86,8 +86,9 @@ SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 NAMED_SUBQUERY = re.compile(r"(?:\bwith|,)\s+([A-Za-z_]\w*)\s*(?:\([^()]*\))?\s*as\s*\(", re.IGNORECASE)
 FAMILY = re.compile(r"^[A-Za-z0-9_]{3,}\*$")
 RUNBOOK_KEYS = ("one_time_actions", "order", "verification", "recovery")
-# What the harness itself writes in the workspace; a repository's own deploy/ directory is code.
-OUTSIDE_THE_CODE = ("results/", "prepared/", "deploy/pull_requests/", "deploy/release/")
+# What the harness and the engine write in the workspace: their records are never a ticket's change, and a
+# session's own record grows while it runs. A repository's own deploy/ directory is code.
+OUTSIDE_THE_CODE = ("results/", "prepared/", "deploy/pull_requests/", "deploy/release/", ".kapso/")
 SINGLE_TICKET = "change"
 TICKET_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 INVENTORY = Path("prepared/backlog/inventory.json")
