@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import git
 
 from kapso.core.agent_manifest import load_agent_manifest
-from kapso.execution.coding_agents.adapters.codex_agent import agent_role_overrides, mcp_config_overrides
+from kapso.execution.coding_agents.adapters.codex_agent import agent_role_overrides, mcp_config_overrides, toml_string
 from kapso.execution.coding_agents.session_record import write_whole
 from kapso.core.front_matter import read_front_matter
 from kapso.harness.hash import describe_change, harness_files, harness_hash, short
@@ -423,9 +423,7 @@ class _Stager:
             roles = {}
             for name, (description, prompt) in prompts.items():
                 file = directory / f"{name}.toml"
-                # Not ASCII-escaped: JSON writes a character past U+FFFF (an
-                # emoji) as a surrogate pair, which TOML does not accept.
-                write_whole(file, f"developer_instructions = {json.dumps(prompt, ensure_ascii=False)}\n")
+                write_whole(file, f"developer_instructions = {toml_string(prompt)}\n")
                 roles[name] = {"description": description, "config_file": str(file)}
             self.staged.agent_specific["agents"] = roles
 

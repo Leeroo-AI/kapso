@@ -11,12 +11,13 @@ error classification.
 
 import os
 import stat
+import tomllib
 from pathlib import Path
 
 import pytest
 
 from kapso.execution.coding_agents.base import CodingAgentConfig
-from kapso.execution.coding_agents.adapters.codex_agent import CodexCodingAgent
+from kapso.execution.coding_agents.adapters.codex_agent import CodexCodingAgent, toml_string
 
 FAKE_CODEX = r"""#!/usr/bin/env bash
 last=""
@@ -275,3 +276,12 @@ def test_mcp_tool_calls_are_read_from_the_json_stream(tmp_path, fake_codex, monk
          "result": "# P\n\n---\n*Credits remaining: 760*"},
         {"name": "mcp__leeroopedia__build_plan", "input": {"goal": "g"}, "result": ""},
     ]
+
+
+@pytest.mark.parametrize("text", [
+    "stop \U0001F6D1",
+    "a\x7fb",
+    "tab\there\nnew line, \"quotes\", a \\ and \x01",
+])
+def test_toml_string_reads_back_as_the_text(text):
+    assert tomllib.loads(f"x = {toml_string(text)}")["x"] == text
