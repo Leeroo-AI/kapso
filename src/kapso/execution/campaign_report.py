@@ -37,19 +37,10 @@ def render_campaign_report(campaign: str | Path, *, top: int) -> str:
     """The report for the campaign at `campaign`, with `top` leaderboard
     rows. A directory without a checkpoint or a status file raises, and
     so does any corrupt state file."""
-    if isinstance(top, bool) or not isinstance(top, int) or top < 1:
-        raise ValueError(f"top must be a positive integer, got {top!r}")
+    _check_top(top)
     campaign = Path(campaign).expanduser()
     checkpoint, status, history, nodes = load_campaign_state(campaign)
-    selection_config = {
-        "cost": checkpoint.cost_config,
-        "maximize_scoring": checkpoint.maximize_scoring,
-    }
-    ranked = rank_candidates(nodes, selection_config)
-    evaluator_id = checkpoint.strategy_state.get("scores_evaluator_id", "")
-    deliverable = select_deliverable(
-        nodes, evaluator_id=evaluator_id, selection_config=selection_config
-    )
+    ranked, evaluator_id, deliverable = campaign_standing(checkpoint, nodes)
     leaders = ranked[:top]
     sections = [
         _summary(campaign, checkpoint, status, nodes),
@@ -61,6 +52,99 @@ def render_campaign_report(campaign: str | Path, *, top: int) -> str:
         _outcomes(nodes, len(ranked)),
     ]
     return "\n\n".join(sections) + "\n"
+
+
+def render_campaign_report_data(campaign: str | Path, *, top: int) -> Dict[str, Any]:
+    """The report's summary (with the launch's budgets, and the platform
+    cost when cost-aware selection is on), deliverable, leaderboard,
+    outcomes and human input as data; the lineage and the diff stats stay
+    Markdown. The same
+    ranking, deliverable and state line as `render_campaign_report`, and
+    the same errors."""
+    _check_top(top)
+    campaign = Path(campaign).expanduser()
+    checkpoint, status, _, nodes = load_campaign_state(campaign)
+    ranked, evaluator_id, deliverable = campaign_standing(checkpoint, nodes)
+    cost_config = checkpoint.cost_config
+    launch = read_launch_record(campaign) or {}
+    return {
+        "goal": checkpoint.goal.strip(),
+        "state": campaign_state(status),
+        "as_of": status.data["heartbeat_at"],
+        "iterations": checkpoint.completed_iterations,
+        "elapsed_minutes": checkpoint.elapsed_seconds / 60,
+        "model_spend_usd": checkpoint.cumulative_cost,
+        "budget": {
+            "experiments": launch.get("experiments"),
+            "minutes": launch.get("minutes"),
+            "usd": launch.get("usd"),
+        },
+        **({"platform_cost": {
+            "used": campaign_cost_used(nodes, cost_config),
+            "budget": cost_config["campaign_budget"],
+            "unit": cost_config["unit"],
+        }} if cost_config["enabled"] else {}),
+        "deliverable": None if deliverable is None else {
+            "node": deliverable.node_id,
+            "branch": deliverable.branch_name,
+            "score": delivered_score(deliverable, evaluator_id),
+            "idea": idea_line(deliverable.solution),
+            "external_metrics": dict(deliverable.metrics),
+            "primary_metric": deliverable.primary_metric,
+        },
+        "leaderboard": [
+            {
+                "rank": rank,
+                "node": node.node_id,
+                "score": node.score,
+                **({"cost": effective_cost(node, cost_config)} if cost_config["enabled"] else {}),
+                "parent": node.parent_node_id,
+                "branch": node.branch_name,
+                "idea": idea_line(node.solution),
+            }
+            for rank, node in enumerate(ranked[:top], start=1)
+        ],
+        "outcomes": {
+            "candidates": len(nodes),
+            "scored": len(ranked),
+            "failed": sum(1 for node in nodes if node.had_error),
+            "integrity_flagged": sum(1 for node in nodes if node.evaluation_integrity_error),
+            "cost_refused": sum(1 for node in nodes if node.cost_refusal),
+        },
+        "human_input": [
+            {
+                "id": request.id,
+                "node": request.node,
+                "key": request.key,
+                "fix": request.fix,
+                "state": request.state,
+                "reply": request.reply,
+            }
+            for request in sorted(load_requests(inbox_path(campaign)).values(), key=lambda request: request.id)
+        ],
+    }
+
+
+def _check_top(top: int) -> None:
+    if isinstance(top, bool) or not isinstance(top, int) or top < 1:
+        raise ValueError(f"top must be a positive integer, got {top!r}")
+
+
+def campaign_standing(
+    checkpoint: RunCheckpoint, nodes: Sequence[SearchNode]
+) -> Tuple[List[SearchNode], str, Optional[SearchNode]]:
+    """A campaign's scored candidates in its own ranking, its registered
+    evaluator's id, and the node it delivers."""
+    selection_config = {
+        "cost": checkpoint.cost_config,
+        "maximize_scoring": checkpoint.maximize_scoring,
+    }
+    evaluator_id = checkpoint.strategy_state.get("scores_evaluator_id", "")
+    return (
+        rank_candidates(nodes, selection_config),
+        evaluator_id,
+        select_deliverable(nodes, evaluator_id=evaluator_id, selection_config=selection_config),
+    )
 
 
 def load_campaign_state(
