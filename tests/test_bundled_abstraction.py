@@ -1,7 +1,9 @@
 """The abstraction scan over every bundled harness: no benchmark, task,
 dataset, competition or problem name, no data-library name on a page, no
-number pinned beside a quota, deadline, score or hardware word — on the
-pages and the skills' bodies, outside fenced code. The gate never skips:
+number pinned beside a quota, deadline, score or hardware word (the score
+words in a harness written from a benchmark; one written from research
+cites its studies' results) — on the pages and the skills' bodies, outside
+fenced code. The gate never skips:
 the vocabulary is the benchmarks' own dependency-free data, and a missing
 data file is a failure, not a skip (docs/plans/redesign/wp8-harness-ports.md
 change 16). The scan's own rules are pinned on a fixture harness."""
@@ -15,6 +17,11 @@ from kapso.harness import BUNDLED_ROOT
 from kapso.harness.manifest import MANIFEST_FILE
 
 BUNDLED = sorted(path for path in BUNDLED_ROOT.iterdir() if (path / MANIFEST_FILE).is_file())
+# The harnesses written from the benchmarks the engine was measured on: a
+# number beside a score word in one of them is a benchmark's result. The
+# others were written from published research and cite its results as
+# evidence, which their reviews read and this rule does not.
+PORTED = ("predictive-modelling", "competitive-programming")
 
 
 @pytest.mark.parametrize("root", BUNDLED, ids=[path.name for path in BUNDLED])
@@ -23,7 +30,7 @@ def test_a_bundled_harness_names_no_benchmark_and_pins_no_number(root):
     # or a contest's quota as a figure leaking into a shipped harness — the
     # abstraction the ports were made for. A hit is a finding with its file,
     # line and word; the scan reads every page and skill body.
-    findings = scan(root, vocabulary())
+    findings = scan(root, vocabulary(), score_numbers=root.name in PORTED)
     assert findings == [], "\n".join(str(finding) for finding in findings)
     assert len(scanned_files(root)) >= 4           # the module pages at least
 
@@ -87,4 +94,10 @@ def test_the_rules_on_a_fixture(tmp_path):
         Finding(page, 10, "16 gb", "number"),
         Finding(page, 10, "24 gb", "number"),
         Finding(skill, 6, "3 attempts", "number"),
+    ]
+    # Regression: a harness written from research cites a study's result
+    # beside a score word; with the score numbers off that one is no finding,
+    # and the quota, the deadline, the hardware and every name still are.
+    assert scan(root, vocabulary(), score_numbers=False) == [
+        finding for finding in findings if finding.word != "0.05 score"
     ]

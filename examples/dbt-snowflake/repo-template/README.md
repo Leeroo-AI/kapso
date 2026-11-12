@@ -160,7 +160,7 @@ time.
 
 ## Building with Kapso
 
-Builds with Kapso load the harness at `../harnesses/data-engineering`. `kapso-config.yaml` sets the models,
+Builds with Kapso run on the `data-engineering` harness, which ships with Kapso. `kapso-config.yaml` sets the models,
 turns the build sessions' web tools off (the warehouse's work stays on the warehouse and the repository), and
 gives the harness's setup and verification sessions the time a backlog of this size needs.
 

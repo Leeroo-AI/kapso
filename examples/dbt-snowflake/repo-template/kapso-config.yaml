@@ -1,6 +1,6 @@
 # The models and limits our Kapso builds run on, merged over Kapso's packaged defaults
 # (`kapso doctor --config kapso-config.yaml --show-config` prints the result).
-# Builds load the team's harness at ../harnesses/data-engineering (README, "Building with Kapso").
+# Builds run on the data-engineering harness, which ships with Kapso (README, "Building with Kapso").
 hosts:
   claude_code:
     model: "claude-opus-5-5"

@@ -24,4 +24,4 @@ Rules
   - build with --select, never the whole warehouse project; production is read, never built
   - the public benchmark the backlog derives from is not consulted, online or anywhere else
 Budget       minutes=720 experiments=34
-Harness      ../harnesses/data-engineering
+Harness      data-engineering

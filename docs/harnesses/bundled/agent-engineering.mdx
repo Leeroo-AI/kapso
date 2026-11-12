@@ -1,0 +1,75 @@
+---
+title: "The agent-engineering harness"
+sidebarTitle: "Agent engineering"
+description: "The harness that ships for building the harness around a fixed model: the done-check, the tool layer, the turn cycle and its bounds, the context policy and the guards, each component measured by a task runner. What it ships, where it came from, and how to run a task on it."
+keywords: ["agent-engineering harness", "Kapso harness", "agent harness", "agent scaffold", "task runner", "pass^k", "episode triage", "local model serving", "tool calling"]
+---
+
+`agent-engineering` is the harness for building an agent's own harness, which its pages call the scaffold: the code around a fixed model that makes it do a job a task runner can score, such as coding tickets, customer conversations, data work or browsing. It ships inside the package and loads by name. Two of its skills name situations of their own, a customer conversation with a simulated user and a model served locally on a serving engine, and each says when it applies.
+
+What it holds is the discipline, not the task: the brief, the evaluator, the model and its endpoint, the task runner and the starting repository are yours. The model stays fixed; a build changes what surrounds it.
+
+## Where it came from
+
+The harness was written from published research on agent harnesses and from the practice of the people who build them, then revised after independent reviews. Each skill states a component with the effect a study measured and the conditions it was measured under, as the evidence for trying it and never as the size to expect on another model or task: a component enters a scaffold as a dated hypothesis, recorded with the failure it was added for and the measurement that would retire it. The package's gate runs `check` over each bundled harness at the packaged page budget and scans it for a benchmark's names. The [support agent example](https://github.com/Leeroo-AI/kapso/tree/main/examples/support-agent-harness) is a task set up to run on it.
+
+## What it ships
+
+```bash
+kapso harness check agent-engineering
+```
+
+```text
+check ok (11 skills, 2 agents, 0 servers, 0 hooks)
+name     agent-engineering 0.8.0
+```
+
+Two pages reach every session: `instructions/guardrails.md`, the standing rules (the model is fixed; every component is a hypothesis with its measurement; nothing is believed without the task runner; held-out tasks and answer keys never enter a session; rules with no exception live in code), and the module's own page, one each for setup, ideation, implementation, verification, feedback, deployment and learning. The skills and the delegates are defined once and listed per module:
+
+| Module | Skills | Delegates |
+|---|---|---|
+| `setup` | local-model-serving | |
+| `ideation` | scaffold-components, episode-triage, support-conversations | |
+| `implementation` | scaffold-components, tool-layer, verification-and-stop, action-review, context-policy, grounding, deterministic-guards, local-model-serving, done-check-and-eval, episode-triage, support-conversations | episode-auditor |
+| `verification` | done-check-and-eval, episode-triage, verification-and-stop | scaffold-integrity-auditor, episode-auditor |
+| `feedback` | done-check-and-eval | |
+| `deployment` | local-model-serving, deterministic-guards | |
+| `learning` | | |
+
+### The skills
+
+| Skill | What it teaches |
+|---|---|
+| `done-check-and-eval` | What is built first: the check the scaffold runs to decide it is done, kept apart from the supplied evaluator; fixed conditions against the settings a scaffold may change; reliability over repeated trials, paired comparisons and the noise between two identical runs; the results file an adapter writes over the runner's public output, and the script that summarises it |
+| `episode-triage` | Reading the failed episodes of a run: every failure attributed to the grader, the environment, the harness or the model before anything is changed, the earliest wrong step the evidence supports, and a script that classes the symptoms a results file shows |
+| `scaffold-components` | The catalogue of components with the measured effect of each under its conditions, the order they are built in, what is known not to work, and the ledger entry that lets a component be retired |
+| `tool-layer` | The tools a scaffold gives its model: few and distinct, described with examples, results shaped and never silently cut, tools loaded on demand through a registry |
+| `verification-and-stop` | How a scaffold knows it is done: checks that execute, a separate checker, the stop rules that allow an evidenced completion, a supported refusal or an exhausted budget |
+| `action-review` | A compiled, gated plan per operation, and a review of every consequential action against it before the action is made |
+| `context-policy` | What stays in the model's window and how: a stable prefix, retrieval just in time, the working state, compaction that keeps the evidence a decision rests on |
+| `grounding` | How a scaffold finds what a task needs in a repository, a document base or an API, with stopping rules and the measured limits of retrieval |
+| `deterministic-guards` | The rules a scaffold enforces in code and never asks for in a prompt: deny rules, the sandbox, read-only tests and scorers, caps on steps, money and consecutive errors |
+| `local-model-serving` | What a locally served open-weight model does to the turn cycle (tool calls as untrusted text, reasoning that shares the completion budget, the engine's real context limit), with a smoke probe for an OpenAI-compatible endpoint |
+| `support-conversations` | What changes when the task is a customer conversation over a policy base and the tools of a system of record, scored on the final state |
+
+### The delegates
+
+`episode-auditor` reads one failed episode, attributes the failure and names the earliest wrong step the permitted evidence supports. `scaffold-integrity-auditor` audits one attempt's diff for content that recognises evaluation cases where it should solve them, and for a tampered measurement: a read of material the task declares private, an edit to the evaluator or its settings. Each reports pass, fail or inconclusive with evidence, and neither edits a file.
+
+### The scripts
+
+Three scripts ship inside the skills and use the standard library only: `passk.py` (the summary of a results file, and the paired comparison of two runs on the same tasks and trials), `triage.py` (the symptom classes of a run's failed episodes) and `probe_endpoint.py` (a short probe of a chat endpoint). The first two read `results/episodes.jsonl`, a small convention the `done-check-and-eval` skill states; an adapter over your runner's public output writes it, and when the task ships none the first attempt writes one.
+
+## Run a task on it
+
+```bash
+kapso build --harness agent-engineering --brief kapso-brief.md --evaluation evaluation --data data --repo repo --output campaign --detach
+```
+
+The brief's `Harness agent-engineering` line and `kapso.load_harness("agent-engineering")` name it the same way. The campaign then runs as [Use a harness](/docs/harnesses/use) describes: the setup session writes the domain statement into the task statement (the task family and how the runner scores it, the model and its endpoint with what is fixed and what the scaffold may change, the development set, the trials, the metric) and sends the endpoint one request; each implementation session builds one component behind a flag and measures it through the task's runner; each attempt is verified by a session that recomputes the headline from the results file and asks the two delegates, and a void attempt keeps its branch and is never delivered.
+
+What a task on this harness brings: a task runner the scaffold plugs into, a development set the build may read, the fixed conditions (the model, the trials, the runner's version), and an evaluator that scores a run of the scaffold. Tasks the build must never see stay outside the repository the build reads.
+
+Related pages: [Use a harness](/docs/harnesses/use) · [Data engineering](/docs/harnesses/bundled/data-engineering) · [Predictive modelling](/docs/harnesses/bundled/predictive-modelling) · [Write a harness](/docs/harnesses/write) · [Harness reference](/docs/reference/harness) · [Deployment targets](/docs/deploy/targets)
+
+Kapso is an open-source engine by [Leeroo](https://leeroo.com) that runs experiments toward an objective, deploys the best solution and learns from every run. Source code: [github.com/Leeroo-AI/kapso](https://github.com/Leeroo-AI/kapso) · Install: `pip install leeroo-kapso` · Every page as plain text: [llms.txt](https://docs.leeroo.com/llms.txt).

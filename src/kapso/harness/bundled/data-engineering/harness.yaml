@@ -1,0 +1,29 @@
+schema_version: 1
+name: data-engineering
+version: 0.9.0
+description: Data-engineering changes delivered with measured evidence and a computed label; dbt on a SQL warehouse is the worked stack, and the measurement scripts and the two delivery targets (GitHub pull requests, a release command) drive nothing else.
+
+environment:
+  commands: []
+
+modules:
+  setup:
+    skills: [dbt-workflow, ticket-backlog, grain-and-modelling, lineage-bisection, invariants, warehouse-cost, validation-report]
+    hooks: [session-brief]
+  ideation:
+    skills: [data-bug-mechanisms, ticket-backlog, lineage-bisection, pipeline-reliability, warehouse-cost]
+    hooks: [session-brief, protect-prepared]
+  implementation:
+    skills: [dbt-workflow, ticket-backlog, grain-and-modelling, lineage-bisection, data-bug-mechanisms, invariants, data-diff, pipeline-reliability, engine-portability, warehouse-cost, validation-report]
+    agents: [root-cause-reviewer]
+    hooks: [session-brief, protect-prepared, shared-layer-notice, require-proof]
+  verification:
+    skills: [invariants, data-diff, validation-report, ticket-backlog, pipeline-reliability, data-bug-mechanisms]
+    agents: [validation-auditor, root-cause-reviewer]
+    hooks: [session-brief, protect-prepared]
+  feedback:
+    skills: [validation-report, ticket-backlog, warehouse-cost]
+    hooks: [session-brief, protect-prepared]
+  deployment:
+    skills: [pull-request, pull-request-proof, warehouse-release, validation-report, ticket-backlog]
+    hooks: [session-brief, protect-prepared]

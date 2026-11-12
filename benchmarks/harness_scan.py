@@ -51,7 +51,11 @@ NAMED_WORDS: Dict[str, str] = {
 # hardware word is a pinned constant, the nearest such word named; a
 # statistical threshold beside its own name (a p-value, a z), a count of
 # standard errors and version strings are allowed. A unit attached to its
-# number (16GB) is read as two tokens.
+# number (16GB) is read as two tokens. The score words are a benchmark's
+# results leaking into the harness written from it; a harness written from
+# published research cites its studies' results as evidence, so the scan of
+# one is run with `score_numbers` off, and quotas, deadlines and hardware
+# are read all the same.
 QUOTA_WORDS = ("submission", "submissions", "attempt", "attempts", "quota", "daily", "limit", "cap")
 DEADLINE_WORDS = ("hour", "hours", "hr", "hrs", "minute", "minutes", "min", "mins", "second", "seconds",
                   "sec", "secs", "day", "days", "week", "weeks", "deadline", "session", "sessions")
@@ -156,8 +160,9 @@ def _tokens(line: str) -> Tuple[List[str], List[str]]:
     return raw, tokens
 
 
-def _number_findings(path: Path, number: int, line: str) -> List[Finding]:
+def _number_findings(path: Path, number: int, line: str, score_numbers: bool) -> List[Finding]:
     raw, tokens = _tokens(line)
+    pinning = NUMBER_NEIGHBOURS if score_numbers else QUOTA_WORDS + DEADLINE_WORDS + HARDWARE_WORDS
     findings = []
     for index, token in enumerate(tokens):
         if not _NUMBER.match(token) or _VERSION.match(token):
@@ -170,15 +175,17 @@ def _number_findings(path: Path, number: int, line: str) -> List[Finding]:
         window = [tokens[at] for at in nearest if 0 <= at < len(tokens)]
         if token in STATISTICAL_THRESHOLDS and any(word in STATISTICAL_WORDS for word in window):
             continue                                   # a threshold beside its own name
-        neighbours = [word for word in window if word in NUMBER_NEIGHBOURS]
+        neighbours = [word for word in window if word in pinning]
         if neighbours:
             findings.append(Finding(path, number, f"{token} {neighbours[0]}", "number"))
     return findings
 
 
-def scan(root: Path, words: Dict[str, str]) -> List[Finding]:
+def scan(root: Path, words: Dict[str, str], score_numbers: bool = True) -> List[Finding]:
     """Every vocabulary word and pinned number on the harness's pages and
-    skills, outside fenced code: the file, the line and the word."""
+    skills, outside fenced code: the file, the line and the word. With
+    `score_numbers` off, a number beside a score word is cited evidence and
+    not a finding (a harness written from research, not from a benchmark)."""
     root = Path(root)
     if not root.is_dir():
         raise FileNotFoundError(f"{root}: no harness directory")
@@ -194,7 +201,7 @@ def scan(root: Path, words: Dict[str, str]) -> List[Finding]:
             # The number rule reads the raw line (a file named after a score
             # word must not blind it); the vocabulary reads the line with the
             # harness's own names blanked.
-            findings += _number_findings(path, number, raw)
+            findings += _number_findings(path, number, raw, score_numbers)
             line = _blank_own_names(raw, names)
             for word, decision in words.items():
                 if decision == SKILL_ONLY and not on_page:
@@ -207,11 +214,13 @@ def scan(root: Path, words: Dict[str, str]) -> List[Finding]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scan a harness for benchmark names and pinned numbers.")
     parser.add_argument("roots", nargs="+", type=Path, help="harness directories")
+    parser.add_argument("--cited-scores", action="store_true",
+                        help="the harnesses were written from research: a number beside a score word is cited evidence")
     args = parser.parse_args()
     words = vocabulary()
     total = 0
     for root in args.roots:
-        findings = scan(root, words)
+        findings = scan(root, words, score_numbers=not args.cited_scores)
         total += len(findings)
         print(f"{root}: {len(findings)} finding(s) over {len(scanned_files(root))} files, {len(words)} words")
         for finding in findings:
