@@ -221,6 +221,8 @@ def test_a_budget_writes_numbers_the_parser_reads_back():
     assert Budget(usd=0.00001).tokens() == "usd=0.00001"
     assert Budget(minutes=1e20).tokens() == "minutes=100000000000000000000"
     assert Budget(minutes=90.5, usd=2.25).tokens() == "minutes=90.5 usd=2.25"
+    assert Budget(usd=1e-7).tokens() == "usd=0.0000001"
+    assert Brief.parse(f"Objective a\nBudget {Budget(usd=1e-7).tokens()}\n").budget == Budget(usd=1e-7)
 
 
 def test_a_budget_the_engine_cannot_spend_is_refused_at_parse_time():

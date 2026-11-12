@@ -14,6 +14,7 @@ import math
 import re
 import subprocess
 from dataclasses import dataclass, field, replace
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -136,7 +137,9 @@ def _number(value: Union[int, float]) -> str:
     needed, never an exponent, so the parser reads back what was written."""
     if float(value).is_integer():
         return str(int(value))
-    return format(value, "f").rstrip("0")
+    # repr is the shortest decimal that reads back as the same float, so
+    # it has no trailing zero to strip.
+    return format(Decimal(repr(float(value))), "f")
 
 
 # =============================================================================
