@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from openai import OpenAI
+from weaviate.exceptions import WeaviateConnectionError
 
 import kapso
 from kapso.core.api_endpoint import openai_compatible_options
@@ -256,6 +257,33 @@ def test_index_without_a_provider_keeps_openai(monkeypatch, offline_backend):
     }
 
 
+def stub_store_clients(monkeypatch, weaviate_error=None):
+    """KGGraphSearch's Weaviate and Neo4j connects stubbed (and its LLM off):
+    each connect's arguments are recorded in the returned dict, and Weaviate's
+    raises `weaviate_error` when one is given. The stub clients close, so the
+    destructor of a search, even one whose __init__ raised, has nothing to
+    trip on."""
+    connections = {}
+
+    def connect_weaviate(**kwargs):
+        if weaviate_error is not None:
+            raise weaviate_error
+        connections["weaviate"] = kwargs
+        return SimpleNamespace(close=lambda: None)
+
+    def neo4j_driver(uri, auth):
+        connections["neo4j"] = (uri, auth)
+        return SimpleNamespace(close=lambda: None)
+
+    cls = graph.KGGraphSearch
+    monkeypatch.setattr(cls, "_initialize_llm", lambda self: None)
+    monkeypatch.setattr(graph, "HAS_WEAVIATE", True)
+    monkeypatch.setattr(graph.weaviate, "connect_to_custom", connect_weaviate)
+    monkeypatch.setattr(graph, "HAS_NEO4J", True)
+    monkeypatch.setattr(graph.GraphDatabase, "driver", neo4j_driver)
+    return connections
+
+
 def test_the_stores_are_config_and_travel_with_the_index(monkeypatch):
     """A second Weaviate and Neo4j beside production (a test stack) are named
     in params, reached on both of Weaviate's channels (the gRPC port is not
@@ -263,12 +291,7 @@ def test_the_stores_are_config_and_travel_with_the_index(monkeypatch):
     search opened from that index never lands on the production stores."""
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("NEO4J_PASSWORD", "learntest")
-    monkeypatch.setattr(graph.KGGraphSearch, "_initialize_llm", lambda self: None)
-    connections = {}
-    monkeypatch.setattr(graph, "HAS_WEAVIATE", True)
-    monkeypatch.setattr(graph.weaviate, "connect_to_custom", lambda **kw: connections.setdefault("weaviate", kw))
-    monkeypatch.setattr(graph, "HAS_NEO4J", True)
-    monkeypatch.setattr(graph.GraphDatabase, "driver", lambda uri, auth: connections.setdefault("neo4j", (uri, auth)))
+    connections = stub_store_clients(monkeypatch)
 
     search = KnowledgeSearchFactory.create("kg_graph_search", params={
         "weaviate_url": "http://localhost:18080",
@@ -291,8 +314,17 @@ def test_the_stores_are_config_and_travel_with_the_index(monkeypatch):
     assert refs["weaviate_grpc_port"] == 50052
     assert refs["neo4j_uri"] == "bolt://localhost:17687"
     assert refs["weaviate_collection"] == "KapsoLearnTest"
-    # The stubs have no close() for the destructor to call.
-    search._neo4j_driver = search._weaviate_client = None
+
+
+def test_a_weaviate_that_refuses_the_connection_raises(monkeypatch):
+    """A Weaviate that is down at startup stops the search being built; it is
+    never left without a client to answer every query with no results."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    refused = WeaviateConnectionError("Connection refused")
+    stub_store_clients(monkeypatch, weaviate_error=refused)
+    params = {"corpus": "index-id"}
+    with pytest.raises(WeaviateConnectionError, match="Connection refused"):
+        KnowledgeSearchFactory.create("kg_graph_search", params=params)
 
 
 def test_index_build_stops_on_an_embedding_failure(vertex_session, offline_backend, monkeypatch):
