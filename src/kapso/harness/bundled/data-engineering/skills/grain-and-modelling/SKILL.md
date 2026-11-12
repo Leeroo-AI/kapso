@@ -1,6 +1,6 @@
 ---
 name: grain-and-modelling
-description: The modelling canon a senior data engineer applies before touching a dataset, with the grain as a declared contract, fact-table types and what may be summed across which dimensions, the two prohibitions that prevent fan-out and double counting, keys, nulls, history and time, the layers that apply each transformation once, and the materialization ladder with the pitfalls of incremental loads and history tables. Use in setup to declare the grain, in implementation before changing a dataset's shape, and when a ticket reads "does not reconcile".
+description: The modelling canon a senior data engineer applies before touching a dataset, with the grain as a declared contract, fact-table types and what may be summed across which dimensions, the two prohibitions that prevent fan-out and double counting, keys, nulls, history and time, the layers that apply each transformation once, and the materialization ladder with the pitfalls of incremental loads and history tables. Use in setup to declare the grain, in implementation before changing a dataset's shape, and when a total disagrees with its source.
 ---
 # Grain and modelling
 

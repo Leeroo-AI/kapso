@@ -3,7 +3,7 @@
 A retail warehouse on Snowflake: a dbt project of about 2,350 models and an open backlog of seventeen tickets,
 reports with wrong numbers to fix and models to build. A ticket is done when its ticket check passes, and the
 checks belong to a data platform the build cannot read: it sends the project and gets pass or fail per ticket.
-The build runs on the [`data-engineering`](../harnesses/data-engineering) harness, which closes each ticket
+The build runs on the bundled [`data-engineering`](../../src/kapso/harness/bundled/data-engineering) harness, which closes each ticket
 with measured evidence, delivers one pull request per ticket, and releases what was merged to production
 through the platform. It is the largest example here and the one with the most to set up: a Snowflake account,
 a second machine, and the public benchmark the warehouse comes from. This README is that setup: what to bring,
@@ -103,7 +103,7 @@ All three come from your own checkout of the benchmark, and the tests never leav
    (cd repo/warehouse && dbt deps && dbt debug)
    python repo/checks/dev_reset.py              # the development database, back to production's state
    python repo/checks/run_checks.py --fast      # four tickets: 0 of 4 as shipped
-   kapso harness check ../harnesses/data-engineering
+   kapso harness check data-engineering
    kapso doctor build --config repo/kapso-config.yaml --models
    ```
 
@@ -121,8 +121,8 @@ In Claude Code with the Kapso plugin, opened in `repo/`, the build starts from o
 
 The plugin reads the repository, finds the tickets, the check client and the harness its README names, writes
 a brief and an evaluation copy of its own (the ones in this directory were written that way), and asks once
-before it launches. The repository's README names the harness at `../harnesses/data-engineering`, beside the
-repository. From `repo/` that is `harnesses/` in this directory, so link it first: `ln -s ../harnesses harnesses`.
+before it launches. The repository's README names the `data-engineering` harness, which ships inside the
+package and loads by name.
 
 The same build from the command line, from this directory:
 

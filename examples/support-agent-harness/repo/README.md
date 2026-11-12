@@ -25,7 +25,7 @@ above 0.50 on the development conversations, with the model, its serving setting
 simulated customer and the conversations unchanged. A separate set of conversations the build never
 sees is kept outside this repository for the final check (below).
 
-Builds with Kapso load the harness at `../../harnesses/agent-engineering`. A finished build is deployed
+Builds with Kapso run on the `agent-engineering` harness, which ships with Kapso. A finished build is deployed
 through Kapso's deployments: `kapso deploy <campaign> --target docker` serves the delivered harness as a
 container on this machine, pointed at the model endpoint as a container reaches it (above).
 

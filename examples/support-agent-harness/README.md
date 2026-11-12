@@ -7,8 +7,8 @@ harness so that Qwen 27B, served on your own GPU, resolves the conversations
 as well as Fable 5.1 does, with the model, its serving settings, the tools,
 the simulated customer and the conversations fixed. Two things are called a
 harness here: the service under `repo/harness/`, which is what the build
-changes, and `agent-engineering`, the Kapso harness the build runs on
-([`../harnesses/agent-engineering`](../harnesses/agent-engineering/)).
+changes, and `agent-engineering`, the Kapso harness the build runs on, which
+ships inside the package and loads by name (`kapso harness list`).
 
 This README is the setup: what to bring, how to stand each piece up, and the
 lines that run the build, deploy what it delivers and learn from it. The bar
@@ -124,7 +124,7 @@ no build session reads.
 
    ```bash
    kapso doctor build --config repo/kapso-config.yaml
-   kapso harness check ../harnesses/agent-engineering
+   kapso harness check agent-engineering
    (cd repo && python ../evaluation/evaluate.py --check)      # the bench files, the runner and the endpoint are the fixed ones
    (cd repo && python bench/run_dev.py --fast && rm -r results bench/runs)
    ```
@@ -153,7 +153,7 @@ The same build from the command line, with the brief and the evaluation of
 this directory:
 
 ```bash
-kapso build --brief kapso-brief.md --repo repo --evaluation evaluation --data data --output campaign --harness ../harnesses/agent-engineering --config repo/kapso-config.yaml --detach
+kapso build --brief kapso-brief.md --repo repo --evaluation evaluation --data data --output campaign --harness agent-engineering --config repo/kapso-config.yaml --detach
 kapso watch campaign --follow --config repo/kapso-config.yaml
 ```
 
@@ -261,20 +261,23 @@ read: against the run-to-run flips, not as a headline.
 - The bar: record another current agent through the same runner and put its
   run under `repo/bench/reference/`; the evaluator's reference table
   (`evaluation/protected/references.json`) follows it.
-- The Kapso harness: edit a page under `../harnesses/agent-engineering/`,
-  bump its `version`, run `kapso harness check` again. A campaign refuses a
-  harness that changed after its launch.
+- The Kapso harness: copy `agent-engineering` out of the package
+  (`src/kapso/harness/bundled/agent-engineering/` in this repository), edit
+  a page, bump its `version`, run `kapso harness check` on the copy and name
+  the copy's directory where the lines above name `agent-engineering`. A
+  campaign refuses a harness that changed after its launch.
 
 ## What ran as shipped, and what was adapted
 
 `repo/`, `evaluation/` and `kapso-brief.md` are the files a build of ours
 was launched with: the run script, the adapter, the evaluator and the service
-are unchanged. Three things differ. The files that name a machine
+are unchanged. Four things differ. The files that name a machine
 (`bench/endpoint.json`, `bench/protection.json` and the evaluation's
 `fixed.json`) are written by `runner/configure.py`, where `fixed.json` also
 hashes `runner.json`, the settings our run script held in its own source.
 The protection list gained the directory of per-task files. And a few phrases
-that named our own deployment were reworded.
+that named our own deployment were reworded. And the harness is named as
+the package ships it, where our build named a directory beside this one.
 
 The scripts under `runner/` are adapted from the ones we used and were
 checked on 2026-11-10 without a GPU. `install.sh` installs a runner whose

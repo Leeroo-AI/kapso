@@ -47,4 +47,4 @@ Rules
     OPENROUTER_API_KEY in ~/.secrets/customer.env, which is absent: it errors on every run, is not a
     harness failure, and no attempt targets it
 Budget       minutes=720 experiments=10 reserve_minutes=120
-Harness      ../harnesses/agent-engineering
+Harness      agent-engineering
