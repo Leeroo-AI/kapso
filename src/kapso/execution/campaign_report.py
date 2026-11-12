@@ -55,8 +55,10 @@ def render_campaign_report(campaign: str | Path, *, top: int) -> str:
 
 
 def render_campaign_report_data(campaign: str | Path, *, top: int) -> Dict[str, Any]:
-    """The report's summary, deliverable, leaderboard, outcomes and human
-    input as data; the lineage and the diff stats stay Markdown. The same
+    """The report's summary (with the launch's budgets, and the platform
+    cost when cost-aware selection is on), deliverable, leaderboard,
+    outcomes and human input as data; the lineage and the diff stats stay
+    Markdown. The same
     ranking, deliverable and state line as `render_campaign_report`, and
     the same errors."""
     _check_top(top)
@@ -64,6 +66,7 @@ def render_campaign_report_data(campaign: str | Path, *, top: int) -> Dict[str, 
     checkpoint, status, _, nodes = load_campaign_state(campaign)
     ranked, evaluator_id, deliverable = campaign_standing(checkpoint, nodes)
     cost_config = checkpoint.cost_config
+    launch = read_launch_record(campaign) or {}
     return {
         "goal": checkpoint.goal.strip(),
         "state": campaign_state(status),
@@ -71,11 +74,23 @@ def render_campaign_report_data(campaign: str | Path, *, top: int) -> Dict[str, 
         "iterations": checkpoint.completed_iterations,
         "elapsed_minutes": checkpoint.elapsed_seconds / 60,
         "model_spend_usd": checkpoint.cumulative_cost,
+        "budget": {
+            "experiments": launch.get("experiments"),
+            "minutes": launch.get("minutes"),
+            "usd": launch.get("usd"),
+        },
+        **({"platform_cost": {
+            "used": campaign_cost_used(nodes, cost_config),
+            "budget": cost_config["campaign_budget"],
+            "unit": cost_config["unit"],
+        }} if cost_config["enabled"] else {}),
         "deliverable": None if deliverable is None else {
             "node": deliverable.node_id,
             "branch": deliverable.branch_name,
             "score": delivered_score(deliverable, evaluator_id),
             "idea": idea_line(deliverable.solution),
+            "external_metrics": dict(deliverable.metrics),
+            "primary_metric": deliverable.primary_metric,
         },
         "leaderboard": [
             {

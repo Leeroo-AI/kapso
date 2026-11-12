@@ -278,8 +278,11 @@ def test_report_data_carries_the_markdown_reports_facts(tmp_path):
     assert data["goal"] == "Raise accuracy\n\nKeep inference under 50ms"
     assert data["state"] == "running"
     assert (data["iterations"], data["elapsed_minutes"], data["model_spend_usd"]) == (3, 30.0, 1.5)
+    assert data["budget"] == {"experiments": 10, "minutes": 60, "usd": 5.0}
+    assert "platform_cost" not in data
     assert data["deliverable"] == {
         "node": 1, "branch": "generic_exp_1", "score": 0.9, "idea": "gradient boosting | tuned",
+        "external_metrics": {"auc": 0.91, "f1": 0.8}, "primary_metric": "auc",
     }
     assert data["leaderboard"] == [{
         "rank": 1, "node": 1, "score": 0.9, "parent": 0, "branch": "generic_exp_1",
@@ -311,8 +314,9 @@ def test_report_data_ranks_as_the_campaign_does(tmp_path):
 
     cost_config = {"enabled": True, "estimator": "pkg.estimate", "weight": 1.0}
     costed = campaign(tmp_path / "costed", nodes([0.25, 0.0, 0.0]), cost_config=cost_config)
-    rows = render_campaign_report_data(costed, top=5)["leaderboard"]
-    assert [(row["node"], row["cost"]) for row in rows] == [(2, 0.0), (1, 0.0), (0, 0.25)]
+    data = render_campaign_report_data(costed, top=5)
+    assert [(row["node"], row["cost"]) for row in data["leaderboard"]] == [(2, 0.0), (1, 0.0), (0, 0.25)]
+    assert data["platform_cost"]["used"] == 0.25
 
 
 def test_report_data_without_a_scored_candidate_and_bad_input(tmp_path):

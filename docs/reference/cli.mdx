@@ -439,7 +439,7 @@ Renders a finished or running campaign as Markdown that pastes straight into a p
 |----------|--------------|---------|
 | `campaign` | Campaign directory. **Required** | — |
 | `-o`, `--output` | Write the report to this file instead of stdout | stdout |
-| `--json` | Print the summary, deliverable, leaderboard, outcomes and human input as data instead of Markdown: `{goal, state, as_of, iterations, elapsed_minutes, model_spend_usd, deliverable, leaderboard, outcomes, human_input}`. `deliverable` is `null` until a candidate is scored, and a leaderboard row carries `cost` only when cost-aware selection is on. The lineage and the diff stats stay Markdown only | off |
+| `--json` | Print the summary, deliverable, leaderboard, outcomes and human input as data instead of Markdown: `{goal, state, as_of, iterations, elapsed_minutes, model_spend_usd, budget, deliverable, leaderboard, outcomes, human_input}`. `budget` holds the launch's `experiments`, `minutes` and `usd`, each `null` when not set; `deliverable` is `null` until a candidate is scored and carries its external metrics; `platform_cost` and a leaderboard row's `cost` appear only when cost-aware selection is on. The lineage and the diff stats stay Markdown only | off |
 | `--top` | How many candidates the leaderboard and the diff section list | `report.leaderboard_size` (`5`) |
 | `--config` | Config whose `report.leaderboard_size` sets the default | packaged `config.yaml` |
 
