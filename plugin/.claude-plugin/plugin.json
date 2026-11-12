@@ -1,6 +1,6 @@
 {
   "name": "kapso",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "Run Kapso, the engine that runs experiments, deploys the best solution and learns from every run, from this session: set up, state the objective with its evaluation, launch and follow the experiments, review and deploy the winner, learn from the run, author a harness for your domain.",
   "author": {
     "name": "Leeroo",
