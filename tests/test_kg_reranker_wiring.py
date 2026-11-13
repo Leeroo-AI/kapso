@@ -27,6 +27,9 @@ def rerank_calls(monkeypatch):
     monkeypatch.setattr(search, "_initialize_neo4j", lambda self: None)
     monkeypatch.setattr(search, "_initialize_weaviate", lambda self: None)
     monkeypatch.setattr(search, "_semantic_search", lambda self, query, filters: list(pool))
+    monkeypatch.setattr(
+        search, "_get_connected_pages", lambda self, page_id: []
+    )
     monkeypatch.setattr(search, "_rerank_results", lambda self, query, results, top_k: calls.append(top_k) or results)
     monkeypatch.setattr(module, "make_embedder", lambda params: None)
     return calls
