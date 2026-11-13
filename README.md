@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">Learn more</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">Watch the demo</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Join Discord</a> ·
   <a href="https://leeroo.com">Website</a>
 </p>
@@ -79,6 +80,13 @@ Over time the domain harness carries a bank of lessons: the experimented best pr
 | [**Domain adaptation**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | A harness is Kapso's domain package: the knowledge and workflows of an area such as predictive modelling, so a build never starts from scratch, and where the bank of lessons accumulates. Predictive modelling and competitive programming ship; write yours with `/kapso:harness` in the plugin or `kapso harness` in the CLI. |
 
 ## 🚀 Quickstart
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Kapso walkthrough video" width="720">
+  </a>
+  <br><sub>▶ Watch the walkthrough before you install</sub>
+</p>
 
 ### Installation
 

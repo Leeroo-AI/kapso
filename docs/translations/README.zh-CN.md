@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">了解更多</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">观看演示</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">加入 Discord</a> ·
   <a href="https://leeroo.com">官网</a>
 </p>
@@ -80,6 +81,13 @@ Kapso 是一个开源引擎，它运行实验、部署最佳解决方案，并�
 | [**领域适配**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | harness 是 Kapso 的领域包：某一领域（如预测建模）的知识与工作流，使构建永远不必从零开始，也是经验教训库积累的地方。内置预测建模和竞技编程；用插件中的 `/kapso:harness` 或 CLI 中的 `kapso harness` 编写你自己的。 |
 
 ## 🚀 快速开始
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Kapso 演示视频" width="720">
+  </a>
+  <br><sub>▶ 安装前先看一遍演示</sub>
+</p>
 
 ### 安装
 

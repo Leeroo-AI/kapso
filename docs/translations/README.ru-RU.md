@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">Подробнее</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">Смотреть демо</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Присоединяйтесь к Discord</a> ·
   <a href="https://leeroo.com">Сайт</a>
 </p>
@@ -80,6 +81,13 @@ Kapso представляет собой движок с открытым ис�
 | [**Адаптация к предметной области**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | Harness является пакетом предметной области Kapso: знания и рабочие процессы какой-либо области, например предиктивного моделирования, чтобы сборка никогда не начиналась с нуля, и место, где накапливается банк уроков. В поставку входят предиктивное моделирование и спортивное программирование; напишите свой с помощью `/kapso:harness` в плагине или `kapso harness` в CLI. |
 
 ## 🚀 Быстрый старт
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Видеообзор Kapso" width="720">
+  </a>
+  <br><sub>▶ Посмотрите обзор перед установкой</sub>
+</p>
 
 ### Установка
 
