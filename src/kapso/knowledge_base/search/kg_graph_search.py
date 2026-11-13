@@ -62,6 +62,11 @@ from kapso.core.cli_inference import CliInference
 
 logger = logging.getLogger(__name__)
 
+# A graph read or write on a search without a Neo4j driver. A refused
+# connection raises in the constructor, so only close() and a missing
+# neo4j package leave the driver unset.
+NEO4J_NOT_CONNECTED = "Neo4j is not connected (closed, or neo4j not installed)"
+
 
 # =============================================================================
 # ID Normalization
@@ -635,15 +640,15 @@ class KGGraphSearch(KnowledgeSearch):
             logger.warning("neo4j package not installed. Graph features disabled.")
             return
             
-        try:
-            # The endpoint and user are config; the password is the one
-            # connection secret and comes from the environment.
-            password = os.getenv("NEO4J_PASSWORD", "password")
-            self._neo4j_driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, password))
-            logger.info(f"Connected to Neo4j at {self.neo4j_uri}")
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Neo4j: {e}")
+        # The endpoint and user are config; the password is the one
+        # connection secret and comes from the environment.
+        password = os.getenv("NEO4J_PASSWORD", "password")
+        self._neo4j_driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, password))
+        # Building the driver never connects; verifying it does, so a Neo4j
+        # that is down or refuses the credentials raises here, not on (or
+        # swallowed by) the first graph query.
+        self._neo4j_driver.verify_connectivity()
+        logger.info(f"Connected to Neo4j at {self.neo4j_uri}")
     
     def _initialize_weaviate(self) -> None:
         """Initialize Weaviate client."""
@@ -724,9 +729,8 @@ class KGGraphSearch(KnowledgeSearch):
         Creates edges based on outgoing_links.
         """
         if not self._neo4j_driver:
-            logger.warning("Neo4j not available. Skipping graph indexing.")
-            return
-        
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
+
         with self._neo4j_driver.session() as session:
             # Create indexes first
             self._create_neo4j_indexes(session)
@@ -1004,7 +1008,7 @@ class KGGraphSearch(KnowledgeSearch):
             results = self._rerank_results(query, results, filters.top_k)
         
         # Enrich with Neo4j connections if enabled
-        if self.include_connected_pages and self._neo4j_driver:
+        if self.include_connected_pages:
             for result in results:
                 connected = self._get_connected_pages(result.id)
                 result.metadata["connected_pages"] = connected
@@ -1262,8 +1266,8 @@ Only include pages that would actually help answer the query.
         Returns both outgoing and incoming connections.
         """
         if not self._neo4j_driver:
-            return []
-        
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
+
         connected = []
         
         try:
@@ -2104,10 +2108,11 @@ Only include pages that would actually help answer the query.
             if self._weaviate_client.collections.exists(collection_name):
                 self._weaviate_client.collections.delete(collection_name)
                 logger.info(f"Deleted Weaviate collection '{collection_name}'")
-        if self._neo4j_driver:
-            with self._neo4j_driver.session() as session:
-                session.run("MATCH (n:WikiPage {corpus: $corpus}) DETACH DELETE n", corpus=self.corpus)
-            logger.info(f"Cleared Neo4j WikiPage nodes of corpus {self.corpus}")
+        if not self._neo4j_driver:
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
+        with self._neo4j_driver.session() as session:
+            session.run("MATCH (n:WikiPage {corpus: $corpus}) DETACH DELETE n", corpus=self.corpus)
+        logger.info(f"Cleared Neo4j WikiPage nodes of corpus {self.corpus}")
         self._pages = []
     
     def close(self) -> None:
