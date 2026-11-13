@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">더 알아보기</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">데모 보기</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Discord 참여</a> ·
   <a href="https://leeroo.com">웹사이트</a>
 </p>
@@ -80,6 +81,13 @@ Kapso는 실험을 실행하고, 최선의 솔루션을 배포하며, 모든 실
 | [**도메인 적응**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | harness는 Kapso의 도메인 패키지입니다: 예측 모델링과 같은 영역의 지식과 워크플로를 담아 빌드가 결코 맨땅에서 시작하지 않게 하며, 교훈 뱅크가 축적되는 곳입니다. 예측 모델링과 경쟁 프로그래밍이 기본 제공되며, 플러그인에서는 `/kapso:harness`로, CLI에서는 `kapso harness`로 직접 작성하세요. |
 
 ## 🚀 빠른 시작
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Kapso 워크스루 영상" width="720">
+  </a>
+  <br><sub>▶ 설치하기 전에 워크스루를 확인하세요</sub>
+</p>
 
 ### 설치
 

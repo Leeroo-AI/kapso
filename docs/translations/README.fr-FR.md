@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">En savoir plus</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">Voir la démo</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Rejoindre Discord</a> ·
   <a href="https://leeroo.com">Site web</a>
 </p>
@@ -80,6 +81,13 @@ Avec le temps, le harness de domaine porte une banque de leçons : les bonnes pr
 | [**Adaptation au domaine**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | Un harness est le paquet de domaine de Kapso : les connaissances et les flux de travail d'un domaine tel que la modélisation prédictive, pour qu'un build ne parte jamais de zéro, et l'endroit où la banque de leçons s'accumule. La modélisation prédictive et la programmation compétitive sont fournies ; écrivez le vôtre avec `/kapso:harness` dans le plugin ou `kapso harness` dans la CLI. |
 
 ## 🚀 Démarrage rapide
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Vidéo de présentation de Kapso" width="720">
+  </a>
+  <br><sub>▶ Regardez la présentation avant d'installer</sub>
+</p>
 
 ### Installation
 

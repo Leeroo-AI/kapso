@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">और जानें</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">डेमो देखें</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Discord से जुड़ें</a> ·
   <a href="https://leeroo.com">वेबसाइट</a>
 </p>
@@ -80,6 +81,13 @@ Kapso एक ओपन-सोर्स इंजन है जो प्रय�
 | [**डोमेन अनुकूलन**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | एक harness Kapso का डोमेन पैकेज है: किसी क्षेत्र, जैसे भविष्यसूचक मॉडलिंग, का ज्ञान और वर्कफ़्लो, ताकि कोई build कभी शून्य से शुरू न हो, और जहाँ सबकों का बैंक जमा होता है। भविष्यसूचक मॉडलिंग और प्रतिस्पर्धी प्रोग्रामिंग साथ आते हैं; अपना harness प्लगइन में `/kapso:harness` या CLI में `kapso harness` से लिखें। |
 
 ## 🚀 त्वरित शुरुआत
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Kapso वॉकथ्रू वीडियो" width="720">
+  </a>
+  <br><sub>▶ इंस्टॉल करने से पहले वॉकथ्रू देखें</sub>
+</p>
 
 ### इंस्टॉलेशन
 

@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">詳しく見る</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">デモを見る</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Discordに参加</a> ·
   <a href="https://leeroo.com">ウェブサイト</a>
 </p>
@@ -80,6 +81,13 @@ Kapsoは、実験を実行し、最良のソリューションをデプロイし
 | [**ドメイン適応**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | harnessはKapsoのドメインパッケージです。予測モデリングのような領域の知識とワークフローを収めているため、ビルドがゼロから始まることはなく、レッスンバンクが蓄積される場所でもあります。予測モデリングと競技プログラミングが同梱されています。自分のharnessは、プラグインの`/kapso:harness`またはCLIの`kapso harness`で書けます。 |
 
 ## 🚀 クイックスタート
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Kapso ウォークスルー動画" width="720">
+  </a>
+  <br><sub>▶ インストールの前にウォークスルーをご覧ください</sub>
+</p>
 
 ### インストール
 

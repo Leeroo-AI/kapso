@@ -16,6 +16,7 @@
 
 <p align="center">
   <a href="https://docs.leeroo.com/docs">Mehr erfahren</a> ·
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">Demo ansehen</a> ·
   <a href="https://discord.gg/hqVbPNNEZM">Discord beitreten</a> ·
   <a href="https://leeroo.com">Website</a>
 </p>
@@ -80,6 +81,13 @@ Mit der Zeit trägt das Domänen-Harness eine Lektionsbank: die experimentell er
 | [**Domänenanpassung**](https://docs.leeroo.com/docs/harnesses) | `kapso harness` | Ein Harness ist Kapsos Domänenpaket: das Wissen und die Arbeitsabläufe eines Gebiets wie der prädiktiven Modellierung, damit ein Build nie von vorn anfängt, und der Ort, an dem sich die Lektionsbank ansammelt. Prädiktive Modellierung und Wettbewerbsprogrammierung sind enthalten; schreibe deins mit `/kapso:harness` im Plugin oder `kapso harness` in der CLI. |
 
 ## 🚀 Schnellstart
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=W4FHlza1fRs">
+    <img src="https://i.ytimg.com/vi/W4FHlza1fRs/maxresdefault.jpg" alt="Kapso-Walkthrough-Video" width="720">
+  </a>
+  <br><sub>▶ Sieh dir den Walkthrough an, bevor du installierst</sub>
+</p>
 
 ### Installation
 
