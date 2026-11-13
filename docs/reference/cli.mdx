@@ -417,6 +417,7 @@ What a paused campaign is waiting on you for, the reply that resumes it, and the
 
 | Flag | What it does | Default |
 |------|--------------|---------|
+| `--json` | With the listing only: print what is waiting as data instead of text, a list with one entry per campaign, `{campaign, goal, waiting, awaiting_resume, notes}`. `waiting` holds the open requests as the status file carries them (`id`, `node`, `key`, `for`, `hit`, `tried`, `fix`, `next_steps`, `previous_reply`, `requested_at`), `awaiting_resume` the same plus `reply`, `notes` each note's `id`, `written_at` and `text`. A named campaign is listed even when nothing waits; with none named, only the campaigns that wait are. `reply` and `note` refuse it | off |
 | `--yes` | Store a reply or a note shaped like a credential anyway. Put it at the end of the line | off |
 | `--detach` | Check the reply here, then resume the campaign in a session of its own and return at once with the log and the `watch` command | off |
 | `--log` | Where a detached resume's output goes | `<campaign>.log`, beside the campaign directory |
@@ -425,6 +426,7 @@ What a paused campaign is waiting on you for, the reply that resumes it, and the
 ```bash
 kapso inbox
 kapso inbox ./campaign
+kapso inbox --json
 kapso inbox reply 1 "added the key"
 kapso inbox reply ./campaign 1
 kapso inbox reply 1 "added the key" --detach

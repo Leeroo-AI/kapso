@@ -3,13 +3,15 @@
 tell a campaign that it did not ask for."""
 
 import argparse
+import json
 import os
 import re
 import shlex
 import sys
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from kapso.kapso import Kapso, DEFAULT_CONFIG_PATH
 from kapso.core.config import load_config
@@ -24,6 +26,7 @@ from kapso.execution.inbox import (
     render_awaiting_resume,
     render_notes,
     render_requests,
+    request_payload,
 )
 from kapso.execution.run_checkpoint import RunCheckpointStore
 from kapso.cli.common import _default_log, _detach, _inside, _print_build_summary, build_handoff
@@ -146,12 +149,33 @@ def _render_waiting(campaign: Path) -> str:
     ])
 
 
+def _campaign_inbox_data(campaign: Path) -> Dict[str, Any]:
+    """What `kapso inbox` shows for one campaign, as data."""
+    ideas = Kapso.inbox_ideas(str(campaign))
+    return {
+        "campaign": str(campaign),
+        "goal": _campaign_goal(campaign),
+        "waiting": [
+            request_payload(request, ideas.get(request.node, ""))
+            for request in Kapso.inbox(str(campaign))
+        ],
+        "awaiting_resume": [
+            {**request_payload(request, ideas.get(request.node, "")), "reply": request.reply}
+            for request in Kapso.awaiting_resume(str(campaign))
+        ],
+        "notes": [asdict(note) for note in read_notes(notes_path(campaign))],
+    }
+
+
 def cmd_inbox(args) -> None:
     """`kapso inbox [CAMPAIGN]` — what is waiting on you, and the notes
     you left; `kapso inbox reply [CAMPAIGN] [ID] [NOTE]` — answer it, and
     the campaign resumes; `kapso inbox note [CAMPAIGN] TEXT` — tell the
     campaign something it did not ask for."""
     words = list(args.words)
+    if args.json and words and words[0] in ("reply", "note"):
+        print(f"Error: --json goes with the listing; kapso inbox {words[0]} prints no data", file=sys.stderr)
+        sys.exit(1)
     if words and words[0] == "reply":
         cmd_inbox_reply(words[1:], yes=args.yes, detach=args.detach, log=args.log)
         return
@@ -163,7 +187,7 @@ def cmd_inbox(args) -> None:
         sys.exit(1)
     campaign = _inbox_campaign(words[0] if words else None)
     if campaign is not None:
-        print(_render_campaign_inbox(campaign))
+        print(json.dumps([_campaign_inbox_data(campaign)], indent=1) if args.json else _render_campaign_inbox(campaign))
         return
     registry = load_config(args.config)["inbox"]["registry"]
     waiting = [
@@ -171,6 +195,9 @@ def cmd_inbox(args) -> None:
         for entry in list_registered_campaigns(registry)
         if Kapso.inbox(entry["path"]) or Kapso.awaiting_resume(entry["path"])
     ]
+    if args.json:
+        print(json.dumps([_campaign_inbox_data(campaign) for campaign in waiting], indent=1))
+        return
     if not waiting:
         print("Nothing waiting on you.")
         return
@@ -321,6 +348,7 @@ def add_parser(subparsers):
 Examples:
   kapso inbox                              # every campaign waiting on you (this one, inside a campaign)
   kapso inbox ./campaign                   # this campaign's requests, and the notes you left for it
+  kapso inbox --json                       # the same as data, for a script or a notifier
   kapso inbox reply 1 "added the key"      # answer request 1 here; the campaign resumes
   kapso inbox reply "added the key"        # the id may be left out when one request is open
   kapso inbox reply ./campaign 1           # answer from elsewhere; an empty note means done
@@ -333,6 +361,10 @@ Examples:
     inbox_parser.add_argument(
         "words", nargs="*",
         help="[CAMPAIGN]  or  reply [CAMPAIGN] [ID] [NOTE]  or  note [CAMPAIGN] TEXT",
+    )
+    inbox_parser.add_argument(
+        "--json", action="store_true",
+        help="Print what is waiting, and the notes, as JSON: one entry per campaign (the listing only)",
     )
     inbox_parser.add_argument(
         "--yes", action="store_true",
