@@ -2,8 +2,10 @@
 build loads (docs/research/harness-design.md, onboarding.md section 1)."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
+from typing import Any, Dict, List
 
 from kapso.core.config import load_config
 from kapso.harness import (
@@ -28,7 +30,7 @@ def cmd_harness(args) -> None:
         _new(args.name, Path(args.dir).expanduser() if args.dir else Path.cwd())
         return
     if command == "list":
-        _list(store, settings)
+        _list(store, settings, as_json=args.json)
         return
     reference = parse_reference(args.ref)
     if command == "remove":
@@ -84,33 +86,59 @@ def _new(name: str, parent: Path) -> None:
     print(f"next: edit the two files, then  kapso harness check {_shown(root)}")
 
 
-def _list(store: HarnessStore, settings) -> None:
-    bundled = sorted(p for p in BUNDLED_ROOT.iterdir() if (p / MANIFEST_FILE).is_file()) if BUNDLED_ROOT.is_dir() else []
-    fetched = store.entries()
-    if not bundled and not fetched:
+def _list(store: HarnessStore, settings, *, as_json: bool) -> None:
+    rows = _listing(store, settings)
+    if as_json:
+        print(json.dumps(rows, indent=1))
+        return
+    if not rows:
         print("no harnesses yet: write one with `kapso harness new <name>`, or fetch one with "
               "`kapso harness add <git reference>`; a local directory loads by path, no add needed")
         return
-    lines = int(settings["page_warning_lines"])
+    bundled = [row for row in rows if row["source"] == "bundled"]
+    fetched = [row for row in rows if row["source"] == "fetched"]
     if bundled:
         print("bundled")
-        for path in bundled:
-            manifest = read_manifest(path)
-            print(f"  {manifest.name:<24} {manifest.version:<10} {_needs(path, lines)}")
+        for row in bundled:
+            print(f"  {row['name']:<24} {row['version']:<10} {_needs(row)}")
     else:
         print("bundled    (none ship in this release)")
     if fetched:
         print("fetched")
-        for entry in fetched:
-            print(f"  {entry.name:<24} {entry.version:<10} {entry.reference}  {_needs(entry.path, lines)}")
+        for row in fetched:
+            print(f"  {row['name']:<24} {row['version']:<10} {row['reference']}  {_needs(row)}")
 
 
-def _needs(path: Path, page_warning_lines: int) -> str:
-    report = check_harness(path, page_warning_lines=page_warning_lines)
-    if not report.ok():
-        return f"fails check ({len(report.failures)} failure(s))"
-    if report.missing:
-        return "needs " + ", ".join(row.label for row in report.missing)
+def _listing(store: HarnessStore, settings) -> List[Dict[str, Any]]:
+    """Every bundled and fetched harness with the state its check gives."""
+    lines = int(settings["page_warning_lines"])
+    bundled = sorted(p for p in BUNDLED_ROOT.iterdir() if (p / MANIFEST_FILE).is_file()) if BUNDLED_ROOT.is_dir() else []
+    harnesses = []
+    for path in bundled:
+        manifest = read_manifest(path)
+        harnesses.append((manifest.name, manifest.version, "bundled", None, path))
+    harnesses += [(entry.name, entry.version, "fetched", entry.reference, entry.path) for entry in store.entries()]
+    rows = []
+    for name, version, source, reference, path in harnesses:
+        report = check_harness(path, page_warning_lines=lines)
+        rows.append({
+            "name": name,
+            "version": version,
+            "source": source,
+            "reference": reference,
+            "path": str(path),
+            "state": "fails" if not report.ok() else "needs" if report.missing else "ready",
+            "needs": [] if not report.ok() else [row.label for row in report.missing],
+            "failures": len(report.failures),
+        })
+    return rows
+
+
+def _needs(row: Dict[str, Any]) -> str:
+    if row["state"] == "fails":
+        return f"fails check ({row['failures']} failure(s))"
+    if row["state"] == "needs":
+        return "needs " + ", ".join(row["needs"])
     return "ready"
 
 
@@ -159,6 +187,7 @@ Examples:
         command.add_argument("ref", type=str, help="A bundled name, a directory, or a git reference")
         command.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     listing = sub.add_parser("list", help="The bundled and fetched harnesses, with what each needs")
+    listing.add_argument("--json", action="store_true", help="Print the list as JSON: name, version, source, reference, path, state, needs, failures")
     listing.add_argument("--config", type=str, default=None, help="Config path (default: packaged config.yaml)")
     export = sub.add_parser(
         "export",

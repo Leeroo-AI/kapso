@@ -6,6 +6,7 @@ fetches and never fails on what the machine lacks; `remove` refuses a
 path; `--harness` on `kapso build` and `kapso deploy` are accounted for."""
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -52,7 +53,7 @@ def test_every_subcommand_and_flag_is_accounted_for():
         "add": {"ref", "config"},
         "update": {"ref", "config"},
         "remove": {"ref", "config"},
-        "list": {"config"},
+        "list": {"json", "config"},
         "export": {"ref", "host", "to", "config"},
     }
 
@@ -115,6 +116,62 @@ def test_list_has_an_empty_state_and_the_two_sections(settings, monkeypatch, cap
     out = capsys.readouterr().out
     assert out.startswith("bundled\n  trading                  0.1.0")
     assert "fetched" not in out
+
+
+def test_list_json_gives_every_harness_its_state(settings, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(harness_cli, "BUNDLED_ROOT", tmp_path / "no-bundled")
+    _run(monkeypatch, "list", "--json")
+    assert json.loads(capsys.readouterr().out) == []
+
+    bundled = tmp_path / "bundled"
+    _run(monkeypatch, "new", "lending", "--dir", str(bundled))
+    shutil.copytree(TRADING, bundled / "trading")
+    shutil.copytree(TRADING, bundled / "broken")
+    shutil.rmtree(bundled / "broken" / "instructions")
+    for name in ("trading", "broken"):
+        manifest = bundled / name / "harness.yaml"
+        manifest.write_text(manifest.read_text().replace(
+            "environment:\n  python: requirements.txt\n", "environment:\n  python: requirements.txt\n  commands: [kapso-test-missing-tool]\n",
+        ))
+    monkeypatch.setattr(harness_cli, "BUNDLED_ROOT", bundled)
+    capsys.readouterr()
+
+    _run(monkeypatch, "list", "--json")
+    rows = {row["path"].rsplit("/", 1)[1]: row for row in json.loads(capsys.readouterr().out)}
+
+    assert rows["lending"] == {
+        "name": "lending", "version": rows["lending"]["version"], "source": "bundled", "reference": None,
+        "path": str(bundled / "lending"), "state": "ready", "needs": [], "failures": 0,
+    }
+    assert (rows["trading"]["name"], rows["trading"]["state"]) == ("trading", "needs")
+    assert "kapso-test-missing-tool (command)" in rows["trading"]["needs"]
+    assert (rows["broken"]["state"], rows["broken"]["needs"], rows["broken"]["failures"]) == ("fails", [], 1)
+
+    _run(monkeypatch, "list")
+    text = capsys.readouterr().out
+    assert "0.1.0      fails check (1 failure(s))\n" in text
+    assert "0.1.0      ready\n" in text
+    assert "0.1.0      needs kapso-test-missing-tool (command)" in text
+
+
+def test_list_json_marks_a_fetched_harness_with_its_reference(settings, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(harness_cli, "BUNDLED_ROOT", tmp_path / "no-bundled")
+    work = tmp_path / "work"
+    work.mkdir()
+    git(work, "init", "-q", "-b", "main")
+    shutil.copytree(TRADING, work / "trading")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "trading")
+    bare = tmp_path / "acme-harnesses.git"
+    git(tmp_path, "clone", "-q", "--bare", str(work), str(bare))
+    _run(monkeypatch, "add", f"git+file://{bare}@main#trading")
+    capsys.readouterr()
+
+    _run(monkeypatch, "list", "--json")
+
+    [row] = json.loads(capsys.readouterr().out)
+    assert (row["name"], row["source"]) == ("trading", "fetched")
+    assert row["reference"].startswith(f"{bare.as_uri()}@") and row["reference"].endswith("#trading")
 
 
 def test_add_fetches_checks_and_never_fails_on_needs(settings, monkeypatch, capsys, tmp_path):
