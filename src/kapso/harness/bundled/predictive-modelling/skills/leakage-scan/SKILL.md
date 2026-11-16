@@ -1,6 +1,6 @@
 ---
 name: leakage-scan
-description: "Static scan for data-access leaks on a prediction task: the shape-neutral rules (a label read from test data or a sample submission, a transform fitted on train and test together, a fit on validation labels) and, on a relational benchmark database, the library's own traps (reads outside the sanitized copy, the test table unmasked, a cache location overridden, a reach outside a per-tick snapshot, a load that truncates under per-row seed time). Use on the attempt's diff before launching the evaluation, and over the whole candidate in verification."
+description: "Static scan for data-access leaks on a prediction task: the shape-neutral rules (a label read from test data or a sample submission, a transform fitted on train and test together, a fit on validation labels, a split without groups) and, on a relational benchmark database, the library's own traps (reads outside the sanitized copy, the test table unmasked, a cache location overridden, a reach outside a per-tick snapshot, a load that truncates under per-row seed time). Use on the attempt's diff before launching the evaluation, and over the whole candidate in verification."
 ---
 # Leakage scan
 
@@ -26,7 +26,11 @@ together. Shape-neutral advisories: a fit that names validation labels; a
 concatenation of training and validation rows (legal for the
 test-predicting model, illegal for the model that produces validation
 predictions, so each site is traced: say in the attempt notes which chain
-it belongs to).
+it belongs to); a split without groups (legal only when the rows repeat
+no unit: name the repeated unit in the attempt notes, or say none
+repeats, and fold per the cv-protocol skill, by the unit when the test
+holds unseen units and by time when it holds later observations of known
+ones).
 
 On a relational benchmark database the library's traps are violations: the
 test table read with its input masks off; a read of the columns the

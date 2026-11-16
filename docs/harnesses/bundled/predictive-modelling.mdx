@@ -21,7 +21,7 @@ kapso harness check predictive-modelling
 
 ```text
 check ok (12 skills, 1 agents, 0 servers, 3 hooks)
-name     predictive-modelling 0.3.3
+name     predictive-modelling 0.3.4
 ```
 
 Two pages reach every session: `instructions/guardrails.md`, the standing rules (the task statement before anything else, the data and its shape, the protocol the evaluator fixes), and the module's own page, one each for setup, ideation, implementation, verification, feedback and learning. The skills, the delegate and the hooks are defined once and listed per module:
@@ -43,7 +43,7 @@ Two pages reach every session: `instructions/guardrails.md`, the standing rules 
 | `eda-discipline` | What a run prints so the next session can read it: an exploration block at the start, an error-analysis block at the end, timings per stage, a debug mode over a sample |
 | `ensembling` | How a final ensemble is built and judged: members chosen for decorrelation, the blend that fits the metric, measured against the plain combination |
 | `hf-model-fetch` | How setup finds, screens and pins the pretrained models and companion datasets a task allows from the hub |
-| `leakage-scan` | A static scan for data-access leaks: a label read from test data, a transform fitted on train and test together, a fit on validation labels, and the relational rules on top |
+| `leakage-scan` | A static scan for data-access leaks: a label read from test data, a transform fitted on train and test together, a fit on validation labels, a split without groups, and the relational rules on top |
 | `living-documents` | The two append-only files a campaign keeps in its shared artifact directory, the table information and the feature history |
 | `relational-feature-practices` | Practices for relational and tabular prediction that measured positive when ablated, each stated as a thing to measure on the task at hand |
 | `relbench-api` | How to read a relational benchmark database and its task tables through the library from a sanitized copy |

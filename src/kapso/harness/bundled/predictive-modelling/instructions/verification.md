@@ -10,8 +10,8 @@ valid or void, with evidence; an unresolved check is named, never passed.
    the task's data, the test table unmasked or its removed columns read, a
    cache location overridden, a reach outside a per-tick snapshot, a load
    that truncates under per-row seed time, and the advisory sites where
-   training and validation rows mix. On any other data shape the script
-   says nothing about the split: step 2 is the gate.
+   training and validation rows mix or a split names no groups. On any
+   other data shape step 2 is the gate.
 2. Ask the leakage-auditor with the diff, the inherited code and the
    evaluation output. It establishes the data flow itself: features from
    rows after the row's own time, folds that split a repeated unit, labels
