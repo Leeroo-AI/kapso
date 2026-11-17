@@ -2103,13 +2103,15 @@ Only include pages that would actually help answer the query.
         collection (when the store holds it) and its Neo4j nodes. A store
         that refuses raises; a removal never reports a namespace cleared
         that is still there."""
+        # Checked before either store is touched, so a missing driver
+        # never leaves the Weaviate half deleted.
+        if not self._neo4j_driver:
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
         if self._weaviate_client:
             collection_name = self.weaviate_collection
             if self._weaviate_client.collections.exists(collection_name):
                 self._weaviate_client.collections.delete(collection_name)
                 logger.info(f"Deleted Weaviate collection '{collection_name}'")
-        if not self._neo4j_driver:
-            raise RuntimeError(NEO4J_NOT_CONNECTED)
         with self._neo4j_driver.session() as session:
             session.run("MATCH (n:WikiPage {corpus: $corpus}) DETACH DELETE n", corpus=self.corpus)
         logger.info(f"Cleared Neo4j WikiPage nodes of corpus {self.corpus}")
