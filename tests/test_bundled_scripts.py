@@ -88,14 +88,19 @@ def test_a_split_without_groups_is_advisory_and_grouped_or_time_splits_are_not()
         "folds = RepeatedStratifiedKFold(n_splits=5, n_repeats=3)",
         "splitter = ShuffleSplit(test_size=0.2)",
         "X_tr, X_va, y_tr, y_va = train_test_split(X, y, test_size=0.2)",
+        "scores = cross_val_score(model, X, y, cv=5)",
+        "search = GridSearchCV(model, grid, cv = 3)",
+        "history = lgb.cv(params, train_set, nfold=5)",
         "from sklearn.model_selection import KFold, GroupKFold, train_test_split",
         "folds = GroupKFold(n_splits=5)",
         "folds = StratifiedGroupKFold(n_splits=5)",
         "splitter = GroupShuffleSplit(test_size=0.2)",
         "folds = TimeSeriesSplit(n_splits=5)",
+        "scores = cross_val_score(model, X, y, groups=g, cv=GroupKFold(5))",
+        "n_cv=5",
     ))
     assert code == 0
-    assert [(f["rule"], f["line"]) for f in findings] == [("ungrouped-split", n) for n in range(1, 6)]
+    assert [(f["rule"], f["line"]) for f in findings] == [("ungrouped-split", n) for n in range(1, 9)]
     assert all(f["advisory"] and f["concern"].startswith("verify: ") for f in findings)
 
 

@@ -51,7 +51,8 @@ RULES = [
      r"\.fit\([^\n]{0,60}(val_|_val\b|valid_|_valid\b)(y|label|labels|target|targets)?",
      "a fit that names validation data: confirm it is the test-predicting chain", True),
     ("ungrouped-split",
-     r"\b(KFold|StratifiedKFold|RepeatedKFold|RepeatedStratifiedKFold|ShuffleSplit|StratifiedShuffleSplit|train_test_split)\s*\(",
+     r"\b(KFold|StratifiedKFold|RepeatedKFold|RepeatedStratifiedKFold|ShuffleSplit|StratifiedShuffleSplit|train_test_split)\s*\("
+     r"|\bcv\s*=\s*\d|\bnfold\s*=",
      "a split without groups: confirm the rows repeat no unit, or fold by the repeated unit or by time (the cv-protocol skill)",
      True),
     # The relational benchmark library's traps.
