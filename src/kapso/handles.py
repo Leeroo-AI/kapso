@@ -479,6 +479,7 @@ class _BriefParser:
                 f"Budget needs name=value tokens, from {', '.join(_BUDGET_FIELDS)}",
             )
         values: Dict[str, Any] = {}
+        lines: Dict[str, int] = {}
         for number, token in self.budget_tokens:
             name, equals, text = token.partition("=")
             if not equals or name not in _BUDGET_FIELDS or not text:
@@ -499,6 +500,22 @@ class _BriefParser:
                 if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", text):
                     raise self.fail(number, f"Budget {name} must be a number, got {text!r}")
                 values[name] = float(text)
+            # The grammar takes no sign, so zero (and a number too long for
+            # a float) is what it reads that the engine cannot spend.
+            if values[name] == 0 or not math.isfinite(values[name]):
+                kind = "integer" if name == "experiments" else "finite number"
+                raise self.fail(
+                    number,
+                    f"Budget {name} must be a positive {kind}, got {text!r}",
+                )
+            lines[name] = number
+        reserve, minutes = values.get("reserve_minutes"), values.get("minutes")
+        if reserve is not None and minutes is not None and reserve >= minutes:
+            raise self.fail(
+                lines["reserve_minutes"],
+                f"Budget reserve_minutes ({_number(reserve)}) must be smaller "
+                f"than minutes ({_number(minutes)})",
+            )
         return Budget(**values)
 
 
