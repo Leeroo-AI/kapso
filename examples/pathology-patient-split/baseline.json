@@ -8,17 +8,17 @@
   ],
   "patient_bootstrap_se": 0.0211,
   "evaluator_seconds": [
-    5.9,
-    6.2,
-    6.9
+    6.3,
+    4.5,
+    5.5
   ],
-  "platform": "Windows AMD64",
-  "python": "3.13.14",
+  "platform": "Linux x86_64",
+  "python": "3.12.16",
   "sklearn": "1.9.1",
   "data_sha256": {
     "data/train.csv": "abec92fc2de625a135db50b84013c29bd5e7d0367878725dda67d1c08bfb1788",
     "data/holdout.csv": "b42f3315dc3f00fa047ed8535e16fadb52c97fc874d450e1c808453e4e589366",
     "private/holdout_labels.csv": "8cbdc50b376dfd71198d80d0d4b6aec74a7cf471caec35828f87be355c217975"
   },
-  "recorded_at": "2026-11-17T00:11:33Z"
+  "recorded_at": "2026-11-17T20:23:54Z"
 }

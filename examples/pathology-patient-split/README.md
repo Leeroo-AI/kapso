@@ -1,19 +1,22 @@
 # Pathology tiles, scored on new patients
 
+The data is synthetic. `generate.py` makes every row from a seed; no row
+comes from a real patient or slide, and the example makes no clinical
+claim.
+
 A build of about three quarters of an hour on the predictive-modelling
 harness that raises a growth-pattern classifier's macro ROC AUC on new
 patients from the shipped logistic regression's 0.842 toward the brief's
-0.88 target. Every tile belongs to a patient, and the holdout patients are
-new, so the build is only as good as its validation: one that shuffles
-tiles puts each patient on both sides of the split and rewards recognising
-the patient instead of reading the tile.
+0.88 target. Every tile belongs to a patient and the holdout patients are
+new. A validation that shuffles tiles puts each patient on both sides of
+the split, so on this data it scores recognising the patient as well as
+reading the tile, and reads higher than the score on new patients.
 
-The data is synthetic: each row is a tile, a small patch of one patient's
-digitised slide, described by 32 numbers standing in for a pathology
-foundation model's features and labelled with one of four lung
-adenocarcinoma growth patterns (lepidic, acinar, papillary, solid), the
-tissue architectures the label names. The names give the task a shape,
-not a clinical meaning.
+Each row is a tile, standing for a small patch of one patient's slide,
+described by 32 numbers in place of a pathology foundation model's
+features and labelled with one of four growth-pattern names (lepidic,
+acinar, papillary, solid). The names give the task a shape, not a
+clinical meaning.
 
 ## What you get
 
@@ -58,7 +61,8 @@ harness, so the command needs no `--harness`.
   tile beside its patient's other tiles scored 0.895 under the evaluator
   (0.893 when validated by patient, 0.995 when validated on shuffled
   tiles), measured on the generated data when the example was built,
-  2026-11-17, so 0.88 is reachable and above the baseline's noise. The
+  2026-11-17, so 0.88 sits between the baseline and a measured model and
+  above the baseline's noise. The
   brief allows it: a tile may be read beside the other tiles of its own
   patient, the way a slide is scored whole.
 - The budget: the brief's `Budget minutes=45 experiments=3`, or

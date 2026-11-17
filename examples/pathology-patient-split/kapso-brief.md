@@ -2,6 +2,8 @@ Objective    Raise the growth-pattern classifier's macro ROC AUC on new
              patients above 0.88 without changing the prediction contract:
              predict.py keeps writing tile_id and one probability per
              pattern (lepidic, acinar, papillary, solid) for every holdout tile.
+             The data is synthetic: generated from a seed, from no real
+             patient, and the pattern names carry no clinical meaning.
 Measured by  kapso_evaluation/evaluate.py, macro one-vs-rest ROC AUC over
              the four patterns on the holdout tiles
 Baseline     0.842 (the shipped logistic regression, patient-bootstrap SE 0.021)
