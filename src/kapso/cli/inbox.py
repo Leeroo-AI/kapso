@@ -187,21 +187,21 @@ def cmd_inbox(args) -> None:
         sys.exit(1)
     campaign = _inbox_campaign(words[0] if words else None)
     if campaign is not None:
-        print(json.dumps([_campaign_inbox_data(campaign)], indent=1) if args.json else _render_campaign_inbox(campaign))
-        return
-    registry = load_config(args.config)["inbox"]["registry"]
-    waiting = [
-        Path(entry["path"])
-        for entry in list_registered_campaigns(registry)
-        if Kapso.inbox(entry["path"]) or Kapso.awaiting_resume(entry["path"])
-    ]
+        campaigns = [campaign]
+    else:
+        registry = load_config(args.config)["inbox"]["registry"]
+        campaigns = [
+            Path(entry["path"])
+            for entry in list_registered_campaigns(registry)
+            if Kapso.inbox(entry["path"]) or Kapso.awaiting_resume(entry["path"])
+        ]
     if args.json:
-        print(json.dumps([_campaign_inbox_data(campaign) for campaign in waiting], indent=1))
+        print(json.dumps([_campaign_inbox_data(campaign) for campaign in campaigns], indent=1))
         return
-    if not waiting:
+    if not campaigns:
         print("Nothing waiting on you.")
         return
-    print("\n\n".join(_render_campaign_inbox(campaign) for campaign in waiting))
+    print("\n\n".join(_render_campaign_inbox(campaign) for campaign in campaigns))
 
 
 def cmd_inbox_reply(
