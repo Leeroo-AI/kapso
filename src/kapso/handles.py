@@ -356,6 +356,7 @@ class _BriefParser:
         self.first_line: Dict[str, Optional[str]] = {}
         self.continuations: Dict[str, List[str]] = {}
         self.items: Dict[str, List[List[str]]] = {}
+        self.item_indent: Dict[str, int] = {}
         self.inline_items: Dict[str, List[str]] = {}
         self.budget_tokens: List[tuple] = []
         self.pending_blanks = 0
@@ -420,14 +421,20 @@ class _BriefParser:
 
     def _list_line(self, number: int, line: str, stripped: str) -> None:
         title = _FIELD_TITLES[self.current]
-        if stripped == "-":
+        indent = len(line) - len(line.lstrip())
+        # A `- ` line indented deeper than the field's first item continues
+        # the item above: a rule may hold a list of its own.
+        items = self.items[self.current]
+        nested = bool(items) and indent > self.item_indent[self.current]
+        if stripped == "-" and not nested:
             raise self.fail(number, f"empty item under {title}")
-        if stripped.startswith("- "):
+        if stripped.startswith("- ") and not nested:
             if self.current in self.inline_items:
                 raise self.fail(
                     number,
                     f"{title} is either one comma-separated line or `- ` items, not both",
                 )
+            self.item_indent.setdefault(self.current, indent)
             self.items[self.current].append([stripped[2:].strip()])
             return
         if not self.items[self.current]:
