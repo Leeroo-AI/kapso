@@ -13,6 +13,7 @@ writes nothing when the text is empty, shaped like a credential without
 lists the notes below whatever waits, and still says when nothing does.
 """
 
+import json
 import shlex
 import sys
 from pathlib import Path
@@ -472,3 +473,65 @@ def test_a_wrong_directory_never_sends_the_note_to_the_campaign_you_stand_in(tmp
     assert stop.value.code == 1
     assert "../campaign-b is not a directory" in capsys.readouterr().err
     assert not notes_path(workspace).exists()
+
+
+def test_json_lists_what_waits_the_requests_and_the_notes(tmp_path, monkeypatch, capsys):
+    workspace = _paused_campaign(tmp_path, requests=2)
+    _run(monkeypatch, "inbox", "note", str(workspace), "skip ticket 14")
+    capsys.readouterr()
+    monkeypatch.chdir(tmp_path)
+
+    _run(monkeypatch, "inbox", str(workspace), "--json")
+
+    [entry] = json.loads(capsys.readouterr().out)
+    assert (entry["campaign"], entry["goal"]) == (str(workspace.resolve()), "Improve support")
+    assert [(request["id"], request["key"]) for request in entry["waiting"]] == [
+        (1, "env:OPENAI_API_KEY"), (2, "data/x.csv"),
+    ]
+    first = entry["waiting"][0]
+    assert (first["node"], first["for"], first["hit"], first["fix"], first["previous_reply"]) == (
+        3, "re-rank with embeddings", "openai.AuthenticationError", "add OPENAI_API_KEY=sk-... to .env", None,
+    )
+    assert entry["awaiting_resume"] == []
+    assert [(note["id"], note["text"]) for note in entry["notes"]] == [(1, "skip ticket 14")]
+
+
+def test_json_lists_a_failed_resume_with_its_reply_and_a_quiet_campaign(tmp_path, monkeypatch, capsys):
+    failed = _failed_resume(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "inbox", str(failed), "--json")
+    [entry] = json.loads(capsys.readouterr().out)
+    assert entry["waiting"] == []
+    assert [(request["id"], request["reply"]) for request in entry["awaiting_resume"]] == [(1, "added the key")]
+
+    quiet = _quiet_campaign(tmp_path, "quiet")
+    _run(monkeypatch, "inbox", str(quiet), "--json")
+    [entry] = json.loads(capsys.readouterr().out)
+    assert (entry["waiting"], entry["awaiting_resume"], entry["notes"]) == ([], [], [])
+
+
+def test_json_without_a_campaign_lists_only_the_registered_ones_that_wait(tmp_path, monkeypatch, capsys):
+    registry = tmp_path / "registry.jsonl"
+    config = tmp_path / "config.yaml"
+    config.write_text(f"inbox:\n  registry: {registry}\n")
+    monkeypatch.chdir(tmp_path)
+    _run(monkeypatch, "inbox", "--json", "--config", str(config))
+    assert json.loads(capsys.readouterr().out) == []
+
+    quiet = _quiet_campaign(tmp_path)
+    register_campaign(registry, quiet, "Nothing asked")
+    waiting = _paused_campaign(tmp_path, "waiting")
+    register_campaign(registry, waiting, "Improve support")
+    _run(monkeypatch, "inbox", "--json", "--config", str(config))
+    assert [entry["campaign"] for entry in json.loads(capsys.readouterr().out)] == [str(waiting)]
+
+
+@pytest.mark.parametrize("verb", ["reply", "note"])
+def test_json_is_refused_for_the_verbs_that_print_no_data(tmp_path, monkeypatch, capsys, verb):
+    workspace = _paused_campaign(tmp_path)
+    monkeypatch.chdir(workspace)
+    with pytest.raises(SystemExit) as stop:
+        _run(monkeypatch, "inbox", verb, "text", "--json")
+    assert stop.value.code == 1
+    assert f"--json goes with the listing; kapso inbox {verb} prints no data" in capsys.readouterr().err
+    assert read_notes(notes_path(workspace)) == []
