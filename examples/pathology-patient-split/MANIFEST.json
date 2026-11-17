@@ -1,0 +1,38 @@
+{
+  "seed": 20261116,
+  "patients": {
+    "train": 120,
+    "holdout": 40
+  },
+  "tiles": {
+    "train": 9600,
+    "holdout": 3092
+  },
+  "features": 32,
+  "label": "pattern",
+  "patterns": [
+    "lepidic",
+    "acinar",
+    "papillary",
+    "solid"
+  ],
+  "pattern_share": {
+    "train": {
+      "lepidic": 0.2657,
+      "acinar": 0.2352,
+      "papillary": 0.2286,
+      "solid": 0.2704
+    },
+    "holdout": {
+      "lepidic": 0.3292,
+      "acinar": 0.2374,
+      "papillary": 0.1413,
+      "solid": 0.292
+    }
+  },
+  "sha256": {
+    "data/train.csv": "abec92fc2de625a135db50b84013c29bd5e7d0367878725dda67d1c08bfb1788",
+    "data/holdout.csv": "b42f3315dc3f00fa047ed8535e16fadb52c97fc874d450e1c808453e4e589366",
+    "private/holdout_labels.csv": "8cbdc50b376dfd71198d80d0d4b6aec74a7cf471caec35828f87be355c217975"
+  }
+}
