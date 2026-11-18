@@ -145,7 +145,8 @@ def test_list_json_gives_every_harness_its_state(settings, monkeypatch, capsys, 
     }
     assert (rows["trading"]["name"], rows["trading"]["state"]) == ("trading", "needs")
     assert "kapso-test-missing-tool (command)" in rows["trading"]["needs"]
-    assert (rows["broken"]["state"], rows["broken"]["needs"], rows["broken"]["failures"]) == ("fails", [], 1)
+    assert (rows["broken"]["state"], rows["broken"]["failures"]) == ("fails", 1)
+    assert "kapso-test-missing-tool (command)" in rows["broken"]["needs"]
 
     _run(monkeypatch, "list")
     text = capsys.readouterr().out

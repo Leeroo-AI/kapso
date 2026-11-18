@@ -128,7 +128,7 @@ def _listing(store: HarnessStore, settings) -> List[Dict[str, Any]]:
             "reference": reference,
             "path": str(path),
             "state": "fails" if not report.ok() else "needs" if report.missing else "ready",
-            "needs": [] if not report.ok() else [row.label for row in report.missing],
+            "needs": [row.label for row in report.missing],
             "failures": len(report.failures),
         })
     return rows
