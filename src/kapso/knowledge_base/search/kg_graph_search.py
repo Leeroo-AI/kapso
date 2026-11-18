@@ -120,6 +120,18 @@ def _weaviate_uuids_of_page(collection, page_id: str) -> List:
     ]
 
 
+def blend_rank_prior(
+    results: List[KGResultItem], priors: List[float], weight: float, top_k: int
+) -> List[KGResultItem]:
+    """Rank by (score + weight * prior) / (1 + weight), which stays in 0..1,
+    and keep the top_k. The prior is a page's standing independent of the
+    query (e.g. how widely used its source is): it settles close calls
+    between relevant pages, while a clearly better match keeps its place."""
+    for result, prior in zip(results, priors):
+        result.score = (result.score + weight * prior) / (1 + weight)
+    return sorted(results, key=lambda result: -result.score)[:top_k]
+
+
 def parse_wiki_directory(
     wiki_dir: Path,
     domain_file: str = "domain_tag.txt",
@@ -602,6 +614,10 @@ class KGGraphSearch(KnowledgeSearch):
         self.embedding_model = self.params.get("embedding_model")
         self.weaviate_collection = self.params.get("weaviate_collection")
         self.hybrid_alpha = float(self.params["hybrid_alpha"])
+        # A per-page prior (each object's `rank_prior`, 0 to 1) blended into
+        # the hybrid score over a pool of candidates; weight 0 turns it off.
+        self.rank_prior_weight = float(self.params["rank_prior_weight"])
+        self.rank_prior_pool = int(self.params["rank_prior_pool"])
         # The index's namespace in Neo4j (its id): every node and query of
         # this backend carries it, so two indexes holding a page of the
         # same id never share a node or an edge (the Weaviate side is the
@@ -1185,13 +1201,15 @@ Only include pages that would actually help answer the query.
             alpha=self.hybrid_alpha,
             query_properties=["description", "overview", "content"],
             fusion_type=wvc.query.HybridFusion.RELATIVE_SCORE,
-            limit=filters.top_k,
+            # A prior reorders a pool of candidates, so it needs more than top_k
+            limit=max(filters.top_k, self.rank_prior_pool) if self.rank_prior_weight else filters.top_k,
             filters=weaviate_filters,
             return_metadata=wvc.query.MetadataQuery(score=True),
         )
 
         # Convert to KGResultItem
         results = []
+        priors = []
         for obj in response.objects:
             props = obj.properties
 
@@ -1213,7 +1231,10 @@ Only include pages that would actually help answer the query.
                     "domains": props.get("domains", []),
                 },
             ))
+            priors.append(props.get("rank_prior") or 0.0)
 
+        if self.rank_prior_weight:
+            return blend_rank_prior(results, priors, self.rank_prior_weight, filters.top_k)
         return results
     
     def _build_weaviate_filters(self, filters: KGSearchFilters):

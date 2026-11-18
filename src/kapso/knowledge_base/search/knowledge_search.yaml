@@ -86,6 +86,12 @@ searches:
       # The hybrid query's weight on the vector side: 1 is vector only, 0 is
       # keyword (BM25) only. Presets inherit it.
       hybrid_alpha: 0.75
+      # A query-independent prior per page: an object's `rank_prior` (0 to 1,
+      # e.g. how widely used its source repository is; missing counts as 0)
+      # is blended in as (score + weight * prior) / (1 + weight) over the
+      # top rank_prior_pool candidates. Weight 0 turns it off.
+      rank_prior_weight: 0.0
+      rank_prior_pool: 20
       include_connected_pages: true
       use_llm_reranker: false
       # No embedding truncation -- full description text is sent to the embedding model.
