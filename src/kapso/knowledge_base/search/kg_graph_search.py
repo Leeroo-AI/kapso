@@ -62,6 +62,11 @@ from kapso.core.cli_inference import CliInference
 
 logger = logging.getLogger(__name__)
 
+# A graph read or write on a search without a Neo4j driver. A refused
+# connection raises in the constructor, so only close() and a missing
+# neo4j package leave the driver unset.
+NEO4J_NOT_CONNECTED = "Neo4j is not connected (closed, or neo4j not installed)"
+
 
 # =============================================================================
 # ID Normalization
@@ -113,6 +118,18 @@ def _weaviate_uuids_of_page(collection, page_id: str) -> List:
         candidate.uuid for candidate in candidates.objects
         if candidate.properties.get("page_id") == page_id
     ]
+
+
+def blend_rank_prior(
+    results: List[KGResultItem], priors: List[float], weight: float, top_k: int
+) -> List[KGResultItem]:
+    """Rank by (score + weight * prior) / (1 + weight), which stays in 0..1,
+    and keep the top_k. The prior is a page's standing independent of the
+    query (e.g. how widely used its source is): it settles close calls
+    between relevant pages, while a clearly better match keeps its place."""
+    for result, prior in zip(results, priors):
+        result.score = (result.score + weight * prior) / (1 + weight)
+    return sorted(results, key=lambda result: -result.score)[:top_k]
 
 
 def parse_wiki_directory(
@@ -597,6 +614,10 @@ class KGGraphSearch(KnowledgeSearch):
         self.embedding_model = self.params.get("embedding_model")
         self.weaviate_collection = self.params.get("weaviate_collection")
         self.hybrid_alpha = float(self.params["hybrid_alpha"])
+        # A per-page prior (each object's `rank_prior`, 0 to 1) blended into
+        # the hybrid score over a pool of candidates; weight 0 turns it off.
+        self.rank_prior_weight = float(self.params["rank_prior_weight"])
+        self.rank_prior_pool = int(self.params["rank_prior_pool"])
         # The index's namespace in Neo4j (its id): every node and query of
         # this backend carries it, so two indexes holding a page of the
         # same id never share a node or an edge (the Weaviate side is the
@@ -635,15 +656,15 @@ class KGGraphSearch(KnowledgeSearch):
             logger.warning("neo4j package not installed. Graph features disabled.")
             return
             
-        try:
-            # The endpoint and user are config; the password is the one
-            # connection secret and comes from the environment.
-            password = os.getenv("NEO4J_PASSWORD", "password")
-            self._neo4j_driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, password))
-            logger.info(f"Connected to Neo4j at {self.neo4j_uri}")
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Neo4j: {e}")
+        # The endpoint and user are config; the password is the one
+        # connection secret and comes from the environment.
+        password = os.getenv("NEO4J_PASSWORD", "password")
+        self._neo4j_driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, password))
+        # Building the driver never connects; verifying it does, so a Neo4j
+        # that is down or refuses the credentials raises here, not on (or
+        # swallowed by) the first graph query.
+        self._neo4j_driver.verify_connectivity()
+        logger.info(f"Connected to Neo4j at {self.neo4j_uri}")
     
     def _initialize_weaviate(self) -> None:
         """Initialize Weaviate client."""
@@ -724,9 +745,8 @@ class KGGraphSearch(KnowledgeSearch):
         Creates edges based on outgoing_links.
         """
         if not self._neo4j_driver:
-            logger.warning("Neo4j not available. Skipping graph indexing.")
-            return
-        
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
+
         with self._neo4j_driver.session() as session:
             # Create indexes first
             self._create_neo4j_indexes(session)
@@ -1004,7 +1024,7 @@ class KGGraphSearch(KnowledgeSearch):
             results = self._rerank_results(query, results, filters.top_k)
         
         # Enrich with Neo4j connections if enabled
-        if self.include_connected_pages and self._neo4j_driver:
+        if self.include_connected_pages:
             for result in results:
                 connected = self._get_connected_pages(result.id)
                 result.metadata["connected_pages"] = connected
@@ -1181,13 +1201,15 @@ Only include pages that would actually help answer the query.
             alpha=self.hybrid_alpha,
             query_properties=["description", "overview", "content"],
             fusion_type=wvc.query.HybridFusion.RELATIVE_SCORE,
-            limit=filters.top_k,
+            # A prior reorders a pool of candidates, so it needs more than top_k
+            limit=max(filters.top_k, self.rank_prior_pool) if self.rank_prior_weight else filters.top_k,
             filters=weaviate_filters,
             return_metadata=wvc.query.MetadataQuery(score=True),
         )
 
         # Convert to KGResultItem
         results = []
+        priors = []
         for obj in response.objects:
             props = obj.properties
 
@@ -1209,7 +1231,10 @@ Only include pages that would actually help answer the query.
                     "domains": props.get("domains", []),
                 },
             ))
+            priors.append(props.get("rank_prior") or 0.0)
 
+        if self.rank_prior_weight:
+            return blend_rank_prior(results, priors, self.rank_prior_weight, filters.top_k)
         return results
     
     def _build_weaviate_filters(self, filters: KGSearchFilters):
@@ -1262,8 +1287,8 @@ Only include pages that would actually help answer the query.
         Returns both outgoing and incoming connections.
         """
         if not self._neo4j_driver:
-            return []
-        
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
+
         connected = []
         
         try:
@@ -2099,15 +2124,18 @@ Only include pages that would actually help answer the query.
         collection (when the store holds it) and its Neo4j nodes. A store
         that refuses raises; a removal never reports a namespace cleared
         that is still there."""
+        # Checked before either store is touched, so a missing driver
+        # never leaves the Weaviate half deleted.
+        if not self._neo4j_driver:
+            raise RuntimeError(NEO4J_NOT_CONNECTED)
         if self._weaviate_client:
             collection_name = self.weaviate_collection
             if self._weaviate_client.collections.exists(collection_name):
                 self._weaviate_client.collections.delete(collection_name)
                 logger.info(f"Deleted Weaviate collection '{collection_name}'")
-        if self._neo4j_driver:
-            with self._neo4j_driver.session() as session:
-                session.run("MATCH (n:WikiPage {corpus: $corpus}) DETACH DELETE n", corpus=self.corpus)
-            logger.info(f"Cleared Neo4j WikiPage nodes of corpus {self.corpus}")
+        with self._neo4j_driver.session() as session:
+            session.run("MATCH (n:WikiPage {corpus: $corpus}) DETACH DELETE n", corpus=self.corpus)
+        logger.info(f"Cleared Neo4j WikiPage nodes of corpus {self.corpus}")
         self._pages = []
     
     def close(self) -> None:

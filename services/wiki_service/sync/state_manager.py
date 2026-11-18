@@ -164,6 +164,13 @@ class StateManager:
         """Update RecentChanges polling position."""
         with self._lock:
             state = self.load()
+            # Every poll reports the position, moved or not; rewriting the
+            # whole state file each time is costly once it holds many pages
+            moved = (timestamp and timestamp != state.last_rc_timestamp) or (
+                rc_id is not None and rc_id != state.last_rc_id
+            )
+            if not moved:
+                return
             if timestamp:
                 state.last_rc_timestamp = timestamp
             if rc_id is not None:
