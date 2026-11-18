@@ -91,6 +91,20 @@ class TestStateManager:
             assert state.last_rc_timestamp == "2024-01-01T00:00:00Z"
             assert state.last_rc_id == 12345
 
+    def test_unchanged_rc_position_does_not_rewrite_the_file(self):
+        with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            manager = StateManager(state_path)
+            manager.load()
+            manager.update_rc_position(timestamp="2024-01-01T00:00:00Z", rc_id=12345)
+            state_path.write_text("sentinel")
+
+            manager.update_rc_position(timestamp="2024-01-01T00:00:00Z", rc_id=12345)
+            assert state_path.read_text() == "sentinel"
+
+            manager.update_rc_position(timestamp="2024-01-01T00:00:01Z", rc_id=12346)
+            assert json.loads(state_path.read_text())["last_rc_id"] == 12346
+
     def test_add_and_remove_conflict(self):
         with TemporaryDirectory() as tmpdir:
             state_path = Path(tmpdir) / "state.json"
