@@ -176,6 +176,8 @@ def test_a_list_inside_an_item_stays_in_that_item():
     assert brief.render() == text
     built = Brief(objective="a", experience=["mine\n- the harness only"])
     assert Brief.parse(built.render()) == built
+    shallower = "Objective a\nRules\n    - first\n  - second\n   - inside second\n"
+    assert Brief.parse(shallower).rules == ["first", "second\n- inside second"]
 
 
 def test_experience_takes_items_too_and_renders_items_when_a_reference_holds_a_comma():
