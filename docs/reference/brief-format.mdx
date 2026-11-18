@@ -36,8 +36,10 @@ any case; `Measured by` needs nothing special to delimit it.
 - A blank line between two lines of the same field is a paragraph break;
   blank lines anywhere else are nothing.
 - `Rules` and `Experience` take items on indented lines starting with
-  `- `; an item continues on further indented lines. `Experience` also
-  takes one comma-separated line.
+  `- `; an item continues on further indented lines, and a `- ` line
+  indented deeper than the item above is part of that item, so an item
+  may hold a list of its own. `Experience` also takes one comma-separated
+  line.
 - `Budget` takes `name=value` tokens, on the field line or continuation
   lines: `minutes`, `usd` and `reserve_minutes` are positive numbers
   written in plain digits (`0.00001`, never `1e-05`), `experiments` a
