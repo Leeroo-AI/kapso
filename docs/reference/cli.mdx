@@ -117,8 +117,13 @@ kapso harness remove acme/harnesses@v3#trading
 
 ### kapso harness list
 
+| Flag | What it does | Default |
+|------|--------------|---------|
+| `--json` | Print the list as data instead of text: a list with one entry per harness, the bundled ones first, `{name, version, source, reference, path, state, needs, failures}`. `source` is `bundled` or `fetched`, `reference` the git reference a fetched harness came from (`null` for a bundled one), `state` is `ready`, `needs` (this machine lacks something) or `fails` (the harness fails `check`, `failures` counting the findings); `needs` lists what this machine lacks in every state. With no harness it prints `[]` | off |
+
 ```bash
 kapso harness list
+kapso harness list --json
 ```
 
 ### kapso harness export
