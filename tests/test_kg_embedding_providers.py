@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from neo4j.exceptions import ServiceUnavailable
 from openai import OpenAI
 from weaviate.exceptions import WeaviateConnectionError
 
@@ -257,12 +258,13 @@ def test_index_without_a_provider_keeps_openai(monkeypatch, offline_backend):
     }
 
 
-def stub_store_clients(monkeypatch, weaviate_error=None):
+def stub_store_clients(monkeypatch, weaviate_error=None, neo4j_error=None):
     """KGGraphSearch's Weaviate and Neo4j connects stubbed (and its LLM off):
-    each connect's arguments are recorded in the returned dict, and Weaviate's
-    raises `weaviate_error` when one is given. The stub clients close, so the
-    destructor of a search, even one whose __init__ raised, has nothing to
-    trip on."""
+    each connect's arguments are recorded in the returned dict, Weaviate's
+    connect raises `weaviate_error` and Neo4j's verify_connectivity raises
+    `neo4j_error` when one is given (building a Neo4j driver never connects;
+    verifying it does). The stub clients close, so the destructor of a search,
+    even one whose __init__ raised, has nothing to trip on."""
     connections = {}
 
     def connect_weaviate(**kwargs):
@@ -271,9 +273,15 @@ def stub_store_clients(monkeypatch, weaviate_error=None):
         connections["weaviate"] = kwargs
         return SimpleNamespace(close=lambda: None)
 
+    def verify_neo4j():
+        if neo4j_error is not None:
+            raise neo4j_error
+
     def neo4j_driver(uri, auth):
         connections["neo4j"] = (uri, auth)
-        return SimpleNamespace(close=lambda: None)
+        return SimpleNamespace(
+            close=lambda: None, verify_connectivity=verify_neo4j
+        )
 
     cls = graph.KGGraphSearch
     monkeypatch.setattr(cls, "_initialize_llm", lambda self: None)
@@ -324,6 +332,18 @@ def test_a_weaviate_that_refuses_the_connection_raises(monkeypatch):
     stub_store_clients(monkeypatch, weaviate_error=refused)
     params = {"corpus": "index-id"}
     with pytest.raises(WeaviateConnectionError, match="Connection refused"):
+        KnowledgeSearchFactory.create("kg_graph_search", params=params)
+
+
+def test_a_neo4j_that_refuses_the_connection_raises(monkeypatch):
+    """A Neo4j that is down at startup stops the search being built; it is
+    never left with a driver that has not connected, whose failures every
+    graph read then swallows as "no connected pages"."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    refused = ServiceUnavailable("Connection refused")
+    stub_store_clients(monkeypatch, neo4j_error=refused)
+    params = {"corpus": "index-id"}
+    with pytest.raises(ServiceUnavailable, match="Connection refused"):
         KnowledgeSearchFactory.create("kg_graph_search", params=params)
 
 
