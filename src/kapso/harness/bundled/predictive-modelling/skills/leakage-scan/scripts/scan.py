@@ -52,7 +52,10 @@ RULES = [
      "a fit that names validation data: confirm it is the test-predicting chain", True),
     ("ungrouped-split",
      r"\b(KFold|StratifiedKFold|RepeatedKFold|RepeatedStratifiedKFold|ShuffleSplit|StratifiedShuffleSplit|train_test_split)\s*\("
-     r"|\bcv\s*=\s*\d|\bnfold\s*=",
+     r"|\bcv\s*=\s*\d|\bnfold\s*="
+     # A cross-validation call closed on its line with no cv= takes the
+     # default folds, which are ungrouped.
+     r"|\b(cross_val_score|cross_val_predict|cross_validate|GridSearchCV|RandomizedSearchCV)\((?![^\n]*\bcv\s*=)[^\n]*\)",
      "a split without groups: confirm the rows repeat no unit, or fold by the repeated unit or by time (the cv-protocol skill)",
      True),
     # The relational benchmark library's traps.

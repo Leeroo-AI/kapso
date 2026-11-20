@@ -26,12 +26,12 @@ together. Shape-neutral advisories: a fit that names validation labels; a
 concatenation of training and validation rows (legal for the
 test-predicting model, illegal for the model that produces validation
 predictions, so each site is traced: say in the attempt notes which chain
-it belongs to); a split without groups, whether an ungrouped splitter or
-a bare fold count (`cv=5`, `nfold=5`) (legal only when the rows repeat
-no unit: name the repeated unit in the attempt notes, or say none
-repeats, and fold per the cv-protocol skill, by the unit when the test
-holds unseen units and by time when it holds later observations of known
-ones).
+it belongs to); a split without groups, whether an ungrouped splitter, a
+bare fold count (`cv=5`, `nfold=5`) or a cross-validation call left on
+its default folds (legal only when the rows repeat no unit: name the
+repeated unit in the attempt notes, or say none repeats, and fold per the
+cv-protocol skill, by the unit when the test holds unseen units and by
+time when it holds later observations of known ones).
 
 On a relational benchmark database the library's traps are violations: the
 test table read with its input masks off; a read of the columns the

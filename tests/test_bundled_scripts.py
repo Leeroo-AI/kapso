@@ -91,6 +91,8 @@ def test_a_split_without_groups_is_advisory_and_grouped_or_time_splits_are_not()
         "scores = cross_val_score(model, X, y, cv=5)",
         "search = GridSearchCV(model, grid, cv = 3)",
         "history = lgb.cv(params, train_set, nfold=5)",
+        "scores = cross_val_score(model, X, y)",
+        "search = RandomizedSearchCV(model, grid, n_iter=20)",
         "from sklearn.model_selection import KFold, GroupKFold, train_test_split",
         "folds = GroupKFold(n_splits=5)",
         "folds = StratifiedGroupKFold(n_splits=5)",
@@ -98,9 +100,10 @@ def test_a_split_without_groups_is_advisory_and_grouped_or_time_splits_are_not()
         "folds = TimeSeriesSplit(n_splits=5)",
         "scores = cross_val_score(model, X, y, groups=g, cv=GroupKFold(5))",
         "n_cv=5",
+        "search = GridSearchCV(",
     ))
     assert code == 0
-    assert [(f["rule"], f["line"]) for f in findings] == [("ungrouped-split", n) for n in range(1, 9)]
+    assert [(f["rule"], f["line"]) for f in findings] == [("ungrouped-split", n) for n in range(1, 11)]
     assert all(f["advisory"] and f["concern"].startswith("verify: ") for f in findings)
 
 
