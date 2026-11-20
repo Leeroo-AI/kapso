@@ -235,6 +235,13 @@ def test_what_the_grammar_rejects_and_how_it_says_so(text, message):
     ("Objective a\nRules\n", r"^kapso-brief.md:2: Rules has no items"),
     ("Objective a\nBudget\n", r"^kapso-brief.md:2: Budget needs name=value tokens"),
     ("Objective a\nBudget minutes=5\n       hours=2\n", r"^kapso-brief.md:3: Budget token 'hours=2'"),
+    # What the grammar reads but the engine cannot spend, refused at its line.
+    ("Objective a\nBudget minutes=45\n       experiments=0\n",
+     r"^kapso-brief.md:3: Budget experiments must be a positive integer"),
+    ("Objective a\nBudget usd=0.0\n", r"^kapso-brief.md:2: Budget usd must be a positive finite number"),
+    (f"Objective a\nBudget minutes=1{'0' * 400}\n", r"^kapso-brief.md:2: Budget minutes must be a positive finite"),
+    ("Objective a\nBudget minutes=45\n       reserve_minutes=60\n",
+     r"^kapso-brief.md:3: Budget reserve_minutes \(60\) must be smaller than minutes \(45\)"),
 ])
 def test_errors_name_the_file_and_the_line(text, message):
     with pytest.raises(BriefError, match=message):
