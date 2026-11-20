@@ -1,6 +1,6 @@
 schema_version: 1
 name: predictive-modelling
-version: 0.3.3
+version: 0.3.4
 description: Structured prediction with a test set that never trains, cross-validation discipline, leakage as the failure that voids, features before architectures, ensembling last; the domain stops at the candidate (deployment is the engine's bundled targets).
 
 environment:

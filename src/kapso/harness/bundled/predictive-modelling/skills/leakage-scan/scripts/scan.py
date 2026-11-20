@@ -10,9 +10,10 @@ candidate installed (virtual environments, site packages). Every rule
 that matches a line is reported, one JSON finding per match on stdout:
 the file, the line, the rule, the concern and the line itself. A
 violation exits 1; an advisory finding alone exits 0 and is prefixed
-`verify:` because the pattern is legal for one chain (the test-predicting
-model) and illegal for the other (the model that produces validation
-predictions), so it is traced, not condemned. The scan reads one line at
+`verify:` because the pattern is legal in one context and a leak in
+another (the test-predicting model against the one that produces
+validation predictions; rows that repeat no unit against rows that do),
+so it is traced, not condemned. The scan reads one line at
 a time: a call split over several lines is a line of its own, which is
 why verification also reads the code (the leakage-auditor delegate).
 
@@ -49,6 +50,14 @@ RULES = [
     ("fit-on-validation",
      r"\.fit\([^\n]{0,60}(val_|_val\b|valid_|_valid\b)(y|label|labels|target|targets)?",
      "a fit that names validation data: confirm it is the test-predicting chain", True),
+    ("ungrouped-split",
+     r"\b(KFold|StratifiedKFold|RepeatedKFold|RepeatedStratifiedKFold|ShuffleSplit|StratifiedShuffleSplit|train_test_split)\s*\("
+     r"|\bcv\s*=\s*\d|\bnfold\s*="
+     # A cross-validation call closed on its line with no cv= takes the
+     # default folds, which are ungrouped.
+     r"|\b(cross_val_score|cross_val_predict|cross_validate|GridSearchCV|RandomizedSearchCV)\((?![^\n]*\bcv\s*=)[^\n]*\)",
+     "a split without groups: confirm the rows repeat no unit, or fold by the repeated unit or by time (the cv-protocol skill)",
+     True),
     # The relational benchmark library's traps.
     ("unmasked-test-table", r"mask_input_cols\s*=\s*False[^\n]*test|test[^\n]*mask_input_cols\s*=\s*False",
      "reads the test table with its input masks off (test labels)", False),
