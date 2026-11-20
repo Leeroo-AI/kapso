@@ -25,6 +25,7 @@
   <a href="https://discord.gg/hqVbPNNEZM"><img src="https://dcbadge.limes.pink/api/server/hqVbPNNEZM?style=flat" alt="Discord"></a>
   <a href="https://github.com/leeroo-ai/kapso"><img src="https://img.shields.io/github/commit-activity/m/leeroo-ai/kapso" alt="GitHub commit activity"></a>
   <a href="https://www.ycombinator.com/companies/leeroo"><img src="https://img.shields.io/badge/Y%20Combinator-P25-orange?logo=ycombinator&logoColor=white" alt="Y Combinator P25"></a>
+  <a href="https://news.ycombinator.com/item?id=50471281"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fhacker-news.firebaseio.com%2Fv0%2Fitem%2F50471281.json&query=%24.score&label=Show%20HN&suffix=%20points&color=ff6600&logo=ycombinator&logoColor=white" alt="Show HN points"></a>
 </p>
 
 <p align="center">
